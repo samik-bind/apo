@@ -21,6 +21,7 @@ pragma) and simply skip the SQLite-specific optimisations.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -28,9 +29,12 @@ from typing import Any, cast
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import CursorResult
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from ..db import DATA_DIR, SQLITE_FILE_NAME, engine, _is_sqlite
+from ..db_helpers import _as_column
+from ..models.db import AgentTaskDeliverableDB
+from .artifact_stores.registry import artifact_limits, get_store
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +132,85 @@ def _delete_old_batch_runs(session: Session, cutoff: datetime) -> int:
     return deleted
 
 
+async def delete_deliverable_objects_for_runs(
+    session: Session,
+    run_ids: list[str],
+) -> None:
+    """Delete external Deliverable objects for the given runs BEFORE their rows.
+
+    SPEC-140 §Retention and deletion: objects are removed idempotently first;
+    only after success may the database rows go. A store failure raises so the
+    caller retains the rows and retries on the next cleanup — objects are never
+    orphaned by deleting the manifest first. Inline JSON rows need no object
+    deletion and delete transactionally with the task run.
+    """
+    if not run_ids:
+        return
+    rows = session.exec(
+        select(AgentTaskDeliverableDB).where(
+            _as_column(AgentTaskDeliverableDB.task_run_id).in_(run_ids),
+            _as_column(AgentTaskDeliverableDB.storage_key).is_not(None),
+        )
+    ).all()
+    # Group by backend so each store is resolved once; reads use the backend
+    # recorded on the row so changing the write backend never reinterprets a row.
+    by_backend: dict[str, list[AgentTaskDeliverableDB]] = {}
+    for row in rows:
+        backend = row.storage_backend or "local"
+        by_backend.setdefault(backend, []).append(row)
+
+    for backend, group in by_backend.items():
+        store = get_store(backend)
+        for row in group:
+            if row.storage_key is not None:
+                await store.delete(row.storage_key)
+
+
+async def cleanup_expired_artifact_uploads(session: Session) -> dict[str, int]:
+    """Fail pending uploads past their TTL and remove their staging bytes.
+
+    A pending upload older than ``APO_ARTIFACT_UPLOAD_TTL_SECONDS`` becomes
+    ``failed``; its staging object (if any) is removed idempotently. Ready
+    objects are never deleted merely because their Task Run is non-terminal —
+    errored runs retain successfully uploaded evidence.
+    """
+    _, _, ttl_seconds = artifact_limits()
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)
+    pending = session.exec(
+        select(AgentTaskDeliverableDB).where(
+            AgentTaskDeliverableDB.status == "pending",
+            AgentTaskDeliverableDB.created_at < cutoff,
+        )
+    ).all()
+    if not pending:
+        return {"failed_uploads": 0}
+
+    by_backend: dict[str, list[AgentTaskDeliverableDB]] = {}
+    for row in pending:
+        backend = row.storage_backend or "local"
+        by_backend.setdefault(backend, []).append(row)
+
+    failed = 0
+    for backend, group in by_backend.items():
+        store = get_store(backend)
+        for row in group:
+            # Remove any partial staging bytes idempotently.
+            if row.storage_key is not None:
+                try:
+                    await store.delete(row.storage_key)
+                except Exception:  # noqa: BLE001 - retain row, just mark failed
+                    logger.warning(
+                        "could not remove staging bytes for expired upload %s",
+                        row.id,
+                        exc_info=True,
+                    )
+            row.status = "failed"
+            row.error_message = "upload expired before completion"
+            session.add(row)
+            failed += 1
+    return {"failed_uploads": failed}
+
+
 def run_retention_cleanup() -> dict[str, int]:
     """Delete data older than the retention window and reclaim space.
 
@@ -140,6 +223,25 @@ def run_retention_cleanup() -> dict[str, int]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
     summary: dict[str, int] = {}
     with Session(engine) as session:
+        # SPEC-140: collect the task-run ids whose batch is old, delete their
+        # external Deliverable objects first, then drop the rows. A store
+        # failure raises here so the rows are retained for the next cleanup.
+        old_run_ids = [
+            row[0]
+            for row in session.execute(
+                text(
+                    "SELECT agent_task_runs.id FROM agent_task_runs "
+                    "JOIN agent_task_batch_runs "
+                    "ON agent_task_runs.batch_run_id = agent_task_batch_runs.id "
+                    "WHERE agent_task_batch_runs.created_at < :c"
+                ),
+                {"c": cutoff},
+            ).all()
+        ]
+        if old_run_ids:
+            asyncio.run(delete_deliverable_objects_for_runs(session, old_run_ids))
+            session.commit()
+
         summary["runs"] = _delete_old_runs(session, cutoff)
         summary["agent_task_batch_runs"] = _delete_old_batch_runs(session, cutoff)
         session.commit()

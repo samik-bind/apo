@@ -69,11 +69,18 @@ class TestReadinessChecks:
         module = _reload_runtime_config()
         report = cast(ModuleType, module).run_readiness_checks()
 
-        assert set(report.checks) == {"database", "task_source_cache", "auth_secret"}
+        assert set(report.checks) == {
+            "database",
+            "task_source_cache",
+            "auth_secret",
+            "artifact_store",
+        }
         # Database + cache must pass; auth_secret is ok in dev mode.
         assert report.checks["database"].ok
         assert report.checks["task_source_cache"].ok
         assert report.checks["auth_secret"].ok
+        # SPEC-140: the local artifact store is ready by default (zero-config).
+        assert report.checks["artifact_store"].ok
 
     def test_readiness_includes_task_runtime_when_scheduler_enabled(
         self, tmp_path: Path, monkeypatch: MonkeyPatch

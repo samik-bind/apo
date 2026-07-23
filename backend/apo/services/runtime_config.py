@@ -26,6 +26,7 @@ from sqlmodel import Session, select
 
 from ..db import DATABASE_URL, engine
 from ..models.db import UserDB
+from .artifact_stores.registry import ArtifactStoreDescriptor, describe_artifact_store
 from .readiness import ReadinessCheckResult, ReadinessReport
 
 # ---------------------------------------------------------------------------
@@ -81,6 +82,7 @@ class RuntimeConfig(BaseModel):
     frontend_url: str
     public_url: str
     database: DatabaseDescriptor
+    artifact_store: ArtifactStoreDescriptor
     task_source_cache_dir: str
     task_execution_mode: str
     scheduler_enabled: bool
@@ -250,6 +252,7 @@ def get_runtime_config() -> RuntimeConfig:
         frontend_url=cfg.frontend_url,
         public_url=cfg.public_url,
         database=_describe_database(cfg.database_url),
+        artifact_store=describe_artifact_store(),
         task_source_cache_dir=cfg.task_source_cache_dir,
         task_execution_mode=cfg.task_execution_mode,
         scheduler_enabled=cfg.scheduler_enabled,
@@ -356,6 +359,48 @@ def _check_task_runtime() -> ReadinessCheckResult:
     return probe_task_runtime()
 
 
+def _check_artifact_store() -> ReadinessCheckResult:
+    """Check the configured ArtifactStore write backend is usable (SPEC-140).
+
+    Readiness must fail when the selected write backend is unusable: a missing
+    non-active historical backend produces an operator warning on content
+    access, not a process-start failure. Runs the store's ``check_ready``
+    probe (local: writable root + same-filesystem rename; S3: reachable
+    bucket) on the configured write backend.
+
+    The probe is async (S3 needs network I/O); readiness is aggregated
+    synchronously and may run inside a running event loop (the /health/ready
+    endpoint is async), so the coroutine runs in a worker thread.
+    """
+    import asyncio
+    import concurrent.futures
+
+    from .artifact_stores.registry import describe_artifact_store, get_store
+
+    descriptor = describe_artifact_store()
+
+    def _probe() -> tuple[bool, str | None]:
+        store = get_store(descriptor.write_backend)
+        return asyncio.run(store.check_ready())
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            ok, reason = ex.submit(_probe).result()
+    except Exception as exc:  # noqa: BLE001 - readiness must never crash the probe
+        return ReadinessCheckResult(
+            name="artifact_store",
+            ok=False,
+            detail=f"artifact store ({descriptor.write_backend}) unusable: {exc}",
+        )
+    if ok:
+        return ReadinessCheckResult(name="artifact_store", ok=True)
+    return ReadinessCheckResult(
+        name="artifact_store",
+        ok=False,
+        detail=f"artifact store ({descriptor.write_backend}): {reason}",
+    )
+
+
 def run_readiness_checks() -> ReadinessReport:
     """Run every operator-relevant readiness check and aggregate results."""
     cfg = derive_runtime_config()
@@ -364,6 +409,7 @@ def run_readiness_checks() -> ReadinessReport:
         _check_database(),
         _check_task_source_cache(cfg.task_source_cache_dir),
         _check_auth_secret(cfg.dev_mode),
+        _check_artifact_store(),
     ]
     # Task runtime only matters when scheduler / execution is expected.
     if cfg.scheduler_enabled:

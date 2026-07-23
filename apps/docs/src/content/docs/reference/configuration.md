@@ -151,6 +151,40 @@ These are set automatically by the backend when spawning agent-task subprocesses
 | `APO_MAX_DB_PAGES` | — | Soft cap on DB pages for maintenance. |
 | `PROJECT_INVITATION_TTL_HOURS` | `168` | How long project invitations stay valid (7 days). |
 
+## Task Run Deliverables and Artifacts
+
+Deliverable metadata lives in the database; large JSON bodies and file
+Artifacts flow through an `ArtifactStore`. The default `local` backend writes
+under the existing persistent `/app/data` volume — no MinIO, Redis, or extra
+container required. The optional `s3` backend keeps the same server API.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `APO_ARTIFACT_STORE` | `local` | Write backend: `local` or `s3`. |
+| `APO_ARTIFACT_DIR` | `<DATA_DIR>/artifacts` | Local object/staging root. |
+| `APO_ARTIFACT_MAX_ITEM_BYTES` | `104857600` | 100 MiB per Artifact. |
+| `APO_ARTIFACT_MAX_RUN_BYTES` | `524288000` | 500 MiB ready+pending per Task Run. |
+| `APO_ARTIFACT_UPLOAD_TTL_SECONDS` | `86400` | Pending-upload expiry (orphan cleanup). |
+| `APO_S3_BUCKET` | — | Required for S3 writes. |
+| `APO_S3_REGION` | — | Optional; provider default otherwise. |
+| `APO_S3_ENDPOINT_URL` | — | S3-compatible endpoint (R2, MinIO, Backblaze). |
+| `APO_S3_PREFIX` | `artifacts/` | Private key prefix. |
+| `APO_S3_ACCESS_KEY_ID` | — | Optional; credential chain otherwise. |
+| `APO_S3_SECRET_ACCESS_KEY` | — | Paired with the access key. |
+| `APO_S3_FORCE_PATH_STYLE` | `false` | MinIO-like path-style compatibility. |
+
+Readiness (`/health/ready`) fails when the selected write backend is unusable.
+Rows persist `storage_backend` so changing the write backend never reinterprets
+existing rows — an installation must retain configuration for every backend
+referenced by live rows.
+
+:::warning
+A database-only backup is **no longer complete** once object-backed
+Deliverables exist. Back up `/app/data/artifacts` (local) or the configured
+S3 bucket/prefix alongside the database, as part of the same backup
+generation.
+:::
+
 ## See also
 
 - [Self-Hosting: Configuration](/self-hosting/configuration/) — operator guidance: databases, scheduler ownership, email setup, troubleshooting, the readiness probe.
