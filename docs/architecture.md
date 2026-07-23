@@ -166,6 +166,40 @@ tiers from their stored `raw_usage`. Provided-cost and pre-migration calls are
 skipped and reported. Triggered via an admin endpoint using a kick-off + poll
 pattern (dodging the CLI's 15s HTTP timeout).
 
+### Task Run Deliverables and Artifacts (SPEC-140)
+
+Deliverable **identity and metadata** are relational; large bodies live
+outside the wide `agent_task_runs` row. The boundary exists because a
+multi-megabyte `deliverables_json` column once OOM-killed the backend from a
+task-list query, and `confirm_and_link` duplicated the full body into
+`RunDB.output`.
+
+- **`agent_task_deliverables` table**: one row per named Deliverable,
+  Project-scoped, with a metadata-only manifest projection. Small JSON
+  (≤64 KiB) is wrapped inline as `{"value": ...}`; large JSON is
+  gzip-compressed once and written through an `ArtifactStore`; file bytes are
+  immutable Artifacts with server-generated opaque storage keys, SHA-256, and
+  declared media type. The single rule: **no list/detail/compare query loads a
+  body unless the caller explicitly asks for one** — enforced by the
+  metadata-only SQL projection.
+- **`ArtifactStore`** (`services/artifact_stores/`): a `Protocol` with a
+  zero-configuration `LocalArtifactStore` (atomic staged writes under the
+  existing `/app/data` volume) and an optional `S3ArtifactStore` (R2 / MinIO /
+  Backblaze via the AWS credential chain). The database owns identity and
+  authorization; the store never becomes a listing source. Rows persist
+  `storage_backend` so changing the write backend never reinterprets existing
+  rows.
+- **Two-phase uploads**: executors create an idempotent intent, then PUT raw
+  bytes through authenticated Apo endpoints (no browser/executor receives
+  bucket credentials). The backend independently counts and hashes; size or
+  digest mismatch never becomes ready.
+- **Canonical conversation is the Trace**: new recorders leave
+  `transcript_json` null (the OTel Trace is the source of truth); legacy rows
+  stay readable during the compat window via synthesized manifests.
+- **Retention** removes external objects *before* database rows and fails
+  closed on store errors so objects are never orphaned; expired pending
+  uploads are failed and their staging bytes cleaned.
+
 ### Project Invitations (SPEC-127)
 
 Project admins and owners invite teammates by email without requiring the

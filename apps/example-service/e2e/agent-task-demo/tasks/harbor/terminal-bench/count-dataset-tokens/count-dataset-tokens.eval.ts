@@ -39,7 +39,7 @@ task("count-dataset-tokens", {
   maxTurns: 1,
   description:
     "Terminal-Bench 2.0 count-dataset-tokens, run via Harbor. Correctness is the official benchmark verifier; apo records the run, trace, and artifacts.",
-  deliverables: ["official_verdict", "harbor_trial", "harbor_artifacts"],
+  deliverables: ["official_verdict", "harbor_trial", "harbor_result"],
   metadata: {
     benchmark: "terminal-bench",
     benchmark_version: "2.0",

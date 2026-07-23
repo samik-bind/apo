@@ -17,7 +17,7 @@
  * showcase than a hand-authored demo: it proves apo can adopt an existing
  * external verifier instead of inventing its own rubric.
  */
-import { defineAdapter } from "@apo/sdk/agent-task";
+import { defineAdapter, fileArtifact, type FileArtifact } from "@apo/sdk/agent-task";
 import { z } from "zod";
 import {
   runHarborTrial,
@@ -51,11 +51,10 @@ export type HarborDeliverables = {
     n_cache_tokens?: number;
     cost_usd?: number | null;
   };
-  harbor_artifacts: {
-    result_path: string;
-    trial_dir: string;
-    job_dir: string;
-  };
+  // SPEC-140: the official result.json is a durable file Artifact, not a
+  // host-local path string. The runner uploads it; the path never enters the
+  // persisted manifest. Absent when no result file was produced (errored run).
+  harbor_result?: FileArtifact;
 };
 
 type HarborState = {
@@ -96,7 +95,7 @@ export const harborAdapter = defineAdapter({
   deliverables: {
     official_verdict: officialVerdictSchema,
     harbor_trial: null,
-    harbor_artifacts: null,
+    harbor_result: null,
   },
 
   // Single turn: Harbor runs the whole benchmark (agent + verifier) in one
@@ -185,11 +184,15 @@ function buildDeliverables(state: HarborState): HarborDeliverables {
       n_cache_tokens: ar?.n_cache_tokens,
       cost_usd: ar?.cost_usd,
     },
-    harbor_artifacts: {
-      result_path: state.resultPath ?? "",
-      trial_dir: state.trialDir ?? "",
-      job_dir: state.jobDir ?? "",
-    },
+    // SPEC-140: declare the result file as a durable Artifact instead of a
+    // host-local path. The runner uploads it; the absolute path never enters
+    // the persisted manifest. Omitted when no result file was produced.
+    ...(state.resultPath
+      ? { harbor_result: fileArtifact(state.resultPath, {
+          mediaType: "application/json",
+          displayFilename: "result.json",
+        }) }
+      : {}),
   };
 }
 
@@ -229,7 +232,7 @@ function extractReward(
  */
 function countTrajectoryEvents(trial?: HarborTrialResult): number {
   const rd = trial?.agent_result?.rollout_details;
-  if (Array.isArray(rd)) return rd.length;
+    if (Array.isArray(rd)) return rd.length;
   if (rd && typeof rd === "object" && Array.isArray((rd as { events?: unknown[] }).events)) {
     return (rd as { events: unknown[] }).events.length;
   }

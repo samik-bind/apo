@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false
+# pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
 """SPEC-140 ticket 04: artifact upload intents, completion, and access rules.
 
@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
-from typing import cast
 
 import pytest
 from sqlmodel import Session, text
@@ -65,7 +65,7 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-async def _aiter(data: bytes):
+async def _aiter(data: bytes) -> AsyncIterator[bytes]:
     yield data
 
 
@@ -178,7 +178,7 @@ class TestCompleteArtifactUpload:
             )
             summary = await complete_artifact_upload(
                 session, store, project="p1", deliverable_id=intent.id,
-                body_stream=cast("object", _aiter(data)), declared_size=len(data),
+                body_stream=_aiter(data), declared_size=len(data),
             )
             session.commit()
 
@@ -206,7 +206,7 @@ class TestCompleteArtifactUpload:
             with pytest.raises(ValueError, match="digest mismatch"):
                 await complete_artifact_upload(
                     session, store, project="p1", deliverable_id=intent.id,
-                    body_stream=cast("object", _aiter(actual)),
+                    body_stream=_aiter(actual),
                     declared_size=len(actual),
                 )
 
@@ -222,7 +222,7 @@ class TestCompleteArtifactUpload:
             with pytest.raises(ValueError):
                 await complete_artifact_upload(
                     session, store, project="p1", deliverable_id=intent.id,
-                    body_stream=cast("object", _aiter(data)),
+                    body_stream=_aiter(data),
                     declared_size=len(data),
                 )
 
@@ -237,7 +237,7 @@ class TestCompleteArtifactUpload:
             )
             await complete_artifact_upload(
                 session, store, project="p1", deliverable_id=intent.id,
-                body_stream=cast("object", _aiter(data)), declared_size=len(data),
+                body_stream=_aiter(data), declared_size=len(data),
             )
             session.commit()
             with pytest.raises(KeyError):

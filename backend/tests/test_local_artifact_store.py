@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false
+# pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false, reportAttributeAccessIssue=false
 
 """SPEC-140 ticket 02: LocalArtifactStore atomicity and durability.
 
@@ -15,6 +15,7 @@ import errno
 import hashlib
 import os
 import stat
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -25,7 +26,7 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-async def _aiter_bytes(data: bytes, chunks: int = 4) -> "asyncio.AsyncIterator[bytes]":
+async def _aiter_bytes(data: bytes, chunks: int = 4) -> "AsyncIterator[bytes]":
     step = max(1, len(data) // chunks)
     for i in range(0, len(data), step):
         yield data[i : i + step]
@@ -132,7 +133,7 @@ class TestLocalArtifactStore:
         """A stream that raises halfway must not produce a completed object."""
         key = "56/56" + "4" * 24
 
-        async def exploding_stream() -> "asyncio.AsyncIterator[bytes]":
+        async def exploding_stream() -> "AsyncIterator[bytes]":
             yield b"first chunk"
             raise RuntimeError("stream blew up mid-upload")
 

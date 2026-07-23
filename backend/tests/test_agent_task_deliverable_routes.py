@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false
+# pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
 """SPEC-140 ticket 04: deliverable routes and request-size middleware.
 
@@ -11,6 +11,7 @@ materializes them.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterator
 from datetime import datetime, timezone
 
 import pytest
@@ -23,7 +24,7 @@ from apo.services.agent_task_deliverables import INLINE_THRESHOLD_BYTES
 
 
 @pytest.fixture
-def client(session: Session) -> TestClient:
+def client(session: Session) -> Iterator[TestClient]:
     def _override() -> Session:
         return session
 
