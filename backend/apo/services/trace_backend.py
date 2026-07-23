@@ -102,9 +102,16 @@ class NativeTraceBackend:
         mark_persisted(task_run)
         # Link the task run's single trace for reverse lookup.
         persisted_run.task_run_id = task_run.id
-        # Langfuse-style trace-level I/O: input = first user message, output = deliverables.
+        # SPEC-140 §Trace linkage: trace-level output carries a compact
+        # Deliverable manifest (name/kind/size only), never a body. New rows
+        # leave ``task_run.deliverables_json`` null; legacy rows still produce
+        # a synthesized manifest so the trace row never duplicates a body.
+        persisted_run.output = _trace_output_for_task_run(task_run)
+        # SPEC-140: trace-level input comes from the canonical trace projection
+        # (Generation Observation inputs), not the redundant task transcript.
+        # New rows leave ``transcript_json`` null; legacy rows are not rewritten
+        # here, so we only derive input when a legacy transcript is present.
         persisted_run.input = _extract_task_input(task_run.transcript_json)
-        persisted_run.output = task_run.deliverables_json
         session.add(persisted_run)
 
     def aggregate_costs(
@@ -151,6 +158,44 @@ def _extract_task_input(transcript: object) -> str | None:
         if isinstance(content, str):
             return content
     return None
+
+
+def _trace_output_for_task_run(task_run: AgentTaskRunDB) -> dict[str, object] | None:
+    """Build the compact Deliverable manifest written to ``RunDB.output``.
+
+    SPEC-140 §Trace linkage: the trace row carries name/kind/size only, never
+    a body. Legacy rows (``deliverables_json`` set, no Deliverable rows) get a
+    synthesized manifest so old data also stays bounded. New rows with neither
+    Deliverable rows nor legacy JSON leave output null.
+    """
+    # Local import avoids a circular dependency at module load (the deliverable
+    # service imports models which import schemas; trace_backend sits earlier).
+    from .agent_task_deliverables import build_trace_output_manifest, synthesize_legacy_manifest
+
+    legacy = task_run.deliverables_json
+    if legacy:
+        items = synthesize_legacy_manifest(legacy)
+        if items:
+            return build_trace_output_manifest(items, task_run.id)
+    # New rows: Deliverable rows are written by the service before
+    # confirm_and_link runs in finalize_task_run_with_result, but confirm_and_link
+    # is also called independently; query them lazily through the session bound
+    # to the task_run when available. ``object_session`` returns the SQLAlchemy
+    # base type statically; at runtime it is the sqlmodel Session that loaded
+    # the row, so cast for the service's stricter annotation.
+    from typing import cast
+
+    from sqlmodel import Session as SqlModelSession
+
+    raw_session = Session.object_session(task_run)
+    if raw_session is None:
+        return None
+    from .agent_task_deliverables import build_deliverable_manifest
+
+    items = build_deliverable_manifest(cast(SqlModelSession, raw_session), task_run.id)
+    if not items:
+        return None
+    return build_trace_output_manifest(items, task_run.id)
 
 
 # ---------------------------------------------------------------------------

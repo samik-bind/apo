@@ -30,6 +30,7 @@ from ..models.db import (
     ProjectTaskSourceDB,
 )
 from .agent_task_discovery import DEFAULT_TASK_ROOT, resolve_task_paths
+from .check_result_storage import normalize_checks_for_storage
 from .trace_backend import get_trace_backend
 from .trace_ownership import (
     mark_failed,
@@ -670,7 +671,14 @@ def finalize_task_run_with_result(
     task_run.adapter_name = adapter_name
     task_run.pass_result = pass_result
     task_run.trace_run_id = reconcile_trace_id(task_run, trace_run_id)
-    task_run.checks_json = checks
+    # SPEC-140 ticket 03: normalize checks before any persistence or event
+    # emission so a large Deliverable repeated across judge assertions cannot
+    # blow up the row or the list/detail query. Direct service calls and tests
+    # cannot bypass this — every persisted ``checks_json`` is bounded.
+    task_run.checks_json = normalize_checks_for_storage(checks)
+    # SPEC-140: new recorded runs leave ``transcript_json``/``deliverables_json``
+    # null (the SDK omits transcript; Deliverables persist as rows). Legacy
+    # callers may still populate both during the compatibility window.
     task_run.transcript_json = transcript
     task_run.deliverables_json = deliverables
     trace_backend = get_trace_backend(batch.project)
