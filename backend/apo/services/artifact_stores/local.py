@@ -25,6 +25,7 @@ import os
 import secrets
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import final
 
 from apo.services.artifact_store import ArtifactStat, StoredArtifact
 
@@ -34,6 +35,7 @@ _DIR_MODE = 0o700
 _FILE_MODE = 0o600
 
 
+@final
 class LocalArtifactStore:
     """The local-disk ArtifactStore.
 

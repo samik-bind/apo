@@ -124,9 +124,7 @@ def get_store(backend: str | None, *, artifact_dir: Path | None = None) -> Artif
         # SPEC-140 ticket 09 — S3ArtifactStore. Imported lazily so the AWS SDK
         # stays an optional dependency in the default Local topology.
         try:
-            from apo.services.artifact_stores.s3 import (  # pyright: ignore[reportMissingImports]
-                S3ArtifactStore,
-            )
+            from apo.services.artifact_stores.s3 import S3ArtifactStore
         except ImportError as exc:
             raise RuntimeError(
                 "S3 artifact store requires the optional boto3 dependency;"
