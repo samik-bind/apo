@@ -32,6 +32,16 @@ export {
   resetFlowChecks,
   filePaths,
 } from "./checks/flow-runner.ts";
+
+// ── File Artifacts (SPEC-140) ───────────────────────────────────────────
+// Declare a file Deliverable from a local path; the runner streams it to the
+// backend rather than buffering bytes in the result body.
+export {
+  fileArtifact,
+  isFileArtifact,
+  type FileArtifact,
+  type FileArtifactOptions,
+} from "./deliverables/artifact.ts";
 export type { CheckContext } from "./checks/flow-runner.ts";
 export {
   includes,

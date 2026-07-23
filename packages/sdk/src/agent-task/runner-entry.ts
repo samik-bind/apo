@@ -13,6 +13,7 @@ import {
   type AgentTaskTraceOptions,
 } from "./public.ts";
 import { createOtelAgentTaskTraceClient } from "./otel-trace-client.ts";
+import { persistFileArtifacts } from "./deliverables/upload.ts";
 
 async function main(): Promise<void> {
   const taskDir = process.env.AGENT_TASK_DIR;
@@ -65,14 +66,26 @@ async function main(): Promise<void> {
     loaded,
   });
 
+  // SPEC-140: upload file Artifacts through the two-phase endpoint before
+  // writing the result body. Only JSON Deliverables (and the manifest of
+  // uploaded Artifacts) travel through stdout — never file bytes, paths, or
+  // the redundant task transcript (the Trace is the conversation source).
+  const recorded = taskRunId
+    ? await persistFileArtifacts(result.deliverables, {
+        taskRunId,
+        authToken: authToken ?? "",
+        baseUrl: endpoint.replace(/\/$/, ""),
+      })
+    : { jsonDeliverables: result.deliverables, artifactUploads: [] };
+
   process.stdout.write(
     JSON.stringify({
       taskId: result.task.id,
       adapterName: loaded.adapter.name,
       pass: result.result.pass,
       checks: result.result.checks,
-      transcript: result.transcript,
-      deliverables: result.deliverables,
+      deliverables: recorded.jsonDeliverables,
+      artifacts: recorded.artifactUploads,
       traceRunId: result.traceRunId ?? null,
     }),
   );
