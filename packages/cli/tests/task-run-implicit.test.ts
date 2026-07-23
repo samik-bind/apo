@@ -16,6 +16,10 @@ vi.mock("@apo/sdk/agent-task", () => ({
     deliverables: { summary: "ok" },
     transcript: { turns: [] },
   })),
+  persistFileArtifacts: vi.fn(async (deliverables: Record<string, unknown>) => ({
+    jsonDeliverables: deliverables,
+    artifactUploads: [],
+  })),
 }));
 
 const { run } = await import("../src/commands/task-run.ts");

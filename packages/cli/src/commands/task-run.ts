@@ -367,13 +367,36 @@ async function runLocallyRecorded(config: Config, task: ResolvedTask): Promise<n
     return 2;
   }
 
+  // SPEC-140: upload file Artifacts through the backend's two-phase endpoint
+  // before reporting the final result. The result body carries only JSON
+  // Deliverables (and the manifest of uploaded Artifacts), never file bytes or
+  // the redundant task transcript (the Trace is the conversation source).
+  const { persistFileArtifacts } = await import("@apo/sdk/agent-task");
+  let recordedDeliverables = summary.deliverables ?? {};
+  try {
+    const prepared = await persistFileArtifacts(summary.deliverables ?? {}, {
+      taskRunId: externalRun.id,
+      authToken: externalRun.trace_token,
+      baseUrl: config.backendUrl.replace(/\/$/, ""),
+    });
+    recordedDeliverables = prepared.jsonDeliverables;
+  } catch (uploadError) {
+    // Upload failure finalizes the run as errored so it is not stuck running.
+    const message = uploadError instanceof Error ? uploadError.message : String(uploadError);
+    await reportResultSafely(config, externalRun.id, {
+      pass_result: false,
+      errored: true,
+      error_message: `Artifact upload failed: ${message}`,
+    });
+    return 2;
+  }
+
   const reported = await reportResultSafely(config, externalRun.id, {
     pass_result: summary.pass,
     adapter_name: summary.adapterName,
     trace_run_id: summary.traceRunId,
     checks: summary.checks,
-    transcript: summary.transcript,
-    deliverables: summary.deliverables,
+    deliverables: recordedDeliverables,
   });
 
   if (config.json) {

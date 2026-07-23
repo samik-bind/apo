@@ -42,6 +42,12 @@ export {
   type FileArtifact,
   type FileArtifactOptions,
 } from "./deliverables/artifact.ts";
+export {
+  persistFileArtifacts,
+  type ArtifactUploadConfig,
+  type DeliverableSummary,
+  type PreparedTaskResult,
+} from "./deliverables/upload.ts";
 export type { CheckContext } from "./checks/flow-runner.ts";
 export {
   includes,

@@ -1,14 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { run } from "../src/commands/runs-deliverable.ts";
 import { stripAnsi } from "../src/lib/format.ts";
 
 const FULL_ID = "0123456789abcdef0123456789abcdef";
 
-function mockResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function manifest(items: Array<Record<string, unknown>>): Response {
+  return jsonResponse({ task_run_id: FULL_ID, items });
 }
 
 function captureLog(): { logs: string[]; restore: () => void } {
@@ -29,24 +36,16 @@ function captureError(): { errors: string[]; restore: () => void } {
   return { errors, restore: () => { console.error = original; } };
 }
 
-function makeRun(deliverables: Record<string, unknown> | null): Record<string, unknown> {
-  return { id: FULL_ID, deliverables_json: deliverables };
-}
-
 describe("runs deliverable command", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("prints a manifest (name + type + size) when no deliverable name is given", async () => {
+  it("fetches the manifest endpoint (not the whole run)", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      mockResponse(
-        makeRun({
-          memorandum: "M".repeat(20_000),
-          summary: "a short summary",
-          stats: { passes: 3, fails: 1 },
-        }),
-      ),
+      manifest([
+        { id: "dlv_1", name: "memorandum", kind: "json", status: "ready", media_type: "application/json", display_filename: null, size_bytes: 5, sha256: "a".repeat(64), download_url: "/x/dlv_1" },
+      ]),
     );
     const { logs, restore } = captureLog();
 
@@ -55,35 +54,43 @@ describe("runs deliverable command", () => {
 
     expect(code).toBe(0);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
-      `http://backend.test/v1/agent-task-runs/${FULL_ID}`,
+      `http://backend.test/v1/agent-task-runs/${FULL_ID}/deliverables`,
     );
     const out = stripAnsi(logs.join("\n"));
     expect(out).toContain("memorandum");
-    expect(out).toContain("20,000 chars");
-    expect(out).toContain("summary");
-    expect(out).toContain("stats");
-    expect(out).toContain("object");
-    // Full content is NOT dumped in manifest mode.
-    expect(out).not.toContain("M".repeat(100));
+    expect(out).toContain("json");
   });
 
-  it("prints a single deliverable's full content when named", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      mockResponse(makeRun({ memorandum: "THE FULL MEMO BODY" })),
-    );
+  it("fetches exactly one body when a name is given", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        manifest([
+          { id: "dlv_1", name: "stats", kind: "json", status: "ready", media_type: "application/json", display_filename: null, size_bytes: 10, sha256: "a".repeat(64), download_url: "/x/dlv_1" },
+          { id: "dlv_2", name: "summary", kind: "json", status: "ready", media_type: "application/json", display_filename: null, size_bytes: 6, sha256: "b".repeat(64), download_url: "/x/dlv_2" },
+        ]),
+      )
+      .mockResolvedValueOnce(jsonResponse({ passes: 3, fails: 1 }));
     const { logs, restore } = captureLog();
 
-    const code = await run([FULL_ID, "memorandum", "--backend", "http://backend.test"]);
+    const code = await run([FULL_ID, "stats", "--backend", "http://backend.test"]);
     restore();
 
     expect(code).toBe(0);
-    const out = logs.join("\n");
-    expect(out).toContain("THE FULL MEMO BODY");
+    // Two calls: manifest, then the one body. NOT all bodies.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      `http://backend.test/v1/agent-task-runs/${FULL_ID}/deliverables/dlv_1`,
+    );
+    expect(logs.join("\n")).toContain('"passes"');
   });
 
-  it("exits 2 and lists available deliverables when the name is unknown", async () => {
+  it("lists available names when the requested name is unknown", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      mockResponse(makeRun({ memorandum: "x", summary: "y" })),
+      manifest([
+        { id: "dlv_1", name: "memorandum", kind: "json", status: "ready", media_type: "application/json", display_filename: null, size_bytes: 1, sha256: "a".repeat(64), download_url: null },
+        { id: "dlv_2", name: "summary", kind: "json", status: "ready", media_type: "application/json", display_filename: null, size_bytes: 1, sha256: "b".repeat(64), download_url: null },
+      ]),
     );
     const { errors, restore } = captureError();
 
@@ -110,7 +117,7 @@ describe("runs deliverable command", () => {
   });
 
   it("reports no deliverables cleanly (exit 0)", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(mockResponse(makeRun(null)));
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(manifest([]));
     const { errors, restore } = captureError();
 
     const code = await run([FULL_ID, "--backend", "http://backend.test"]);
@@ -121,7 +128,7 @@ describe("runs deliverable command", () => {
   });
 
   it("returns exit code 2 when the run is not found (404)", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(mockResponse({ detail: "not found" }, 404));
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ detail: "not found" }, 404));
     const { errors, restore } = captureError();
 
     const code = await run([FULL_ID, "--backend", "http://backend.test"]);
@@ -131,25 +138,64 @@ describe("runs deliverable command", () => {
     expect(stripAnsi(errors.join("\n"))).toContain("Run not found");
   });
 
-  it("resolves 'last' to the latest run before fetching deliverables", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch");
-    fetchMock
-      .mockResolvedValueOnce(mockResponse([{ id: FULL_ID }]))
-      .mockResolvedValueOnce(mockResponse(makeRun({ summary: "s" })));
-    const { logs, restore } = captureLog();
+  it("refuses to dump a binary artifact to an interactive terminal", async () => {
+    const originalIsTTY = process.stdout.isTTY;
+    process.stdout.isTTY = true as boolean;
+    try {
+      vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        manifest([
+          { id: "dlv_log", name: "verifier-log", kind: "artifact", status: "ready", media_type: "text/plain", display_filename: "verifier.log", size_bytes: 100, sha256: "a".repeat(64), download_url: "/x/dlv_log" },
+        ]),
+      );
+      const { errors, restore } = captureError();
 
-    const code = await run(["last", "summary", "--backend", "http://backend.test"]);
-    restore();
+      const code = await run([FULL_ID, "verifier-log", "--backend", "http://backend.test"]);
+      restore();
 
-    expect(code).toBe(0);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("limit=1");
-    expect(logs.join("\n")).toContain("s");
+      expect(code).toBe(2);
+      const out = stripAnsi(errors.join("\n"));
+      expect(out).toMatch(/binary artifact/i);
+      expect(out).toContain("--output");
+    } finally {
+      process.stdout.isTTY = originalIsTTY;
+    }
+  });
+
+  it("writes a binary artifact to --output", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "deliverable-"));
+    const outPath = join(dir, "out.log");
+    const payload = new Uint8Array([104, 101, 108, 108, 111]);
+    try {
+      const fetchMock = vi.spyOn(globalThis, "fetch");
+      fetchMock
+        .mockResolvedValueOnce(
+          manifest([
+            { id: "dlv_log", name: "verifier-log", kind: "artifact", status: "ready", media_type: "text/plain", display_filename: "verifier.log", size_bytes: payload.length, sha256: "a".repeat(64), download_url: "/x/dlv_log" },
+          ]),
+        )
+        .mockResolvedValueOnce(
+          new Response(payload, {
+            status: 200,
+            headers: { "Content-Type": "text/plain" },
+          }),
+        );
+
+      const code = await run([
+        FULL_ID, "verifier-log", "--output", outPath, "--backend", "http://backend.test",
+      ]);
+
+      expect(code).toBe(0);
+      expect(readFileSync(outPath)).toEqual(Buffer.from(payload));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("emits a JSON manifest with --json", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      mockResponse(makeRun({ memorandum: "M".repeat(20_000), summary: "s" })),
+      manifest([
+        { id: "dlv_1", name: "memorandum", kind: "json", status: "ready", media_type: "application/json", display_filename: null, size_bytes: 5, sha256: "a".repeat(64), download_url: "/x/dlv_1" },
+      ]),
     );
     const { logs, restore } = captureLog();
 
@@ -158,20 +204,7 @@ describe("runs deliverable command", () => {
 
     expect(code).toBe(0);
     const parsed = JSON.parse(logs.join("\n"));
-    expect(parsed.memorandum).toMatchObject({ type: "string", chars: 20_000 });
-    expect(parsed.summary).toMatchObject({ type: "string", chars: 1 });
-  });
-
-  it("emits the raw deliverable value with --json <name>", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      mockResponse(makeRun({ stats: { passes: 3, fails: 1 } })),
-    );
-    const { logs, restore } = captureLog();
-
-    const code = await run([FULL_ID, "stats", "--backend", "http://backend.test", "--json"]);
-    restore();
-
-    expect(code).toBe(0);
-    expect(JSON.parse(logs.join("\n"))).toEqual({ passes: 3, fails: 1 });
+    expect(parsed[0].name).toBe("memorandum");
+    expect(parsed[0].kind).toBe("json");
   });
 });

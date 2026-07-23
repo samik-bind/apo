@@ -22,6 +22,10 @@ vi.mock("@apo/sdk/agent-task", () => ({
       transcript: { turns: [] },
     };
   }),
+  persistFileArtifacts: vi.fn(async (deliverables: Record<string, unknown>) => ({
+    jsonDeliverables: deliverables,
+    artifactUploads: [],
+  })),
 }));
 
 // Import after mocks.

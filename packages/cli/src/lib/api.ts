@@ -141,6 +141,42 @@ export async function isBackendReachable(baseUrl: string): Promise<boolean> {
   }
 }
 
+/**
+ * Fetch a streaming response with a longer timeout (SPEC-140 ticket 06).
+ *
+ * Artifact downloads can be large and slow; the default 15s request timeout
+ * is too short. Returns the raw Response so the caller can stream the body.
+ */
+export async function apiStream(
+  baseUrl: string,
+  path: string,
+  config?: Config,
+  timeoutMs = 120_000,
+): Promise<Response> {
+  const url = resolveApiUrl(baseUrl, path);
+  try {
+    const response = await fetch(url.toString(), {
+      headers: authHeaders(config),
+      signal: timeoutSignal(timeoutMs),
+    });
+    if (response.status === 401) {
+      throw new AuthError(authRequiredMessage());
+    }
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Backend error ${response.status}: ${body}`);
+    }
+    return response;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(
+        `Request timed out after ${timeoutMs / 1000}s — is the backend running at ${baseUrl}?`,
+      );
+    }
+    throw error;
+  }
+}
+
 function resolveApiUrl(baseUrl: string, path: string): URL {
   const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
   const relativePath = path.replace(/^\/+/, "");

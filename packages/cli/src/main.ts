@@ -221,13 +221,15 @@ const commands: Record<string, CommandEntry> = {
     ],
     options: [
       ["--task <id>", "Filter 'last' to the latest run of a specific task"],
+      ["--output <path>", "Write a binary artifact to a file instead of stdout"],
     ],
     examples: [
       "apo runs deliverable de89cab             # manifest of all deliverables",
-      "apo runs deliverable de89cab memorandum   # full content of one deliverable",
+      "apo runs deliverable de89cab memorandum   # full content of one JSON deliverable",
+      "apo runs deliverable de89cab verifier-log --output verifier.log",
       "apo runs deliverable last --task meeting-summary summary",
     ],
-    note: "Accepts run-id prefixes. Requires backend auth. Supports --json. Use this instead of `runs show --full` when you only need a deliverable's content, not the whole run.",
+    note: "Accepts run-id prefixes. Requires backend auth. Fetches only the manifest, then exactly one body when a name is given — never the whole run. Binary artifacts require --output on an interactive terminal. Supports --json.",
   },
   "traces list": {
     handler: loadCommand("traces-list"),

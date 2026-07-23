@@ -1,30 +1,47 @@
 /**
  * `apo runs deliverable <run-id> [name]` — read a run's deliverables without
- * re-rendering the whole run (issue #22). With no name it prints a small
- * manifest (name + type + size); with a name it prints that deliverable's full
- * content. `runs show` keeps large per-check values as manifest-only and points
- * here for the actual content.
+ * re-rendering the whole run (SPEC-140).
+ *
+ * Uses the manifest endpoint (metadata only) by default, and fetches exactly
+ * one body when a name is given — never the whole run. Binary Artifacts stream
+ * to stdout or `--output <path>`; an interactive terminal without `--output`
+ * is refused so binary bytes are not dumped to a TTY.
  */
+import { createWriteStream } from "node:fs";
+import { isatty } from "node:tty";
 import { parseArgs, getFlagValue } from "../lib/args.ts";
 import { resolveConfig } from "../lib/config.ts";
 import { bold, dim, formatJson } from "../lib/format.ts";
-import { apiGet } from "../lib/api.ts";
+import { apiGet, apiStream } from "../lib/api.ts";
 import { resolveRunId } from "../lib/runs-resolve.ts";
 
-type RunDetail = {
+type DeliverableSummary = {
   id: string;
-  deliverables_json: Record<string, unknown> | null;
+  name: string;
+  kind: "json" | "artifact";
+  status: "pending" | "ready" | "failed";
+  media_type: string;
+  display_filename: string | null;
+  size_bytes: number;
+  sha256: string;
+  download_url: string | null;
+};
+
+type Manifest = {
+  task_run_id: string;
+  items: DeliverableSummary[];
 };
 
 export async function run(argv: string[]): Promise<number> {
   const { positional, flags } = parseArgs(argv);
   const config = resolveConfig(flags);
   const taskFilter = getFlagValue(flags, "task");
+  const outputPath = getFlagValue(flags, "output");
 
   const input = positional[0];
   if (!input) {
     console.error("Missing required argument: <run-id>");
-    console.error(dim("Usage: apo runs deliverable <run-id> [name]"));
+    console.error(dim("Usage: apo runs deliverable <run-id> [name] [--output <path>]"));
     return 2;
   }
   const name = positional[1];
@@ -44,11 +61,11 @@ export async function run(argv: string[]): Promise<number> {
     return 2;
   }
 
-  let detail: RunDetail;
+  let manifest: Manifest;
   try {
-    detail = await apiGet<RunDetail>(
+    manifest = await apiGet<Manifest>(
       config.backendUrl,
-      `/v1/agent-task-runs/${runId}`,
+      `/v1/agent-task-runs/${runId}/deliverables`,
       undefined,
       config,
     );
@@ -56,87 +73,137 @@ export async function run(argv: string[]): Promise<number> {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("404")) {
       console.error(`Run not found: ${runId}`);
-    } else if (
-      message.startsWith("Backend error") ||
-      message.includes("timed out") ||
-      message.includes("Cannot connect")
-    ) {
-      console.error(message);
     } else {
-      console.error(`Cannot connect to backend at ${config.backendUrl}`);
-      console.error(dim(message));
+      console.error(message);
     }
     return 2;
   }
 
-  const deliverables = detail.deliverables_json ?? {};
-  const keys = Object.keys(deliverables);
-
-  if (keys.length === 0) {
+  if (manifest.items.length === 0) {
     console.error(`Run ${runId} has no deliverables.`);
     return 0;
   }
 
-  if (name && !(name in deliverables)) {
-    console.error(
-      `Deliverable "${name}" not found on run ${runId}. Available: ${keys.join(", ")}`,
-    );
-    return 2;
-  }
-
-  if (config.json) {
-    if (name) {
-      console.log(formatJson(deliverables[name]));
+  if (!name) {
+    if (config.json) {
+      console.log(formatJson(manifest.items));
     } else {
-      const manifest: Record<string, unknown> = {};
-      for (const k of keys) manifest[k] = describeValue(deliverables[k]);
-      console.log(formatJson(manifest));
+      printManifest(runId, manifest.items);
     }
     return 0;
   }
 
-  if (name) {
-    printDeliverable(name, deliverables[name]);
-  } else {
-    printManifest(runId, deliverables);
+  const item = manifest.items.find((it) => it.name === name);
+  if (!item) {
+    const available = manifest.items.map((it) => it.name).join(", ");
+    console.error(
+      `Deliverable "${name}" not found on run ${runId}. Available: ${available}`,
+    );
+    return 2;
   }
-  return 0;
+
+  return fetchOne(runId, item, config, outputPath);
 }
 
-function printManifest(runId: string, deliverables: Record<string, unknown>): void {
+async function fetchOne(
+  runId: string,
+  item: DeliverableSummary,
+  config: ReturnType<typeof resolveConfig>,
+  outputPath: string | undefined,
+): Promise<number> {
+  const path = `/v1/agent-task-runs/${runId}/deliverables/${item.id}`;
+
+  if (item.kind === "artifact") {
+    return downloadArtifact(item, path, config, outputPath);
+  }
+
+  // JSON deliverable: stream the body, parse, print.
+  try {
+    const response = await apiStream(config.backendUrl, path, config);
+    const text = await response.text();
+    if (config.json) {
+      console.log(text);
+    } else {
+      console.log(formatJson(JSON.parse(text)));
+    }
+    return 0;
+  } catch (error) {
+    reportFetchError(error);
+    return 2;
+  }
+}
+
+async function downloadArtifact(
+  item: DeliverableSummary,
+  path: string,
+  config: ReturnType<typeof resolveConfig>,
+  outputPath: string | undefined,
+): Promise<number> {
+  if (!outputPath && (process.stdout.isTTY === true || isatty(1))) {
+    // Refuse to dump binary bytes to an interactive terminal.
+    console.error(
+      `Deliverable "${item.name}" is a binary artifact (${item.media_type}, ${item.size_bytes} bytes).`,
+    );
+    console.error(dim(`Use --output <path> to write it to a file.`));
+    return 2;
+  }
+
+  try {
+    const response = await apiStream(config.backendUrl, path, config);
+    const reader = response.body?.getReader();
+    if (!reader) {
+      console.error("Empty download response.");
+      return 2;
+    }
+    if (outputPath) {
+      // Stream to a file and await completion so the caller (and tests) see a
+      // complete file before the process returns.
+      await new Promise<void>((resolve, reject) => {
+        const dest = createWriteStream(outputPath);
+        dest.on("error", reject);
+        dest.on("finish", () => resolve());
+        (async () => {
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (value) dest.write(Buffer.from(value));
+          }
+          dest.end();
+        })().catch(reject);
+      });
+      return 0;
+    }
+    // stdout: write synchronously through the piped stream.
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) process.stdout.write(Buffer.from(value));
+    }
+    return 0;
+  } catch (error) {
+    reportFetchError(error);
+    return 2;
+  }
+}
+
+function printManifest(runId: string, items: DeliverableSummary[]): void {
   console.log(bold(`Deliverables for run ${runId}:`));
-  const nameWidth = Math.max(...Object.keys(deliverables).map((k) => k.length), 4);
-  for (const [key, value] of Object.entries(deliverables)) {
-    const d = describeValue(value);
-    const size =
-      d.keys != null
-        ? `${d.keys} keys`
-        : d.items != null
-          ? `${d.items} items`
-          : `${(d.chars ?? 0).toLocaleString()} chars`;
-    console.log(`  ${key.padEnd(nameWidth)}  ${d.type.padEnd(6)}  ${size}`);
+  const nameWidth = Math.max(...items.map((it) => it.name.length), 4);
+  for (const item of items) {
+    const size = `${item.size_bytes.toLocaleString()} bytes`;
+    const filename = item.display_filename ? dim(` (${item.display_filename})`) : "";
+    console.log(
+      `  ${item.name.padEnd(nameWidth)}  ${item.kind.padEnd(8)}  ${size}${filename}`,
+    );
   }
   console.log(dim(`\nRead one: apo runs deliverable <run-id> <name>`));
 }
 
-function printDeliverable(name: string, value: unknown): void {
-  if (typeof value === "string") {
-    console.log(value);
-    return;
+function reportFetchError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("404")) {
+    console.error(`Deliverable not found.`);
+  } else {
+    console.error(message);
   }
-  console.log(formatJson(value));
-}
-
-function describeValue(value: unknown): {
-  type: string;
-  chars?: number;
-  keys?: number;
-  items?: number;
-} {
-  if (typeof value === "string") return { type: "string", chars: value.length };
-  if (Array.isArray(value)) return { type: "array", items: value.length };
-  if (value && typeof value === "object") {
-    return { type: "object", keys: Object.keys(value).length };
-  }
-  return { type: typeof value };
 }

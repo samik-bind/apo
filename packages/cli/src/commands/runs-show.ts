@@ -33,6 +33,19 @@ type RunDetail = {
   checks_json: CheckResult[] | null;
   deliverables_json: Record<string, unknown> | null;
   transcript_json: Record<string, unknown> | null;
+  deliverables?: DeliverableSummary[];
+};
+
+type DeliverableSummary = {
+  id: string;
+  name: string;
+  kind: "json" | "artifact";
+  status: "pending" | "ready" | "failed";
+  media_type: string;
+  display_filename: string | null;
+  size_bytes: number;
+  sha256: string;
+  download_url: string | null;
 };
 
 export async function run(argv: string[]): Promise<number> {
@@ -178,15 +191,30 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
     console.log(`\n  ${run.error_message ?? NO_CHECKS_REGISTERED_MESSAGE}`);
   }
 
-  if (verbose && run.deliverables_json) {
-    console.log(bold("\n  Deliverables:"));
-    const keys = Object.keys(run.deliverables_json);
-    for (const key of keys) {
-      const val = run.deliverables_json[key];
-      const preview = typeof val === "string"
-        ? val.slice(0, 200)
-        : JSON.stringify(val, null, 0).slice(0, 300);
-      console.log(dim(`    ${key}: ${preview}`));
+  if (verbose) {
+    // SPEC-140: prefer the manifest (metadata-only) over the legacy
+    // deliverables_json body. New rows have deliverables_json null; legacy
+    // rows synthesize a manifest on the backend.
+    const manifest = run.deliverables ?? [];
+    if (manifest.length > 0) {
+      console.log(bold("\n  Deliverables:"));
+      for (const item of manifest) {
+        const filename = item.display_filename ? dim(` (${item.display_filename})`) : "";
+        console.log(
+          dim(`    ${item.name}: ${item.kind}, ${item.size_bytes} bytes${filename}`),
+        );
+      }
+      console.log(dim(`\n    Read one: apo runs deliverable <run-id> <name>`));
+    } else if (run.deliverables_json) {
+      console.log(bold("\n  Deliverables:"));
+      const keys = Object.keys(run.deliverables_json);
+      for (const key of keys) {
+        const val = run.deliverables_json[key];
+        const preview = typeof val === "string"
+          ? val.slice(0, 200)
+          : JSON.stringify(val, null, 0).slice(0, 300);
+        console.log(dim(`    ${key}: ${preview}`));
+      }
     }
   }
 
