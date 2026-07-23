@@ -378,6 +378,76 @@ class FailureBreakdownItem(SQLModel):
     count: int
 
 
+# ============================================================================
+# SPEC-140: Task Run Deliverables and Artifacts
+# ============================================================================
+
+
+class DeliverableSummary(SQLModel):
+    """Manifest projection of a Task Run Deliverable.
+
+    Safe to list without loading any body. ``download_url`` is populated for
+    ready rows; pending/failed rows leave it null. Public serialization never
+    includes storage keys, backends, or error messages.
+    """
+
+    id: str
+    name: str
+    kind: Literal["json", "artifact"]
+    status: Literal["pending", "ready", "failed"]
+    media_type: str
+    display_filename: str | None = None
+    size_bytes: int
+    sha256: str
+    download_url: str | None = None
+
+
+class CreateArtifactUploadRequest(SQLModel):
+    """Executor request to open an Artifact upload intent."""
+
+    name: str
+    display_filename: str
+    media_type: str
+    size_bytes: int
+    sha256: str
+
+
+class ArtifactUploadIntent(SQLModel):
+    """Server response opening a two-phase Artifact upload.
+
+    Clients treat ``upload_url`` as opaque and obey ``method`` plus
+    ``required_headers``. Local backends serve an Apo-relative URL; an S3
+    backend may later return a presigned URL without changing this model.
+    """
+
+    id: str
+    deliverable: DeliverableSummary
+    method: Literal["PUT"] = "PUT"
+    upload_url: str
+    required_headers: dict[str, str]
+    expires_at: datetime
+
+
+class AgentTaskDeliverableManifest(SQLModel):
+    """Deliverable manifest for one Task Run."""
+
+    task_run_id: str
+    items: list[DeliverableSummary]
+
+
+class TruncatedCheckValue(SQLModel):
+    """Marker replacing an oversized ``received`` value in persisted checks.
+
+    Truncation is explicit data, never an ellipsis pretending to be the
+    original. ``size_bytes`` and ``sha256`` cover the original full value.
+    """
+
+    kind: Literal["truncated"] = "truncated"
+    preview: str
+    size_bytes: int
+    sha256: str
+
+
 class AgentTaskRunSummary(SQLModel):
     id: str
     batch_run_id: str
@@ -431,6 +501,10 @@ class AgentTaskRunDetail(SQLModel):
     transcript_json: dict[str, object] | None = None
     deliverables_json: dict[str, object] | None = None
     error_category: str | None = None
+    # SPEC-140: manifest projection returned with Task Run detail. Safe to
+    # render without loading any Deliverable body. Legacy rows with only
+    # ``deliverables_json`` synthesize a manifest on read.
+    deliverables: list[DeliverableSummary] = Field(default_factory=list)
 
 
 class AgentTaskBatchRunSummary(SQLModel):

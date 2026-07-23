@@ -888,6 +888,116 @@ def _migrate_to_v10() -> None:
         _migrate_cost_schema(conn)
 
 
+def _migrate_to_v11() -> None:
+    """Version 11: Task Run Deliverables table (SPEC-140 ticket 01).
+
+    Thin wrapper that opens the module engine transaction; the real work is in
+    ``_migrate_deliverable_schema(conn)`` so the migration is directly testable
+    against a hand-rolled old-schema engine.
+    """
+    with engine.begin() as conn:
+        _migrate_deliverable_schema(conn)
+
+
+def _migrate_deliverable_schema(conn: Connection) -> None:
+    """The v11 deliverables migration, runnable against any connection.
+
+    Creates ``agent_task_deliverables`` with its indexes and the
+    ``(project, task_run_id, name)`` unique constraint. Performs no body
+    backfill and no external I/O. Uses ``CREATE TABLE IF NOT EXISTS`` for
+    upgrade safety, then adds any missing columns idempotently so a partially
+    migrated database is brought up to the full shape.
+
+    Legacy ``transcript_json`` / ``deliverables_json`` columns on
+    ``agent_task_runs`` are intentionally left untouched.
+    """
+    if _is_sqlite():
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE IF NOT EXISTS agent_task_deliverables (
+                id VARCHAR PRIMARY KEY,
+                project VARCHAR NOT NULL,
+                task_run_id VARCHAR NOT NULL,
+                name VARCHAR NOT NULL,
+                kind VARCHAR NOT NULL,
+                status VARCHAR NOT NULL,
+                storage_backend VARCHAR,
+                storage_key VARCHAR,
+                inline_value_json JSON,
+                display_filename VARCHAR,
+                media_type VARCHAR NOT NULL,
+                content_encoding VARCHAR NOT NULL DEFAULT 'identity',
+                size_bytes INTEGER NOT NULL,
+                stored_size_bytes INTEGER,
+                sha256 VARCHAR NOT NULL,
+                error_message VARCHAR,
+                created_at DATETIME NOT NULL,
+                ready_at DATETIME
+            )
+            """
+        )
+    else:
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE IF NOT EXISTS agent_task_deliverables (
+                id VARCHAR PRIMARY KEY,
+                project VARCHAR NOT NULL,
+                task_run_id VARCHAR NOT NULL,
+                name VARCHAR NOT NULL,
+                kind VARCHAR NOT NULL,
+                status VARCHAR NOT NULL,
+                storage_backend VARCHAR,
+                storage_key VARCHAR,
+                inline_value_json JSON,
+                display_filename VARCHAR,
+                media_type VARCHAR NOT NULL,
+                content_encoding VARCHAR NOT NULL DEFAULT 'identity',
+                size_bytes INTEGER NOT NULL,
+                stored_size_bytes INTEGER,
+                sha256 VARCHAR NOT NULL,
+                error_message VARCHAR,
+                created_at TIMESTAMPTZ NOT NULL,
+                ready_at TIMESTAMPTZ
+            )
+            """
+        )
+
+    # Idempotently bring a partially-created table up to the full shape.
+    # In production ``create_all`` creates the full table first and this is a
+    # no-op; these ``ADD COLUMN`` guards cover the edge case of a partially
+    # migrated table and keep the migration safe to re-run.
+    _add_column_if_missing(conn, "agent_task_deliverables", "project", "VARCHAR NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "agent_task_deliverables", "task_run_id", "VARCHAR NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "agent_task_deliverables", "name", "VARCHAR NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "agent_task_deliverables", "kind", "VARCHAR NOT NULL DEFAULT 'json'")
+    _add_column_if_missing(conn, "agent_task_deliverables", "status", "VARCHAR NOT NULL DEFAULT 'pending'")
+    _add_column_if_missing(conn, "agent_task_deliverables", "storage_backend", "VARCHAR")
+    _add_column_if_missing(conn, "agent_task_deliverables", "storage_key", "VARCHAR")
+    _add_column_if_missing(conn, "agent_task_deliverables", "inline_value_json", "JSON")
+    _add_column_if_missing(conn, "agent_task_deliverables", "display_filename", "VARCHAR")
+    _add_column_if_missing(conn, "agent_task_deliverables", "media_type", "VARCHAR NOT NULL DEFAULT 'application/octet-stream'")
+    _add_column_if_missing(conn, "agent_task_deliverables", "content_encoding", "VARCHAR NOT NULL DEFAULT 'identity'")
+    _add_column_if_missing(conn, "agent_task_deliverables", "size_bytes", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "agent_task_deliverables", "stored_size_bytes", "INTEGER")
+    _add_column_if_missing(conn, "agent_task_deliverables", "sha256", "VARCHAR NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "agent_task_deliverables", "error_message", "VARCHAR")
+    _add_column_if_missing(conn, "agent_task_deliverables", "created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP")
+    _add_column_if_missing(conn, "agent_task_deliverables", "ready_at", "DATETIME")
+
+    _create_index_if_not_exists(
+        conn, "ix_agent_task_deliverables_project", "agent_task_deliverables", "project"
+    )
+    _create_index_if_not_exists(
+        conn, "ix_agent_task_deliverables_task_run_id", "agent_task_deliverables", "task_run_id"
+    )
+    _create_unique_index_if_not_exists(
+        conn,
+        "uq_agent_task_deliverable_name",
+        "agent_task_deliverables",
+        "project, task_run_id, name",
+    )
+
+
 def _migrate_cost_schema(conn: Connection) -> None:
     """The v10 cost migration, runnable against any connection.
 
@@ -999,7 +1109,7 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
     )
 
 
-LATEST_SCHEMA_VERSION = 10
+LATEST_SCHEMA_VERSION = 11
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -1012,6 +1122,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     8: _migrate_to_v8,
     9: _migrate_to_v9,
     10: _migrate_to_v10,
+    11: _migrate_to_v11,
 }
 
 

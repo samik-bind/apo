@@ -474,6 +474,51 @@ class AgentTaskRunDB(SQLModel, table=True):
     task_source_commit_sha: str | None = None
 
 
+class AgentTaskDeliverableDB(SQLModel, table=True):
+    """SPEC-140: a named Task Run Deliverable (JSON value or file Artifact).
+
+    Owns Deliverable identity and metadata. The ``inline_value_json`` body and
+    ``storage_key`` are never selected by list/manifest/detail queries — only
+    by an explicit one-body fetch. See ``agent_task_deliverables`` service for
+    the placement rules (inline vs object store) and invariants.
+    """
+
+    __tablename__: ClassVar[str] = "agent_task_deliverables"
+    __table_args__ = (
+        UniqueConstraint(
+            "project",
+            "task_run_id",
+            "name",
+            name="uq_agent_task_deliverable_name",
+        ),
+    )
+
+    id: str = Field(primary_key=True)
+    project: str = Field(index=True)
+    task_run_id: str = Field(
+        foreign_key="agent_task_runs.id",
+        index=True,
+    )
+    name: str
+    kind: str  # "json" | "artifact"
+    status: str  # "pending" | "ready" | "failed"
+    storage_backend: str | None = None  # None | "local" | "s3"
+    storage_key: str | None = None
+    inline_value_json: dict[str, object] | None = Field(
+        default=None,
+        sa_column=Column("inline_value_json", JSON),
+    )
+    display_filename: str | None = None
+    media_type: str
+    content_encoding: str = "identity"  # "identity" | "gzip"
+    size_bytes: int
+    stored_size_bytes: int | None = None
+    sha256: str
+    error_message: str | None = None
+    created_at: datetime
+    ready_at: datetime | None = None
+
+
 class AgentTaskScheduleDB(SQLModel, table=True):
     __tablename__: ClassVar[str] = "agent_task_schedules"
 
