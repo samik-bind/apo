@@ -266,6 +266,7 @@ export default async function TaskRunDetailPage({
             checks={checks}
             conversation={conversation.messages}
             deliverables={taskRun.deliverables_json ?? null}
+            deliverableItems={taskRun.deliverables ?? []}
             traceRunId={taskRun.trace_run_id ?? null}
             projectId={projectId}
             commitSha={taskRun.task_source_commit_sha ?? null}

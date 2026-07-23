@@ -1,5 +1,6 @@
 import { apiClient } from "./api-client";
 import { ApiError } from "./api-error";
+import type { DeliverableSummary } from "./agent-task-deliverables-api";
 
 // ============================================================================
 // Types
@@ -142,6 +143,7 @@ export interface AgentTaskRunDetail extends AgentTaskRunSummary {
   checks_json: CheckResult[] | null;
   transcript_json: Record<string, unknown> | null;
   deliverables_json: Record<string, unknown> | null;
+  deliverables?: DeliverableSummary[];
   error_category: string | null;
 }
 

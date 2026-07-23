@@ -18,10 +18,12 @@ import { cn } from "@/lib/utils";
 import { useUrlParam } from "@/hooks/use-url-state";
 import { TraceHomeLink } from "@/components/trace-detail";
 import { ConversationTranscript } from "@/components/agent-task-execution/conversation-transcript";
+import { DeliverablesPanel } from "@/components/agent-task-execution/deliverables-panel";
 import { ShikiCodeBlock } from "@/components/shiki-code-block";
 import { ExpandableJson } from "@/components/ExpandableJson";
 import { Markdown } from "@/components/trace-detail/Markdown";
 import type { ChatMessage } from "@/lib/conversation-from-trace";
+import type { DeliverableSummary } from "@/lib/agent-task-deliverables-api";
 import { readTaskFile, type TaskFileContentResponse } from "@/lib/agent-task-api";
 import { extractJudgeReasoning } from "@/lib/judge-reasoning";
 import type { CheckAssertionResult, CheckResult, JudgeMetadata } from "@/lib/agent-task-api";
@@ -629,6 +631,7 @@ export function TaskRunDetailBody({
   checks,
   conversation,
   deliverables,
+  deliverableItems,
   traceRunId,
   projectId,
   commitSha,
@@ -637,6 +640,7 @@ export function TaskRunDetailBody({
   checks: CheckResult[];
   conversation: ChatMessage[];
   deliverables: Record<string, unknown> | null;
+  deliverableItems: DeliverableSummary[];
   traceRunId: string | null;
   projectId?: string | null;
   commitSha?: string | null;
@@ -850,7 +854,9 @@ export function TaskRunDetailBody({
         )}
 
         {tab === "deliverables" && (
-          deliverables ? (
+          deliverableItems.length > 0 ? (
+            <DeliverablesPanel items={deliverableItems} />
+          ) : deliverables ? (
             <DeliverablesView deliverables={deliverables} />
           ) : (
             <p className="py-4 text-center text-sm text-muted-foreground">No deliverables recorded</p>

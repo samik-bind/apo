@@ -1,0 +1,152 @@
+"use client";
+
+/**
+ * SPEC-140 ticket 07: lazy-loading Deliverables panel.
+ *
+ * Receives only the manifest initially — names, kinds, sizes — so opening the
+ * Deliverables tab issues no body request. Expanding one JSON row fetches
+ * exactly that body through the authenticated same-origin proxy; collapsing
+ * aborts the in-flight request. Artifact rows expose an authenticated
+ * Download action. Conversation History remains Trace-derived.
+ */
+
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, Download, FileText, Loader2 } from "lucide-react";
+import { ExpandableJson } from "@/components/ExpandableJson";
+import { ShikiCodeBlock } from "@/components/shiki-code-block";
+import {
+  type DeliverableSummary,
+  fetchDeliverableBody,
+} from "@/lib/agent-task-deliverables-api";
+
+interface DeliverablesPanelProps {
+  items: DeliverableSummary[];
+}
+
+export function DeliverablesPanel({ items }: DeliverablesPanelProps) {
+  if (items.length === 0) {
+    return (
+      <p className="py-4 text-center text-sm text-muted-foreground">No deliverables</p>
+    );
+  }
+  return (
+    <div className="divide-y divide-border overflow-hidden border border-border">
+      {items.map((item) => (
+        <DeliverableRow key={item.id} item={item} />
+      ))}
+    </div>
+  );
+}
+
+function DeliverableRow({ item }: { item: DeliverableSummary }) {
+  const isArtifact = item.kind === "artifact";
+  if (isArtifact) {
+    return <ArtifactRow item={item} />;
+  }
+  return <JsonRow item={item} />;
+}
+
+function JsonRow({ item }: { item: DeliverableSummary }) {
+  const [expanded, setExpanded] = useState(false);
+  const [body, setBody] = useState<unknown>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    // Only fetch when expanded, and only once per expansion. Collapsing
+    // aborts any in-flight request so no stale state update lands.
+    if (!expanded || body !== null || item.download_url === null) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoading(true);
+    setError(null);
+    fetchDeliverableBody(item.download_url, controller.signal)
+      .then((value) => {
+        setBody(value);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setError(err instanceof Error ? err.message : "Failed to load");
+        setLoading(false);
+      });
+    return () => {
+      controller.abort();
+      abortRef.current = null;
+    };
+  }, [expanded, body, item.download_url]);
+
+  const isLoading = loading && body === null;
+
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-label={`Toggle deliverable ${item.name}`}
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/20"
+      >
+        <span className="text-muted-foreground/60">
+          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </span>
+        <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate font-mono text-sm text-foreground">{item.name}</span>
+        <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/50">
+          {item.size_bytes.toLocaleString()} bytes
+        </span>
+      </button>
+      {expanded && (
+        <div className="border-t border-border/50 bg-background/50">
+          {isLoading && (
+            <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+            </div>
+          )}
+          {error !== null && (
+            <p className="px-3 py-2 text-xs text-destructive">{error}</p>
+          )}
+          {!isLoading && error === null && body !== null && (
+            <BodyValue value={body} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BodyValue({ value }: { value: unknown }) {
+  const isObject = typeof value === "object" && value !== null;
+  const isString = typeof value === "string";
+  if (isObject) {
+    return <ExpandableJson data={value} className="!rounded-none !border-0 !shadow-none" />;
+  }
+  const code = isString ? value : String(value ?? "");
+  return <ShikiCodeBlock code={code} language="text" className="!rounded-none !border-0" />;
+}
+
+function ArtifactRow({ item }: { item: DeliverableSummary }) {
+  const filename = item.display_filename ?? item.name;
+  const href = item.download_url ?? "#";
+  return (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span className="truncate font-mono text-sm text-foreground">{item.name}</span>
+      <span className="text-[10px] text-muted-foreground/50">{item.media_type}</span>
+      <span className="ml-auto flex shrink-0 items-center gap-2">
+        <span className="font-mono text-[10px] text-muted-foreground/50">
+          {item.size_bytes.toLocaleString()} bytes
+        </span>
+        <a
+          href={href}
+          download={filename}
+          aria-label={`Download ${item.name}`}
+          className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted/40"
+        >
+          <Download className="h-3 w-3" /> Download
+        </a>
+      </span>
+    </div>
+  );
+}
