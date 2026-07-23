@@ -24,18 +24,26 @@ import hashlib
 import json
 import secrets
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal, cast
 
 from sqlmodel import Session, select
 
 from apo.db_helpers import _as_column
-from apo.models.db import AgentTaskDeliverableDB
-from apo.models.schemas import DeliverableSummary
+from apo.models.db import AgentTaskDeliverableDB, AgentTaskRunDB
+from apo.models.schemas import (
+    ArtifactUploadIntent,
+    DeliverableSummary,
+)
 from apo.services.artifact_store import ArtifactStore
+from apo.services.artifact_stores.registry import artifact_limits
 
 # SPEC-140 §3 — inline threshold is a code constant, not a tuning knob.
 INLINE_THRESHOLD_BYTES = 64 * 1024  # 64 KiB
+
+# SPEC-140: name validation. 1-255 UTF-8 bytes, no NUL/control characters.
+_NAME_MAX_BYTES = 255
+_UPLOAD_INTENT_TTL = timedelta(seconds=86_400)
 
 
 async def persist_json_deliverable(
@@ -228,6 +236,224 @@ def build_trace_output_manifest(
             {"name": i.name, "kind": i.kind, "size_bytes": i.size_bytes} for i in items
         ],
     }
+
+
+# --- Artifact upload intents (SPEC-140 §"Artifact uploads are two-phase") -----
+
+
+def validate_deliverable_name(name: str) -> str:
+    """Validate a Deliverable name: 1-255 UTF-8 bytes, no NUL/control chars."""
+    if not name:
+        raise ValueError("Deliverable name must not be empty")
+    encoded = name.encode("utf-8")
+    if len(encoded) > _NAME_MAX_BYTES:
+        raise ValueError(
+            f"Deliverable name exceeds {_NAME_MAX_BYTES} UTF-8 bytes"
+        )
+    if any(byte < 0x20 or byte == 0x7F for byte in encoded):
+        raise ValueError("Deliverable name must not contain control characters")
+    return name
+
+
+def validate_sha256_hex(value: str) -> str:
+    """Validate a SHA-256 hex digest (64 lowercase hex characters)."""
+    if len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+        raise ValueError("sha256 must be 64 lowercase hex characters")
+    return value
+
+
+async def create_artifact_upload_intent(
+    session: Session,
+    store: ArtifactStore,
+    *,
+    project: str,
+    task_run_id: str,
+    name: str,
+    display_filename: str,
+    media_type: str,
+    size_bytes: int,
+    sha256: str,
+) -> ArtifactUploadIntent:
+    """Open a two-phase Artifact upload, idempotent on matching metadata.
+
+    Idempotent by ``(Project, Task Run, name)`` when all declared metadata
+    matches. Conflicting metadata returns ``ValueError`` (caller maps to 409).
+    Rejects terminal runs, name collisions with JSON Deliverables, and
+    over-limit sizes.
+    """
+    validate_deliverable_name(name)
+    validate_sha256_hex(sha256)
+    if size_bytes <= 0:
+        raise ValueError("size_bytes must be positive")
+    if not display_filename:
+        raise ValueError("display_filename must not be empty")
+    if not media_type:
+        raise ValueError("media_type must not be empty")
+
+    max_item, max_run, _ = artifact_limits()
+    if size_bytes > max_item:
+        raise ValueError(
+            f"Artifact size {size_bytes} exceeds per-item limit {max_item}"
+        )
+
+    task_run = session.get(AgentTaskRunDB, task_run_id)
+    if task_run is None:
+        raise ValueError("Task run not found")
+    if task_run.status in ("passed", "failed", "error"):
+        raise ValueError(
+            f"Task run {task_run_id} is terminal (status={task_run.status})"
+        )
+
+    _reject_run_total_overflow(session, task_run_id, size_bytes, max_run)
+
+    # Idempotency: same run/name with identical metadata returns the existing row.
+    existing = _find_deliverable(session, project, task_run_id, name)
+    if existing is not None:
+        if (
+            existing.kind == "artifact"
+            and existing.status in ("pending", "ready")
+            and existing.display_filename == display_filename
+            and existing.media_type == media_type
+            and existing.size_bytes == size_bytes
+            and existing.sha256 == sha256
+        ):
+            return _intent_from_row(existing)
+        raise ValueError(
+            f"Deliverable name '{name}' already exists with conflicting metadata"
+        )
+
+    row = AgentTaskDeliverableDB(
+        id=_new_id(),
+        project=project,
+        task_run_id=task_run_id,
+        name=name,
+        kind="artifact",
+        status="pending",
+        storage_backend=store.name,
+        storage_key=None,
+        inline_value_json=None,
+        display_filename=display_filename,
+        media_type=media_type,
+        content_encoding="identity",
+        size_bytes=size_bytes,
+        stored_size_bytes=None,
+        sha256=sha256,
+        created_at=datetime.now(timezone.utc),
+        ready_at=None,
+    )
+    session.add(row)
+    session.flush()
+    return _intent_from_row(row)
+
+
+async def complete_artifact_upload(
+    session: Session,
+    store: ArtifactStore,
+    *,
+    project: str,
+    deliverable_id: str,
+    body_stream: AsyncIterator[bytes],
+    declared_size: int | None,
+) -> DeliverableSummary:
+    """Stream uploaded bytes into the store, verify, and mark the row ready.
+
+    The store independently counts and hashes; size/digest mismatch raises
+    ``ValueError`` (caller maps to 422) and leaves no completed object. Stale
+    staging bytes are cleaned by the store.
+    """
+    row = session.get(AgentTaskDeliverableDB, deliverable_id)
+    if row is None or row.project != project:
+        raise KeyError(deliverable_id)
+    if row.kind != "artifact":
+        raise ValueError(f"Deliverable {deliverable_id} is not an artifact")
+    if row.status == "ready":
+        # Idempotent retry with matching metadata: return the ready summary.
+        return _row_to_summary(row, download_url=None)
+    if row.status == "failed":
+        raise ValueError(f"Deliverable {deliverable_id} is failed; create a new intent")
+
+    if declared_size is not None and declared_size != row.size_bytes:
+        raise ValueError(
+            f"Content-Length {declared_size} does not match declared {row.size_bytes}"
+        )
+
+    key = _storage_key()
+    stored = await store.put(
+        key,
+        body_stream,
+        expected_size=row.size_bytes,
+        expected_sha256=row.sha256,
+    )
+    row.storage_key = key
+    row.storage_backend = stored.backend
+    row.stored_size_bytes = stored.size_bytes
+    row.status = "ready"
+    row.ready_at = datetime.now(timezone.utc)
+    session.add(row)
+    session.flush()
+    return _row_to_summary(row, download_url=None)
+
+
+def load_deliverable_for_download(
+    session: Session, *, project: str, deliverable_id: str
+) -> AgentTaskDeliverableDB:
+    """Load one Deliverable for body download, project-scoped.
+
+    Raises ``KeyError`` when absent or outside the caller's Project. Only this
+    path (and ``complete_artifact_upload``) opens a body.
+    """
+    row = session.get(AgentTaskDeliverableDB, deliverable_id)
+    if row is None or row.project != project or row.status != "ready":
+        raise KeyError(deliverable_id)
+    return row
+
+
+def _find_deliverable(
+    session: Session, project: str, task_run_id: str, name: str
+) -> AgentTaskDeliverableDB | None:
+    return session.exec(
+        select(AgentTaskDeliverableDB).where(
+            AgentTaskDeliverableDB.project == project,
+            AgentTaskDeliverableDB.task_run_id == task_run_id,
+            AgentTaskDeliverableDB.name == name,
+        )
+    ).first()
+
+
+def _reject_run_total_overflow(
+    session: Session,
+    task_run_id: str,
+    incoming_size: int,
+    max_run: int,
+) -> None:
+    """Reject an upload that would push the run over its total byte budget."""
+    rows = session.exec(
+        select(
+            _as_column(AgentTaskDeliverableDB.size_bytes),
+        ).where(AgentTaskDeliverableDB.task_run_id == task_run_id)
+    ).all()
+    # Single-column select returns scalars directly.
+    pending_ready = sum(int(r) for r in rows if r is not None)
+    if pending_ready + incoming_size > max_run:
+        raise ValueError(
+            f"Task run {task_run_id} would exceed total Deliverable byte limit "
+            f"({max_run})"
+        )
+
+
+def _intent_from_row(row: AgentTaskDeliverableDB) -> ArtifactUploadIntent:
+    summary = _row_to_summary(row, download_url=None)
+    return ArtifactUploadIntent(
+        id=row.id,
+        deliverable=summary,
+        method="PUT",
+        upload_url=f"/v1/agent-task-artifact-uploads/{row.id}",
+        required_headers={
+            "Content-Type": "application/octet-stream",
+            "Content-Length": str(row.size_bytes),
+        },
+        expires_at=datetime.now(timezone.utc) + _UPLOAD_INTENT_TTL,
+    )
 
 
 # --- helpers -----------------------------------------------------------------

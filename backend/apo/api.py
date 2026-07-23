@@ -23,6 +23,7 @@ from .routes import (
     metrics_analytics,
     trace_stream,
     agent_task_runs,
+    agent_task_deliverables,
     agent_task_files,
     agent_task_schedules,
     agent_task_trace_projection,
@@ -94,9 +95,11 @@ def create_app() -> FastAPI:
     )
 
     from .auth.middleware import AuthMiddleware
+    from .middleware.request_size import RequestSizeMiddleware
     from .middleware.security_headers import SecurityHeadersMiddleware
 
     app.add_middleware(AuthMiddleware)
+    app.add_middleware(RequestSizeMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
 
     app.include_router(health.router)
@@ -109,6 +112,7 @@ def create_app() -> FastAPI:
     app.include_router(metrics_analytics.router)
     app.include_router(trace_stream.router)
     app.include_router(agent_task_runs.router)
+    app.include_router(agent_task_deliverables.router)
     app.include_router(agent_task_files.router)
     app.include_router(agent_task_schedules.router)
     app.include_router(agent_task_trace_projection.router)

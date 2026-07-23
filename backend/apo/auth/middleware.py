@@ -67,6 +67,15 @@ _RUN_PATCH_RE = re.compile(r"^/v1/runs/[^/]+$")
 _TASK_RUN_TRACE_PROJECTION_RE = re.compile(
     r"^/v1/agent-task-runs/[^/]+/trace-projection$"
 )
+# SPEC-140: a task-run service token may upload/read its own Deliverables.
+# Routes enforce sub == task_run_id and Project ownership; these guards only
+# allow the path shapes. The PUT upload route resolves the Task Run through
+# the upload row, so it is matched by the opaque upload-id segment.
+_TASK_RUN_DELIVERABLES_RE = re.compile(
+    r"^/v1/agent-task-runs/[^/]+/(deliverables|artifact-uploads)(/[^/]+)?$"
+)
+_ARTIFACT_UPLOAD_RE = re.compile(r"^/v1/agent-task-artifact-uploads/[^/]+$")
+_TASK_RUN_RESULT_RE = re.compile(r"^/v1/agent-task-runs/[^/]+/result$")
 _warned_no_secret = False
 AuthContextValue: TypeAlias = str | bool
 AuthContext: TypeAlias = dict[str, AuthContextValue]
@@ -390,7 +399,18 @@ def _service_token_allows_request(request: Request) -> bool:
     if method == "PATCH" and _RUN_PATCH_RE.match(path) is not None:
         return True
     # SPEC-130 Track B: let a task-run token read its own trace projection.
-    return method == "GET" and _TASK_RUN_TRACE_PROJECTION_RE.match(path) is not None
+    if method == "GET" and _TASK_RUN_TRACE_PROJECTION_RE.match(path) is not None:
+        return True
+    # SPEC-140: let a task-run token manage its own Deliverables and report its
+    # final result. The routes enforce sub == task_run_id and Project ownership;
+    # this regex allow-list is not authorization.
+    if _TASK_RUN_DELIVERABLES_RE.match(path) is not None:
+        return True
+    if method == "PUT" and _ARTIFACT_UPLOAD_RE.match(path) is not None:
+        return True
+    if method == "POST" and _TASK_RUN_RESULT_RE.match(path) is not None:
+        return True
+    return False
 
 
 def _unauthorized() -> JSONResponse:

@@ -59,6 +59,11 @@ class LocalArtifactStore:
         expected_sha256: str,
     ) -> StoredArtifact:
         target = self._resolve_object(key)
+        # Ensure staging/objects exist so the store works without an explicit
+        # check_ready (the route creates it lazily). Idempotent and cheap.
+        self._ensure_dir(self.root)
+        self._ensure_dir(self.objects)
+        self._ensure_dir(self.staging)
         staging_path = self.staging / f"{secrets.token_hex(16)}{_STAGING_SUFFIX}"
 
         digest = hashlib.sha256()
