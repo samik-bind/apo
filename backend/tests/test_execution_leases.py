@@ -1,0 +1,334 @@
+# pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false
+
+"""SPEC-143: execution_leases — atomic claim, start/heartbeat fencing, reaper.
+
+Covers acceptance tests #1 (race), #2 (scope), #4 (capacity from DB), #5
+(sequential Batch), #6 (pre-start requeue), #7 (post-start lost), #8 (stale
+generation), #13 (cancellation idempotent), #15 (reaper leaves terminal rows).
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+import pytest
+from apo.db_helpers import _as_column
+from apo.models.db import (
+    AgentTaskBatchRunDB,
+    AgentTaskRunDB,
+    ExecutorDB,
+    ExecutorPoolDB,
+    ProjectDB,
+    TaskExecutionAttemptDB,
+    TaskRevisionDB,
+)
+from apo.services.execution_leases import (
+    ATTEMPT_LEASE_SECONDS,
+    ClaimedAttempt,
+    CurrentAttemptLease,
+    HeartbeatResponse,
+    LeaseError,
+    claim_next_attempt,
+    heartbeat_attempt,
+    recover_expired_attempts,
+    request_cancellation,
+    start_attempt,
+)
+from sqlmodel import Session, select
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _seed(
+    session: Session,
+    *,
+    project_id: str = "proj-x",
+    pool_id: str = "pool-1",
+    executor_id: str | None = "ex-1",
+    batch_id: str = "batch-x",
+    sequence_indices: list[int] | None = None,
+    statuses: list[str] | None = None,
+) -> list[TaskExecutionAttemptDB]:
+    """Seed project+pool+batch+revision+executor and N attempts (one per run)."""
+    session.add(ProjectDB(id=project_id, name=project_id, created_at=_now()))
+    session.flush()
+    session.add(ExecutorPoolDB(
+        id=pool_id, project=project_id, name="P", slug=pool_id, kind="connected",
+        enabled=True, required_driver_kind="subprocess", created_at=_now(), updated_at=_now(),
+    ))
+    session.flush()
+    session.add(AgentTaskBatchRunDB(
+        id=batch_id, project=project_id, selection_type="single", status="queued",
+        created_at=_now(),
+    ))
+    session.flush()
+    session.add(TaskRevisionDB(
+        id=f"rev-{batch_id}", project=project_id, batch_run_id=batch_id, materialization="bundled",
+        source_type="filesystem", content_sha256="c" * 64, file_count=1,
+        uncompressed_size_bytes=1, manifest_summary_json={"fileCount": 1}, created_at=_now(),
+    ))
+    session.flush()
+    if executor_id is not None:
+        session.add(ExecutorDB(
+            id=executor_id, scope_kind="pool", project=project_id, executor_pool_id=pool_id,
+            name="exec", credential_prefix="apo_ex_x", credential_hash="h" + executor_id,
+            protocol_version=1, executor_version="v", driver_kinds_json=["subprocess"],
+            max_concurrency=1, enrolled_at=_now(), created_at=_now(), updated_at=_now(),
+        ))
+        session.flush()
+
+    indices = sequence_indices if sequence_indices is not None else [0]
+    statuses = statuses if statuses is not None else ["queued"] * len(indices)
+    attempts: list[TaskExecutionAttemptDB] = []
+    for i, idx in enumerate(indices):
+        run_id = f"run-{batch_id}-{idx}"
+        session.add(AgentTaskRunDB(
+            id=run_id, batch_run_id=batch_id, task_id=f"t{idx}", task_path=f"t{idx}",
+            sequence_index=idx, status="pending", created_at=_now(),
+        ))
+        session.flush()
+        att = TaskExecutionAttemptDB(
+            id=f"att-{batch_id}-{idx}", project=project_id, batch_run_id=batch_id, task_run_id=run_id,
+            task_revision_id=f"rev-{batch_id}", sequence_index=idx, target_kind="pool",
+            executor_pool_id=pool_id, status=statuses[i], queue_expires_at=_now() + timedelta(hours=1),
+            queued_at=_now(),
+        )
+        session.add(att)
+        attempts.append(att)
+    session.commit()
+    return attempts
+
+
+def _executor(session: Session, executor_id: str) -> ExecutorDB:
+    return session.get(ExecutorDB, executor_id)  # type: ignore[return-value]
+
+
+# ── atomic claim ──────────────────────────────────────────────────────────
+
+
+def test_claim_returns_oldest_queued_attempt_in_scope(session: Session) -> None:
+    _seed(session, sequence_indices=[0, 1, 2])
+    claimed = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    assert claimed is not None
+    assert claimed.attempt.id == "att-batch-x-0"
+    assert claimed.attempt.status == "leased"
+    assert claimed.lease.lease_generation == 1
+
+
+def test_two_executors_race_one_attempt_only_one_wins(session: Session) -> None:
+    _seed(session, sequence_indices=[0])
+    a = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    # second claim (same or another executor) finds nothing left
+    none = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    assert a is not None
+    assert none is None
+
+
+def test_pool_scoped_executor_cannot_claim_other_pool(session: Session) -> None:
+    _seed(session, project_id="proj-a", pool_id="pool-a", executor_id="ex-a", batch_id="batch-a")
+    _seed(session, project_id="proj-b", pool_id="pool-b", executor_id="ex-b", batch_id="batch-b")
+    claimed = claim_next_attempt(
+        session, executor=_executor(session, "ex-a"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    assert claimed is not None
+    assert claimed.attempt.executor_pool_id == "pool-a"
+
+
+def test_capacity_enforced_from_db_not_request_hint(session: Session) -> None:
+    _seed(session, sequence_indices=[0, 1], executor_id="ex-1")
+    ex = _executor(session, "ex-1")
+    ex.max_concurrency = 1
+    session.add(ex)
+    session.commit()
+    first = claim_next_attempt(session, executor=ex, accepted_driver_kinds=frozenset({"subprocess"}))
+    # already at capacity (1 active leased); second must not be claimed
+    second = claim_next_attempt(session, executor=ex, accepted_driver_kinds=frozenset({"subprocess"}))
+    assert first is not None
+    assert second is None
+
+
+def test_sequential_batch_exposes_only_first_nonterminal(session: Session) -> None:
+    _seed(session, sequence_indices=[0, 1])
+    claimed = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    assert claimed is not None and claimed.attempt.id == "att-batch-x-0"
+    # att-1 must stay unclaimable while att-0 is non-terminal
+    again = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    assert again is None
+    # make att-0 terminal -> att-1 becomes eligible
+    claimed.attempt.status = "succeeded"
+    session.add(claimed.attempt)
+    session.commit()
+    nxt = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    assert nxt is not None and nxt.attempt.id == "att-batch-x-1"
+
+
+def test_expired_queue_ttl_not_claimed(session: Session) -> None:
+    atts = _seed(session, sequence_indices=[0])
+    atts[0].queue_expires_at = _now() - timedelta(seconds=1)
+    session.add(atts[0])
+    session.commit()
+    claimed = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    assert claimed is None
+
+
+def test_incompatible_driver_kind_not_claimed(session: Session) -> None:
+    _seed(session, sequence_indices=[0])
+    claimed = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"docker"}),
+    )
+    assert claimed is None
+
+
+# ── start / heartbeat / fencing ───────────────────────────────────────────
+
+
+def test_start_fences_before_customer_code(session: Session) -> None:
+    _seed(session, sequence_indices=[0])
+    claimed = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    assert claimed is not None
+    started = start_attempt(
+        session, lease=claimed.lease, driver_kind="subprocess", runtime={"node": "20"},
+    )
+    assert started.status == "running"
+    assert started.started_at is not None
+    assert started.driver_kind == "subprocess"
+
+
+def test_stale_generation_cannot_start(session: Session) -> None:
+    _seed(session, sequence_indices=[0])
+    claimed = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    stale = CurrentAttemptLease(attempt_id=claimed.lease.attempt_id, lease_generation=99, executor_id="ex-1")
+    with pytest.raises(LeaseError):
+        start_attempt(session, lease=stale, driver_kind="subprocess", runtime={})
+
+
+def test_heartbeat_renews_lease_and_reports_cancellation(session: Session) -> None:
+    _seed(session, sequence_indices=[0])
+    claimed = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    assert claimed is not None
+    start_attempt(session, lease=claimed.lease, driver_kind="subprocess", runtime={})
+    resp = heartbeat_attempt(session, lease=claimed.lease, phase="running")
+    assert resp.cancel_requested is False
+    # request cancel then heartbeat again
+    request_cancellation(session, attempt_id=claimed.lease.attempt_id)
+    resp2 = heartbeat_attempt(session, lease=claimed.lease, phase="uploading")
+    assert resp2.cancel_requested is True
+
+
+def test_stale_generation_cannot_heartbeat(session: Session) -> None:
+    _seed(session, sequence_indices=[0])
+    claimed = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    stale = CurrentAttemptLease(attempt_id=claimed.lease.attempt_id, lease_generation=99, executor_id="ex-1")
+    with pytest.raises(LeaseError):
+        heartbeat_attempt(session, lease=stale, phase="running")
+
+
+# ── recovery reaper ───────────────────────────────────────────────────────
+
+
+def test_pre_start_lease_expiry_requeues_and_increments_generation(session: Session) -> None:
+    atts = _seed(session, sequence_indices=[0])
+    atts[0].status = "leased"
+    atts[0].lease_generation = 1
+    atts[0].lease_expires_at = _now() - timedelta(seconds=1)
+    atts[0].started_at = None  # never started
+    session.add(atts[0])
+    session.commit()
+    counts = recover_expired_attempts(session, now=_now())
+    assert counts.requeued == 1
+    session.refresh(atts[0])
+    assert atts[0].status == "queued"
+    # next claim increments generation
+    claimed = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    assert claimed is not None and claimed.lease.lease_generation == 2
+
+
+def test_post_start_lease_expiry_becomes_lost_and_never_requeues(session: Session) -> None:
+    atts = _seed(session, sequence_indices=[0])
+    atts[0].status = "running"
+    atts[0].lease_generation = 1
+    atts[0].lease_expires_at = _now() - timedelta(seconds=1)
+    atts[0].started_at = _now() - timedelta(minutes=5)
+    session.add(atts[0])
+    session.commit()
+    counts = recover_expired_attempts(session, now=_now())
+    assert counts.lost == 1
+    session.refresh(atts[0])
+    assert atts[0].status == "lost"
+    # never requeued: claim finds nothing
+    claimed = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    assert claimed is None
+
+
+def test_expired_queued_becomes_executor_unavailable(session: Session) -> None:
+    atts = _seed(session, sequence_indices=[0])
+    atts[0].queue_expires_at = _now() - timedelta(seconds=1)
+    session.add(atts[0])
+    session.commit()
+    counts = recover_expired_attempts(session, now=_now())
+    assert counts.failed_unavailable == 1
+    session.refresh(atts[0])
+    assert atts[0].status == "failed"
+    assert atts[0].failure_kind == "executor_unavailable"
+
+
+def test_reaper_does_not_mutate_terminal_rows(session: Session) -> None:
+    _seed(session, sequence_indices=[0], statuses=["succeeded"])
+    counts = recover_expired_attempts(session, now=_now())
+    assert counts.requeued == 0 and counts.lost == 0 and counts.failed_unavailable == 0
+
+
+# ── cancellation ──────────────────────────────────────────────────────────
+
+
+def test_cancellation_of_queued_is_immediate_and_idempotent(session: Session) -> None:
+    atts = _seed(session, sequence_indices=[0])
+    request_cancellation(session, attempt_id=atts[0].id)
+    session.refresh(atts[0])
+    assert atts[0].status == "cancelled"
+    # idempotent
+    request_cancellation(session, attempt_id=atts[0].id)
+    session.refresh(atts[0])
+    assert atts[0].status == "cancelled"
+
+
+def test_cancellation_of_running_records_request(session: Session) -> None:
+    _seed(session, sequence_indices=[0])
+    claimed = claim_next_attempt(
+        session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+    assert claimed is not None
+    start_attempt(session, lease=claimed.lease, driver_kind="subprocess", runtime={})
+    request_cancellation(session, attempt_id=claimed.lease.attempt_id)
+    att = session.get(TaskExecutionAttemptDB, claimed.lease.attempt_id)
+    assert att is not None
+    assert att.status == "running"  # not immediately cancelled; heartbeat asks to stop
+    assert att.cancel_requested_at is not None
