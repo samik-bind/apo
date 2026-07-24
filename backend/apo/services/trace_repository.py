@@ -149,7 +149,7 @@ def _messages_for(call: LoggedCallDB) -> tuple[TraceProjectionMessage, ...]:
     """
     if call.observation_type != "GENERATION":
         return ()
-    raw = call.output.get("text") if call.output else None
+    raw = call.output.get("text") if isinstance(call.output, dict) else None
     if not isinstance(raw, str) or raw == "":
         return ()
     return (TraceProjectionMessage(role="assistant", content=raw),)
