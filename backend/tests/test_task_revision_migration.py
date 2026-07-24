@@ -10,15 +10,12 @@ perform no body backfill, and do no external I/O.
 
 from __future__ import annotations
 
-from apo.db import LATEST_SCHEMA_VERSION, _SCHEMA_MIGRATIONS, _migrate_task_revision_schema
+from apo.db import _SCHEMA_MIGRATIONS, _migrate_task_revision_schema
 from sqlmodel import create_engine
 
 
-def test_latest_schema_version_bumped_to_v12() -> None:
-    assert LATEST_SCHEMA_VERSION == 12
-
-
 def test_v12_migration_is_registered() -> None:
+    """v12 (task_revisions) is registered. Later specs bump LATEST_SCHEMA_VERSION."""
     assert 12 in _SCHEMA_MIGRATIONS
 
 

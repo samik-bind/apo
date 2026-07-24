@@ -9,10 +9,16 @@ it into the CLI/API path.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
 from sqlmodel import SQLModel
+
+
+# ============================================================================
+# SPEC-142: Task Revision transport schemas
+# ============================================================================
 
 
 class TaskRevisionSummary(SQLModel):
@@ -50,4 +56,84 @@ class CallerSourceAttestation(SQLModel):
     uncompressed_size_bytes: int
 
 
-__all__ = ["CallerSourceAttestation", "TaskRevisionSummary"]
+__all__ = [
+    "AttemptStatus",
+    "AttemptSummary",
+    "CallerSourceAttestation",
+    "ExecutionPhase",
+    "ExecutorCapabilities",
+    "ExecutorPoolKind",
+    "PoolExecutionTarget",
+    "ProjectActor",
+    "TaskRevisionSummary",
+]
+
+
+# ============================================================================
+# SPEC-143: Execution Control Plane domain types
+# ============================================================================
+
+ExecutorPoolKind = Literal["bundled", "connected", "managed"]
+AttemptStatus = Literal[
+    "queued", "leased", "running",
+    "succeeded", "failed", "cancelled", "lost",
+]
+ExecutionPhase = Literal[
+    "claiming", "downloading", "preparing",
+    "running", "uploading", "finalizing",
+]
+
+
+class PoolExecutionTarget(SQLModel):
+    """Execution target resolved once at Batch creation: a specific Pool."""
+
+    kind: Literal["pool"]
+    pool_id: str
+
+
+class ExecutorCapabilities(SQLModel):
+    """Capabilities an Executor reports at enrollment (drives claim matching)."""
+
+    protocol_version: int
+    executor_version: str
+    driver_kinds: list[str]
+    os: str
+    architecture: str
+    runtimes: dict[str, str]
+    max_concurrency: int
+
+
+class AttemptSummary(SQLModel):
+    """Public-safe view of an Execution Attempt."""
+
+    id: str
+    task_run_id: str
+    status: AttemptStatus
+    phase: ExecutionPhase | None = None
+    executor_id: str | None = None
+    executor_name: str | None = None
+    executor_pool_id: str
+    driver_kind: str | None = None
+    queued_at: datetime
+    claimed_at: datetime | None = None
+    started_at: datetime | None = None
+    heartbeat_at: datetime | None = None
+    completed_at: datetime | None = None
+    failure_kind: str | None = None
+    error_message: str | None = None
+    cancel_requested_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ProjectActor:
+    """A verified Project member acting on a request (SPEC-143).
+
+    Unlike the legacy batch path (which trusted ``request.project`` from the
+    body), pooled Batch creation requires the caller to resolve a real
+    membership first. Built by ``resolve_project_actor`` in
+    ``execution_pools`` via ``require_project_role_strict``.
+    """
+
+    project_id: str
+    user_id: str
+    role: str

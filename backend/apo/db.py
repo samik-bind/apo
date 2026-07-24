@@ -910,6 +910,180 @@ def _migrate_to_v12() -> None:
         _migrate_task_revision_schema(conn)
 
 
+def _migrate_to_v13() -> None:
+    """Version 13: Execution Control Plane tables (SPEC-143).
+
+    Pools, Executors, enrollment tokens, Execution Attempts, plus
+    execution_target_json/cancelled_tasks/sequence_index/default_executor_pool_id.
+    Thin wrapper; the real work is in ``_migrate_execution_schema(conn)``.
+    """
+    with engine.begin() as conn:
+        _migrate_execution_schema(conn)
+
+
+def _migrate_execution_schema(conn: Connection) -> None:
+    """The v13 execution control-plane migration, runnable against any connection.
+
+    Creates the four new tables with indexes/constraints and adds the column
+    extensions to existing tables. No backfill, no external I/O, idempotent.
+    Historical Runs receive no synthetic Attempts.
+    """
+    ts = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+
+    # ── executor_pools ────────────────────────────────────────────────────
+    conn.exec_driver_sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS executor_pools (
+            id VARCHAR PRIMARY KEY,
+            project VARCHAR NOT NULL,
+            name VARCHAR NOT NULL,
+            slug VARCHAR NOT NULL,
+            kind VARCHAR NOT NULL,
+            enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            archived_at {ts},
+            queue_ttl_seconds INTEGER NOT NULL DEFAULT 86400,
+            required_driver_kind VARCHAR NOT NULL DEFAULT 'subprocess',
+            created_by_user_id VARCHAR,
+            created_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    _add_column_if_missing(conn, "executor_pools", "id", "VARCHAR PRIMARY KEY")
+    for col, decl in (
+        ("project", "VARCHAR NOT NULL DEFAULT ''"),
+        ("name", "VARCHAR NOT NULL DEFAULT ''"),
+        ("slug", "VARCHAR NOT NULL DEFAULT ''"),
+        ("kind", "VARCHAR NOT NULL DEFAULT 'bundled'"),
+        ("enabled", "BOOLEAN NOT NULL DEFAULT TRUE"),
+        ("archived_at", ts),
+        ("queue_ttl_seconds", "INTEGER NOT NULL DEFAULT 86400"),
+        ("required_driver_kind", "VARCHAR NOT NULL DEFAULT 'subprocess'"),
+        ("created_by_user_id", "VARCHAR"),
+        ("created_at", f"{ts} NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+        ("updated_at", f"{ts} NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+    ):
+        _add_column_if_missing(conn, "executor_pools", col, decl)
+    _create_index_if_not_exists(conn, "ix_executor_pools_project", "executor_pools", "project")
+    _create_index_if_not_exists(conn, "ix_executor_pools_kind", "executor_pools", "kind")
+    _create_index_if_not_exists(conn, "ix_executor_pools_enabled", "executor_pools", "enabled")
+    _create_unique_index_if_not_exists(
+        conn, "uq_executor_pool_project_slug", "executor_pools", "project, slug"
+    )
+
+    # ── executors ─────────────────────────────────────────────────────────
+    conn.exec_driver_sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS executors (
+            id VARCHAR PRIMARY KEY,
+            scope_kind VARCHAR NOT NULL,
+            project VARCHAR,
+            executor_pool_id VARCHAR,
+            name VARCHAR NOT NULL,
+            enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            credential_prefix VARCHAR NOT NULL,
+            credential_hash VARCHAR NOT NULL,
+            protocol_version INTEGER NOT NULL,
+            executor_version VARCHAR NOT NULL,
+            driver_kinds_json JSON,
+            capabilities_json JSON,
+            max_concurrency INTEGER NOT NULL DEFAULT 1,
+            last_seen_at {ts},
+            enrolled_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            revoked_at {ts},
+            created_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    _create_index_if_not_exists(conn, "ix_executors_project", "executors", "project")
+    _create_index_if_not_exists(conn, "ix_executors_executor_pool_id", "executors", "executor_pool_id")
+    _create_index_if_not_exists(conn, "ix_executors_enabled", "executors", "enabled")
+    _create_index_if_not_exists(conn, "ix_executors_credential_hash", "executors", "credential_hash")
+    _create_unique_index_if_not_exists(conn, "uq_executors_credential_hash", "executors", "credential_hash")
+
+    # ── executor_enrollment_tokens ───────────────────────────────────────
+    conn.exec_driver_sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS executor_enrollment_tokens (
+            id VARCHAR PRIMARY KEY,
+            project VARCHAR,
+            executor_pool_id VARCHAR,
+            scope_kind VARCHAR NOT NULL,
+            token_prefix VARCHAR NOT NULL,
+            token_hash VARCHAR NOT NULL,
+            expires_at {ts} NOT NULL,
+            used_at {ts},
+            revoked_at {ts},
+            created_by_user_id VARCHAR,
+            created_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    _create_index_if_not_exists(conn, "ix_executor_enrollment_tokens_project", "executor_enrollment_tokens", "project")
+    _create_index_if_not_exists(conn, "ix_executor_enrollment_tokens_executor_pool_id", "executor_enrollment_tokens", "executor_pool_id")
+    _create_index_if_not_exists(conn, "ix_executor_enrollment_tokens_token_hash", "executor_enrollment_tokens", "token_hash")
+    _create_unique_index_if_not_exists(conn, "uq_executor_enrollment_tokens_token_hash", "executor_enrollment_tokens", "token_hash")
+
+    # ── task_execution_attempts ──────────────────────────────────────────
+    conn.exec_driver_sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS task_execution_attempts (
+            id VARCHAR PRIMARY KEY,
+            project VARCHAR NOT NULL,
+            batch_run_id VARCHAR NOT NULL,
+            task_run_id VARCHAR NOT NULL,
+            task_revision_id VARCHAR NOT NULL,
+            sequence_index INTEGER NOT NULL DEFAULT 0,
+            target_kind VARCHAR NOT NULL,
+            executor_pool_id VARCHAR,
+            executor_id VARCHAR,
+            status VARCHAR NOT NULL DEFAULT 'queued',
+            phase VARCHAR,
+            lease_generation INTEGER NOT NULL DEFAULT 0,
+            lease_expires_at {ts},
+            queue_expires_at {ts} NOT NULL,
+            queued_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            claimed_at {ts},
+            started_at {ts},
+            heartbeat_at {ts},
+            completed_at {ts},
+            cancel_requested_at {ts},
+            driver_kind VARCHAR,
+            executor_snapshot_json JSON,
+            completion_id VARCHAR,
+            completion_sha256 VARCHAR,
+            exit_code INTEGER,
+            failure_kind VARCHAR,
+            error_message VARCHAR,
+            stdout_tail TEXT,
+            stderr_tail TEXT,
+            created_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    _create_index_if_not_exists(conn, "ix_task_execution_attempts_project", "task_execution_attempts", "project")
+    _create_index_if_not_exists(conn, "ix_task_execution_attempts_batch_run_id", "task_execution_attempts", "batch_run_id")
+    _create_index_if_not_exists(conn, "ix_task_execution_attempts_task_run_id", "task_execution_attempts", "task_run_id")
+    _create_index_if_not_exists(conn, "ix_task_execution_attempts_task_revision_id", "task_execution_attempts", "task_revision_id")
+    _create_index_if_not_exists(conn, "ix_task_execution_attempts_target_kind", "task_execution_attempts", "target_kind")
+    _create_index_if_not_exists(conn, "ix_task_execution_attempts_executor_pool_id", "task_execution_attempts", "executor_pool_id")
+    _create_index_if_not_exists(conn, "ix_task_execution_attempts_executor_id", "task_execution_attempts", "executor_id")
+    _create_index_if_not_exists(conn, "ix_task_execution_attempts_status", "task_execution_attempts", "status")
+    _create_index_if_not_exists(conn, "ix_task_execution_attempts_lease_expires_at", "task_execution_attempts", "lease_expires_at")
+    _create_index_if_not_exists(conn, "ix_task_execution_attempts_queue_expires_at", "task_execution_attempts", "queue_expires_at")
+    _create_unique_index_if_not_exists(conn, "uq_task_execution_attempt_run", "task_execution_attempts", "task_run_id")
+    _create_index_if_not_exists(conn, "ix_task_attempt_claim", "task_execution_attempts", "status, executor_pool_id, queued_at")
+    _create_index_if_not_exists(conn, "ix_task_attempt_lease", "task_execution_attempts", "status, lease_expires_at")
+
+    # ── column additions to existing tables ──────────────────────────────
+    _add_column_if_missing(conn, "agent_task_batch_runs", "execution_target_json", "JSON")
+    _add_column_if_missing(conn, "agent_task_batch_runs", "cancelled_tasks", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "agent_task_runs", "sequence_index", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "projects", "default_executor_pool_id", "VARCHAR")
+
+
 def _migrate_task_revision_schema(conn: Connection) -> None:
     """The v12 Task Revisions migration, runnable against any connection.
 
@@ -1180,7 +1354,7 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
     )
 
 
-LATEST_SCHEMA_VERSION = 12
+LATEST_SCHEMA_VERSION = 13
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -1195,6 +1369,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     10: _migrate_to_v10,
     11: _migrate_to_v11,
     12: _migrate_to_v12,
+    13: _migrate_to_v13,
 }
 
 

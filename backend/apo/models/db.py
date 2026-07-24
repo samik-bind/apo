@@ -432,6 +432,12 @@ class AgentTaskBatchRunDB(SQLModel, table=True):
     task_source_ref: str | None = None
     task_source_commit_sha: str | None = None
     task_source_subpath: str | None = None
+    # SPEC-143: pooled execution target (resolved once at Batch creation) and
+    # cancelled-task rollup. execution_target_json never retargets.
+    execution_target_json: dict[str, object] | None = Field(
+        default=None, sa_column=Column("execution_target_json", JSON)
+    )
+    cancelled_tasks: int = 0
 
 
 class AgentTaskRunDB(SQLModel, table=True):
@@ -441,6 +447,9 @@ class AgentTaskRunDB(SQLModel, table=True):
     batch_run_id: str = Field(foreign_key="agent_task_batch_runs.id", index=True)
     task_id: str = Field(index=True)
     task_path: str
+    # SPEC-143: ordered position within a sequential Batch. Lower index must
+    # be terminal before a higher-index Attempt becomes claim-eligible.
+    sequence_index: int = 0
     adapter_name: str | None = None
     status: str = Field(index=True)
     pass_result: bool | None = None
@@ -805,6 +814,11 @@ class ProjectDB(SQLModel, table=True):
     id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:12])
     name: str = Field(index=True)
     trace_content_policy: str = Field(default="full")
+    # SPEC-143: default Pool for dashboard/schedule runs. Deliberately NOT a
+    # hard DB foreign key (that would form a projects <-> executor_pools cycle
+    # that breaks CREATE/DROP ordering); the service validates that the Pool
+    # belongs to this Project. Never retargets after Batch creation.
+    default_executor_pool_id: str | None = None
     created_by: str | None = Field(default=None, foreign_key="users.id", index=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
@@ -1018,6 +1032,175 @@ class TaskRevisionDB(SQLModel, table=True):
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+
+
+# ============================================================================
+# SPEC-143: Execution Control Plane — Pools, Executors, Attempts
+# ============================================================================
+
+
+class ExecutorPoolDB(SQLModel, table=True):
+    """Project-owned Executor Pool (SPEC-143): a stable execution/trust target.
+
+    Schedules and dashboard runs target a Pool rather than one transient
+    machine. Instances in a Pool are expected to have equivalent network,
+    credential, runtime, and driver access.
+    """
+
+    __tablename__: ClassVar[str] = "executor_pools"
+    __table_args__: ClassVar[tuple[object, ...]] = (
+        UniqueConstraint("project", "slug", name="uq_executor_pool_project_slug"),
+    )
+
+    id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:16])
+    project: str = Field(foreign_key="projects.id", index=True)
+    name: str
+    slug: str
+    kind: str = Field(index=True)  # bundled | connected | managed
+    enabled: bool = Field(default=True, index=True)
+    archived_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
+    queue_ttl_seconds: int = 86_400
+    required_driver_kind: str = "subprocess"
+    created_by_user_id: str | None = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now(), onupdate=func.now()),
+    )
+
+
+class ExecutorDB(SQLModel, table=True):
+    """A process that pulls work from the Control Plane (SPEC-143).
+
+    Persistent Executors enroll with a one-time token and authenticate with a
+    long-lived ``apo_ex_`` credential whose raw value is returned once and only
+    a hash/prefix persists.
+    """
+
+    __tablename__: ClassVar[str] = "executors"
+
+    id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:16])
+    scope_kind: str  # installation | pool
+    project: str | None = Field(default=None, foreign_key="projects.id", index=True)
+    executor_pool_id: str | None = Field(
+        default=None, foreign_key="executor_pools.id", index=True
+    )
+    name: str
+    enabled: bool = Field(default=True, index=True)
+    credential_prefix: str
+    credential_hash: str = Field(unique=True, index=True)
+    protocol_version: int
+    executor_version: str
+    driver_kinds_json: list[str] | None = Field(default=None, sa_column=Column(JSON))
+    capabilities_json: dict[str, object] | None = Field(
+        default=None, sa_column=Column(JSON)
+    )
+    max_concurrency: int = 1
+    last_seen_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
+    enrolled_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+    revoked_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now(), onupdate=func.now()),
+    )
+
+
+class ExecutorEnrollmentTokenDB(SQLModel, table=True):
+    """One-time token exchanged for a persistent Executor credential (SPEC-143)."""
+
+    __tablename__: ClassVar[str] = "executor_enrollment_tokens"
+
+    id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:16])
+    project: str | None = Field(default=None, foreign_key="projects.id", index=True)
+    executor_pool_id: str | None = Field(
+        default=None, foreign_key="executor_pools.id", index=True
+    )
+    scope_kind: str  # installation | pool
+    token_prefix: str
+    token_hash: str = Field(unique=True, index=True)
+    expires_at: datetime = Field(sa_column=Column(UTCDateTime))
+    used_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
+    revoked_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
+    created_by_user_id: str | None = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+
+
+class TaskExecutionAttemptDB(SQLModel, table=True):
+    """One operational execution attempt of a Task Run (SPEC-143).
+
+    Owns queue/lease/Executor state, phase, operational failure, bounded
+    diagnostics, and cancellation/loss — distinct from the Task Run which owns
+    verdict/Checks/Deliverables/cost/Trace. Unique per Task Run.
+    """
+
+    __tablename__: ClassVar[str] = "task_execution_attempts"
+    __table_args__: ClassVar[tuple[object, ...]] = (
+        UniqueConstraint("task_run_id", name="uq_task_execution_attempt_run"),
+        Index("ix_task_attempt_claim", "status", "executor_pool_id", "queued_at"),
+        Index("ix_task_attempt_lease", "status", "lease_expires_at"),
+    )
+
+    id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:16])
+    project: str = Field(foreign_key="projects.id", index=True)
+    batch_run_id: str = Field(foreign_key="agent_task_batch_runs.id", index=True)
+    task_run_id: str = Field(foreign_key="agent_task_runs.id", index=True)
+    task_revision_id: str = Field(foreign_key="task_revisions.id", index=True)
+    sequence_index: int
+    target_kind: str = Field(index=True)  # caller | pool
+    executor_pool_id: str | None = Field(
+        default=None, foreign_key="executor_pools.id", index=True
+    )
+    executor_id: str | None = Field(default=None, foreign_key="executors.id", index=True)
+    status: str = Field(default="queued", index=True)
+    phase: str | None = None
+    lease_generation: int = 0
+    lease_expires_at: datetime | None = Field(
+        default=None, sa_column=Column("lease_expires_at", UTCDateTime, index=True)
+    )
+    queue_expires_at: datetime = Field(
+        sa_column=Column("queue_expires_at", UTCDateTime, nullable=False, index=True)
+    )
+    queued_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+    claimed_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
+    started_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
+    heartbeat_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
+    completed_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
+    cancel_requested_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
+    driver_kind: str | None = None
+    executor_snapshot_json: dict[str, object] | None = Field(
+        default=None, sa_column=Column(JSON)
+    )
+    completion_id: str | None = Field(default=None, unique=True)
+    completion_sha256: str | None = None
+    exit_code: int | None = None
+    failure_kind: str | None = None
+    error_message: str | None = None
+    stdout_tail: str | None = Field(default=None, sa_column=Column(Text))
+    stderr_tail: str | None = Field(default=None, sa_column=Column(Text))
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now(), onupdate=func.now()),
     )
 
 
