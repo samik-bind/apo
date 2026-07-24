@@ -18,14 +18,12 @@
  */
 import {
   task,
-  test,
   includes,
   satisfies,
   equals,
   filePaths,
 } from "@apo/sdk/agent-task";
 import { realAgentAdapter } from "../../../../real-agent-adapter.ts";
-import type { RealAgentDeliverables } from "../../../../real-agent-adapter.ts";
 import {
   MAX_TURNS,
   MAX_DURATION_MS,
@@ -35,7 +33,7 @@ import {
   joinFindings,
 } from "../../checks-helpers.ts";
 
-task("research-synthesis", {
+const { test: check } = task("research-synthesis", {
   adapter: realAgentAdapter,
   description:
     "Synthesize information from multiple research sources, extract key findings, and compare perspectives.",
@@ -43,8 +41,6 @@ task("research-synthesis", {
   maxTurns: 2,
   deliverables: ["result", "tool_log", "stats"],
 });
-
-const check = test<RealAgentDeliverables>;
 
 // The key cross-source disagreements. These are objective facts — Source B
 // explicitly disputes Source A's 47% claim, and Source C explicitly reports

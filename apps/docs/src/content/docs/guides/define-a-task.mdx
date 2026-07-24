@@ -27,7 +27,7 @@ import { legalDocumentAdapter } from "../adapter";  // wherever it lives in your
 
 // The definition: name, the adapter that drives your real agent, and the
 // deliverables it must produce.
-task("extract-parties", {
+const { test } = task("extract-parties", {
   adapter: legalDocumentAdapter,
   deliverables: ["parties", "amounts", "dates"],
 });
@@ -37,7 +37,8 @@ The `task(...)` call registers:
 
 - the **name** (used in CLI and dashboard),
 - the **adapter** (how apo drives your real agent),
-- the **deliverables** (the structured outputs the run will be judged against; must match the adapter's declared deliverable keys).
+- the **deliverables** (the structured outputs the run will be judged against; must match the adapter's declared and collected keys),
+- the task-scoped **`test` function**, whose deliverable types are inferred from the adapter.
 
 The adapter itself lives wherever makes sense in your project — typically alongside your agent code, not inside the task folder. A shared adapter that serves many tasks is just a module you import wherever needed. Full reference: [Adapters](/concepts/adapters/).
 
@@ -58,7 +59,7 @@ turn(async ({ files, transcript }) => {
 ## 3. Write the tests
 
 ```typescript
-import { matches, test } from "@apo/sdk/agent-task";
+import { matches } from "@apo/sdk/agent-task";
 import { partiesSchema } from "./schemas";
 
 // A deterministic test: did the agent open the right file, with no failures?
@@ -78,6 +79,8 @@ test("parties-are-complete", async (t, { deliverables }) => {
 ```
 
 Each `test(...)` is one assertion. Code assertions (`t.calledTool`, `t.check`) and LLM-backed assertions (`t.judge`) live side by side. See [Tests](/concepts/tests/) for the full vocabulary.
+
+`deliverables.parties` is inferred from `legalDocumentAdapter.collectDeliverables()`. There is no separate deliverables interface to keep synchronized and no generic to repeat on each test.
 
 ## Done
 

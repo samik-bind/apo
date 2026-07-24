@@ -18,13 +18,11 @@
  */
 import {
   task,
-  test,
   includes,
   satisfies,
   filePaths,
 } from "@apo/sdk/agent-task";
 import { realAgentAdapter } from "../../../../real-agent-adapter.ts";
-import type { RealAgentDeliverables } from "../../../../real-agent-adapter.ts";
 import {
   MAX_TURNS,
   MAX_DURATION_MS,
@@ -34,7 +32,7 @@ import {
   joinFindings,
 } from "../../checks-helpers.ts";
 
-task("bug-triage", {
+const { test: check } = task("bug-triage", {
   adapter: realAgentAdapter,
   description:
     "Triage a bug report by analyzing error logs, searching for related stack traces, and determining severity.",
@@ -42,8 +40,6 @@ task("bug-triage", {
   maxTurns: 2,
   deliverables: ["result", "tool_log", "stats"],
 });
-
-const check = test<RealAgentDeliverables>;
 
 // Objective signals from error.log. These are deterministic anchors — the
 // log contains two distinct error types at specific locations affecting

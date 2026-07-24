@@ -26,14 +26,12 @@
  */
 import {
   task,
-  test,
   equals,
   satisfies,
 } from "@apo/sdk/agent-task";
 import { harborAdapter } from "../../../../harbor-adapter.ts";
-import type { HarborDeliverables } from "../../../../harbor-adapter.ts";
 
-task("count-dataset-tokens", {
+const { test: check } = task("count-dataset-tokens", {
   adapter: harborAdapter,
   execution: "local",
   maxTurns: 1,
@@ -48,8 +46,6 @@ task("count-dataset-tokens", {
     executor: "harbor",
   },
 });
-
-const check = test<HarborDeliverables>;
 
 // ── The only gating Test in v1 ───────────────────────────────────────────
 // apo's binary verdict is EXACTLY the official Terminal-Bench reward. We add

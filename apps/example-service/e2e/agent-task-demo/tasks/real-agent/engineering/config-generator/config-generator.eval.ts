@@ -14,13 +14,11 @@
  */
 import {
   task,
-  test,
   includes,
   satisfies,
   filePaths,
 } from "@apo/sdk/agent-task";
 import { realAgentAdapter } from "../../../../real-agent-adapter.ts";
-import type { RealAgentDeliverables } from "../../../../real-agent-adapter.ts";
 import {
   MAX_TURNS,
   MAX_DURATION_MS,
@@ -30,7 +28,7 @@ import {
   joinFindings,
 } from "../../checks-helpers.ts";
 
-task("config-generator", {
+const { test: check } = task("config-generator", {
   adapter: realAgentAdapter,
   description:
     "Generate a deployment configuration from requirements using templates, validation, and computation tools.",
@@ -38,8 +36,6 @@ task("config-generator", {
   maxTurns: 3,
   deliverables: ["result", "tool_log", "stats"],
 });
-
-const check = test<RealAgentDeliverables>;
 
 // Objective config values from requirements.txt. These have one correct
 // answer each — the agent must reproduce them in its generated config.

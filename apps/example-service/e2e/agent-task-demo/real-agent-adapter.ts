@@ -14,7 +14,7 @@
  */
 import { defineAdapter, registerApoTracing } from "@apo/sdk/agent-task";
 import { handleChat, type ChatRequest } from "../../app/lib/agent/service.ts";
-import type { AgentState, RealAgentDeliverables } from "./agent/types.ts";
+import type { AgentState } from "./agent/types.ts";
 import { loadFiles } from "./lib/files.ts";
 import { REAL_AGENT_SYSTEM_PROMPT, buildWorkflowMessage } from "./lib/prompts.ts";
 import { realAgentDeliverableSchemas, collectRealAgentDeliverables } from "./lib/deliverables.ts";
@@ -22,8 +22,6 @@ import { realAgentDeliverableSchemas, collectRealAgentDeliverables } from "./lib
 await registerApoTracing();
 
 const EMPTY_STATE: AgentState = { turnCount: 0, allToolCalls: [], fileContents: {}, agentResponses: [] };
-
-export type { RealAgentDeliverables } from "./agent/types.ts";
 
 export const realAgentAdapter = defineAdapter({
   name: "real-agent",

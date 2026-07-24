@@ -16,7 +16,6 @@
  */
 import {
   task,
-  test,
   includes,
   satisfies,
   filePaths,
@@ -28,21 +27,13 @@ import {
   assertFacts,
 } from "../../real-agent/checks-helpers.ts";
 
-/** What the claude adapter delivers (defined in claude-adapter.ts). */
-type ClaudeDeliverables = {
-  result: { summary: string };
-  stats: { turn_count: number; num_turns: number };
-};
-
-task("data-extraction", {
+const { test: check } = task("data-extraction", {
   adapter: claudeAdapter,
   description: "Extract structured data from an invoice via the Claude Agent SDK.",
   metadata: { category: "data-processing", difficulty: "easy", sdk: "claude-agent-sdk" },
   maxTurns: 2,
   deliverables: ["result", "stats"],
 });
-
-const check = test<ClaudeDeliverables>;
 
 // Objective facts from invoice.txt. Exact-match regex for the values that
 // have one correct answer; `similarity` is not needed here because the

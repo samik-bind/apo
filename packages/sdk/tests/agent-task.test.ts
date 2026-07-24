@@ -11,7 +11,11 @@ import { validateDeliverables } from "../src/agent-task/deliverables/validate";
 import { aggregateResult } from "../src/agent-task/run/aggregate";
 import { runTask } from "../src/agent-task/run/runTask";
 import { discoverAgentTaskDirs } from "../src/agent-task/discovery";
-import { defineTask } from "../src/agent-task/task/defineTask";
+import {
+  defineTask,
+  resetTaskRegistry,
+  task,
+} from "../src/agent-task/task/defineTask";
 import { loadTask } from "../src/agent-task/task/loadTask";
 import { runTaskDir } from "../src/agent-task/task-runtime";
 import { createNoopAgentTaskTraceContext } from "../src/agent-task/tracing";
@@ -135,10 +139,10 @@ export default defineTask(testAdapter, {
 
 function buildSingleFileTaskModule(): string {
   return `
-import { equals, task, test, turn } from "${LOCAL_CHECKS_IMPORT}";
+import { equals, task, turn } from "${LOCAL_CHECKS_IMPORT}";
 import { testAdapter } from "./adapter";
 
-task("single-file-task", {
+const { test } = task("single-file-task", {
   adapter: testAdapter,
   description: "Task, turn, and checks live together",
   deliverables: ["report"],
@@ -150,7 +154,7 @@ turn(async ({ transcript }) => {
 });
 
 test("report-title", (t, { deliverables }) => {
-  t.check((deliverables.report as { title: string }).title, equals("Summary"));
+  t.check(deliverables.report.title, equals("Summary"));
 });
 `;
 }
@@ -273,6 +277,34 @@ describe("defineTask", () => {
 
     expect(task.adapter).toBe("local-adapter");
     expect(task.deliverables).toEqual(["report"]);
+  });
+});
+
+describe("task", () => {
+  it("returns only the task-scoped test registration", () => {
+    const adapter = defineAdapter({
+      name: "scope-adapter",
+      deliverables: { report: null },
+      async startSession() {
+        return {
+          async sendUserTurn() {
+            return { response: "ok" };
+          },
+        };
+      },
+      async collectDeliverables() {
+        return { report: { title: "Summary" } };
+      },
+    });
+
+    const scope = task("scoped-task", {
+      adapter,
+      deliverables: ["report"],
+    });
+
+    expect(Object.keys(scope)).toEqual(["test"]);
+    expect(typeof scope.test).toBe("function");
+    resetTaskRegistry();
   });
 });
 

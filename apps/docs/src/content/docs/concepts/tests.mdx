@@ -5,7 +5,7 @@ description: "What a test is, the two kinds, and how to read the breakdown."
 
 import TerminalDemo from '../../../components/demos/TerminalDemo.astro';
 
-A test is one assertion about a run. You write it as a `test(...)` block, and a task usually needs several: not one vague judgment, not one brittle exact-match. Every test records into the same breakdown.
+A test is one assertion about a run. You write it with the `test(...)` function returned by `task()`, and a task usually needs several: not one vague judgment, not one brittle exact-match. Every test records into the same breakdown.
 
 For *why* code assertions and LLM judges are the same kind of thing, see [Why apo](/why-apo/). This page covers what a test looks like and how to read what comes back.
 
@@ -34,7 +34,7 @@ test("parties-are-complete", async (t, { deliverables }) => {
 });
 ```
 
-The `t` object carries assertions like `calledTool`, `noFailedActions`, and `check`. The second argument to the callback is a context with `{ deliverables, files, task }`: `deliverables` is what your adapter returned, `files` is the task's inputs. The full method list lives in the [Assertions API](/reference/assertions/).
+The `t` object carries assertions like `calledTool`, `noFailedActions`, and `check`. The second argument to the callback is a context with `{ deliverables, files, task }`: `deliverables` is the task-selected subset of what your adapter returned, inferred automatically; `files` is the task's inputs. The full method list lives in the [Assertions API](/reference/assertions/).
 
 ## How the result is computed
 

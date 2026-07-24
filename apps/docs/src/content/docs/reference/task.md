@@ -6,15 +6,15 @@ description: "task(), turn(), test() — the three calls that make up a .eval.ts
 The three calls that make up a `.eval.ts` file: `task()`, `turn()`, `test()`. Together they define *what* to run, *what the agent sees* each turn, and *what good means*. For the folder convention and writing flow, see [Tasks](/concepts/tasks/) and [Define a Task](/guides/define-a-task/).
 
 ```typescript title="my-task.eval.ts"
-import { task, test, turn } from "@apo/sdk/agent-task";
+import { task, turn } from "@apo/sdk/agent-task";
 ```
 
 ## `task(name, config)`
 
-Register a task: its id, its adapter, and the deliverables tests assert on. Tests are registered via top-level `test(...)` calls in the same file.
+Register a task: its id, its adapter, and the deliverables tests assert on. `task()` returns the `test(...)` function for that task, typed from the adapter's `collectDeliverables()` result.
 
 ```typescript title="my-task.eval.ts"
-task("extract-parties", {
+const { test } = task("extract-parties", {
   adapter: legalDocumentAdapter,
   deliverables: ["parties", "amounts", "dates"],
   maxTurns: 3,
@@ -24,16 +24,20 @@ task("extract-parties", {
 ```
 
 ```typescript
-function task<TName, TDeliverableDefs>(
-  name: TName,
+function task<TTaskId, TAdapter, TSelected>(
+  name: TTaskId,
   config: {
-    adapter: TypedAdapterDefinition<TName, TDeliverableDefs>;
-    deliverables: (keyof TDeliverableDefs & string)[];
+    adapter: TAdapter;
+    deliverables: TSelected;
     maxTurns?: number;
     description?: string;
     metadata?: Record<string, unknown>;
   },
-): void;
+): {
+  test: TestRegistration<
+    Pick<CollectedBy<TAdapter>, TSelected[number]>
+  >;
+};
 ```
 
 ### `adapter`
@@ -48,7 +52,7 @@ The adapter that drives your agent. Must implement the lifecycle contract — se
 - **Type:** `string[]`
 - **Required:** yes
 
-Names of the deliverables the adapter will collect. Must match the keys in the adapter's `deliverables` map.
+Names of the deliverables this task requires. Each name must exist in both the adapter's deliverable definitions and the inferred `collectDeliverables()` result. Tests see only this selected subset, with each value required.
 
 ### `maxTurns`
 
@@ -103,7 +107,7 @@ If `turn` returns `null` (or `undefined`), the turn loop stops. Without this, ap
 
 ## `test(id, fn)`
 
-Register a test. The callback receives `t` (the assertion surface) and `ctx` (with `deliverables`). See [Assertions API](/reference/assertions/) for the full `t.*` reference.
+Register a test with the function returned by `task()`. The callback receives `t` (the assertion surface) and `ctx` (with adapter-typed `deliverables`). See [Assertions API](/reference/assertions/) for the full `t.*` reference.
 
 ```typescript title="my-task.eval.ts"
 // Deterministic
@@ -118,23 +122,29 @@ test("parties-are-complete", async (t, { deliverables }) => {
 ```
 
 ```typescript
-function test<TDeliverables>(
+function test(
   id: string,
-  fn: (t: TestContext, ctx: CheckContext<TDeliverables>) => Promise<void> | void,
+  fn: (t: TestContext, ctx: CheckContext<TaskDeliverables>) => Promise<void> | void,
 ): void;
 ```
 
-Pass a deliverables type for end-to-end type safety:
+The type flows from the adapter without a manually maintained interface:
 
 ```typescript
-type Deliverables = { result: ReviewResult; stats: Stats };
-const check = test<Deliverables>;
-check("my-check", (t, { deliverables }) => {
-  deliverables.result;  // typed as ReviewResult
+const { test } = task("review", {
+  adapter: reviewAdapter,
+  deliverables: ["result"],
+});
+
+test("my-test", (t, { deliverables }) => {
+  deliverables.result; // inferred from reviewAdapter.collectDeliverables()
+  deliverables.stats;  // type error: this task did not select stats
 });
 ```
 
-`test` is the public name for `defineCheck`. To avoid repeating the deliverables type on every call, alias it locally: `const check = test<MyDeliverables>`.
+:::note[Global test remains available]
+The exported `test<TDeliverables>(...)` function remains available for existing task files and framework-agnostic checks. Prefer the task-scoped function for new `.eval.ts` files: it cannot drift from the task's adapter or selected deliverables.
+:::
 
 ### CheckContext
 

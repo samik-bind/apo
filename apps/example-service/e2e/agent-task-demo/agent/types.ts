@@ -20,19 +20,3 @@ export type AgentState = {
   fileContents: Record<string, string>;
   agentResponses: string[];
 };
-
-/** Deliverable type used by test<RealAgentDeliverables> in eval files. */
-export type RealAgentDeliverables = {
-  result: { summary: string; findings: string[] };
-  tool_log: {
-    total_calls: number;
-    tools_used: string[];
-    details: Array<{ tool: string; args: Record<string, unknown>; result: unknown }>;
-  };
-  stats: {
-    turn_count: number;
-    file_count: number;
-    total_tool_calls: number;
-    unique_tools: string[];
-  };
-};

@@ -178,7 +178,6 @@ import {
   task,
   defineAdapter,
   runTask,
-  test,
   turn,
   includes,
 } from "@apo/sdk/agent-task";
@@ -186,14 +185,15 @@ import {
 
 ### Core building blocks
 
-- **`task(id, { adapter, deliverables, … })`** — register the task definition.
+- **`task(id, { adapter, deliverables, … })`** — register the task definition
+  and return its adapter-typed `test`.
 - **`defineAdapter({ initialize, startSession, collectDeliverables, cleanup })`**
   — the contract between apo and the agent under test (init, run a session,
   collect deliverables, tear down).
 - **`turn(fn)`** — optionally define task-specific single- or multi-turn input.
-- **`test(id, fn)`** — register a check in the `*.eval.ts` file. The `fn`
-  receives `t` (flat, eve-style assertions over the run's flow) and the
-  deliverables. See [Testing](#testing-evalts) below.
+- **`test(id, fn)`** — register a test through the scope returned by `task()`.
+  The callback receives `t` (flat, eve-style assertions over the run's flow)
+  and the task-selected deliverables, inferred from the adapter.
 - **`runTask(task, adapter, options?)`** — execute a single task and return a
   `TaskRunResult` (transcript + evaluation).
 - **`loadTask(dir)` / `discoverAgentTaskDirs()`** — load tasks from disk.
@@ -211,7 +211,13 @@ to assert. Every assertion is recorded (no die-on-first), so each check reports
 all of its failures.
 
 ```ts
-import { test, includes, satisfies } from "@apo/sdk/agent-task";
+import { task, includes, satisfies } from "@apo/sdk/agent-task";
+import { myAdapter } from "./adapter";
+
+const { test } = task("review-output", {
+  adapter: myAdapter,
+  deliverables: ["result", "stats"],
+});
 
 test("used-the-right-tools", (t) => {
   t.calledTool("read_file");                       // did it call this tool
@@ -222,10 +228,16 @@ test("used-the-right-tools", (t) => {
 });
 
 test("output-correct", (t, { deliverables }) => {
+  // result and stats are inferred from myAdapter.collectDeliverables().
   t.check(deliverables.result, includes("finding"));
   t.check(deliverables.stats, satisfies((s: { turn_count: number }) => s.turn_count > 0, "has turns"));
 });
 ```
+
+The global `test<TDeliverables>(...)` export remains available for
+framework-agnostic checks and existing task files. Prefer the `test` returned
+by `task()` for new task files: it requires no manual generic or cast and
+exposes only the deliverables selected by that task.
 
 **`t` — flow assertions** (read the run's trace, automatically captured):
 `calledTool(name, opts?)`, `notCalledTool(name, opts?)`, `toolOrder([...])`,

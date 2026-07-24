@@ -13,14 +13,12 @@
  */
 import {
   task,
-  test,
   includes,
   satisfies,
   similarity,
   filePaths,
 } from "@apo/sdk/agent-task";
 import { realAgentAdapter } from "../../../../real-agent-adapter.ts";
-import type { RealAgentDeliverables } from "../../../../real-agent-adapter.ts";
 import {
   MAX_TURNS,
   MAX_DURATION_MS,
@@ -30,7 +28,7 @@ import {
   joinFindings,
 } from "../../checks-helpers.ts";
 
-task("document-qa", {
+const { test: check } = task("document-qa", {
   adapter: realAgentAdapter,
   description:
     "Read a technical specification document and answer specific questions by searching and extracting relevant information.",
@@ -38,8 +36,6 @@ task("document-qa", {
   maxTurns: 2,
   deliverables: ["result", "tool_log", "stats"],
 });
-
-const check = test<RealAgentDeliverables>;
 
 // Objective facts from spec.md. Most are exact-match regex (version numbers,
 // product names) — these have one correct answer. But "JWT Bearer tokens"

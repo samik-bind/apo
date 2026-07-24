@@ -16,13 +16,11 @@
  */
 import {
   task,
-  test,
   includes,
   satisfies,
   filePaths,
 } from "@apo/sdk/agent-task";
 import { realAgentAdapter } from "../../../../real-agent-adapter.ts";
-import type { RealAgentDeliverables } from "../../../../real-agent-adapter.ts";
 import {
   MAX_TURNS,
   MAX_DURATION_MS,
@@ -32,7 +30,7 @@ import {
   joinFindings,
 } from "../../checks-helpers.ts";
 
-task("log-analyzer", {
+const { test: check } = task("log-analyzer", {
   adapter: realAgentAdapter,
   description:
     "Analyze server access logs to identify traffic patterns, anomalies, potential attacks, and performance bottlenecks.",
@@ -40,8 +38,6 @@ task("log-analyzer", {
   maxTurns: 2,
   deliverables: ["result", "tool_log", "stats"],
 });
-
-const check = test<RealAgentDeliverables>;
 
 // Objective signals from access.log. These are the planted anomalies —
 // each has a verifiable presence in the log that the agent should detect.

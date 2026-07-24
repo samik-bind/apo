@@ -15,14 +15,12 @@
 import { z } from "zod";
 import {
   task,
-  test,
   includes,
   satisfies,
   matches,
   filePaths,
 } from "@apo/sdk/agent-task";
 import { realAgentAdapter } from "../../../../real-agent-adapter.ts";
-import type { RealAgentDeliverables } from "../../../../real-agent-adapter.ts";
 import {
   MAX_TURNS,
   MAX_DURATION_MS,
@@ -32,7 +30,7 @@ import {
   joinFindings,
 } from "../../checks-helpers.ts";
 
-task("security-audit", {
+const { test: check } = task("security-audit", {
   adapter: realAgentAdapter,
   description:
     "Scan source code files for security vulnerabilities including SQL injection, XSS, hardcoded secrets, and insecure patterns.",
@@ -40,8 +38,6 @@ task("security-audit", {
   maxTurns: 2,
   deliverables: ["result", "tool_log", "stats"],
 });
-
-const check = test<RealAgentDeliverables>;
 
 // Table A: injection vulnerabilities. Each function has a SQL injection
 // (f-string or string concatenation) except export_data which has command

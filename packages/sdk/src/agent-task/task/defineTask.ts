@@ -1,6 +1,13 @@
-import type { TypedAdapterDefinition } from "../adapter/types.ts";
-import type { DeliverableDefinition } from "../adapter/types.ts";
-import type { AdapterDefinition } from "../adapter/types.ts";
+import type {
+  AdapterDefinition,
+  CollectedDeliverables,
+  DeliverableDefinition,
+  TypedAdapterDefinition,
+} from "../adapter/types.ts";
+import {
+  defineCheck,
+  type TestRegistration,
+} from "../checks/flow-runner.ts";
 import type { TaskConfig, TaskDefinition } from "./types.ts";
 
 const TASK_ADAPTER_SYMBOL = Symbol.for("agent-task.adapter-definition");
@@ -48,17 +55,24 @@ export function defineTask<
   return definedTask;
 }
 
+export type TaskScope<TDeliverables> = {
+  test: TestRegistration<TDeliverables>;
+};
+
 /**
  * Register a task + its checks in ONE file. The `name` is the task id;
  * `config` includes the adapter, deliverables, and other metadata. Checks
- * are registered via top-level `check("id", fn)` calls in the same file
- * (side-effect registration, like Jest's `test()`).
+ * are registered through the returned, adapter-typed `test` function.
  *
  * ```ts
- * task("code-review", {
+ * const { test } = task("code-review", {
  *   adapter: realAgentAdapter,
  *   deliverables: ["result", "tool_log", "stats"],
  *   maxTurns: 2,
+ * });
+ *
+ * test("reviewed-methodically", (t, { deliverables }) => {
+ *   t.check(deliverables.result, includes("finding"));
  * });
  *
  * // A task that needs dev-machine resources (cloud creds, VPC, stage) can
@@ -69,30 +83,51 @@ export function defineTask<
  *   deliverables: ["summary"],
  *   execution: "local",
  * });
- *
- * check("reviewed-methodically", (t) => { ... });
  * ```
  */
 export function task<
-  const TName extends string,
+  const TTaskId extends string,
+  const TAdapterName extends string,
   const TDeliverableDefs extends Record<string, DeliverableDefinition>,
+  TCollected extends CollectedDeliverables,
+  const TSelected extends readonly (
+    DeliverableKey<TCollected> & keyof TDeliverableDefs
+  )[],
 >(
-  name: TName,
-  config: Omit<TaskConfig<keyof TDeliverableDefs & string>, "id" | "checks"> & {
-    adapter: TypedAdapterDefinition<TName, TDeliverableDefs>;
+  name: TTaskId,
+  config: Omit<
+    TaskConfig<TSelected[number] & string>,
+    "id" | "checks" | "deliverables"
+  > & {
+    adapter: TypedAdapterDefinition<
+      TAdapterName,
+      TDeliverableDefs,
+      TCollected
+    >;
+    deliverables: TSelected;
   },
-): void {
+): TaskScope<SelectedDeliverables<TCollected, TSelected>> {
   const adapter = config.adapter;
-  const { adapter: _adapter, ...rest } = config;
+  const {
+    adapter: _adapter,
+    deliverables,
+    ...rest
+  } = config;
   const definedTask = {
     ...rest,
     id: name,
     adapter: adapter.name,
-  } as TaskDefinition;
+    deliverables: [...deliverables],
+  } satisfies TaskDefinition;
 
   attachAdapter(definedTask, adapter);
 
   taskRegistry.push(definedTask);
+  return {
+    test: defineCheck as TestRegistration<
+      SelectedDeliverables<TCollected, TSelected>
+    >,
+  };
 }
 
 export function getTaskAdapterDefinition(
@@ -111,3 +146,26 @@ function attachAdapter(taskDefinition: object, adapter: AdapterDefinition): void
     writable: false,
   });
 }
+
+type DeliverableKey<TCollected> = TCollected extends unknown
+  ? keyof TCollected & string
+  : never;
+
+type DeliverableValue<
+  TCollected,
+  TKey extends PropertyKey,
+> = TCollected extends unknown
+  ? TKey extends keyof TCollected
+    ? TCollected[TKey]
+    : never
+  : never;
+
+type SelectedDeliverables<
+  TCollected,
+  TSelected extends readonly PropertyKey[],
+> = {
+  [TKey in TSelected[number]]-?: Exclude<
+    DeliverableValue<TCollected, TKey>,
+    null | undefined
+  >;
+};

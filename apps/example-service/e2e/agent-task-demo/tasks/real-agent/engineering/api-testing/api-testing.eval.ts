@@ -21,14 +21,12 @@
 import { z } from "zod";
 import {
   task,
-  test,
   includes,
   satisfies,
   matches,
   filePaths,
 } from "@apo/sdk/agent-task";
 import { realAgentAdapter } from "../../../../real-agent-adapter.ts";
-import type { RealAgentDeliverables } from "../../../../real-agent-adapter.ts";
 import {
   MAX_TURNS,
   MAX_DURATION_MS,
@@ -38,7 +36,7 @@ import {
   joinFindings,
 } from "../../checks-helpers.ts";
 
-task("api-testing", {
+const { test: check } = task("api-testing", {
   adapter: realAgentAdapter,
   description:
     "Verify API response data against expected schemas and contracts. Check field types, required fields, and validate data consistency.",
@@ -46,8 +44,6 @@ task("api-testing", {
   maxTurns: 2,
   deliverables: ["result", "tool_log", "stats"],
 });
-
-const check = test<RealAgentDeliverables>;
 
 // The 8 planted violations in api-responses.json. Each has a signal pattern
 // the agent's findings should contain if it caught that violation.

@@ -18,7 +18,7 @@ defineAdapter({
 });
 ```
 
-`defineAdapter()` is an identity helper: it takes the adapter object, types it, and returns it unchanged. The adapter implements the lifecycle below.
+`defineAdapter()` is an identity helper: it takes the adapter object, preserves the inferred `collectDeliverables()` return type, and returns it unchanged. The task-scoped `test` function uses that return type, so tests do not need a separate deliverables interface.
 
 ## The lifecycle
 
@@ -107,6 +107,8 @@ Return a session whose `sendUserTurn` drives your agent.
 - **Required:** yes
 
 Return the structured deliverables, keyed to match `deliverables`.
+
+Let TypeScript infer this method's return type. `task()` carries it into the scoped `test` callback and narrows it to the deliverable names that task selected. An explicit `Promise<Record<string, unknown>>` annotation intentionally widens the values back to `unknown`.
 
 ### `initialize`
 

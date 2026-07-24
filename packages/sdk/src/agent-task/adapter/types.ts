@@ -84,7 +84,14 @@ export type AdapterDefinition = {
 export type TypedAdapterDefinition<
   TName extends string,
   TDeliverables extends Record<string, DeliverableDefinition>,
-> = Omit<AdapterDefinition, "name" | "deliverables"> & {
+  TCollected extends CollectedDeliverables = CollectedDeliverables,
+> = Omit<
+  AdapterDefinition,
+  "name" | "deliverables" | "collectDeliverables"
+> & {
   name: TName;
   deliverables: TDeliverables;
+  collectDeliverables: (
+    ctx: CollectDeliverablesContext,
+  ) => Promise<TCollected>;
 };

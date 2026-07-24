@@ -17,13 +17,11 @@
  */
 import {
   task,
-  test,
   includes,
   satisfies,
   filePaths,
 } from "@apo/sdk/agent-task";
 import { realAgentAdapter } from "../../../../real-agent-adapter.ts";
-import type { RealAgentDeliverables } from "../../../../real-agent-adapter.ts";
 import {
   MAX_TURNS,
   MAX_DURATION_MS,
@@ -33,7 +31,7 @@ import {
   joinFindings,
 } from "../../checks-helpers.ts";
 
-task("data-extraction", {
+const { test: check } = task("data-extraction", {
   adapter: realAgentAdapter,
   description:
     "Extract structured data from an invoice document using entity extraction and validation tools.",
@@ -41,8 +39,6 @@ task("data-extraction", {
   maxTurns: 2,
   deliverables: ["result", "tool_log", "stats"],
 });
-
-const check = test<RealAgentDeliverables>;
 
 // The verifiable facts from invoice.txt. There is one correct answer for each
 // of these — the invoice either says $9,376.60 or it doesn't. These are

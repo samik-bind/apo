@@ -4,7 +4,12 @@ export type {
   TaskExecutionPreference,
   FileEntry,
 } from "./task/types.ts";
-export { defineTask, task, resetTaskRegistry } from "./task/defineTask.ts";
+export {
+  defineTask,
+  task,
+  resetTaskRegistry,
+  type TaskScope,
+} from "./task/defineTask.ts";
 export { loadTask, type LoadedTask } from "./task/loadTask.ts";
 export { TaskFiles } from "./task/TaskFiles.ts";
 
@@ -48,7 +53,10 @@ export {
   type DeliverableSummary,
   type PreparedTaskResult,
 } from "./deliverables/upload.ts";
-export type { CheckContext } from "./checks/flow-runner.ts";
+export type {
+  CheckContext,
+  TestRegistration,
+} from "./checks/flow-runner.ts";
 export {
   includes,
   equals,

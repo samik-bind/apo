@@ -20,16 +20,20 @@ import { pathToFileURL } from "url";
  * depends on any agent-framework's types. apo passes its own typed values;
  * other frameworks pass whatever they have (or omit).
  *
- * Use the generic overload of {@link defineCheck} (a.k.a. ``test``) to get
- * typed deliverables in the callback:
+ * A task-scoped ``test`` gets typed deliverables from the adapter automatically:
  *
  * ```ts
- * type Deliverables = { result: ReviewResult; stats: Stats };
- * const check = test<Deliverables>;
- * check("id", (t, { deliverables }) => {
+ * const { test } = task("review", {
+ *   adapter: reviewAdapter,
+ *   deliverables: ["result"],
+ * });
+ * test("id", (t, { deliverables }) => {
  *   deliverables.result  // typed as ReviewResult
  * });
  * ```
+ *
+ * The generic overload of {@link defineCheck} remains available for
+ * framework-agnostic checks that have no task scope.
  */
 export type CheckContext<TDeliverables = Record<string, unknown>> = {
   deliverables: TDeliverables;
@@ -42,10 +46,15 @@ export function filePaths(files: unknown): string[] {
   return (files as Array<{ relativePath: string }>).map((f) => f.relativePath);
 }
 
-type CheckFn<TDeliverables = Record<string, unknown>> = (
+export type CheckFn<TDeliverables = Record<string, unknown>> = (
   t: TestContext,
   ctx: CheckContext<TDeliverables>,
 ) => Promise<void> | void;
+
+export type TestRegistration<TDeliverables = Record<string, unknown>> = (
+  id: string,
+  fn: CheckFn<TDeliverables>,
+) => void;
 
 type RegisteredCheck = { id: string; fn: CheckFn };
 
@@ -57,7 +66,7 @@ const registry = (registryStore[REGISTRY_KEY] ??= []) as RegisteredCheck[];
 
 /** Register a check. The `fn` receives the assertion surface `t` and the output.
  *
- * Pass a deliverables type to get end-to-end type safety:
+ * Framework-agnostic callers can pass a deliverables type explicitly:
  * ```ts
  * type Deliverables = { result: ReviewResult; stats: Stats };
  * defineCheck<Deliverables>("id", (t, { deliverables }) => { ... });

@@ -15,14 +15,12 @@
  */
 import {
   task,
-  test,
   includes,
   satisfies,
   equals,
   filePaths,
 } from "@apo/sdk/agent-task";
 import { realAgentAdapter } from "../../../../real-agent-adapter.ts";
-import type { RealAgentDeliverables } from "../../../../real-agent-adapter.ts";
 import {
   MAX_TURNS,
   MAX_DURATION_MS,
@@ -32,7 +30,7 @@ import {
   joinFindings,
 } from "../../checks-helpers.ts";
 
-task("migration-planner", {
+const { test: check } = task("migration-planner", {
   adapter: realAgentAdapter,
   description:
     "Plan a database migration by analyzing the current schema, proposed changes, and generating a step-by-step migration plan.",
@@ -40,8 +38,6 @@ task("migration-planner", {
   maxTurns: 3,
   deliverables: ["result", "tool_log", "stats"],
 });
-
-const check = test<RealAgentDeliverables>;
 
 // Objective schema deltas between current-schema.sql and target-schema.sql.
 const EXPECTED_DELTAS = [

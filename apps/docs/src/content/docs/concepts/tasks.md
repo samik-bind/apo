@@ -16,13 +16,13 @@ my-task/
 The `.eval.ts` file holds the definition, the input handling, and every test. One module, three calls:
 
 ```typescript
-import { matches, task, test, turn } from "@apo/sdk/agent-task";
+import { matches, task, turn } from "@apo/sdk/agent-task";
 import { legalDocumentAdapter } from "./adapter";
 import { partiesSchema } from "./schemas";
 
 // Register the task: name, adapter (yours, see Adapters), and the
 // deliverables the adapter will collect for the tests to assert on.
-task("extract-parties", {
+const { test } = task("extract-parties", {
   adapter: legalDocumentAdapter,
   deliverables: ["parties", "amounts", "dates"],
 });
@@ -50,6 +50,8 @@ test("parties-are-complete", async (t, { deliverables }) => {
   );
 });
 ```
+
+The `test` function comes from the task because its types do too. The adapter defines every deliverable it can collect; the task selects the subset it requires; each test sees only that subset.
 
 The task name is the folder name. Discovery scans for `.eval.ts` files: drop the folder into your task source and it's registered. No manifest.
 

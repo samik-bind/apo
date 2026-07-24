@@ -19,14 +19,12 @@
  */
 import {
   task,
-  test,
   includes,
   satisfies,
   filePaths,
   turn,
 } from "@apo/sdk/agent-task";
 import { realAgentAdapter } from "../../../../real-agent-adapter.ts";
-import type { RealAgentDeliverables } from "../../../../real-agent-adapter.ts";
 import {
   MAX_TURNS,
   MAX_DURATION_MS,
@@ -36,7 +34,7 @@ import {
   joinFindings,
 } from "../../checks-helpers.ts";
 
-task("code-review", {
+const { test: check } = task("code-review", {
   adapter: realAgentAdapter,
   description:
     "Review source code for bugs, style issues, and improvements. Agent uses read_file, search_content, and check_rules tools.",
@@ -44,8 +42,6 @@ task("code-review", {
   maxTurns: 2,
   deliverables: ["result", "tool_log", "stats"],
 });
-
-const check = test<RealAgentDeliverables>;
 
 // ── Multi-turn conversation ──────────────────────────────────────────────
 // `turn()` overrides the adapter's default single-turn behavior. Each call
