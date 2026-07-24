@@ -1,0 +1,14 @@
+{
+  "name": "sort-order",
+  "description": "Bytewise UTF-8 path ordering diverges from UTF-16 code-unit ordering (JS default). Pins that files sort Zebra.txt < apple.txt < éclair.txt so the TS and Python canonicalizers agree.",
+  "files": [
+    { "path": "apple.txt", "modeClass": "regular", "contentText": "a\n" },
+    { "path": "Zebra.txt", "modeClass": "regular", "contentText": "z\n" },
+    { "path": "éclair.txt", "modeClass": "regular", "contentText": "é\n" }
+  ],
+  "expected": {
+    "contentSha256": "acd3fc714bf89fd8c0b12b1959d2f7f0306dd3ab15f5c01ea8cee5fc589c2252",
+    "fileCount": 3,
+    "uncompressedSizeBytes": 7
+  }
+}

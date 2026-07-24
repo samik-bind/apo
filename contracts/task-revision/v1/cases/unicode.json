@@ -1,0 +1,12 @@
+{
+  "name": "unicode",
+  "description": "Unicode path (precomposed é, U+00E9) and UTF-8 content. Pins NFC handling and ensure_ascii=false canonical output across runtimes.",
+  "files": [
+    { "path": "café/menu.txt", "modeClass": "regular", "contentText": "café\n" }
+  ],
+  "expected": {
+    "contentSha256": "fda4a83325929da8d87a070c16c659131785bf827441da3a0212523f1bb164ad",
+    "fileCount": 1,
+    "uncompressedSizeBytes": 6
+  }
+}

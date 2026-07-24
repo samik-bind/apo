@@ -1,0 +1,12 @@
+{
+  "name": "minimal",
+  "description": "Baseline: one regular file. Pins the exact canonical JSON shape and the contentSha256 derivation.",
+  "files": [
+    { "path": "README.md", "modeClass": "regular", "contentText": "hi\n" }
+  ],
+  "expected": {
+    "contentSha256": "ed2aa9485ec6899605ef3f9eedea34e2416f3f88ba24a68b9923bdff661542c6",
+    "fileCount": 1,
+    "uncompressedSizeBytes": 3
+  }
+}

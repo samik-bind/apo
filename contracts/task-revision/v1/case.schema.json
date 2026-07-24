@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://apo.dev/specs/contracts/task-revision/v1/case.schema.json",
+  "title": "TaskRevisionManifestCase",
+  "description": "SPEC-142 shared parity corpus entry. Inputs (files with content) plus the expected canonical contentSha256/fileCount/size, derived independently from the canonical algorithm so both the TypeScript and Python canonicalizers can be red-checked against the same bytes. `expected.contentSha256` is the SHA-256 of the compact canonical JSON (sorted keys, ensure_ascii=false, no whitespace) over schemaVersion + the bytewise-sorted files array.",
+  "type": "object",
+  "required": ["name", "description", "files", "expected"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "description": "Stable identifier; matches the filename stem." },
+    "description": { "type": "string", "description": "Which canonicalization rule(s) this case pins." },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/CaseFile" }
+    },
+    "expected": { "$ref": "#/$defs/Expected" }
+  },
+  "$defs": {
+    "CaseFile": {
+      "type": "object",
+      "required": ["path", "modeClass"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "description": "Relative path as a caller would report it. May use backslashes; the canonicalizer normalizes to POSIX + NFC." },
+        "modeClass": { "type": "string", "enum": ["regular", "executable"] },
+        "contentText": { "type": "string", "description": "UTF-8 text content. Mutually exclusive with contentHex." },
+        "contentHex": { "type": "string", "pattern": "^([0-9a-f]{2})*$", "description": "Binary content as lowercase hex. Mutually exclusive with contentText." }
+      }
+    },
+    "Expected": {
+      "type": "object",
+      "required": ["contentSha256", "fileCount", "uncompressedSizeBytes"],
+      "additionalProperties": false,
+      "properties": {
+        "contentSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "fileCount": { "type": "integer", "minimum": 0 },
+        "uncompressedSizeBytes": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

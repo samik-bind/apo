@@ -1,0 +1,12 @@
+{
+  "name": "separators",
+  "description": "Caller-reported path uses backslashes; the canonicalizer normalizes to POSIX separators. The expected digest is computed over the normalized path src/utils/time.ts.",
+  "files": [
+    { "path": "src\\utils\\time.ts", "modeClass": "regular", "contentText": "export const t = 1;\n" }
+  ],
+  "expected": {
+    "contentSha256": "0d293110aea9fb49f1d202f2872335659c24111abb0ef5cf4a88b9633a4b27db",
+    "fileCount": 1,
+    "uncompressedSizeBytes": 20
+  }
+}

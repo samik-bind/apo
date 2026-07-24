@@ -1,0 +1,13 @@
+{
+  "name": "nested-empty-exec",
+  "description": "Nested directories, an empty (zero-byte) file, and an executable file. Pins nesting, empty-file sha, and modeClass=executable.",
+  "files": [
+    { "path": "src/empty.txt", "modeClass": "regular", "contentText": "" },
+    { "path": "src/run.sh", "modeClass": "executable", "contentText": "echo hi\n" }
+  ],
+  "expected": {
+    "contentSha256": "f241c30d66cc4f56346f39b9acf86fcefe3111d928f094a8b06755d6c1c98598",
+    "fileCount": 2,
+    "uncompressedSizeBytes": 8
+  }
+}

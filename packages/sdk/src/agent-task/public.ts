@@ -163,3 +163,20 @@ export {
   getActiveApoRun,
   type ApoRunContext,
 } from "./integrations/run-context.ts";
+
+// ── Task Revision manifest (SPEC-142) ────────────────────────────────────
+// Pure canonicalizer shared with the Python twin. The CLI filesystem walker
+// consumes this to produce a content-addressed identity for a caller's
+// workspace; both runtimes must agree byte-for-byte on the canonical JSON and
+// digest over the shared corpus at specs/contracts/task-revision/v1/cases/.
+export {
+  buildManifest,
+  canonicalManifestJson,
+  contentSha256,
+  normalizeManifestPath,
+  sha256Hex,
+  type ManifestFile,
+  type ManifestFileInput,
+  type ModeClass,
+  type TaskRevisionManifestV1,
+} from "./task-revision-manifest.ts";
