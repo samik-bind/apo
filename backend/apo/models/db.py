@@ -9,7 +9,7 @@ from sqlalchemy.engine import Dialect
 from sqlalchemy.sql import func, text
 from sqlmodel import JSON, Field, SQLModel
 
-from ..models.schemas import LoggedCallBase
+from ..models.schemas import JsonValue, LoggedCallBase
 
 
 @final
@@ -373,10 +373,10 @@ class LoggedCallDB(LoggedCallBase, table=True):
 
     # Tool-specific fields
     tool_name: str | None = Field(default=None)
-    tool_parameters: dict[str, object] | None = Field(
+    tool_parameters: JsonValue | None = Field(
         default=None, sa_column=Column("tool_parameters", JSON)
     )
-    tool_result: dict[str, object] | None = Field(
+    tool_result: JsonValue | None = Field(
         default=None, sa_column=Column("tool_result", JSON)
     )
 

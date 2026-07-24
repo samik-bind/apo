@@ -133,6 +133,38 @@ def test_get_run_details(client: TestClient, session: Session):
     assert calls[2]["input"]["long"] == "x"*400
     assert calls[2]["output"]["long"] == "y"*400
 
+
+def test_get_run_details_accepts_nondict_json_fields(client: TestClient, session: Session):
+    # Regression for issue #23: a trace written via the projection path can hold
+    # a non-dict tool_result / input / output (e.g. a plain string, number, or
+    # list). The DB column is JSON and accepts it; the read model must not 500.
+    now = datetime.now(timezone.utc)
+
+    r1 = RunDB(id="r-nondict", project="p", task_id="t", created_at=now, call_count=1)
+
+    c1 = LoggedCallDB(
+        id="c-nondict", project="p", model="m", task_id="t", run_id="r-nondict",
+        created_at=now, observation_type="TOOL", tool_name="reminder",
+        tool_result="Before using DOCX tools, ...",  # string, not dict
+        input="plain string input",                  # string
+        output=42,                                   # int
+        messages=[],
+    )
+
+    session.add(r1)
+    session.add(c1)
+    session.commit()
+
+    response = client.get("/v1/runs/r-nondict?project=p")
+    assert response.status_code == 200, response.text
+
+    calls = response.json()["calls"]
+    assert len(calls) == 1
+    assert calls[0]["tool_result"] == "Before using DOCX tools, ..."
+    assert calls[0]["input"] == "plain string input"
+    assert calls[0]["output"] == 42
+
+
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main(["-v", __file__]))

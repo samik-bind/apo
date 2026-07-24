@@ -9,6 +9,12 @@ from sqlmodel._compat import SQLModelConfig
 type JsonMap = dict[str, object]
 type MessageList = list[JsonMap]
 
+# Arbitrary JSON value: what a free-form observation field (tool_result, input,
+# output, ...) can hold. DB columns are JSON and accept any of these, so the
+# read model must too — otherwise a string/number/list value written via the
+# trace-projection path 500s on read. See issue #23.
+type JsonValue = str | int | float | bool | list[object] | dict[str, object]
+
 
 # ============================================================================
 # Runs & Run Metrics
@@ -245,18 +251,18 @@ class LoggedCallBase(SQLModel):
 
     # Tool-specific fields (when observation_type = "TOOL")
     tool_name: str | None = Field(default=None)  # Name of the tool/function
-    tool_parameters: JsonMap | None = Field(
+    tool_parameters: JsonValue | None = Field(
         default=None, sa_column=Column("tool_parameters", JSON)
     )  # Tool input
-    tool_result: JsonMap | None = Field(
+    tool_result: JsonValue | None = Field(
         default=None, sa_column=Column("tool_result", JSON)
     )  # Tool output
 
     corrected_output: str | None = Field(default=None)
 
-    input: JsonMap = Field(sa_column=Column(JSON))
+    input: JsonValue = Field(sa_column=Column(JSON))
     messages: MessageList = Field(sa_column=Column(JSON))
-    output: JsonMap = Field(sa_column=Column(JSON))
+    output: JsonValue = Field(sa_column=Column(JSON))
     user_id: str | None = None
 
 
