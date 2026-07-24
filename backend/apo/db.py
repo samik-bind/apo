@@ -899,6 +899,77 @@ def _migrate_to_v11() -> None:
         _migrate_deliverable_schema(conn)
 
 
+def _migrate_to_v12() -> None:
+    """Version 12: Task Revisions table (SPEC-142).
+
+    Thin wrapper that opens the module engine transaction; the real work is in
+    ``_migrate_task_revision_schema(conn)`` so the migration is directly
+    testable against a hand-rolled old-schema engine.
+    """
+    with engine.begin() as conn:
+        _migrate_task_revision_schema(conn)
+
+
+def _migrate_task_revision_schema(conn: Connection) -> None:
+    """The v12 Task Revisions migration, runnable against any connection.
+
+    Creates ``task_revisions`` with its indexes and the unique
+    ``batch_run_id`` constraint (one Revision per Batch). Performs no body
+    backfill and no external I/O. Uses ``CREATE TABLE IF NOT EXISTS`` for
+    upgrade safety, then adds any missing columns idempotently so a partially
+    migrated database is brought up to the full shape.
+
+    Historical Batches simply have no Revision row; nothing is rewritten.
+    """
+    timestamp_type = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    conn.exec_driver_sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS task_revisions (
+            id VARCHAR PRIMARY KEY,
+            project VARCHAR NOT NULL,
+            batch_run_id VARCHAR NOT NULL,
+            materialization VARCHAR NOT NULL,
+            source_type VARCHAR NOT NULL,
+            source_ref VARCHAR,
+            commit_sha VARCHAR,
+            dirty BOOLEAN NOT NULL DEFAULT FALSE,
+            content_sha256 VARCHAR NOT NULL,
+            file_count INTEGER NOT NULL,
+            uncompressed_size_bytes INTEGER NOT NULL,
+            manifest_summary_json JSON NOT NULL,
+            bundle_storage_backend VARCHAR,
+            bundle_storage_key VARCHAR,
+            bundle_sha256 VARCHAR,
+            bundle_size_bytes INTEGER,
+            created_at {timestamp_type} NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+    # Idempotently bring a partially-created table up to the full shape.
+    _add_column_if_missing(conn, "task_revisions", "id", "VARCHAR PRIMARY KEY")
+    _add_column_if_missing(conn, "task_revisions", "project", "VARCHAR NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "task_revisions", "batch_run_id", "VARCHAR NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "task_revisions", "materialization", "VARCHAR NOT NULL DEFAULT 'attested'")
+    _add_column_if_missing(conn, "task_revisions", "source_type", "VARCHAR NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "task_revisions", "source_ref", "VARCHAR")
+    _add_column_if_missing(conn, "task_revisions", "commit_sha", "VARCHAR")
+    _add_column_if_missing(conn, "task_revisions", "dirty", "BOOLEAN NOT NULL DEFAULT FALSE")
+    _add_column_if_missing(conn, "task_revisions", "content_sha256", "VARCHAR NOT NULL DEFAULT ''")
+    _add_column_if_missing(conn, "task_revisions", "file_count", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "task_revisions", "uncompressed_size_bytes", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "task_revisions", "manifest_summary_json", "JSON")
+    _add_column_if_missing(conn, "task_revisions", "bundle_storage_backend", "VARCHAR")
+    _add_column_if_missing(conn, "task_revisions", "bundle_storage_key", "VARCHAR")
+    _add_column_if_missing(conn, "task_revisions", "bundle_sha256", "VARCHAR")
+    _add_column_if_missing(conn, "task_revisions", "bundle_size_bytes", "INTEGER")
+    _add_column_if_missing(conn, "task_revisions", "created_at", f"{timestamp_type} NOT NULL DEFAULT CURRENT_TIMESTAMP")
+
+    _create_index_if_not_exists(conn, "ix_task_revisions_project", "task_revisions", "project")
+    _create_index_if_not_exists(conn, "ix_task_revisions_content_sha256", "task_revisions", "content_sha256")
+    _create_unique_index_if_not_exists(conn, "uq_task_revisions_batch_run_id", "task_revisions", "batch_run_id")
+
+
 def _migrate_deliverable_schema(conn: Connection) -> None:
     """The v11 deliverables migration, runnable against any connection.
 
@@ -1109,7 +1180,7 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
     )
 
 
-LATEST_SCHEMA_VERSION = 11
+LATEST_SCHEMA_VERSION = 12
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -1123,6 +1194,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     9: _migrate_to_v9,
     10: _migrate_to_v10,
     11: _migrate_to_v11,
+    12: _migrate_to_v12,
 }
 
 

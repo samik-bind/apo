@@ -981,6 +981,46 @@ class ProjectTaskInventoryDB(SQLModel, table=True):
     )
 
 
+class TaskRevisionDB(SQLModel, table=True):
+    """Immutable Task Revision identity for a Batch Run (SPEC-142).
+
+    A Revision pins the exact source bytes a Batch was recorded against. It is
+    either ``bundled`` (the Control Plane stored a verified immutable Execution
+    Bundle) or ``attested`` (the caller reported the canonical content digest
+    without uploading bytes — not reproducible from apo).
+
+    One Revision per Batch (``batch_run_id`` is unique). Historical Batches
+    have no Revision and remain readable. Invariants (bundled requires every
+    ``bundle_*`` field; attested forbids them; digests are lowercase 64-hex)
+    are enforced by the service layer, not by DB constraints.
+    """
+
+    __tablename__: ClassVar[str] = "task_revisions"
+
+    id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:16])
+    project: str = Field(foreign_key="projects.id", index=True)
+    batch_run_id: str = Field(
+        foreign_key="agent_task_batch_runs.id", index=True, unique=True
+    )
+    materialization: str  # "attested" | "bundled"
+    source_type: str
+    source_ref: str | None = None
+    commit_sha: str | None = None
+    dirty: bool = False
+    content_sha256: str = Field(index=True)
+    file_count: int
+    uncompressed_size_bytes: int
+    manifest_summary_json: dict[str, object] = Field(sa_column=Column(JSON))
+    bundle_storage_backend: str | None = None
+    bundle_storage_key: str | None = None
+    bundle_sha256: str | None = None
+    bundle_size_bytes: int | None = None
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+
+
 class GithubConnectionDB(SQLModel, table=True):
     """Per-project GitHub OAuth connection (SPEC-121).
 

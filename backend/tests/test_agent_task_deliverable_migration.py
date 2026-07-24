@@ -10,14 +10,16 @@ backfill, and do no external I/O.
 
 from __future__ import annotations
 
-from apo.db import LATEST_SCHEMA_VERSION, _migrate_deliverable_schema
+from apo.db import _migrate_deliverable_schema
 from sqlalchemy import text
 from sqlmodel import create_engine
 
 
-def test_latest_schema_version_bumped_to_v11() -> None:
-    """v11 is registered and is the latest schema version."""
-    assert LATEST_SCHEMA_VERSION == 11
+def test_v11_migration_is_registered() -> None:
+    """v11 (deliverables) is registered. Later specs bump LATEST_SCHEMA_VERSION."""
+    from apo.db import _SCHEMA_MIGRATIONS
+
+    assert 11 in _SCHEMA_MIGRATIONS
 
 
 def test_migration_creates_deliverables_table_on_pre_v11_schema() -> None:
