@@ -45,6 +45,10 @@ const MIN_MAX_OBSERVATIONS = 1;
 const MAX_MAX_OBSERVATIONS = 50_000;
 const PAGE_LIMIT = 1000;
 const PAGE_TIMEOUT_MS = 15_000;
+const DETAIL_TIMEOUT_MS = 15_000;
+// Per-id detail requests run concurrently but capped — N+1 requests against
+// Langfuse, bounded by --max-observations and this pool size.
+const DETAIL_CONCURRENCY = 6;
 const FIELD_GROUPS = [
   "core",
   "basic",
@@ -119,10 +123,16 @@ export async function fetchLangfuseTrace(
     );
   }
 
+  // The v2 LIST endpoint returns only summary fields (id/type/timing/usage).
+  // Content-bearing fields (name/input/output/metadata/model) live exclusively
+  // on the per-id detail endpoint — hydrate each observation there before
+  // handing the graph to the converter, otherwise imports arrive empty (issue #25).
+  const observations = await hydrateObservations(rows, config);
+
   return {
     sourceHost: config.host,
     sourceTraceId,
-    observations: rows,
+    observations,
   };
 }
 
@@ -296,10 +306,182 @@ function validateObservation(
   } as LangfuseObservation;
 }
 
-// Langfuse Cloud's v2 observations endpoint always returns input/output/metadata
-// as raw JSON strings (the deprecated parseIoAsJson param is gone). Parse them
-// back into structured JsonValue objects so the downstream converter can map
-// gen_ai.input.messages etc. without special-casing strings.
+// --- Detail hydration -------------------------------------------------------
+// The v2 LIST endpoint returns only summary fields; name/input/output/metadata/
+// model only appear on GET /api/public/observations/{id}. We fetch the detail
+// for every discovered observation (bounded concurrency) and merge it over the
+// list row so content is never silently lost (issue #25).
+
+async function hydrateObservations(
+  rows: readonly LangfuseObservation[],
+  config: LangfuseConnectorConfig,
+): Promise<LangfuseObservation[]> {
+  const details = await mapWithConcurrency(rows, DETAIL_CONCURRENCY, (row) =>
+    fetchObservationDetail(row.id, row.traceId, config),
+  );
+  return rows.map((row, i) => mergeObservation(row, details[i]!));
+}
+
+async function fetchObservationDetail(
+  observationId: string,
+  sourceTraceId: string,
+  config: LangfuseConnectorConfig,
+): Promise<Record<string, unknown>> {
+  const url = new URL(
+    `/api/public/observations/${encodeURIComponent(observationId)}`,
+    config.host,
+  );
+  const auth = Buffer.from(`${config.publicKey}:${config.secretKey}`, "utf8").toString("base64");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DETAIL_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(
+        `Langfuse detail request timed out after ${DETAIL_TIMEOUT_MS / 1000}s for observation ${observationId} (source trace ${sourceTraceId})`,
+      );
+    }
+    throw new Error(
+      `Cannot reach Langfuse detail endpoint for observation ${observationId} (source trace ${sourceTraceId})`,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (response.status === 404) {
+    throw new Error(
+      `Langfuse returned 404 for observation ${observationId} (source trace ${sourceTraceId}); it may have been deleted between discovery and hydration`,
+    );
+  }
+  if (response.status === 401 || response.status === 403) {
+    throw new Error(
+      `Langfuse authentication failed (${response.status}) fetching detail for observation ${observationId}`,
+    );
+  }
+  if (response.status === 429) {
+    throw new Error(
+      `Langfuse rate-limited the detail request for observation ${observationId}; safe to retry after backoff`,
+    );
+  }
+  if (!response.ok) {
+    throw new Error(
+      `Langfuse detail request failed (${response.status}) for observation ${observationId} at ${config.host}`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = await response.json();
+  } catch {
+    throw new Error(
+      `Langfuse detail response for observation ${observationId} was not JSON`,
+    );
+  }
+  return validateDetailObject(parsed, observationId, sourceTraceId);
+}
+
+function validateDetailObject(
+  parsed: unknown,
+  observationId: string,
+  sourceTraceId: string,
+): Record<string, unknown> {
+  // Some Langfuse builds wrap single resources in { data: {...} }; unwrap if so.
+  const unwrapped =
+    parsed !== null &&
+    typeof parsed === "object" &&
+    !Array.isArray(parsed) &&
+    "data" in parsed &&
+    (parsed as { data?: unknown }).data !== null &&
+    typeof (parsed as { data?: unknown }).data === "object"
+      ? (parsed as { data: Record<string, unknown> }).data
+      : parsed;
+
+  if (unwrapped === null || typeof unwrapped !== "object" || Array.isArray(unwrapped)) {
+    throw new Error(
+      `Langfuse detail response for observation ${observationId} was not an object`,
+    );
+  }
+  const obj = unwrapped as Record<string, unknown>;
+  if (obj.id !== observationId) {
+    throw new Error(
+      `Langfuse detail response id (${String(obj.id)}) does not match requested observation ${observationId}`,
+    );
+  }
+  // traceId is present on the detail payload; verify it lines up so a stale
+  // or cross-trace detail never contaminates the graph.
+  if (typeof obj.traceId === "string" && obj.traceId !== sourceTraceId) {
+    throw new Error(
+      `Langfuse detail for observation ${observationId} traceId (${obj.traceId}) does not match source trace ${sourceTraceId}`,
+    );
+  }
+  return obj;
+}
+
+function mergeObservation(
+  listRow: LangfuseObservation,
+  detail: Record<string, unknown>,
+): LangfuseObservation {
+  // The detail endpoint is authoritative for content; spread it over the list
+  // row (which still provides the structural backbone: parent/timing/usage).
+  const merged = {
+    ...listRow,
+    ...detail,
+    input: coerceIoField(detail.input),
+    output: coerceIoField(detail.output),
+    metadata: coerceIoField(detail.metadata),
+    providedModelName: resolveModelName(detail, listRow),
+  } as LangfuseObservation;
+  return merged;
+}
+
+function resolveModelName(
+  detail: Record<string, unknown>,
+  listRow: LangfuseObservation,
+): string | null | undefined {
+  // The public REST detail endpoint names the field `model`; some self-hosted
+  // builds mirror the OTLP `providedModelName`. Prefer whichever is present.
+  if (typeof detail.providedModelName === "string") return detail.providedModelName;
+  if (typeof detail.model === "string") return detail.model;
+  return listRow.providedModelName ?? null;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = Array.from({ length: items.length });
+  let cursor = 0;
+  async function run(): Promise<void> {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await worker(items[index]!, index);
+    }
+  }
+  const workers: Promise<void>[] = [];
+  for (let i = 0; i < Math.min(limit, items.length); i++) {
+    workers.push(run());
+  }
+  await Promise.all(workers);
+  return results;
+}
+
+// Both the v2 LIST rows and the per-id DETAIL payload may carry input/output/
+// metadata either as raw JSON strings (Langfuse Cloud) or as already-parsed
+// objects (self-hosted/older builds). Parse them back into structured JsonValue
+// objects so the downstream converter can map gen_ai.input.messages etc. without
+// special-casing strings. This runs against the DETAIL response today, since the
+// list no longer returns content fields (issue #25).
 //
 //   undefined  -> undefined  (absent field)
 //   null       -> null       (explicit JSON null)

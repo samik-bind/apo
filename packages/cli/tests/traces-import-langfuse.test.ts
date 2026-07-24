@@ -5,33 +5,70 @@ const MAPPED_TRACE_ID_PATTERN = /^[0-9a-f]{32}$/;
 
 type FetchCall = { url: string; init?: RequestInit };
 
-function captureFetch(
-  responses: Array<{ status?: number; body?: unknown; headers?: Record<string, string> }>,
-): { calls: FetchCall[]; mock: ReturnType<typeof vi.spyOn> } {
+type Resp = { status?: number; body?: unknown; headers?: Record<string, string> };
+
+// URL-routed fetch mock. Hydration inserts per-id DETAIL calls between the
+// Langfuse LIST pages and the apo writes, so routing by URL (rather than call
+// order) keeps every endpoint's responses independent.
+function captureFetch(opts: {
+  listPages?: Resp[];
+  details?: Record<string, unknown>;
+  otlp?: Resp;
+  visibility?: Resp[];
+}): { calls: FetchCall[]; mock: ReturnType<typeof vi.spyOn> } {
   const calls: FetchCall[] = [];
-  const responsesCopy = [...responses];
-  let lastResponse: { status?: number; body?: unknown; headers?: Record<string, string> } | undefined;
+  const listQueue = [...(opts.listPages ?? [])];
+  const visQueue = [...(opts.visibility ?? [])];
+  let lastList: Resp | undefined;
+  let lastVis: Resp | undefined;
   const mock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
     calls.push({ url, init: init as RequestInit | undefined });
-    let next = responsesCopy.shift();
-    if (next === undefined) {
-      // Reuse the last response for any overflow (e.g. long polling).
-      next = lastResponse ?? { status: 404, body: { detail: "not found" } };
+
+    // Langfuse DETAIL: /api/public/observations/{id} (no /v2/).
+    const detailMatch = url.match(/\/api\/public\/observations\/([^/?]+)/);
+    if (detailMatch && !url.includes("/v2/")) {
+      const id = decodeURIComponent(detailMatch[1]!);
+      const body = opts.details?.[id] ?? detailRow({ id });
+      return jsonResp(body);
     }
-    lastResponse = next;
-    return new Response(JSON.stringify(next.body ?? {}), {
-      status: next.status ?? 200,
-      headers: { "Content-Type": "application/json", ...next.headers },
-    });
+    // Langfuse LIST (repeats last page on overflow, e.g. --wait polling).
+    if (url.includes("/api/public/v2/observations")) {
+      const next = listQueue.shift();
+      if (next) lastList = next;
+      const resp = lastList ?? { status: 404, body: { detail: "not found" } };
+      return jsonResp(resp.body, resp.status, resp.headers);
+    }
+    // apo OTLP POST.
+    if (url.includes("/api/public/otel/v1/traces")) {
+      const o = opts.otlp ?? { status: 200, body: {} };
+      return jsonResp(o.body, o.status, o.headers);
+    }
+    // apo visibility poll on /v1/runs/{mappedTraceId} (repeats last response).
+    if (url.includes("/v1/runs/")) {
+      const next = visQueue.shift();
+      if (next) lastVis = next;
+      const resp = lastVis ?? { status: 404, body: { detail: "not found" } };
+      return jsonResp(resp.body, resp.status, resp.headers);
+    }
+    return jsonResp({}, 404);
   });
   return { calls, mock };
+}
+
+function jsonResp(body: unknown, status = 200, headers?: Record<string, string>): Response {
+  return new Response(JSON.stringify(body ?? {}), {
+    status,
+    headers: { "Content-Type": "application/json", ...headers },
+  });
 }
 
 function langfusePage(rows: unknown[], cursor: string | null = null): unknown {
   return { data: rows, meta: { cursor } };
 }
 
+// A bare LIST row: the v2 list endpoint returns only summary fields. Content
+// (name/input/output/model) arrives via the detail endpoint instead (issue #25).
 function basicRow(over: Partial<Record<string, unknown>> = {}): unknown {
   return {
     id: over.id ?? "obs-1",
@@ -39,6 +76,21 @@ function basicRow(over: Partial<Record<string, unknown>> = {}): unknown {
     type: over.type ?? "SPAN",
     startTime: over.startTime ?? "2026-07-22T10:00:00.000000Z",
     endTime: over.endTime ?? "2026-07-22T10:00:01.000000Z",
+  };
+}
+
+// Full DETAIL payload for one observation.
+function detailRow(over: Partial<Record<string, unknown>> = {}): unknown {
+  return {
+    id: over.id ?? "obs-1",
+    traceId: over.traceId ?? SOURCE_TRACE_ID,
+    type: over.type ?? "SPAN",
+    startTime: over.startTime ?? "2026-07-22T10:00:00.000000Z",
+    endTime: over.endTime ?? "2026-07-22T10:00:01.000000Z",
+    name: over.name ?? "agent-llm-call",
+    model: over.model ?? "claude-opus-4-6",
+    input: over.input ?? JSON.stringify({ messages: [{ role: "user", content: "hi" }] }),
+    output: over.output ?? JSON.stringify({ messages: [{ role: "assistant", content: "hello" }] }),
   };
 }
 
@@ -71,17 +123,17 @@ afterEach(() => {
 describe("apo traces import langfuse — happy path (scene 1)", () => {
   it("fetches every page with Basic auth and submits to apo with Bearer auth, exits 0", async () => {
     const { run } = await import("../src/commands/traces-import-langfuse.ts");
-    const { calls } = captureFetch([
-      // Langfuse page 1
-      {
-        body: langfusePage([basicRow({ id: "a" }), basicRow({ id: "b" })], "cursor-2"),
+    const { calls } = captureFetch({
+      listPages: [
+        { body: langfusePage([basicRow({ id: "a" }), basicRow({ id: "b" })], "cursor-2") },
+        { body: langfusePage([basicRow({ id: "c" })], null) },
+      ],
+      details: {
+        a: detailRow({ id: "a" }),
+        b: detailRow({ id: "b" }),
+        c: detailRow({ id: "c" }),
       },
-      // Langfuse page 2
-      {
-        body: langfusePage([basicRow({ id: "c" })], null),
-      },
-      // apo OTLP POST
-      {
+      otlp: {
         status: 200,
         body: {},
         headers: {
@@ -90,11 +142,11 @@ describe("apo traces import langfuse — happy path (scene 1)", () => {
           "X-Otlp-Batch-Id": "batch-1",
         },
       },
-      // apo visibility poll (first is 404)
-      { status: 404, body: { detail: "not found" } },
-      // apo visibility poll (200)
-      { status: 200, body: { run: { id: "trace-1" }, calls: [], metrics: [] } },
-    ]);
+      visibility: [
+        { status: 404, body: { detail: "not found" } },
+        { status: 200, body: { run: { id: "trace-1" }, calls: [], metrics: [] } },
+      ],
+    });
 
     const out = captureStdout();
     const code = await run([
@@ -144,15 +196,16 @@ describe("apo traces import langfuse — happy path (scene 1)", () => {
 
   it("machine-readable --json output matches LangfuseImportResult", async () => {
     const { run } = await import("../src/commands/traces-import-langfuse.ts");
-    captureFetch([
-      { body: langfusePage([basicRow()], null) },
-      {
+    captureFetch({
+      listPages: [{ body: langfusePage([basicRow()], null) }],
+      details: { "obs-1": detailRow({ id: "obs-1" }) },
+      otlp: {
         status: 200,
         body: {},
         headers: { "X-Otlp-Accepted": "1", "X-Otlp-Rejected": "0", "X-Otlp-Batch-Id": "batch-1" },
       },
-      { status: 200, body: { run: { id: "trace-1" }, calls: [], metrics: [] } },
-    ]);
+      visibility: [{ status: 200, body: { run: { id: "trace-1" }, calls: [], metrics: [] } }],
+    });
 
     const out = captureStdout();
     const code = await run([
@@ -183,14 +236,15 @@ describe("apo traces import langfuse — happy path (scene 1)", () => {
 describe("apo traces import langfuse — partial rejection (scene 3)", () => {
   it("exits 2 and prints accepted/rejected counts + batch id; never claims success", async () => {
     const { run } = await import("../src/commands/traces-import-langfuse.ts");
-    captureFetch([
-      { body: langfusePage([basicRow(), basicRow({ id: "b" })], null) },
-      {
+    captureFetch({
+      listPages: [{ body: langfusePage([basicRow(), basicRow({ id: "b" })], null) }],
+      details: { "obs-1": detailRow({ id: "obs-1" }), b: detailRow({ id: "b" }) },
+      otlp: {
         status: 200,
         body: { partialSuccess: { errorMessage: "one bad span" } },
         headers: { "X-Otlp-Accepted": "1", "X-Otlp-Rejected": "1", "X-Otlp-Batch-Id": "batch-2" },
       },
-    ]);
+    });
 
     const out = captureStdout();
     const err = captureStderr();
@@ -217,16 +271,17 @@ describe("apo traces import langfuse — partial rejection (scene 3)", () => {
 describe("apo traces import langfuse — projection timeout (scene 4)", () => {
   it("exits 2 when the trace never becomes visible within the deadline", async () => {
     const { run } = await import("../src/commands/traces-import-langfuse.ts");
-    captureFetch([
-      { body: langfusePage([basicRow()], null) },
-      {
+    captureFetch({
+      listPages: [{ body: langfusePage([basicRow()], null) }],
+      details: { "obs-1": detailRow({ id: "obs-1" }) },
+      otlp: {
         status: 200,
         body: {},
         headers: { "X-Otlp-Accepted": "1", "X-Otlp-Rejected": "0", "X-Otlp-Batch-Id": "batch-3" },
       },
-      // Subsequent visibility polls all 404 (mock repeats the last one).
-      { status: 404, body: { detail: "not found" } },
-    ]);
+      // Subsequent visibility polls all 404 (last response repeats).
+      visibility: [{ status: 404, body: { detail: "not found" } }],
+    });
 
     const err = captureStderr();
     const code = await run(
@@ -292,9 +347,9 @@ describe("apo traces import langfuse — config + arg errors", () => {
 describe("apo traces import langfuse — source not yet available (empty)", () => {
   it("exits 75 (retryable) with an actionable hint when Langfuse has no observations yet, without polling", async () => {
     const { run } = await import("../src/commands/traces-import-langfuse.ts");
-    const { calls } = captureFetch([
-      { body: langfusePage([], null) },
-    ]);
+    const { calls } = captureFetch({
+      listPages: [{ body: langfusePage([], null) }],
+    });
 
     const err = captureStderr();
     const code = await run([
@@ -322,17 +377,20 @@ describe("apo traces import langfuse — source not yet available (empty)", () =
 describe("apo traces import langfuse — --wait source polling", () => {
   it("polls Langfuse until observations appear, then imports → exit 0", async () => {
     const { run } = await import("../src/commands/traces-import-langfuse.ts");
-    const { calls } = captureFetch([
-      { body: langfusePage([], null) },
-      { body: langfusePage([], null) },
-      { body: langfusePage([basicRow({ id: "a" })], null) },
-      {
+    const { calls } = captureFetch({
+      listPages: [
+        { body: langfusePage([], null) },
+        { body: langfusePage([], null) },
+        { body: langfusePage([basicRow({ id: "a" })], null) },
+      ],
+      details: { a: detailRow({ id: "a" }) },
+      otlp: {
         status: 200,
         body: {},
         headers: { "X-Otlp-Accepted": "1", "X-Otlp-Rejected": "0", "X-Otlp-Batch-Id": "batch-1" },
       },
-      { status: 200, body: { run: { id: "trace-1" }, calls: [], metrics: [] } },
-    ]);
+      visibility: [{ status: 200, body: { run: { id: "trace-1" }, calls: [], metrics: [] } }],
+    });
 
     const out = captureStdout();
     const code = await run(
@@ -357,9 +415,9 @@ describe("apo traces import langfuse — --wait source polling", () => {
 
   it("exits 75 (retryable) when --wait deadline elapses with no observations", async () => {
     const { run } = await import("../src/commands/traces-import-langfuse.ts");
-    const { calls } = captureFetch([
-      { body: langfusePage([], null) },
-    ]);
+    const { calls } = captureFetch({
+      listPages: [{ body: langfusePage([], null) }],
+    });
     let first = true;
     const now = () => {
       if (first) { first = false; return 0; }
@@ -393,7 +451,7 @@ describe("apo traces import langfuse — --wait source polling", () => {
 
   it("still exits 2 (hard error) on Langfuse 401 even with --wait", async () => {
     const { run } = await import("../src/commands/traces-import-langfuse.ts");
-    captureFetch([{ status: 401, body: {} }]);
+    captureFetch({ listPages: [{ status: 401, body: {} }] });
 
     const err = captureStderr();
     const code = await run(

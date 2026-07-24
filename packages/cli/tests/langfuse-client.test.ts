@@ -17,21 +17,46 @@ type FetchCall = {
   init?: RequestInit;
 };
 
+type ListPage = { status?: number; body?: unknown; headers?: Record<string, string> };
+
+// captureFetch routes requests by URL:
+//   - `/api/public/v2/observations` (LIST)  -> drained from the `pages` queue
+//   - `/api/public/observations/{id}` (DETAIL) -> looked up by id in `details`
+// The detail endpoint is the source of truth for content fields, so every
+// successful import now fires N detail requests after the list pages. Routing
+// by URL (instead of call order) keeps the detail responses order-independent.
 function captureFetch(
-  responses: Array<{ status?: number; body?: unknown; headers?: Record<string, string> }>,
-): { calls: FetchCall[]; mock: ReturnType<typeof vi.spyOn> } {
+  pages: ListPage[],
+  details: Record<string, unknown> = {},
+): { calls: FetchCall[]; listCalls: FetchCall[]; detailCalls: FetchCall[]; mock: ReturnType<typeof vi.spyOn> } {
   const calls: FetchCall[] = [];
+  const listCalls: FetchCall[] = [];
+  const detailCalls: FetchCall[] = [];
+  const pageQueue = [...pages];
   const mock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: URL | RequestInfo, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     calls.push({ url, init });
-    const next = responses.shift();
-    if (!next) throw new Error(`fetch called more times than mocked; last url: ${url}`);
+
+    const detailMatch = url.match(/\/api\/public\/observations\/([^/?]+)/);
+    if (detailMatch) {
+      const id = decodeURIComponent(detailMatch[1]!);
+      detailCalls.push({ url, init });
+      if (!(id in details)) throw new Error(`captureFetch: no detail mock for observation ${id}`);
+      return new Response(JSON.stringify(details[id] ?? {}), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    listCalls.push({ url, init });
+    const next = pageQueue.shift();
+    if (!next) throw new Error(`captureFetch: list page queue underflow; last url: ${url}`);
     return new Response(JSON.stringify(next.body ?? {}), {
       status: next.status ?? 200,
       headers: { "Content-Type": "application/json", ...next.headers },
     });
   });
-  return { calls, mock };
+  return { calls, listCalls, detailCalls, mock };
 }
 
 function basicConfig(over: Partial<LangfuseConnectorConfig> = {}): LangfuseConnectorConfig {
@@ -54,6 +79,44 @@ function obsRow(over: Partial<{ id: string; traceId: string }> = {}): unknown {
 
 function page(body: unknown[], meta: { cursor?: string | null } = {}): unknown {
   return { data: body, meta };
+}
+
+// A *bare* list row: the v2 LIST endpoint now returns only summary fields.
+// Crucially it is MISSING name/input/output/metadata/model — those only live
+// on the detail endpoint. This mirrors the real regression from issue #25.
+function bareListRow(over: Partial<{ id: string; traceId: string; type: string }> = {}): unknown {
+  return {
+    id: over.id ?? "obs-1",
+    traceId: over.traceId ?? TRACE_ID,
+    type: over.type ?? "GENERATION",
+    parentObservationId: null,
+    startTime: "2026-07-22T10:00:00.000000Z",
+    endTime: "2026-07-22T10:00:01.000000Z",
+    usageDetails: { input: 100, output: 50 },
+    totalCost: 0.012,
+  };
+}
+
+// The full payload returned by GET /api/public/observations/{id}. Includes
+// every content-bearing field the list omits (name/input/output/metadata/model).
+function detailBody(over: Record<string, unknown> = {}): unknown {
+  const pick = (key: string, fallback: unknown): unknown =>
+    key in over ? over[key] : fallback;
+  return {
+    id: pick("id", "obs-1"),
+    traceId: pick("traceId", TRACE_ID),
+    type: pick("type", "GENERATION"),
+    parentObservationId: pick("parentObservationId", null),
+    startTime: pick("startTime", "2026-07-22T10:00:00.000000Z"),
+    endTime: pick("endTime", "2026-07-22T10:00:01.000000Z"),
+    name: pick("name", "agent-llm-call"),
+    level: pick("level", "DEFAULT"),
+    input: pick("input", JSON.stringify({ messages: [{ role: "user", content: "hi" }] })),
+    output: pick("output", JSON.stringify({ messages: [{ role: "assistant", content: "hello" }] })),
+    metadata: pick("metadata", JSON.stringify({ request_id: "req-1" })),
+    model: pick("model", "claude-opus-4-6"),
+    usageDetails: pick("usageDetails", { input: 100, output: 50 }),
+  };
 }
 
 beforeEach(() => {
@@ -148,23 +211,32 @@ describe("fetchLangfuseTrace pagination", () => {
   });
 
   it("follows cursors until meta.cursor is absent and accumulates all rows", async () => {
-    const { calls } = captureFetch([
-      { body: page([obsRow({ id: "a" }), obsRow({ id: "b" })], { cursor: "cursor-1" }) },
-      { body: page([obsRow({ id: "c" })], { cursor: "cursor-2" }) },
-      { body: page([obsRow({ id: "d" })], { cursor: null }) },
-    ]);
+    const { listCalls } = captureFetch(
+      [
+        { body: page([obsRow({ id: "a" }), obsRow({ id: "b" })], { cursor: "cursor-1" }) },
+        { body: page([obsRow({ id: "c" })], { cursor: "cursor-2" }) },
+        { body: page([obsRow({ id: "d" })], { cursor: null }) },
+      ],
+      {
+        a: detailBody({ id: "a" }),
+        b: detailBody({ id: "b" }),
+        c: detailBody({ id: "c" }),
+        d: detailBody({ id: "d" }),
+      },
+    );
 
     const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig());
 
-    expect(calls).toHaveLength(3);
+    // 3 list pages; the 4 detail hydrations are routed separately.
+    expect(listCalls).toHaveLength(3);
     expect(graph.sourceHost).toBe(DEFAULT_HOST);
     expect(graph.sourceTraceId).toBe(TRACE_ID);
     expect(graph.observations.map((o) => o.id)).toEqual(["a", "b", "c", "d"]);
 
-    // Every request carries the same traceId, full field list, and Basic auth.
+    // Every LIST request carries the same traceId, full field list, and Basic auth.
     // parseIoAsJson must NOT be sent: Langfuse Cloud removed it from the v2
     // observations endpoint and now 400s on it. I/O is parsed client-side.
-    for (const { url, init } of calls) {
+    for (const { url, init } of listCalls) {
       expect(url).toContain("/api/public/v2/observations");
       expect(url).toContain(`traceId=${TRACE_ID}`);
       expect(url).toContain("fields=");
@@ -177,9 +249,9 @@ describe("fetchLangfuseTrace pagination", () => {
       expect(decoded).toBe("pk-lf-test:sk-lf-test");
     }
 
-    // Cursor query param threaded correctly.
-    expect(calls[1]!.url).toContain("cursor=cursor-1");
-    expect(calls[2]!.url).toContain("cursor=cursor-2");
+    // Cursor query param threaded correctly across list pages.
+    expect(listCalls[1]!.url).toContain("cursor=cursor-1");
+    expect(listCalls[2]!.url).toContain("cursor=cursor-2");
   });
 
   it("fails on 401/403 with a credential hint and never reveals keys", async () => {
@@ -239,22 +311,171 @@ describe("fetchLangfuseTrace pagination", () => {
     ).rejects.toThrow(/max-observations|ceiling|safety/i);
   });
 
-  it("attaches a 15s AbortSignal to every page request", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch");
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify(page([obsRow()], { cursor: null })), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+  it("attaches a 15s AbortSignal to every list page request", async () => {
+    const { listCalls, detailCalls } = captureFetch(
+      [{ body: page([obsRow({ id: "obs-1" })], { cursor: null }) }],
+      { "obs-1": detailBody({ id: "obs-1" }) },
     );
 
     await fetchLangfuseTrace(TRACE_ID, basicConfig());
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(listCalls).toHaveLength(1);
+    const init = listCalls[0]!.init as RequestInit;
     expect(init.signal).toBeInstanceOf(AbortSignal);
     // The signal must not already be aborted (the timer is what aborts it).
     expect((init.signal as AbortSignal).aborted).toBe(false);
+
+    // Detail requests are also time-bounded with an AbortSignal.
+    expect(detailCalls).toHaveLength(1);
+    const detailInit = detailCalls[0]!.init as RequestInit;
+    expect(detailInit.signal).toBeInstanceOf(AbortSignal);
+    expect((detailInit.signal as AbortSignal).aborted).toBe(false);
+  });
+});
+
+describe("fetchLangfuseTrace detail hydration (issue #25)", () => {
+  // Regression: the v2 LIST endpoint stopped returning content-bearing fields
+  // (name/input/output/metadata/model). Those fields ONLY live on the per-id
+  // detail endpoint GET /api/public/observations/{id}. If hydration is skipped,
+  // every imported trace arrives empty — generations show no prompt/completion/
+  // reasoning, tools show no args/result, model is blank.
+  beforeEach(() => {
+    withKeys();
+  });
+
+  it("hydrates name/input/output/metadata/model from the detail endpoint when the list omits them", async () => {
+    // The list row has NO content fields — exactly the bug.
+    const { listCalls, detailCalls } = captureFetch(
+      [{ body: page([bareListRow({ id: "obs-1" })], { cursor: null }) }],
+      { "obs-1": detailBody({ id: "obs-1" }) },
+    );
+
+    const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig());
+    const obs = graph.observations[0]!;
+
+    // Content all comes from the detail endpoint.
+    expect(obs.name).toBe("agent-llm-call");
+    expect(obs.input).toEqual({ messages: [{ role: "user", content: "hi" }] });
+    expect(obs.output).toEqual({ messages: [{ role: "assistant", content: "hello" }] });
+    expect(obs.metadata).toEqual({ request_id: "req-1" });
+    expect(obs.providedModelName).toBe("claude-opus-4-6");
+
+    // List is still used for discovery; detail is the per-id source of truth.
+    expect(listCalls).toHaveLength(1);
+    expect(listCalls[0]!.url).toContain("/api/public/v2/observations");
+    expect(detailCalls).toHaveLength(1);
+    expect(detailCalls[0]!.url).toContain("/api/public/observations/obs-1");
+    expect(detailCalls[0]!.url).not.toContain("/v2/");
+  });
+
+  it("sends Basic auth + AbortSignal to every detail request", async () => {
+    const { detailCalls } = captureFetch(
+      [{ body: page([bareListRow({ id: "obs-1" })], { cursor: null }) }],
+      { "obs-1": detailBody({ id: "obs-1" }) },
+    );
+
+    await fetchLangfuseTrace(TRACE_ID, basicConfig());
+
+    expect(detailCalls).toHaveLength(1);
+    const headers = new Headers(detailCalls[0]!.init?.headers);
+    const auth = headers.get("authorization") ?? "";
+    expect(auth.startsWith("Basic ")).toBe(true);
+    const decoded = Buffer.from(auth.slice("Basic ".length), "base64").toString("utf8");
+    expect(decoded).toBe("pk-lf-test:sk-lf-test");
+    expect(detailCalls[0]!.init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("hydrates every observation across multiple list pages (bounded concurrency)", async () => {
+    captureFetch(
+      [
+        { body: page([bareListRow({ id: "a" }), bareListRow({ id: "b" })], { cursor: "c1" }) },
+        { body: page([bareListRow({ id: "c" })], { cursor: null }) },
+      ],
+      {
+        a: detailBody({ id: "a", name: "gen-a", model: "model-a" }),
+        b: detailBody({ id: "b", name: "tool-b", type: "TOOL", model: "model-b" }),
+        c: detailBody({ id: "c", name: "span-c", type: "SPAN", model: "model-c" }),
+      },
+    );
+
+    const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig());
+
+    expect(graph.observations.map((o) => o.id)).toEqual(["a", "b", "c"]);
+    expect(graph.observations.map((o) => o.name)).toEqual(["gen-a", "tool-b", "span-c"]);
+    expect(graph.observations.map((o) => o.providedModelName)).toEqual(["model-a", "model-b", "model-c"]);
+  });
+
+  it("treats the detail endpoint as authoritative — detail content overrides any stale list content", async () => {
+    // Defensive: even if the list returns SOME content, the detail wins so we
+    // never serve stale/partial content to the converter.
+    captureFetch(
+      [
+        {
+          body: page(
+            [
+              {
+                ...bareListRow({ id: "obs-1" }),
+                name: "STALE-FROM-LIST",
+                model: "stale-model",
+              },
+            ],
+            { cursor: null },
+          ),
+        },
+      ],
+      { "obs-1": detailBody({ id: "obs-1", name: "agent-llm-call", model: "claude-opus-4-6" }) },
+    );
+
+    const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig());
+    const obs = graph.observations[0]!;
+
+    expect(obs.name).toBe("agent-llm-call");
+    expect(obs.providedModelName).toBe("claude-opus-4-6");
+  });
+
+  it("preserves structural fields (parent/timing/usage) on the merged observation", async () => {
+    captureFetch(
+      [
+        {
+          body: page(
+            [
+              {
+                ...bareListRow({ id: "root" }),
+                parentObservationId: null,
+                usageDetails: { input: 7, output: 3 },
+                totalCost: 0.5,
+              },
+              {
+                ...bareListRow({ id: "child" }),
+                parentObservationId: "root",
+              },
+            ],
+            { cursor: null },
+          ),
+        },
+      ],
+      {
+        // Detail is a superset: it carries the same structural fields as the
+        // list, plus content. The merge must keep them, not drop them.
+        root: detailBody({ id: "root", name: "root-gen", parentObservationId: null, usageDetails: { input: 7, output: 3 } }),
+        child: detailBody({ id: "child", name: "child-tool", type: "TOOL", parentObservationId: "root" }),
+      },
+    );
+
+    const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig());
+    const byId = new Map(graph.observations.map((o) => [o.id, o]));
+
+    expect(byId.get("child")!.parentObservationId).toBe("root");
+    expect(byId.get("root")!.usageDetails).toEqual({ input: 7, output: 3 });
+  });
+
+  it("throws (never silently drops content) when a detail request fails", async () => {
+    captureFetch(
+      [{ body: page([bareListRow({ id: "obs-1" })], { cursor: null }) }],
+      // No detail mock -> captureFetch throws a clear error for the detail call.
+    );
+
+    await expect(fetchLangfuseTrace(TRACE_ID, basicConfig())).rejects.toThrow(/obs-1|detail/i);
   });
 });
 
@@ -264,11 +485,14 @@ describe("pollLangfuseTrace", () => {
   });
 
   it("retries on empty with exponential backoff until observations appear", async () => {
-    const { calls } = captureFetch([
-      { body: page([], { cursor: null }) },
-      { body: page([], { cursor: null }) },
-      { body: page([obsRow({ id: "a" })], { cursor: null }) },
-    ]);
+    const { listCalls } = captureFetch(
+      [
+        { body: page([], { cursor: null }) },
+        { body: page([], { cursor: null }) },
+        { body: page([obsRow({ id: "a" })], { cursor: null }) },
+      ],
+      { a: detailBody({ id: "a" }) },
+    );
     const sleeps: number[] = [];
 
     const graph = await pollLangfuseTrace(TRACE_ID, basicConfig(), {
@@ -281,7 +505,7 @@ describe("pollLangfuseTrace", () => {
     });
 
     expect(graph.observations.map((o) => o.id)).toEqual(["a"]);
-    expect(calls).toHaveLength(3);
+    expect(listCalls).toHaveLength(3);
     // Two backoffs before the successful third attempt: 2000 then 3000.
     expect(sleeps).toEqual([2_000, 3_000]);
   });
@@ -330,10 +554,13 @@ describe("pollLangfuseTrace", () => {
   });
 
   it("clamps each backoff sleep to maxIntervalMs and the remaining time", async () => {
-    captureFetch([
-      { body: page([], { cursor: null }) },
-      { body: page([obsRow()], { cursor: null }) },
-    ]);
+    captureFetch(
+      [
+        { body: page([], { cursor: null }) },
+        { body: page([obsRow({ id: "obs-1" })], { cursor: null }) },
+      ],
+      { "obs-1": detailBody({ id: "obs-1" }) },
+    );
     const sleeps: number[] = [];
 
     await pollLangfuseTrace(TRACE_ID, basicConfig(), {
@@ -352,32 +579,33 @@ describe("pollLangfuseTrace", () => {
 });
 
 describe("fetchLangfuseTrace I/O coercion (parseIoAsJson removed)", () => {
-  // Langfuse Cloud's v2 observations endpoint no longer supports
-  // parseIoAsJson=true — input/output/metadata always come back as raw JSON
-  // strings. The connector must parse them client-side so the downstream
-  // converter still receives structured JsonValue objects.
+  // Content now arrives via the per-id DETAIL endpoint. Both the detail payload
+  // and (legacy) list rows may carry input/output/metadata either as raw JSON
+  // strings (Langfuse Cloud) or as already-parsed objects (self-hosted builds).
+  // The connector parses them client-side so the downstream converter receives
+  // structured JsonValue objects.
   beforeEach(() => {
     withKeys();
   });
 
-  function rowWithRawIo(over: Record<string, unknown> = {}): unknown {
+  function ioDetail(over: Record<string, unknown> = {}): unknown {
     // Respect explicit values (including null) via key-presence checks.
     // Using `??` would drop an intentional null input back to the default.
     const pick = (key: string, fallback: unknown): unknown =>
       key in over ? over[key] : fallback;
-    return {
+    return detailBody({
       id: pick("id", "obs-1"),
-      traceId: pick("traceId", TRACE_ID),
-      type: pick("type", "GENERATION"),
-      startTime: pick("startTime", "2026-07-22T10:00:00.000000Z"),
       input: pick("input", JSON.stringify({ messages: [{ role: "user", content: "hi" }] })),
       output: pick("output", JSON.stringify({ messages: [{ role: "assistant", content: "hello" }] })),
       metadata: pick("metadata", JSON.stringify({ request_id: "req-1" })),
-    };
+    });
   }
 
   it("parses raw JSON-string input/output/metadata into structured values", async () => {
-    captureFetch([{ body: page([rowWithRawIo()], { cursor: null }) }]);
+    captureFetch(
+      [{ body: page([bareListRow({ id: "obs-1" })], { cursor: null }) }],
+      { "obs-1": ioDetail() },
+    );
 
     const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig());
     const obs = graph.observations[0]!;
@@ -388,21 +616,17 @@ describe("fetchLangfuseTrace I/O coercion (parseIoAsJson removed)", () => {
   });
 
   it("parses arrays and primitives encoded as JSON strings", async () => {
-    captureFetch([
+    captureFetch(
+      [{ body: page([bareListRow({ id: "arr" })], { cursor: null }) }],
       {
-        body: page(
-          [
-            rowWithRawIo({
-              id: "arr",
-              input: JSON.stringify([1, "two", { nested: true }]),
-              output: JSON.stringify(42),
-              metadata: JSON.stringify("plain-string-meta"),
-            }),
-          ],
-          { cursor: null },
-        ),
+        "arr": ioDetail({
+          id: "arr",
+          input: JSON.stringify([1, "two", { nested: true }]),
+          output: JSON.stringify(42),
+          metadata: JSON.stringify("plain-string-meta"),
+        }),
       },
-    ]);
+    );
 
     const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig());
     const obs = graph.observations[0]!;
@@ -413,9 +637,10 @@ describe("fetchLangfuseTrace I/O coercion (parseIoAsJson removed)", () => {
   });
 
   it("preserves explicit JSON null input/output (not coerced to absent)", async () => {
-    captureFetch([
-      { body: page([rowWithRawIo({ id: "n", input: null, output: null })], { cursor: null }) },
-    ]);
+    captureFetch(
+      [{ body: page([bareListRow({ id: "n" })], { cursor: null }) }],
+      { n: ioDetail({ id: "n", input: null, output: null }) },
+    );
 
     const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig());
     const obs = graph.observations[0]!;
@@ -425,21 +650,19 @@ describe("fetchLangfuseTrace I/O coercion (parseIoAsJson removed)", () => {
   });
 
   it("leaves absent I/O fields absent (undefined), distinct from null", async () => {
-    captureFetch([
+    captureFetch(
+      [{ body: page([bareListRow({ id: "absent" })], { cursor: null }) }],
       {
-        body: page(
-          [
-            {
-              id: "absent",
-              traceId: TRACE_ID,
-              type: "SPAN",
-              startTime: "2026-07-22T10:00:00.000000Z",
-            },
-          ],
-          { cursor: null },
-        ),
+        // A detail payload that simply omits input/output/metadata.
+        absent: {
+          id: "absent",
+          traceId: TRACE_ID,
+          type: "SPAN",
+          startTime: "2026-07-22T10:00:00.000000Z",
+          name: "bare-span",
+        },
       },
-    ]);
+    );
 
     const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig());
     const obs = graph.observations[0]!;
@@ -450,14 +673,10 @@ describe("fetchLangfuseTrace I/O coercion (parseIoAsJson removed)", () => {
   });
 
   it("falls back to the raw string when input is not valid JSON (defensive, no crash)", async () => {
-    captureFetch([
-      {
-        body: page(
-          [rowWithRawIo({ id: "bad", input: "not valid json {" })],
-          { cursor: null },
-        ),
-      },
-    ]);
+    captureFetch(
+      [{ body: page([bareListRow({ id: "bad" })], { cursor: null }) }],
+      { bad: ioDetail({ id: "bad", input: "not valid json {" }) },
+    );
 
     const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig());
     const obs = graph.observations[0]!;
@@ -467,14 +686,10 @@ describe("fetchLangfuseTrace I/O coercion (parseIoAsJson removed)", () => {
 
   it("passes through already-structured I/O unchanged (self-hosted/older Langfuse)", async () => {
     const structured = { messages: [{ role: "user", content: "already object" }] };
-    captureFetch([
-      {
-        body: page(
-          [rowWithRawIo({ id: "obj", input: structured, output: structured })],
-          { cursor: null },
-        ),
-      },
-    ]);
+    captureFetch(
+      [{ body: page([bareListRow({ id: "obj" })], { cursor: null }) }],
+      { obj: ioDetail({ id: "obj", input: structured, output: structured }) },
+    );
 
     const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig());
     const obs = graph.observations[0]!;
