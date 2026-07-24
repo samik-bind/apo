@@ -93,6 +93,45 @@ services:
       retries: 5
       start_period: 15s
 
+  # SPEC-144: Bundled Executor. Reuses the backend image as a separate process
+  # that pulls work over HTTP via the SPEC-143 protocol. It mounts NO database or
+  # task-source cache, publishes NO port, and is never internet-facing. The
+  # supervisor runs as root and drops Task child processes to appuser.
+  executor:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["python", "-m", "apo.executor", "connect"]
+    user: "0:0"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - apo_executor_state:/var/lib/apo-executor
+      - apo_executor_bootstrap:/var/lib/apo/executor-bootstrap
+    environment:
+      - APO_CONTROL_PLANE_URL=http://backend:8000
+      - APO_EXECUTOR_STATE_DIR=/var/lib/apo-executor
+      - APO_EXECUTOR_NAME=${APO_EXECUTOR_NAME:-bundled-1}
+      - APO_EXECUTOR_MAX_CONCURRENCY=${APO_EXECUTOR_MAX_CONCURRENCY:-1}
+      - APO_EXECUTOR_DRIVER=subprocess
+      - APO_EXECUTOR_TASK_USER=appuser
+      - APO_TASK_ENV_ALLOWLIST=${APO_TASK_ENV_ALLOWLIST:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-}
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   task_source_cache:
   apo_db:
+  apo_executor_state:
+  apo_executor_bootstrap:

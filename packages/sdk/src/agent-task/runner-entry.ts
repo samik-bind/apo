@@ -14,6 +14,7 @@ import {
 } from "./public.ts";
 import { createOtelAgentTaskTraceClient } from "./otel-trace-client.ts";
 import { persistFileArtifacts } from "./deliverables/upload.ts";
+import { writeResultAtomically } from "./runner-result.ts";
 
 async function main(): Promise<void> {
   const taskDir = process.env.AGENT_TASK_DIR;
@@ -78,17 +79,26 @@ async function main(): Promise<void> {
       })
     : { jsonDeliverables: result.deliverables, artifactUploads: [] };
 
-  process.stdout.write(
-    JSON.stringify({
-      taskId: result.task.id,
-      adapterName: loaded.adapter.name,
-      pass: result.result.pass,
-      checks: result.result.checks,
-      deliverables: recorded.jsonDeliverables,
-      artifacts: recorded.artifactUploads,
-      traceRunId: result.traceRunId ?? null,
-    }),
-  );
+  // SPEC-144: the result body goes to AGENT_TASK_RESULT_PATH (an atomic, bounded
+  // JSON file the Bundled Executor reads) when set; stdout is human diagnostics
+  // only and can never replace the file. The dev/legacy path keeps stdout so
+  // `apo` CLI capture and tests keep working.
+  const resultBody = JSON.stringify({
+    taskId: result.task.id,
+    adapterName: loaded.adapter.name,
+    pass: result.result.pass,
+    checks: result.result.checks,
+    deliverables: recorded.jsonDeliverables,
+    artifacts: recorded.artifactUploads,
+    traceRunId: result.traceRunId ?? null,
+  });
+
+  const resultPath = process.env.AGENT_TASK_RESULT_PATH;
+  if (resultPath) {
+    writeResultAtomically(resultPath, resultBody);
+  } else {
+    process.stdout.write(resultBody);
+  }
 }
 
 main().catch((error) => {

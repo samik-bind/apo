@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "dev": ".venv/bin/uvicorn apo.api:app --reload --port 8000",
+    "executor": "uv run python -m apo.executor connect",
     "test": "uv run pytest",
     "typecheck": "uv run basedpyright"
   }

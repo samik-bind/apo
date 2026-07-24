@@ -151,10 +151,13 @@ def require_attempt_lease(
     raw_gen = claims.get("lease_generation")
     if not isinstance(raw_gen, int):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid attempt token")
+    raw_executor = claims.get("executor_id")
+    # Caller Attempts have no persistent Executor (executor_id is None); preserve
+    # None rather than stringifying it so the own-only check matches the row.
     lease = CurrentAttemptLease(
         attempt_id=attempt_id,
         lease_generation=raw_gen,
-        executor_id=str(claims.get("executor_id")),
+        executor_id=str(raw_executor) if raw_executor is not None else "",
     )
     attempt = session.get(TaskExecutionAttemptDB, attempt_id)
     if attempt is None or attempt.lease_generation != lease.lease_generation:
