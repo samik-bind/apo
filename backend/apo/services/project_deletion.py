@@ -45,6 +45,9 @@ from ..models.db import (
     CallMetricDB,
     CommentDB,
     CommentReactionDB,
+    ExecutorDB,
+    ExecutorEnrollmentTokenDB,
+    ExecutorPoolDB,
     GithubConnectionDB,
     LoggedCallDB,
     OtlpIngestBatchDB,
@@ -58,6 +61,7 @@ from ..models.db import (
     RunMetricDB,
     ScoreConfigDB,
     SessionDB,
+    TaskExecutionAttemptDB,
     TaskRevisionDB,
     WebhookDB,
 )
@@ -119,6 +123,13 @@ def delete_project_data(
             AgentTaskBatchRunDB.project == project_id
         ),
     )
+    # SPEC-143: Attempts FK task_runs/batch_runs/pools; remove before their parents.
+    try:
+        deleted["task_execution_attempts"] = _delete_by_column(
+            session, TaskExecutionAttemptDB, TaskExecutionAttemptDB.project == project_id
+        )
+    except Exception:
+        deleted["task_execution_attempts"] = 0
 
     # --- Direct soft references (``project`` / ``project_id`` column, no FK).
     # These don't block the project delete but would orphan if left behind.
@@ -170,6 +181,22 @@ def delete_project_data(
     deleted["agent_task_schedules"] = _delete_by_column(
         session, AgentTaskScheduleDB, AgentTaskScheduleDB.project == project_id
     )
+    # SPEC-143: executor enrollment tokens, executors, then pools (pools are
+    # referenced by executors/tokens, so they go last of the three).
+    try:
+        deleted["executor_enrollment_tokens"] = _delete_by_column(
+            session, ExecutorEnrollmentTokenDB, ExecutorEnrollmentTokenDB.project == project_id
+        )
+        deleted["executors"] = _delete_by_column(
+            session, ExecutorDB, ExecutorDB.project == project_id
+        )
+        deleted["executor_pools"] = _delete_by_column(
+            session, ExecutorPoolDB, ExecutorPoolDB.project == project_id
+        )
+    except Exception:
+        deleted.setdefault("executor_enrollment_tokens", 0)
+        deleted.setdefault("executors", 0)
+        deleted.setdefault("executor_pools", 0)
     # SPEC-136: per-project model pricing rows (never __global__; globals are
     # owned by the bundled JSON). Cascading FKs remove the tiers/prices.
     deleted["models"] = _delete_by_column(

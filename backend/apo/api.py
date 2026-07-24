@@ -44,6 +44,7 @@ from .routes import (
     project_members,
     github,
     system_runtime,
+    executor_protocol,
 )
 
 
@@ -68,11 +69,14 @@ async def lifespan(app: FastAPI):
         start_trace_ingestion_worker,
         stop_trace_ingestion_worker,
     )
+    from .services.execution_leases import start_lease_reaper, stop_lease_reaper
     apply_max_page_count()
     start_schedule_dispatcher()
     start_retention_loop()
     start_trace_ingestion_worker()
+    start_lease_reaper()
     yield
+    await stop_lease_reaper()
     await stop_trace_ingestion_worker()
     stop_retention_loop()
     stop_schedule_dispatcher()
@@ -133,6 +137,7 @@ def create_app() -> FastAPI:
     app.include_router(project_members.router)
     app.include_router(github.router)
     app.include_router(system_runtime.router)
+    app.include_router(executor_protocol.router)
 
     return app
 

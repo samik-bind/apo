@@ -125,6 +125,13 @@ def _delete_old_batch_runs(session: Session, cutoff: datetime) -> int:
         return result.rowcount or 0
 
     deleted = 0
+    # SPEC-143: attempts FK task_runs; remove them first.
+    if _table_exists(session, "task_execution_attempts"):
+        deleted += _exec_in(
+            "DELETE FROM task_execution_attempts WHERE task_run_id IN "
+            "(SELECT id FROM agent_task_runs WHERE batch_run_id IN :ids)",
+            old_batch_ids,
+        )
     if _table_exists(session, "agent_task_runs"):
         deleted += _exec_in(
             "DELETE FROM agent_task_runs WHERE batch_run_id IN :ids",

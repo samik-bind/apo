@@ -58,6 +58,11 @@ PUBLIC_PATHS: tuple[str, ...] = (
     # session/API key, otherwise the middleware 401-blocks it before the
     # handler runs and `apo project create` can never succeed.
     "/v1/projects/bootstrap",
+    # SPEC-143: the executor protocol authenticates itself (one-time enrollment
+    # token, long-lived apo_ex_ credential, or task_execution_attempt JWT) inside
+    # each handler via Depends. Keeping it out of the user/api-key auth path
+    # isolates the protocol's own credential model.
+    "/v1/executor-protocol/v1",
 )
 
 _COOKIE_NAMES = ("authjs.session-token", "__Secure-authjs.session-token")
