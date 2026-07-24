@@ -159,7 +159,14 @@ class TraceProjector:
             attrs = span.attributes or {}
             # SPEC-137: prefer canonical apo.trace.* attributes; fall back to
             # legacy apo.run.* for compatibility with older senders.
-            flow_name = attrs.get("apo.trace.name") or attrs.get("apo.run.flow_name")
+            # If neither is present, use the root span's own name — it is
+            # always set in OTLP and prevents the run from rendering as
+            # "Untitled" when the source had no trace-level name.
+            flow_name = (
+                attrs.get("apo.trace.name")
+                or attrs.get("apo.run.flow_name")
+                or span.span_name
+            )
             if flow_name:
                 run.flow_name = str(flow_name)
             if attrs.get("apo.run.task_id"):

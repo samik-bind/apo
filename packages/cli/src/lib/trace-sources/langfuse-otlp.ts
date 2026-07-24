@@ -178,8 +178,9 @@ function appendRootProvenance(
   attributes.push(
     stringAttr("apo.trace.source.trace_id", graph.sourceTraceId),
   );
-  if (observation.traceName) {
-    attributes.push(stringAttr("apo.trace.name", observation.traceName));
+  const traceName = observation.traceName ?? observation.name;
+  if (traceName) {
+    attributes.push(stringAttr("apo.trace.name", traceName));
   }
   const tags = mergeTraceTags(observation.tags);
   attributes.push(anyValueAttr("apo.trace.tags", tags));

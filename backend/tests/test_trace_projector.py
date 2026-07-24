@@ -174,6 +174,75 @@ class TestTraceProjectorBasics:
             assert call.output.get("text") == "hello"
 
 
+class TestTraceProjectorFlowName:
+    """The run name (flow_name) follows a fallback chain:
+
+    apo.trace.name → apo.run.flow_name → root span name.
+    The root span name is always present in OTLP, so a run never
+    renders as "Untitled" just because the source omitted a name.
+    """
+
+    def test_explicit_trace_name_wins(self):
+        span = _make_canonical_span(
+            trace_id="flow-name-01",
+            span_id="root-fn-01",
+            name="span.internal",
+            attributes={
+                "apo.trace.name": "explicit-trace-name",
+                "apo.run.flow_name": "legacy-flow-name",
+            },
+        )
+        projector = TraceProjector()
+        with Session(engine) as session:
+            projector.project(span, session)
+            session.commit()
+
+        with Session(engine) as session:
+            run = session.exec(select(RunDB).where(RunDB.id == "flow-name-01")).first()
+            assert run is not None
+            assert run.flow_name == "explicit-trace-name"
+
+    def test_legacy_flow_name_used_when_no_trace_name(self):
+        span = _make_canonical_span(
+            trace_id="flow-name-02",
+            span_id="root-fn-02",
+            name="apo.task.run",
+            attributes={"apo.run.flow_name": "agent-task.abc-123"},
+        )
+        projector = TraceProjector()
+        with Session(engine) as session:
+            projector.project(span, session)
+            session.commit()
+
+        with Session(engine) as session:
+            run = session.exec(select(RunDB).where(RunDB.id == "flow-name-02")).first()
+            assert run is not None
+            assert run.flow_name == "agent-task.abc-123"
+
+    def test_falls_back_to_span_name_when_no_name_attribute(self):
+        """Root spans without any name attribute use span_name as flow_name.
+
+        This is the defense-in-depth fix: an imported trace whose source
+        had no trace-level name (and whose connector emitted none) still
+        gets a run name instead of rendering as "Untitled".
+        """
+        span = _make_canonical_span(
+            trace_id="flow-name-03",
+            span_id="root-fn-03",
+            name="sandbox-agent-query",
+            attributes={"apo.observation.type": "AGENT"},
+        )
+        projector = TraceProjector()
+        with Session(engine) as session:
+            projector.project(span, session)
+            session.commit()
+
+        with Session(engine) as session:
+            run = session.exec(select(RunDB).where(RunDB.id == "flow-name-03")).first()
+            assert run is not None
+            assert run.flow_name == "sandbox-agent-query"
+
+
 class TestTraceProjectorIdempotency:
     """Projecting the same span twice must not duplicate rows."""
 

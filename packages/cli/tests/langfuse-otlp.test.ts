@@ -351,6 +351,68 @@ describe("langfuse-otlp semantic mapping", () => {
     expect(attrValue(attrs.get("apo.observation.output"))).toBeNull();
   });
 
+  it("falls back to the root observation name when traceName is absent", () => {
+    const observations = [
+      obs({
+        id: "root",
+        type: "SPAN",
+        name: "sandbox-agent-query",
+        traceName: null,
+      }),
+      obs({
+        id: "child",
+        type: "SPAN",
+        parentObservationId: "root",
+        name: "agent-llm-call",
+      }),
+    ];
+    const result = convertLangfuseTraceToOtlp(graph(observations));
+    const spans = allSpans(result) as Array<{
+      attributes?: Array<{ key: string; value: unknown }>;
+    }>;
+    const byObs = new Map<string, typeof spans[number]>();
+    for (const s of spans) {
+      const a = spanAttrs(s);
+      byObs.set(String(attrValue(a.get("apo.trace.source.observation_id"))), s);
+    }
+
+    const root = byObs.get("root")!;
+    expect(attrValue(spanAttrs(root).get("apo.trace.name"))).toBe(
+      "sandbox-agent-query",
+    );
+
+    // Only the root carries apo.trace.name.
+    const child = byObs.get("child")!;
+    expect(spanAttrs(child).get("apo.trace.name")).toBeUndefined();
+  });
+
+  it("prefers traceName over the root observation name when both are present", () => {
+    const observations = [
+      obs({
+        id: "root",
+        type: "SPAN",
+        name: "apo.task.run",
+        traceName: "My Session",
+      }),
+    ];
+    const result = convertLangfuseTraceToOtlp(graph(observations));
+    const span = allSpans(result)[0] as {
+      attributes?: Array<{ key: string; value: unknown }>;
+    };
+    expect(attrValue(spanAttrs(span).get("apo.trace.name"))).toBe("My Session");
+  });
+
+  it("omits apo.trace.name when neither traceName nor observation name exist", () => {
+    const observations = [
+      obs({ id: "root", type: "SPAN", name: null, traceName: null }),
+    ];
+    const result = convertLangfuseTraceToOtlp(graph(observations));
+    const span = allSpans(result)[0] as {
+      attributes?: Array<{ key: string; value: unknown }>;
+    };
+    expect(spanAttrs(span).get("apo.trace.name")).toBeUndefined();
+  });
+
   it("preserves a finite, non-negative reported cost and ignores invalid values", () => {
     const observations = [
       obs({ id: "ok", totalCost: "0.5" }),
