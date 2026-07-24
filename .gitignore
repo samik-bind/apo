@@ -82,6 +82,7 @@ CLAUDE.md
 /.ncode/
 /.agent-state/
 /.personal/
+/wayfinder/
 
 # Personal tooling / editor configs
 .zed/
