@@ -192,13 +192,16 @@ class TraceProjector:
                     if isinstance(metadata_value, dict):
                         run.run_metadata = metadata_value
                     else:
-                        run.run_metadata = json.loads(str(metadata_value))
+                        parsed = json.loads(str(metadata_value))
+                        if isinstance(parsed, dict):
+                            run.run_metadata = parsed
                 except (json.JSONDecodeError, ValueError, TypeError):
                     pass
             # SPEC-137: provenance on imported traces augments run metadata.
             provenance = attrs.get("apo.trace.provenance")
             if isinstance(provenance, dict) and provenance:
-                merged = dict(run.run_metadata or {})
+                existing = run.run_metadata if isinstance(run.run_metadata, dict) else {}
+                merged = dict(existing)
                 merged.setdefault("source", provenance.get("source"))
                 run.run_metadata = merged
             # Run-level scalar fields propagated through canonical attributes

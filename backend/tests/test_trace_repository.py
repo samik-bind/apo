@@ -289,3 +289,73 @@ class TestCapabilities:
         assert snap.capabilities.messages.value == "unavailable"
         assert snap.capabilities.skills.value == "unavailable"
         assert snap.capabilities.subagents.value == "unavailable"
+
+
+class TestNondictJsonFields:
+    """Regression for issue #23: free-form JSON fields (input/output/tool_result)
+    can hold non-dict values (string, int, list). The projection read path must
+    not crash — specifically ``_messages_for`` must not assume ``output`` is a
+    dict when reconstructing generation messages.
+    """
+
+    def test_generation_with_nondict_output_does_not_crash(self):
+        repo = NativeTraceRepository()
+        with Session(engine) as session:
+            session.add(_make_run(trace_id="nd1", project="p"))
+            session.add(
+                LoggedCallDB(
+                    id="gen-int",
+                    run_id="nd1",
+                    project="p",
+                    task_id="",
+                    created_at=_iso("2026-07-10T10:00:01Z"),
+                    model="m",
+                    observation_type="GENERATION",
+                    step_name="llm",
+                    parent_call_id=None,
+                    latency_ms=3.0,
+                    input="a plain string input",
+                    output=42,  # int, not a dict — previously AttributeError in _messages_for
+                    messages=[],
+                )
+            )
+            session.commit()
+
+        with Session(engine) as session:
+            snap = repo.get_projection_snapshot(session, project_id="p", trace_id="nd1")
+
+        assert snap is not None
+        obs = [o for o in snap.observations if o.span_id == "gen-int"][0]
+        assert obs.output == 42
+        assert obs.input == "a plain string input"
+        # No message can be reconstructed from a non-dict output.
+        assert obs.messages == ()
+        assert snap.capabilities.messages.value == "unavailable"
+
+    def test_generation_with_dict_output_text_still_reconstructs_message(self):
+        # Guard against over-narrowing: a dict output with {"text": ...} must
+        # still produce an assistant message.
+        repo = NativeTraceRepository()
+        with Session(engine) as session:
+            session.add(_make_run(trace_id="nd2", project="p"))
+            session.add(
+                _make_call(
+                    span_id="gen-dict",
+                    trace_id="nd2",
+                    project="p",
+                    parent_span_id=None,
+                    observation_type="GENERATION",
+                    step_name="llm",
+                    output={"text": "hello world"},
+                )
+            )
+            session.commit()
+
+        with Session(engine) as session:
+            snap = repo.get_projection_snapshot(session, project_id="p", trace_id="nd2")
+
+        assert snap is not None
+        obs = [o for o in snap.observations if o.span_id == "gen-dict"][0]
+        assert len(obs.messages) == 1
+        assert obs.messages[0].content == "hello world"
+        assert snap.capabilities.messages.value == "available"

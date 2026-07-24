@@ -167,15 +167,15 @@ class RunDB(SQLModel, table=True):
     tags: list[str] = Field(
         default_factory=list, sa_column=Column("tags", JSON)
     )  # User-defined tags
-    run_metadata: dict[str, object] | None = Field(
+    run_metadata: JsonValue | None = Field(
         default=None, sa_column=Column("metadata", JSON)
     )  # Arbitrary metadata (renamed from 'metadata' which is reserved)
     # Trace-level aggregate input/output (Langfuse-style): what started the
     # trace and the final result. Per-call I/O still lives on LoggedCall.
-    input: dict[str, object] | list[object] | str | None = Field(
+    input: JsonValue | None = Field(
         default=None, sa_column=Column("input", JSON)
     )
-    output: dict[str, object] | list[object] | str | None = Field(
+    output: JsonValue | None = Field(
         default=None, sa_column=Column("output", JSON)
     )
     primary_model: str | None = Field(

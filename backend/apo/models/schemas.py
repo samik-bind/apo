@@ -36,13 +36,13 @@ class Run(SQLModel):
     environment: str = "default"
     external_id: str | None = None
     tags: list[str] = []
-    run_metadata: JsonMap | None = (
+    run_metadata: JsonValue | None = (
         None  # Renamed from 'metadata' to avoid reserved word conflicts
     )
     primary_model: str | None = None
 
-    input: dict[str, object] | list[object] | str | None = None
-    output: dict[str, object] | list[object] | str | None = None
+    input: JsonValue | None = None
+    output: JsonValue | None = None
 
     bookmarked: bool = False
     is_public: bool = False
