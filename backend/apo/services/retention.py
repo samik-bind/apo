@@ -103,15 +103,19 @@ def _delete_old_runs(session: Session, cutoff: datetime) -> int:
     return deleted
 
 
-def _delete_old_batch_runs(session: Session, cutoff: datetime) -> int:
-    """Delete agent-task batch runs (and their task runs) older than cutoff."""
-    old_batch_ids = [
+def _old_batch_ids(session: Session, cutoff: datetime) -> list[str]:
+    return [
         row[0]
         for row in session.execute(
             text("SELECT id FROM agent_task_batch_runs WHERE created_at < :c"),
             {"c": cutoff},
         ).all()
     ]
+
+
+def _delete_old_batch_runs(session: Session, cutoff: datetime) -> int:
+    """Delete agent-task batch runs (and their task runs) older than cutoff."""
+    old_batch_ids = _old_batch_ids(session, cutoff)
     if not old_batch_ids:
         return 0
 
@@ -125,6 +129,12 @@ def _delete_old_batch_runs(session: Session, cutoff: datetime) -> int:
         deleted += _exec_in(
             "DELETE FROM agent_task_runs WHERE batch_run_id IN :ids",
             old_batch_ids,
+        )
+    # SPEC-142: task_revisions rows go after their bundle objects (removed in
+    # run_retention_cleanup). Guarded so pre-v12 databases don't break.
+    if _table_exists(session, "task_revisions"):
+        deleted += _exec_in(
+            "DELETE FROM task_revisions WHERE batch_run_id IN :ids", old_batch_ids
         )
     deleted += _exec_in(
         "DELETE FROM agent_task_batch_runs WHERE id IN :ids", old_batch_ids
@@ -240,6 +250,16 @@ def run_retention_cleanup() -> dict[str, int]:
         ]
         if old_run_ids:
             asyncio.run(delete_deliverable_objects_for_runs(session, old_run_ids))
+            session.commit()
+
+        # SPEC-142: remove Task Revision bundle objects for old batches BEFORE
+        # their rows go. A store failure raises so the rows are retained for the
+        # next cleanup — objects are never orphaned by deleting the manifest first.
+        old_batch_ids = _old_batch_ids(session, cutoff)
+        if old_batch_ids:
+            from apo.services.task_revisions import delete_task_revision_bundles_for_batches
+
+            asyncio.run(delete_task_revision_bundles_for_batches(session, old_batch_ids))
             session.commit()
 
         summary["runs"] = _delete_old_runs(session, cutoff)

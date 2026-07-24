@@ -58,6 +58,7 @@ from ..models.db import (
     RunMetricDB,
     ScoreConfigDB,
     SessionDB,
+    TaskRevisionDB,
     WebhookDB,
 )
 from ..models.pricing import ModelRowDB
@@ -89,6 +90,10 @@ def delete_project_data(
     removed. Commits once at the end (matches the prior inline handler).
     """
     deleted: dict[str, int] = {}
+
+    # SPEC-142: Task Revision bundle objects are removed by the async route
+    # (delete_task_revision_bundles_for_project) BEFORE this sync function runs,
+    # while their keys are still resolvable. Here we only drop relational rows.
 
     # --- Transitive children: FK to a project-scoped table, not to projects.
     # These must precede their parent rows so no FK is left dangling mid-delete.
@@ -150,6 +155,15 @@ def delete_project_data(
     deleted["sessions"] = _delete_by_column(
         session, SessionDB, SessionDB.project == project_id
     )
+    # SPEC-142: task_revisions reference batch runs via FK, so they must be
+    # removed BEFORE agent_task_batch_runs. Their bundle objects were already
+    # removed above. Guarded for pre-v12 DBs.
+    try:
+        deleted["task_revisions"] = _delete_by_column(
+            session, TaskRevisionDB, TaskRevisionDB.project == project_id
+        )
+    except Exception:
+        deleted["task_revisions"] = 0
     deleted["agent_task_batch_runs"] = _delete_by_column(
         session, AgentTaskBatchRunDB, AgentTaskBatchRunDB.project == project_id
     )

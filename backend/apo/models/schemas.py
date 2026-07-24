@@ -6,6 +6,8 @@ from pydantic import Field as PDField
 from sqlmodel import JSON, Field, SQLModel
 from sqlmodel._compat import SQLModelConfig
 
+from .execution import TaskRevisionSummary
+
 type JsonMap = dict[str, object]
 type MessageList = list[JsonMap]
 
@@ -556,6 +558,7 @@ class AgentTaskBatchRunDetail(SQLModel):
     trigger: AgentTaskRunTrigger | None = None
     task_runs: list[AgentTaskRunSummary] = Field(default_factory=list)
     failure_breakdown: list[FailureBreakdownItem] = Field(default_factory=list)
+    task_revision: TaskRevisionSummary | None = None
 
 
 class CreateAgentTaskBatchRunRequest(SQLModel):

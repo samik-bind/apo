@@ -406,7 +406,10 @@ async def get_agent_task_batch_run(
     ).all()
 
     model_map = _load_primary_models(session, task_runs, batch.project)
-    return to_batch_run_detail(batch, task_runs, model_map=model_map)
+    from apo.services.task_revisions import get_revision_summary_for_batch
+
+    task_revision = get_revision_summary_for_batch(session, batch_run_id)
+    return to_batch_run_detail(batch, task_runs, model_map=model_map, task_revision=task_revision)
 
 
 # ============================================================================

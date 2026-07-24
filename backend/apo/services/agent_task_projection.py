@@ -21,6 +21,7 @@ from ..models import (
     AgentTaskRunTrigger,
     AgentTaskRunSummary,
 )
+from ..models.execution import TaskRevisionSummary
 from .agent_task_outcome import build_failure_breakdown, classify_run_outcome
 
 
@@ -145,6 +146,7 @@ def to_batch_run_detail(
     br: AgentTaskBatchRunDB,
     task_runs: Sequence[AgentTaskRunDB],
     model_map: Mapping[str, str] | None = None,
+    task_revision: TaskRevisionSummary | None = None,
 ) -> AgentTaskBatchRunDetail:
     """Project a batch run DB row + its task runs to a detail view model.
 
@@ -189,6 +191,7 @@ def to_batch_run_detail(
         trigger=trigger,
         task_runs=task_run_summaries,
         failure_breakdown=breakdown,
+        task_revision=task_revision,
     )
 
 

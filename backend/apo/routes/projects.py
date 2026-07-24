@@ -396,6 +396,11 @@ async def delete_project(
     _project, _role = _load_project_with_role(
         session, project_id, user_id, minimum_role="owner"
     )
+    # SPEC-142: remove Task Revision bundle objects BEFORE their rows go, while
+    # their keys are still resolvable (objects live outside the relational DB).
+    from apo.services.task_revisions import delete_task_revision_bundles_for_project
+
+    await delete_task_revision_bundles_for_project(session, project_id)
     delete_project_data(
         session,
         project_id,
@@ -653,6 +658,10 @@ async def reset_project_data(
     _project, _role = _load_project_with_role(
         session, project_id, user_id, minimum_role="owner"
     )
+    # SPEC-142: remove Task Revision bundle objects BEFORE their rows go.
+    from apo.services.task_revisions import delete_task_revision_bundles_for_project
+
+    await delete_task_revision_bundles_for_project(session, project_id)
 
     deleted_counts = delete_project_data(
         session,
