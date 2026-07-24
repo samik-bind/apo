@@ -41,6 +41,7 @@ jobs:
           echo "All SDK dist entry points present."
       - run: pnpm lint
       - run: pnpm typecheck
+      - run: pnpm test:public-ingress
 
   backend:
     name: Typecheck + Test (Backend)

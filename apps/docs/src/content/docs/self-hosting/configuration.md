@@ -82,7 +82,18 @@ Email is **off by default** (log-only). The platform works fully without it, wit
 
 - **Signup is instant**: email verification is off by default.
 - **Invitations are copy-link**: the dashboard hands you a join link to paste to a teammate.
-- **Password reset is admin-assisted**: reset a forgotten password via `scripts/reset_password.py` until email is on.
+- **Password reset is admin-assisted**: ask the user to submit the **Forgot
+  password** form, then read the generated link from the backend logs:
+
+  ```bash
+  docker compose logs backend | grep 'Reset URL:'
+  ```
+
+  ```text
+  backend-1 | ... Reset URL: https://apo.example.com/reset-password?token=...
+  ```
+
+  Send the one-hour link to the user privately.
 
 **To enable delivery** (fully optional, provider-agnostic) set two env vars and restart the backend:
 

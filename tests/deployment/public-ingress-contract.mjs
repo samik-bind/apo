@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 const publicUrl = "https://apo.example.com";
 const renderedPath = process.argv[2];
 if (!renderedPath) {
-  throw new Error("usage: node scripts/test-public-ingress-contract.mjs <rendered-compose.json>");
+  throw new Error(
+    "usage: node tests/deployment/public-ingress-contract.mjs <rendered-compose.json>",
+  );
 }
 const rendered = JSON.parse(readFileSync(renderedPath, "utf8"));
 

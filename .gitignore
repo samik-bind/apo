@@ -68,7 +68,6 @@ CLAUDE.md
 /project/
 /ralph
 /scripts/agent
-/scripts/test-jj-merge.sh
 /docs/plans/
 /docs/agent-worktree-state-research.md
 /docs/commit-granularity.md

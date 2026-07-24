@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RENDERED_CONFIG="$(mktemp)"
 trap 'rm -f "$RENDERED_CONFIG"' EXIT
 
@@ -15,4 +15,4 @@ docker compose \
   config --format json > "$RENDERED_CONFIG"
 
 cd "$REPO_ROOT"
-node scripts/test-public-ingress-contract.mjs "$RENDERED_CONFIG"
+node tests/deployment/public-ingress-contract.mjs "$RENDERED_CONFIG"
