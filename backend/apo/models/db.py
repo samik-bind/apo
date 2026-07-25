@@ -564,6 +564,12 @@ class AgentTaskScheduleDB(SQLModel, table=True):
     task_source_type: str | None = None
     task_source_ref: str | None = None
     task_source_subpath: str | None = None
+    # SPEC-146: schedule target Pool + queue policy + disabled reason. Pool is
+    # nullable only for migration/historical rows; new validation requires it.
+    # archived Pool disables with disabled_reason="executor_pool_archived".
+    executor_pool_id: str | None = Field(default=None, foreign_key="executor_pools.id", index=True)
+    queue_ttl_seconds: int = 86_400
+    disabled_reason: str | None = None
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(UTCDateTime, server_default=func.now()),

@@ -45,6 +45,7 @@ from .routes import (
     github,
     system_runtime,
     executor_protocol,
+    executor_pools,
 )
 
 
@@ -138,6 +139,7 @@ def create_app() -> FastAPI:
     app.include_router(github.router)
     app.include_router(system_runtime.router)
     app.include_router(executor_protocol.router)
+    app.include_router(executor_pools.router)
 
     return app
 

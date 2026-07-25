@@ -8,12 +8,13 @@ hand, run the migration, assert the post-shape. Idempotent, no backfill, no I/O.
 
 from __future__ import annotations
 
-from apo.db import LATEST_SCHEMA_VERSION, _SCHEMA_MIGRATIONS, _migrate_execution_schema
+from apo.db import _SCHEMA_MIGRATIONS, _migrate_execution_schema
 from sqlmodel import create_engine
 
 
-def test_latest_schema_version_bumped_to_v13() -> None:
-    assert LATEST_SCHEMA_VERSION == 13
+def test_v13_migration_is_registered() -> None:
+    """v13 (execution control plane) is registered. Later specs bump LATEST."""
+    assert 13 in _SCHEMA_MIGRATIONS
 
 
 def test_v13_migration_is_registered() -> None:

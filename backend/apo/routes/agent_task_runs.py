@@ -268,9 +268,53 @@ async def create_agent_task_batch_run(
     request: CreateAgentTaskBatchRunRequest,
     session: Session = Depends(get_session),
 ):
-    """Create a new batch run from a task selection."""
+    """Create a new batch run from a task selection.
+
+    SPEC-146: when an explicit ``execution_target`` Pool is supplied, the Batch
+    is created as durable queued Attempts (no Control-Plane subprocess). The
+    Project default Pool is used when available; otherwise the legacy in-process
+    path runs during the transition.
+    """
     require_project_not_demo(request.project)
     task_source = get_task_source_db(session, request.project)
+
+    explicit_pool_id_raw = (
+        request.execution_target.get("pool_id")
+        if request.execution_target and request.execution_target.get("kind") == "pool"
+        else None
+    )
+    explicit_pool_id = str(explicit_pool_id_raw) if explicit_pool_id_raw else None
+    use_pooled = explicit_pool_id is not None or _project_has_default_pool(session, request.project)
+
+    if use_pooled:
+        from apo.services.execution_queue import PoolResolutionError, create_pooled_batch_run
+
+        try:
+            batch = await create_pooled_batch_run(
+                session,
+                project_id=request.project,
+                pool_id=explicit_pool_id,
+                selection_type=request.selection_type,
+                task_paths=request.task_paths or None,
+                task_root=request.task_root,
+                grep=request.grep,
+                environment=request.environment,
+                run_metadata=request.run_metadata,
+                task_source=task_source,
+            )
+        except PoolResolutionError as e:
+            raise HTTPException(status_code=409, detail={"kind": e.kind, "msg": str(e)})
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except SyncError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
+        task_runs = session.exec(
+            select(AgentTaskRunDB).where(AgentTaskRunDB.batch_run_id == batch.id)
+        ).all()
+        return to_batch_run_detail(batch, task_runs)
+
+    # Legacy in-process path (transition; removed once every project has a Pool).
     try:
         batch = create_batch_run(
             session=session,
@@ -295,6 +339,56 @@ async def create_agent_task_batch_run(
     start_batch_run_execution(batch.id)
 
     return to_batch_run_detail(batch, task_runs)
+
+
+def _project_has_default_pool(session: Session, project_id: str) -> bool:
+    from apo.models.db import ProjectDB
+
+    project = session.get(ProjectDB, project_id)
+    return project is not None and project.default_executor_pool_id is not None
+
+
+# ============================================================================
+# SPEC-146: Cancellation routes (idempotent; must precede any catch-all)
+# ============================================================================
+
+
+@router.post("/agent-task-runs/{task_run_id}/cancel")
+async def cancel_agent_task_run(
+    task_run_id: str,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """Cancel one Task Run's Attempt (SPEC-143 semantics). Idempotent."""
+    from apo.models.db import TaskExecutionAttemptDB
+    from apo.services.execution_leases import request_cancellation
+
+    attempt = session.exec(
+        select(TaskExecutionAttemptDB).where(TaskExecutionAttemptDB.task_run_id == task_run_id)
+    ).first()
+    if attempt is None:
+        # No attempt (legacy/historical run): nothing to cancel.
+        return {"ok": True, "attempt_id": None, "status": None}
+    request_cancellation(session, attempt_id=attempt.id)
+    session.refresh(attempt)
+    return {"ok": True, "attempt_id": attempt.id, "status": attempt.status}
+
+
+@router.post("/agent-task-batch-runs/{batch_run_id}/cancel")
+async def cancel_agent_task_batch_run(
+    batch_run_id: str,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """Cancel a Batch: future queued/leased Attempts cancel immediately; a
+    running Attempt records a cancellation request. Idempotent."""
+    from apo.models.db import TaskExecutionAttemptDB
+    from apo.services.execution_leases import request_cancellation
+
+    attempts = session.exec(
+        select(TaskExecutionAttemptDB).where(TaskExecutionAttemptDB.batch_run_id == batch_run_id)
+    ).all()
+    for attempt in attempts:
+        request_cancellation(session, attempt_id=attempt.id)
+    return {"ok": True, "cancelled": len(attempts)}
 
 
 @router.post(

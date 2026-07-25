@@ -921,6 +921,26 @@ def _migrate_to_v13() -> None:
         _migrate_execution_schema(conn)
 
 
+def _migrate_to_v14() -> None:
+    """Version 14: schedule Pool target + queue policy (SPEC-146).
+
+    Adds ``executor_pool_id`` / ``queue_ttl_seconds`` / ``disabled_reason`` to
+    ``agent_task_schedules``. No backfill body here — Bundled Pool/default
+    backfill is an operator/feature-flag step; historical schedules keep a null
+    Pool and are disabled with ``executor_pool_required`` when first evaluated.
+    """
+    with engine.begin() as conn:
+        _migrate_schedule_pool_schema(conn)
+
+
+def _migrate_schedule_pool_schema(conn: Connection) -> None:
+    """The v14 schedule-pool migration, runnable against any connection."""
+    _add_column_if_missing(conn, "agent_task_schedules", "executor_pool_id", "VARCHAR")
+    _add_column_if_missing(conn, "agent_task_schedules", "queue_ttl_seconds", "INTEGER NOT NULL DEFAULT 86400")
+    _add_column_if_missing(conn, "agent_task_schedules", "disabled_reason", "VARCHAR")
+    _create_index_if_not_exists(conn, "ix_agent_task_schedules_executor_pool_id", "agent_task_schedules", "executor_pool_id")
+
+
 def _migrate_execution_schema(conn: Connection) -> None:
     """The v13 execution control-plane migration, runnable against any connection.
 
@@ -1354,7 +1374,7 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
     )
 
 
-LATEST_SCHEMA_VERSION = 13
+LATEST_SCHEMA_VERSION = 14
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -1370,6 +1390,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     11: _migrate_to_v11,
     12: _migrate_to_v12,
     13: _migrate_to_v13,
+    14: _migrate_to_v14,
 }
 
 
