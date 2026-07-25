@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCostMicro } from "@/lib/format";
+import { formatBatchExecution } from "@/lib/run-configuration";
 import { TriggerInline } from "@/components/trigger-badge";
 import { TaskRunListHeader, TaskRunRow } from "@/components/task-run-list";
 import { BatchRunAutoRefresh } from "@/components/agent-task-execution/batch-run-auto-refresh";
@@ -145,6 +146,11 @@ export default async function BatchRunDetailPage({
               <span>{batchRun.selection_type}</span>
               <span className="text-muted-foreground/50">·</span>
               <span>{selectionSummary}</span>
+              <span className="text-muted-foreground/50">·</span>
+              <span className="text-muted-foreground">Execution</span>
+              <span className="font-mono text-foreground">
+                {formatBatchExecution(batchRun.configuration)}
+              </span>
               <span className="text-muted-foreground/50">·</span>
               <TriggerInline trigger={batchRun.trigger} />
               <span className="text-muted-foreground/50">·</span>

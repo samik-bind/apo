@@ -3,7 +3,8 @@ import type {
   EvaluationItemResult,
   TaskTranscriptTurn,
 } from "./types.ts";
-import type { AdapterRuntimeState, AdapterSession } from "../adapter/types.ts";
+import type { AgentTaskRunConfiguration, AdapterRuntimeState, AdapterSession } from "../adapter/types.ts";
+import { normalizeRunConfiguration } from "./run-configuration.ts";
 import { loadTask } from "../task/loadTask.ts";
 import {
   getTaskTurn,
@@ -136,6 +137,8 @@ interface CapturedExecution {
   traceRunId: string | undefined;
   collected: Record<string, unknown>;
   transcriptTurns: TaskTranscriptTurn[];
+  /** The adapter-reported run configuration, captured right after session open. */
+  runConfiguration: AgentTaskRunConfiguration | undefined;
   /** The frozen projection snapshot Phase 2 evaluates against. */
   snapshot: import("../trace-projection/types.ts").TraceProjectionSnapshot;
 }
@@ -237,6 +240,11 @@ async function executeLoadedTask(
           trace,
         }),
     );
+
+    // SPEC-148: capture the adapter's resolved model/effort immediately after
+    // the session opens and validate it before the first Task Turn. An invalid
+    // reported configuration is an adapter contract error and fails the run.
+    const runConfiguration = normalizeRunConfiguration(session.runConfiguration);
 
     // Legacy two-file tasks register turn() from checks.ts. Single-file tasks
     // already registered it while loadTask imported the .eval.ts file.
@@ -384,6 +392,7 @@ async function executeLoadedTask(
       result,
       deliverables: collected,
       transcript: { turns: transcriptTurns },
+      runConfiguration,
     };
   } finally {
     if (adapter.cleanup) {
@@ -473,6 +482,10 @@ async function captureExecution(
           async () => adapter.startSession({ task, taskDir: absoluteDir, files, state, trace }),
         );
 
+        // SPEC-148: validate the adapter-reported configuration before the first
+        // Task Turn. An invalid configuration fails the run inside the trace body.
+        const runConfiguration = normalizeRunConfiguration(session.runConfiguration);
+
         if (!inlineChecks && checksPath) {
           resetTaskTurn();
           resetFlowChecks();
@@ -518,6 +531,7 @@ async function captureExecution(
           traceRunId: rawTrace.runId,
           collected: collected as Record<string, unknown>,
           transcriptTurns,
+          runConfiguration,
           snapshot,
         };
       } finally {
@@ -600,6 +614,7 @@ async function evaluate(
     result,
     deliverables: phase1.collected,
     transcript: { turns: phase1.transcriptTurns },
+    runConfiguration: phase1.runConfiguration,
   };
 }
 

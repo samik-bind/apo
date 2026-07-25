@@ -188,13 +188,16 @@ const commands: Record<string, CommandEntry> = {
     options: [
       ["--task <id>", "Filter by task id"],
       ["--status <s>", "Filter by run status"],
+      ["--model <m>", "Filter by adapter-reported model (repeatable; OR within model, AND with --effort)"],
+      ["--effort <e>", "Filter by adapter-reported effort (repeatable; OR within effort, AND with --model)"],
       ["--limit <n>", "Max results to show"],
     ],
     examples: [
       "apo runs list",
       "apo runs list --task meeting-summary --limit 5",
+      "apo runs list --model gpt-5.6-terra --effort high",
     ],
-    note: "Requires backend auth. Supports --json.",
+    note: "Requires backend auth. Supports --json. The Execution column shows the adapter-reported model · effort.",
   },
   "runs show": {
     handler: loadCommand("runs-show"),

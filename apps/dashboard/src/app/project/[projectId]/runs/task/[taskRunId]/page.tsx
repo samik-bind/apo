@@ -174,6 +174,27 @@ export default async function TaskRunDetailPage({
                   <span>{taskRun.adapter_name}</span>
                 </>
               )}
+              {taskRun.run_configuration && (
+                <>
+                  <span className="text-muted-foreground/50">·</span>
+                  <span className="text-muted-foreground">Model</span>
+                  <span className="font-mono text-foreground">{taskRun.run_configuration.model}</span>
+                  <span className="text-muted-foreground">Effort</span>
+                  <span className="font-mono text-foreground">
+                    {taskRun.run_configuration.effort ?? "—"}
+                  </span>
+                  <span className="text-muted-foreground/50">(reported by adapter)</span>
+                </>
+              )}
+              {taskRun.primary_model &&
+                (!taskRun.run_configuration ||
+                  taskRun.run_configuration.model !== taskRun.primary_model) && (
+                  <>
+                    <span className="text-muted-foreground/50">·</span>
+                    <span className="text-muted-foreground">Observed</span>
+                    <span className="font-mono text-foreground">{taskRun.primary_model}</span>
+                  </>
+                )}
               {taskRun.trigger?.source && (
                 <>
                   <span className="text-muted-foreground/50">·</span>

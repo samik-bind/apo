@@ -73,7 +73,16 @@ export const claudeAdapter = defineAdapter({
     const cwd = join(ctx.taskDir, "files");
     const state = (ctx.state ?? EMPTY_STATE) as ClaudeSessionState;
 
+    // SPEC-148: the model is the agent's concern — apo never picks it. Resolve
+    // it from the same env the agent reads (CLAUDE_MODEL, via buildOtelEnv's
+    // process.env spread) and report that ONE resolved value as the run's
+    // configuration. The same object both constructs the agent (inside
+    // runClaudeAgent) and describes this Task Run — adapters must not
+    // independently guess a display label after execution.
+    const model = process.env.CLAUDE_MODEL;
+
     return {
+      runConfiguration: model ? { model } : undefined,
       async sendUserTurn(turn: unknown) {
         state.turnCount++;
         const { text, is_error, num_turns } = await runClaudeAgent({

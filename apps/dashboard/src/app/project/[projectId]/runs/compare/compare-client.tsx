@@ -17,6 +17,7 @@ import {
 } from "@/lib/agent-task-api";
 import { cn } from "@/lib/utils";
 import { formatDuration, formatRelativeTime, runDurationMs, formatCostMicro } from "@/lib/format";
+import { formatBatchExecution } from "@/lib/run-configuration";
 import { useUrlParamSet } from "@/hooks/use-url-state";
 import { conclusionStyle } from "@/components/run-outcome";
 
@@ -30,35 +31,6 @@ interface CompareClientProps {
   inventory: AgentTaskSummary[];
   leftRuns: AgentTaskRunSummary[];
   rightRuns: AgentTaskRunSummary[];
-}
-
-/** Most common primary_model across a batch's runs — "mixed" if there is no
- *  single dominant model. Used only as a label in the header, never as a
- *  comparison key. */
-function dominantModel(runs: AgentTaskRunSummary[]): string | null {
-  const counts = new Map<string, number>();
-  for (const r of runs) {
-    if (r.primary_model) counts.set(r.primary_model, (counts.get(r.primary_model) ?? 0) + 1);
-  }
-  if (counts.size === 0) return null;
-  if (counts.size === 1) return counts.keys().next().value ?? null;
-  // More than one model: report the most frequent, flagged as mixed.
-  let best: string | null = null;
-  let bestN = 0;
-  for (const [m, n] of counts) {
-    if (n > bestN) {
-      best = m;
-      bestN = n;
-    }
-  }
-  return best;
-}
-
-function shortModel(model: string | null): string {
-  if (!model) return "—";
-  // Provider-prefixed names ("openai/gpt-4o") read better without the prefix.
-  const slash = model.lastIndexOf("/");
-  return slash >= 0 ? model.slice(slash + 1) : model;
 }
 
 /** A meaningful identity for a batch in lists where the model may be
@@ -78,6 +50,27 @@ function batchLabel(batch: AgentTaskBatchRunDetail | AgentTaskBatchRunSummary): 
   }
   if (batch.selection_type === "all") return "All tasks";
   return batch.selection_type;
+}
+
+/**
+ * SPEC-148: name the configuration dimensions that differ between two
+ * uniform batches. Returns a label like `"Changed: effort"` or `null` when
+ * the two are equivalent, or when either side is not a single uniform pair
+ * (mixed/partial/unknown are already labeled honestly on each header).
+ */
+function configurationDelta(
+  a: AgentTaskBatchRunDetail | null,
+  b: AgentTaskBatchRunDetail | null,
+): string | null {
+  if (!a || !b) return null;
+  if (a.configuration.state !== "uniform" || b.configuration.state !== "uniform") return null;
+  const pa = a.configuration.configurations[0];
+  const pb = b.configuration.configurations[0];
+  if (!pa || !pb) return null;
+  const changed: string[] = [];
+  if (pa.model !== pb.model) changed.push("model");
+  if ((pa.effort ?? null) !== (pb.effort ?? null)) changed.push("effort");
+  return changed.length > 0 ? `Changed: ${changed.join(", ")}` : null;
 }
 
 export function CompareClient({
@@ -115,19 +108,23 @@ export function CompareClient({
           <BatchSlot
             label="Run A"
             batch={batchA}
-            runs={leftRuns}
             projectId={projectId}
           />
           <BatchSlot
             label="Run B"
             batch={batchB}
-            runs={rightRuns}
             projectId={projectId}
           />
         </div>
 
         {batchA && batchB && (
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
+            {/* SPEC-148: which configuration dimension changed between runs. */}
+            {configurationDelta(batchA, batchB) && (
+              <span className="font-mono text-foreground">
+                {configurationDelta(batchA, batchB)}
+              </span>
+            )}
             {comparison.totalDiffers > 0 ? (
               <span>
                 <span className="font-mono tabular-nums text-foreground">{comparison.totalDiffers}</span>{" "}
@@ -217,12 +214,10 @@ function CompareHeader({ projectId }: { projectId: string }) {
 function BatchSlot({
   label,
   batch,
-  runs,
   projectId,
 }: {
   label: string;
   batch: AgentTaskBatchRunDetail | null;
-  runs: AgentTaskRunSummary[];
   projectId: string;
 }) {
   if (!batch) {
@@ -257,7 +252,10 @@ function BatchSlot({
     errored: batch.errored_tasks,
     total: batch.total_tasks,
   });
-  const model = dominantModel(runs);
+  // SPEC-148: the header shows the adapter-reported Run Configuration summary
+  // (uniform/mixed/partial/unknown), replacing the old dominantModel
+  // heuristic that guessed a single model from observed trace data.
+  const executionLabel = formatBatchExecution(batch.configuration);
   const commit = batch.task_runs?.[0]?.task_source_commit_sha ?? null;
 
   return (
@@ -277,9 +275,9 @@ function BatchSlot({
 
       <div className="mt-2 flex items-baseline gap-2">
         <span className="text-[15px] font-medium text-foreground">{batchLabel(batch)}</span>
-        {model && (
-          <span className="font-mono text-[12px] tabular-nums text-muted-foreground">{shortModel(model)}</span>
-        )}
+        <span className="font-mono text-[12px] tabular-nums text-muted-foreground" title="Adapter-reported configuration">
+          {executionLabel}
+        </span>
         <span className="font-mono text-[12px] text-muted-foreground/60">#{batch.id.slice(0, 8)}</span>
       </div>
 

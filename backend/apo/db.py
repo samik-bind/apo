@@ -965,12 +965,49 @@ def _migrate_to_v14() -> None:
         _migrate_schedule_pool_schema(conn)
 
 
+def _migrate_to_v15() -> None:
+    """Version 15: Task Run Configuration columns (SPEC-148 ticket 01).
+
+    Thin wrapper that opens the module engine transaction; the real work is in
+    ``_migrate_run_configuration_schema(conn)`` so the migration is directly
+    testable against a hand-rolled old-schema engine.
+    """
+    with engine.begin() as conn:
+        _migrate_run_configuration_schema(conn)
+
+
 def _migrate_schedule_pool_schema(conn: Connection) -> None:
     """The v14 schedule-pool migration, runnable against any connection."""
     _add_column_if_missing(conn, "agent_task_schedules", "executor_pool_id", "VARCHAR")
     _add_column_if_missing(conn, "agent_task_schedules", "queue_ttl_seconds", "INTEGER NOT NULL DEFAULT 86400")
     _add_column_if_missing(conn, "agent_task_schedules", "disabled_reason", "VARCHAR")
     _create_index_if_not_exists(conn, "ix_agent_task_schedules_executor_pool_id", "agent_task_schedules", "executor_pool_id")
+
+
+def _migrate_run_configuration_schema(conn: Connection) -> None:
+    """The v15 Run Configuration migration, runnable against any connection.
+
+    Adds the nullable ``configured_model`` / ``configured_effort`` columns to
+    ``agent_task_runs`` and the composite
+    ``(configured_model, configured_effort, batch_run_id)`` index used by the
+    model/effort filtering and comparison dimensions.
+
+    No backfill (legacy rows stay NULL = "unknown"), no Batch Run columns,
+    and no JSON metadata column — these are typed, indexed product dimensions.
+    Idempotent via the ``_add_column_if_missing`` /
+    ``_create_index_if_not_exists`` guards.
+    """
+    if "agent_task_runs" not in _get_table_names(conn):
+        return  # nothing to migrate (baseline create handles it)
+
+    _add_column_if_missing(conn, "agent_task_runs", "configured_model", "VARCHAR")
+    _add_column_if_missing(conn, "agent_task_runs", "configured_effort", "VARCHAR")
+    _create_index_if_not_exists(
+        conn,
+        "ix_agent_task_runs_configuration",
+        "agent_task_runs",
+        "configured_model, configured_effort, batch_run_id",
+    )
 
 
 def _migrate_execution_schema(conn: Connection) -> None:
@@ -1406,7 +1443,7 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
     )
 
 
-LATEST_SCHEMA_VERSION = 14
+LATEST_SCHEMA_VERSION = 15
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -1423,6 +1460,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     12: _migrate_to_v12,
     13: _migrate_to_v13,
     14: _migrate_to_v14,
+    15: _migrate_to_v15,
 }
 
 

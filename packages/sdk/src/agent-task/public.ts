@@ -20,6 +20,7 @@ export type {
   TypedAdapterDefinition,
   CollectedDeliverables,
   AgentTurnResult,
+  AgentTaskRunConfiguration,
   InitializeContext,
   StartSessionContext,
   CollectDeliverablesContext,

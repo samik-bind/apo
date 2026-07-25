@@ -34,6 +34,7 @@ type RunDetail = {
   deliverables_json: Record<string, unknown> | null;
   transcript_json: Record<string, unknown> | null;
   deliverables?: DeliverableSummary[];
+  run_configuration?: { model: string; effort?: string | null } | null;
 };
 
 type DeliverableSummary = {
@@ -158,6 +159,12 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
     console.log(`  Batch:    ${run.batch_run_id} ${dim("(apo batch show " + run.batch_run_id + ")")}`);
   }
   console.log(`  Adapter:  ${run.adapter_name}`);
+  // SPEC-148: configured model/effort (reported by adapter). The trace's
+  // observed model is a separate concern and not shown here.
+  if (run.run_configuration) {
+    console.log(`  Model:    ${run.run_configuration.model}`);
+    console.log(`  Effort:   ${run.run_configuration.effort ?? "-"}`);
+  }
   console.log(`  Status:   ${run.status}`);
   console.log(`  Result:   ${run.pass_result === null ? "-" : passFail(run.pass_result)}`);
 

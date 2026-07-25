@@ -450,6 +450,62 @@ class TruncatedCheckValue(SQLModel):
     sha256: str
 
 
+# ============================================================================
+# Task Run Configuration (SPEC-148)
+# ============================================================================
+
+# The adapter-reported identity of the agent under test for one Task Run.
+# ``model`` is the exact identifier the adapter passed to its runtime after
+# resolving env vars, aliases, and defaults. ``effort`` is the exact short
+# value that runtime used (e.g. ``low``/``medium``/``high``/``max``).
+#
+# Omitted ``effort`` means "the adapter did not report effort". Explicit
+# ``"default"`` means "the adapter used the runtime's default effort". Effort
+# is not a global enum — providers may introduce values apo does not know.
+#
+# The whole configuration is absent (``None``) when the adapter does not
+# support reporting it. Values are descriptive and never affect task
+# selection, execution, scoring, retry, or deduplication.
+class AgentTaskRunConfiguration(SQLModel):
+    """The agent under test's resolved model and effort for one Task Run."""
+
+    model: str
+    effort: str | None = None
+
+
+# Batch Run configuration summary state. Derived from child Task Run
+# configurations — never stored on the batch row.
+#   - ``unknown``: no child reports a configuration;
+#   - ``uniform``: every child reports the same model/effort pair;
+#   - ``mixed``:   every child reports a configuration and >1 pair exists;
+#   - ``partial``: at least one child reports and at least one does not.
+type BatchRunConfigurationState = Literal["uniform", "mixed", "partial", "unknown"]
+
+
+class AgentTaskRunConfigurationCount(AgentTaskRunConfiguration):
+    """A model/effort pair with the number of Task Runs that reported it.
+
+    Counts always preserve pairs together — never a "dominant model" and
+    "dominant effort" computed independently, which could invent a
+    configuration that never ran.
+    """
+
+    task_runs: int
+
+
+class AgentTaskBatchRunConfigurationSummary(SQLModel):
+    """Derived configuration view for a Batch Run's child Task Runs.
+
+    Batch Runs never store or inherit a configuration copy; this summary is
+    projected from children on read.
+    """
+
+    state: BatchRunConfigurationState
+    configurations: list[AgentTaskRunConfigurationCount] = Field(default_factory=list)
+    reported_task_runs: int = 0
+    total_task_runs: int = 0
+
+
 class AgentTaskRunSummary(SQLModel):
     id: str
     batch_run_id: str
@@ -475,6 +531,10 @@ class AgentTaskRunSummary(SQLModel):
     failed_checks: int = 0
     trigger: AgentTaskRunTrigger | None = None
     error_category: str | None = None
+    # SPEC-148: adapter-reported model/effort for this Task Run. Absent when
+    # the adapter does not report configuration. Distinct from the trace's
+    # observed ``primary_model``.
+    run_configuration: AgentTaskRunConfiguration | None = None
 
 
 class AgentTaskRunDetail(SQLModel):
@@ -503,6 +563,9 @@ class AgentTaskRunDetail(SQLModel):
     transcript_json: dict[str, object] | None = None
     deliverables_json: dict[str, object] | None = None
     error_category: str | None = None
+    # SPEC-148: adapter-reported configuration. Same nested shape as the
+    # summary projection.
+    run_configuration: AgentTaskRunConfiguration | None = None
     # SPEC-140: manifest projection returned with Task Run detail. Safe to
     # render without loading any Deliverable body. Legacy rows with only
     # ``deliverables_json`` synthesize a manifest on read.
@@ -531,6 +594,13 @@ class AgentTaskBatchRunSummary(SQLModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     trigger: AgentTaskRunTrigger | None = None
+    # SPEC-148: derived configuration summary. Projected from child Task
+    # Runs on read — never stored on the batch row.
+    configuration: AgentTaskBatchRunConfigurationSummary = Field(
+        default_factory=lambda: AgentTaskBatchRunConfigurationSummary(
+            state="unknown"
+        )
+    )
 
 
 class AgentTaskBatchRunDetail(SQLModel):
@@ -563,6 +633,12 @@ class AgentTaskBatchRunDetail(SQLModel):
     execution_target: PoolExecutionTarget | None = None
     executor_pool_name: str | None = None
     attempts: list[AttemptSummary] = Field(default_factory=list)
+    # SPEC-148: derived configuration summary (uniform/mixed/partial/unknown).
+    configuration: AgentTaskBatchRunConfigurationSummary = Field(
+        default_factory=lambda: AgentTaskBatchRunConfigurationSummary(
+            state="unknown"
+        )
+    )
 
 
 class CreateAgentTaskBatchRunRequest(SQLModel):
@@ -623,6 +699,9 @@ class ReportAgentTaskRunResultRequest(SQLModel):
     # produced a verdict) from ``status: failed`` (the judge ran and said no),
     # mirroring the in-process ``except Exception`` path. Issue #13.
     errored: bool = False
+    # SPEC-148: the adapter's resolved model/effort for this run. Absent for
+    # old executors/SDKs. Validated before mutating terminal state.
+    run_configuration: AgentTaskRunConfiguration | None = None
 
 
 # ============================================================================

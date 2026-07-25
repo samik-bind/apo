@@ -1,4 +1,5 @@
 import type { FileEntry, TaskDefinition } from "../task/types.ts";
+import type { AgentTaskRunConfiguration } from "../adapter/types.ts";
 
 /**
  * The outcome of a single assertion (SPEC-130).
@@ -174,4 +175,10 @@ export type TaskRunResult = {
   result: TaskEvaluationResult;
   deliverables: Record<string, unknown>;
   transcript: TaskTranscript;
+  /**
+   * The adapter's resolved model/effort for this run (SPEC-148). Captured and
+   * normalized from `AdapterSession.runConfiguration` immediately after the
+   * session opens. Absent for adapters that do not report configuration.
+   */
+  runConfiguration?: AgentTaskRunConfiguration;
 };

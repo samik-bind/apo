@@ -14,7 +14,6 @@ import {
   Loader2,
   Play,
   Search,
-  User,
   Zap,
 } from "lucide-react";
 import {
@@ -37,6 +36,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { parseUTC, formatCostMicro } from "@/lib/format";
+import { formatBatchExecution, formatRunExecution, formatRunExecutionFull } from "@/lib/run-configuration";
 
 import { useProjectId } from "@/lib/project-router";
 import { useClientNow } from "@/hooks/use-client-now";
@@ -45,7 +45,8 @@ import {
   deriveConclusion,
   type Conclusion,
 } from "@/components/run-outcome";
-import { useUrlParam } from "@/hooks/use-url-state";
+import { useUrlParam, useUrlParamSet } from "@/hooks/use-url-state";
+import { RunsModelFilter, type ModelOption } from "./runs-model-filter";
 
 type ConclusionFilter = "all" | "running" | "passed" | "failed";
 
@@ -60,6 +61,7 @@ const COL = {
   chevron: 28,
   run: "auto", // flexible remainder — the only column without a px cap
   source: 150,
+  execution: 180,
   tasks: 180,
   duration: 110,
   created: 150,
@@ -194,21 +196,52 @@ export function RunsClient({
     return c;
   }, [batchRuns.length, conclusions]);
 
+  // SPEC-148: model facet. Options come from every batch's configuration
+  // summary so selecting one value never removes the others from the list.
+  // Selection is URL-backed (?model=a,b) → shareable, back/forward-restored.
+  const [selectedModels, toggleModel, clearModels] = useUrlParamSet("model");
+  const modelOptions: ModelOption[] = useMemo(() => {
+    const c = new Map<string, number>();
+    for (const b of batchRuns) {
+      const seen = new Set<string>();
+      for (const pair of b.configuration?.configurations ?? []) seen.add(pair.model);
+      for (const m of seen) c.set(m, (c.get(m) ?? 0) + 1);
+    }
+    return Array.from(c.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([model, count]) => ({ model, count }));
+  }, [batchRuns]);
+
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
+    const modelSelected = selectedModels.size > 0;
     return batchRuns.filter((b, i) => {
       if (filter !== "all" && filterBucket(conclusions[i]) !== filter) return false;
+      // SPEC-148: model facet — a batch matches if any of its reported
+      // configurations uses a selected model (OR within the model dimension).
+      if (modelSelected) {
+        const hasModel = (b.configuration?.configurations ?? []).some(
+          (pair) => selectedModels.has(pair.model),
+        );
+        if (!hasModel) return false;
+      }
       if (!q) return true;
+      // SPEC-148: free-text also searches the reported model/effort pairs.
+      const configText = (b.configuration?.configurations ?? [])
+        .map((c) => `${c.model} ${c.effort ?? ""}`)
+        .join(" ")
+        .toLowerCase();
       return (
         b.id.includes(q) ||
         b.selection_type.toLowerCase().includes(q) ||
         getSelectionLabel(b).toLowerCase().includes(q) ||
         (b.trigger?.actor?.toLowerCase().includes(q) ?? false) ||
         (b.trigger?.source?.toLowerCase().includes(q) ?? false) ||
-        b.environment.toLowerCase().includes(q)
+        b.environment.toLowerCase().includes(q) ||
+        configText.includes(q)
       );
     });
-  }, [query, filter, batchRuns, conclusions]);
+  }, [query, filter, batchRuns, conclusions, selectedModels]);
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -280,6 +313,17 @@ export function RunsClient({
                 <TableHead style={{ width: COL.chevron }} />
                 <TableHead>Run</TableHead>
                 <TableHead style={{ width: COL.source }}>Source</TableHead>
+                <TableHead style={{ width: COL.execution }}>
+                  <span className="inline-flex items-center gap-1">
+                    Execution
+                    <RunsModelFilter
+                      options={modelOptions}
+                      selected={selectedModels}
+                      onToggle={toggleModel}
+                      onClear={clearModels}
+                    />
+                  </span>
+                </TableHead>
                 <TableHead style={{ width: COL.tasks }} className="text-right">Tasks · Pass rate</TableHead>
                 <TableHead style={{ width: COL.duration }} className="text-right">Duration</TableHead>
                 <TableHead style={{ width: COL.created }} className="text-right">Created</TableHead>
@@ -295,6 +339,7 @@ export function RunsClient({
                   compareSelected={compareIdSet.has(b.id)}
                   compareDisabled={compareIds.length >= 2 && !compareIdSet.has(b.id)}
                   onToggleCompare={() => toggleCompare(b.id)}
+                  modelFilter={selectedModels}
                 />
               ))}
             </TableBody>
@@ -446,6 +491,7 @@ function RunsRow({
   compareSelected,
   compareDisabled,
   onToggleCompare,
+  modelFilter,
 }: {
   batch: AgentTaskBatchRunSummary;
   clientNow: number | null;
@@ -453,6 +499,9 @@ function RunsRow({
   compareSelected: boolean;
   compareDisabled: boolean;
   onToggleCompare: () => void;
+  /** SPEC-148: active model facet. When non-empty, expanded children that don't
+      match a selected model are hidden (the batch row itself is filtered upstream). */
+  modelFilter: Set<string>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [taskRuns, setTaskRuns] = useState<AgentTaskRunSummary[] | null>(null);
@@ -540,11 +589,6 @@ function RunsRow({
             </div>
             <div className="mt-1 flex items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
               <span className="shrink-0 font-mono text-muted-foreground/60">{batch.id.slice(0, 8)}</span>
-              <span className="shrink-0 text-muted-foreground/30">·</span>
-              <span className="inline-flex shrink-0 items-center gap-1">
-                <User className="h-3 w-3 text-muted-foreground/50" />
-                <span className="font-mono">{triggerLabel}</span>
-              </span>
               {branch && (
                 <>
                   <span className="shrink-0 text-muted-foreground/30">·</span>
@@ -577,9 +621,17 @@ function RunsRow({
               <div className="truncate font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
                 {triggerLabel}
               </div>
-              <div className="truncate font-mono text-[10px] text-muted-foreground/60">{batch.selection_type}</div>
             </div>
           </div>
+        </TableCell>
+
+        {/* SPEC-148: Execution — the adapter-reported model · effort, or an
+            honest uniform/mixed/partial/unknown label. Visible without
+            expanding the row. Monochrome data, not a colored badge. */}
+        <TableCell>
+          <span className="truncate font-mono text-[12px] tabular-nums text-muted-foreground" title={formatBatchExecution(batch.configuration)}>
+            {formatBatchExecution(batch.configuration)}
+          </span>
         </TableCell>
 
         <TableCell className="text-right">
@@ -656,7 +708,7 @@ function RunsRow({
         <>
           {loading && (
             <TableRow className="bg-white/10 hover:bg-transparent">
-              <TableCell colSpan={6} className="py-6">
+              <TableCell colSpan={7} className="py-6">
                 <div className="flex items-center justify-center gap-2 text-[12px] text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   Loading task runs…
@@ -666,19 +718,34 @@ function RunsRow({
           )}
           {!loading && error && (
             <TableRow className="bg-white/10 hover:bg-transparent">
-              <TableCell colSpan={6} className="py-6 text-center text-[12px] text-destructive">{error}</TableCell>
+              <TableCell colSpan={7} className="py-6 text-center text-[12px] text-destructive">{error}</TableCell>
             </TableRow>
           )}
-          {!loading && !error && taskRuns !== null && taskRuns.length === 0 && (
-            <TableRow className="bg-white/10 hover:bg-transparent">
-              <TableCell colSpan={6} className="py-6 text-center text-[12px] text-muted-foreground">
-                No task runs were recorded for this run.
-              </TableCell>
-            </TableRow>
-          )}
-          {!loading && !error && taskRuns !== null && taskRuns.map((run) => (
-            <InlineTaskRunRow key={run.id} run={run} projectId={projectId} clientNow={clientNow} />
-          ))}
+          {!loading && !error && taskRuns !== null && (() => {
+            // SPEC-148: when a model filter is active, hide children whose
+            // reported model isn't selected. The batch matched because SOME
+            // child has the model; expanding reveals only those that do.
+            const visible = modelFilter.size > 0
+              ? taskRuns.filter((tr) => {
+                  const m = tr.run_configuration?.model;
+                  return typeof m === "string" && modelFilter.has(m);
+                })
+              : taskRuns;
+            if (visible.length === 0) {
+              return (
+                <TableRow className="bg-white/10 hover:bg-transparent">
+                  <TableCell colSpan={7} className="py-6 text-center text-[12px] text-muted-foreground">
+                    {taskRuns.length === 0
+                      ? "No task runs were recorded for this run."
+                      : "No task runs match the current model filter."}
+                  </TableCell>
+                </TableRow>
+              );
+            }
+            return visible.map((run) => (
+              <InlineTaskRunRow key={run.id} run={run} projectId={projectId} clientNow={clientNow} />
+            ));
+          })()}
         </>
       )}
     </>
@@ -712,16 +779,17 @@ function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTaskRunSumm
       <TableCell className="pl-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
-            <span className={cn("h-2 w-2 shrink-0 rounded-full", statusConfig.dot)} aria-hidden />
+            <span
+              className={cn("h-2 w-2 shrink-0 rounded-full", statusConfig.dot)}
+              role="img"
+              aria-label={statusConfig.label}
+            />
             <Link
               href={`/project/${projectId}/runs/task/${run.id}`}
               className="truncate text-[13px] font-medium text-foreground hover:text-primary"
             >
               {run.task_id}
             </Link>
-            <span className={cn("shrink-0 text-[11px] font-medium uppercase tracking-wide", statusConfig.text)}>
-              {statusConfig.label}
-            </span>
           </div>
           <div className="mt-1 flex items-center gap-x-2 text-[11px] text-muted-foreground">
             {run.adapter_name && (
@@ -737,9 +805,18 @@ function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTaskRunSumm
         </div>
       </TableCell>
 
+      {/* Source column is intentionally empty for child rows: the task name is
+          already in the Run column, and the trigger source is the parent
+          batch's (shown on the parent row). Nothing unique to add here. */}
+      <TableCell aria-hidden />
+
+      {/* SPEC-148: exact child configuration (not the batch aggregate). */}
       <TableCell>
-        <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
-          {run.task_path.split("/").slice(-2).join("/")}
+        <span
+          className="truncate font-mono text-[12px] tabular-nums text-muted-foreground"
+          title={formatRunExecutionFull(run.run_configuration)}
+        >
+          {formatRunExecution(run.run_configuration)}
         </span>
       </TableCell>
 

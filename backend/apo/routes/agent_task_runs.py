@@ -22,6 +22,7 @@ from sqlmodel.sql.expression import SelectOfScalar
 from ..db import get_session
 from ..db_helpers import as_column
 from ..models import (
+    AgentTaskBatchRunConfigurationSummary,
     AgentTaskBatchRunDB,
     AgentTaskBatchRunDetail,
     AgentTaskBatchRunExternalDetail,
@@ -38,6 +39,7 @@ from ..models import (
     ReportAgentTaskRunResultRequest,
     RunDB,
 )
+from ..services.agent_task_configuration import configuration_from_row
 from ..services.agent_task_discovery import (
     DiscoveredAgentTask,
     discover_agent_task_by_id,
@@ -45,6 +47,7 @@ from ..services.agent_task_discovery import (
 )
 from ..services.agent_task_outcome import classify_run_outcome
 from ..services.agent_task_projection import (
+    group_batch_configuration_summaries,
     parse_trigger,
     to_batch_run_detail,
     to_batch_run_summary,
@@ -590,21 +593,47 @@ async def create_caller_batch_run_route(
 async def list_agent_task_batch_runs(
     project: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    model: list[str] | None = Query(default=None),
+    effort: list[str] | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
-    """List batch runs, optionally filtered by project and status."""
+    """List batch runs, optionally filtered by project, status, or configuration.
+
+    SPEC-148 configuration filters (``model``/``effort``): both repeatable.
+    A batch matches only when ONE child Task Run satisfies ALL supplied
+    dimensions — never model from one child and effort from another. The
+    pair-identity is enforced by an EXISTS subquery over the same child row.
+    Matching is exact and case-sensitive.
+    """
     query = select(AgentTaskBatchRunDB)
 
     if project:
         query = query.where(AgentTaskBatchRunDB.project == project)
     if status:
         query = query.where(AgentTaskBatchRunDB.status == status)
+    if model or effort:
+        # A batch matches only when ONE child Task Run satisfies ALL supplied
+        # dimensions. Selecting the batch_run_id of children that match every
+        # dimension preserves pair identity — a child contributes its
+        # batch_run_id only if its own (model, effort) pair satisfies all dims,
+        # so model from one child and effort from another never combines.
+        matching = select(AgentTaskRunDB.batch_run_id)
+        if model:
+            matching = matching.where(
+                col(AgentTaskRunDB.configured_model).in_(model)
+            )
+        if effort:
+            matching = matching.where(
+                col(AgentTaskRunDB.configured_effort).in_(effort)
+            )
+        query = query.where(col(AgentTaskBatchRunDB.id).in_(matching))
 
     query = query.order_by(desc(AGENT_TASK_BATCH_RUN_CREATED_AT_COL))
     batches = session.exec(query).all()
 
     batch_ids = [br.id for br in batches]
     cost_by_batch: dict[str, float] = {}
+    configuration_by_batch: dict[str, AgentTaskBatchRunConfigurationSummary] = {}
     if batch_ids:
         all_task_runs = session.exec(
             select(AgentTaskRunDB).where(col(AgentTaskRunDB.batch_run_id).in_(batch_ids))
@@ -613,8 +642,18 @@ async def list_agent_task_batch_runs(
             cost_by_batch[tr.batch_run_id] = cost_by_batch.get(tr.batch_run_id, 0.0) + (
                 tr.total_cost or 0.0
             )
+        # SPEC-148: derive each batch's configuration summary from the same
+        # already-loaded child rows (one query, no N+1 per batch).
+        configuration_by_batch = group_batch_configuration_summaries(all_task_runs)
 
-    return [to_batch_run_summary(br, cost_by_batch.get(br.id)) for br in batches]
+    return [
+        to_batch_run_summary(
+            br,
+            cost_by_batch.get(br.id),
+            configuration=configuration_by_batch.get(br.id),
+        )
+        for br in batches
+    ]
 
 
 @router.get(
@@ -688,9 +727,16 @@ async def list_agent_task_runs(
     status: str | None = Query(default=None),
     task_id: str | None = Query(default=None),
     batch_run_id: str | None = Query(default=None),
+    model: list[str] | None = Query(default=None),
+    effort: list[str] | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
-    """List all task runs, optionally filtered by project, status, task, or batch."""
+    """List all task runs, optionally filtered.
+
+    SPEC-148: ``model``/``effort`` are repeatable and exact/case-sensitive.
+    Repeated values within one dimension OR; the two dimensions AND. A run
+    with an unreported configuration (NULL columns) never matches.
+    """
     query = select(AgentTaskRunDB)
 
     if project:
@@ -703,6 +749,10 @@ async def list_agent_task_runs(
         query = query.where(AgentTaskRunDB.task_id == task_id)
     if batch_run_id:
         query = query.where(AgentTaskRunDB.batch_run_id == batch_run_id)
+    if model:
+        query = query.where(col(AgentTaskRunDB.configured_model).in_(model))
+    if effort:
+        query = query.where(col(AgentTaskRunDB.configured_effort).in_(effort))
 
     query = query.order_by(desc(as_column(cast(object, AgentTaskRunDB.started_at))))
     task_runs = session.exec(query).all()
@@ -760,6 +810,9 @@ async def get_agent_task_run(
             task_run.error_message,
             task_run.trace_persistence_status,
         ),
+        run_configuration=configuration_from_row(
+            task_run.configured_model, task_run.configured_effort
+        ),
     )
 
 
@@ -809,6 +862,7 @@ async def report_agent_task_run_result(
             deliverables=request.deliverables,
             errored=request.errored,
             error_message=request.error_message,
+            run_configuration=request.run_configuration,
         )
     except ValueError as e:
         msg = str(e)
@@ -860,5 +914,8 @@ async def report_agent_task_run_result(
             task_run.status,
             task_run.error_message,
             task_run.trace_persistence_status,
+        ),
+        run_configuration=configuration_from_row(
+            task_run.configured_model, task_run.configured_effort
         ),
     )

@@ -23,6 +23,7 @@ from sqlmodel import Session, select
 
 from apo.db_helpers import _as_column
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskRunDB, TaskExecutionAttemptDB
+from apo.models.schemas import AgentTaskRunConfiguration
 from apo.services.agent_task_run_service import finalize_task_run_with_result, update_batch_run_status
 from apo.services.execution_leases import (
     CANCELLED,
@@ -81,6 +82,8 @@ class AttemptResultBody:
     stdout_tail: str | None = None
     stderr_tail: str | None = None
     error_message: str | None = None
+    # SPEC-148: adapter-reported model/effort.
+    run_configuration: AgentTaskRunConfiguration | None = None
 
 
 @dataclass(frozen=True)
@@ -170,6 +173,7 @@ def finalize_attempt_result(
         trace_run_id=body.trace_run_id, checks=body.checks,
         transcript=body.transcript, deliverables=body.deliverables,
         error_message=body.error_message, errored=False,
+        run_configuration=body.run_configuration,
     )
     session.commit()
     session.refresh(attempt)
@@ -241,6 +245,7 @@ def _finalize_task_run(
     deliverables: dict[str, object] | None,
     error_message: str | None,
     errored: bool,
+    run_configuration: AgentTaskRunConfiguration | None = None,
 ) -> None:
     task_run = session.get(AgentTaskRunDB, attempt.task_run_id)
     if task_run is None:
@@ -253,6 +258,7 @@ def _finalize_task_run(
         adapter_name=adapter_name, pass_result=pass_result, trace_run_id=trace_run_id,
         checks=checks, transcript=transcript, deliverables=deliverables,
         errored=errored, error_message=error_message,
+        run_configuration=run_configuration,
     )
     task_run.completed_at = datetime.now(timezone.utc)
     session.add(task_run)

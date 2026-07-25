@@ -447,6 +447,7 @@ class BundledExecutorAgent:
                     exit_code=result.exit_code,
                     stdout_tail=result.stdout_tail,
                     stderr_tail=result.stderr_tail,
+                    run_configuration=_opt_run_configuration(tr.get("runConfiguration")),
                 )
                 return
             except CompletionConflict:
@@ -468,6 +469,24 @@ class BundledExecutorAgent:
 def _opt_str(d: dict[str, object], key: str) -> str | None:
     v = d.get(key)
     return str(v) if isinstance(v, str) else None
+
+
+def _opt_run_configuration(value: object) -> dict[str, object] | None:
+    """SPEC-148: parse the runner's runConfiguration JSON into a request body.
+
+    Returns ``None`` when absent/malformed; the finalizer validates and
+    normalizes before persisting.
+    """
+    if not isinstance(value, dict):
+        return None
+    model = value.get("model")
+    if not isinstance(model, str):
+        return None
+    effort = value.get("effort")
+    out: dict[str, object] = {"model": model}
+    if isinstance(effort, str):
+        out["effort"] = effort
+    return out
 
 
 def _opt_list(d: dict[str, object], key: str) -> list[dict[str, object]] | None:

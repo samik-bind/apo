@@ -32,6 +32,7 @@ from apo.models.db import (
     TaskExecutionAttemptDB,
     TaskRevisionDB,
 )
+from apo.models.schemas import AgentTaskRunConfiguration
 from apo.models.execution import EXECUTOR_PROTOCOL_VERSION, ExecutorCapabilities
 from apo.services.execution_finalization import (
     AttemptFailureBody,
@@ -126,6 +127,8 @@ class ResultRequest(BaseModel):
     stdout_tail: str | None = None
     stderr_tail: str | None = None
     error_message: str | None = None
+    # SPEC-148: the adapter's resolved model/effort for this attempt.
+    run_configuration: AgentTaskRunConfiguration | None = None
 
 
 class FailureRequest(BaseModel):
@@ -434,6 +437,7 @@ async def attempt_result(
                 deliverables=body.deliverables, exit_code=body.exit_code,
                 stdout_tail=body.stdout_tail, stderr_tail=body.stderr_tail,
                 error_message=body.error_message,
+                run_configuration=body.run_configuration,
             ),
         )
     except CompletionConflict as exc:

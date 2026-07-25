@@ -91,6 +91,10 @@ async function main(): Promise<void> {
     deliverables: recorded.jsonDeliverables,
     artifacts: recorded.artifactUploads,
     traceRunId: result.traceRunId ?? null,
+    // SPEC-148: the adapter's resolved model/effort. The executor parses this
+    // into the typed run_configuration columns. Absent when the adapter does
+    // not report configuration.
+    runConfiguration: result.runConfiguration ?? null,
   });
 
   const resultPath = process.env.AGENT_TASK_RESULT_PATH;

@@ -87,4 +87,51 @@ describe("runs list command", () => {
     expect(code).toBe(0);
     expect(stripAnsi(logs.join("\n"))).toContain("No runs found");
   });
+
+  it("encodes repeatable --model/--effort as repeated query params", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(mockResponse([]));
+    const { logs, restore } = captureLog();
+
+    await run([
+      "--backend",
+      "http://backend.test",
+      "--model",
+      "gpt-5.6-terra",
+      "--model",
+      "claude-opus-4.1",
+      "--effort",
+      "high",
+    ]);
+    restore();
+
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    // Repeatable params become repeated ?model=... entries (OR within dimension).
+    expect(url).toContain("model=gpt-5.6-terra");
+    expect(url).toContain("model=claude-opus-4.1");
+    expect(url).toContain("effort=high");
+    expect(logs.join("\n")).toContain("No runs found");
+  });
+
+  it("renders the Execution column from run_configuration", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse([
+        makeRun({
+          run_configuration: { model: "gpt-5.6-terra", effort: "high" },
+        }),
+        makeRun({ id: "no-cfg-run-aaaaaaaaaaaaaaaaaaaaaaaa", run_configuration: null }),
+      ]),
+    );
+    const { logs, restore } = captureLog();
+
+    await run(["--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("Execution");
+    expect(out).toContain("gpt-5.6-terra · high");
+    // A run with no configuration shows a dash.
+    expect(out).toContain("·");
+  });
 });

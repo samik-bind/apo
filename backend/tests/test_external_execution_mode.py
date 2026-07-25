@@ -287,6 +287,102 @@ class TestReportResult:
         assert detail["deliverables_json"] == {"summary": "ok"}
         assert detail["completed_at"] is not None
 
+    def test_report_result_persists_run_configuration(
+        self, client: TestClient, session: Session
+    ) -> None:
+        """SPEC-148: a reported configuration is persisted and projected back."""
+        _batch_id, task_run_id = _external_batch_ids(client, session)
+
+        resp = client.post(
+            f"/v1/agent-task-runs/{task_run_id}/result",
+            json={
+                "pass_result": True,
+                "run_configuration": {"model": "gpt-5.6-terra", "effort": "high"},
+            },
+        )
+        assert resp.status_code == 200, resp.text
+
+        row = session.get(AgentTaskRunDB, task_run_id)
+        assert row is not None
+        assert row.configured_model == "gpt-5.6-terra"
+        assert row.configured_effort == "high"
+
+        detail = client.get(f"/v1/agent-task-runs/{task_run_id}").json()
+        assert detail["run_configuration"] == {
+            "model": "gpt-5.6-terra",
+            "effort": "high",
+        }
+
+    def test_report_result_without_configuration_leaves_columns_null(
+        self, client: TestClient, session: Session
+    ) -> None:
+        """Old executor payloads (no run_configuration) stay compatible."""
+        _batch_id, task_run_id = _external_batch_ids(client, session)
+
+        resp = client.post(
+            f"/v1/agent-task-runs/{task_run_id}/result",
+            json={"pass_result": True},
+        )
+        assert resp.status_code == 200, resp.text
+
+        row = session.get(AgentTaskRunDB, task_run_id)
+        assert row is not None
+        assert row.configured_model is None
+        assert row.configured_effort is None
+
+        detail = client.get(f"/v1/agent-task-runs/{task_run_id}").json()
+        assert detail["run_configuration"] is None
+
+    def test_report_result_rejects_invalid_configuration(
+        self, client: TestClient, session: Session
+    ) -> None:
+        """An invalid configuration is a contract error (400), not persisted."""
+        _batch_id, task_run_id = _external_batch_ids(client, session)
+
+        resp = client.post(
+            f"/v1/agent-task-runs/{task_run_id}/result",
+            json={
+                "pass_result": True,
+                "run_configuration": {"model": "   "},
+            },
+        )
+        assert resp.status_code == 400
+        assert "run_configuration.model" in resp.json()["detail"]
+
+        row = session.get(AgentTaskRunDB, task_run_id)
+        assert row is not None
+        assert row.configured_model is None
+        assert row.status != "passed"
+
+    def test_report_result_does_not_mutate_configuration_on_duplicate(
+        self, client: TestClient, session: Session
+    ) -> None:
+        """A duplicate terminal report cannot mutate stored configuration."""
+        _batch_id, task_run_id = _external_batch_ids(client, session)
+
+        first = client.post(
+            f"/v1/agent-task-runs/{task_run_id}/result",
+            json={
+                "pass_result": True,
+                "run_configuration": {"model": "gpt-5.6-terra", "effort": "high"},
+            },
+        )
+        assert first.status_code == 200
+
+        second = client.post(
+            f"/v1/agent-task-runs/{task_run_id}/result",
+            json={
+                "pass_result": False,
+                "run_configuration": {"model": "claude-opus-4.1", "effort": "low"},
+            },
+        )
+        assert second.status_code == 409
+
+        row = session.get(AgentTaskRunDB, task_run_id)
+        assert row is not None
+        assert row.configured_model == "gpt-5.6-terra"
+        assert row.configured_effort == "high"
+
     def test_report_result_rolls_up_batch_status(
         self, client: TestClient, session: Session
     ) -> None:

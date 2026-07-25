@@ -30,14 +30,17 @@ function timeoutSignal(ms: number): AbortSignal {
 export async function apiGet<T>(
   baseUrl: string,
   path: string,
-  params?: Record<string, string>,
+  params?: Record<string, string | string[]>,
   config?: Config,
 ): Promise<T> {
-  const url = resolveApiUrl(baseUrl, path);
+  const url = resolveApiUrl(baseUrl, path)
   if (params) {
     for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined && value !== "") {
-        url.searchParams.set(key, value);
+      const values = Array.isArray(value) ? value : [value]
+      for (const v of values) {
+        if (v !== undefined && v !== "") {
+          url.searchParams.append(key, v)
+        }
       }
     }
   }

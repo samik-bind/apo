@@ -160,6 +160,7 @@ class ExecutorProtocolClient:
         deliverables: dict[str, object] | None = None,
         stdout_tail: str | None = None, stderr_tail: str | None = None,
         error_message: str | None = None,
+        run_configuration: dict[str, object] | None = None,
     ) -> dict[str, object]:
         return await self._attempt_post(
             assignment,
@@ -171,6 +172,8 @@ class ExecutorProtocolClient:
                 "deliverables": deliverables, "exit_code": exit_code,
                 "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
                 "error_message": error_message,
+                # SPEC-148: adapter-reported model/effort.
+                "run_configuration": run_configuration,
             },
             # completion_id idempotency makes a 5xx replay safe (no-op on repeat).
             retryable=True,

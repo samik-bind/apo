@@ -9,6 +9,7 @@ export type {
   DeliverableDefinition,
   CollectedDeliverables,
   AgentTurnResult,
+  AgentTaskRunConfiguration,
   InitializeContext,
   StartSessionContext,
   CollectDeliverablesContext,

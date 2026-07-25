@@ -78,6 +78,36 @@ Three things to notice:
 
 That's the whole concept. An adapter is plain TypeScript — it can import your application code, your SDK client, your tool definitions, anything that runs in the task's Node process.
 
+## Report the run's model and effort
+
+apo never selects the model — your agent's own configuration does (an env var like `OPENROUTER_MODEL`, an app config file, an adapter override). What apo needs is the **resolved** value: the exact model and effort your runtime used after env vars, aliases, and defaults are applied.
+
+Return it from `startSession` as `runConfiguration`. The same resolved object that constructs your agent describes the run — never guess or reconstruct a display label after the fact:
+
+```typescript
+async startSession(ctx) {
+  // Resolve once, from the same source the agent reads.
+  const model = process.env.MY_AGENT_MODEL ?? "claude-opus-4.1";
+  const effort = process.env.MY_AGENT_EFFORT ?? "high";
+
+  const agent = createAgent({ model, effort, /* … */ });
+
+  return {
+    runConfiguration: { model, effort },
+    async sendUserTurn(turn) {
+      return { response: await agent.send(turn) };
+    },
+  };
+}
+```
+
+- `model` is required when you report a configuration; `effort` is optional.
+- Omit `runConfiguration` entirely if your adapter can't truthfully report a single configuration (e.g. a multi-model agent, or a model that changes mid-run). An unreported configuration is shown as `—` — never inferred from the adapter name, env, or trace.
+- apo validates the values (length and character bounds) and fails the run before the first turn if they're malformed.
+
+**Configured vs. observed.** `runConfiguration.model` is what the adapter *intended* to use. The trace's observed model (what the provider actually served, after routing or fallbacks) is a separate value shown as **Observed** on the run. A difference between them is useful evidence, not an error.
+
+
 ## Next
 
 - [Tasks](/concepts/tasks/): how `adapter`, `deliverables`, and `turn` fit in the `.eval.ts`.

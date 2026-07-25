@@ -163,6 +163,106 @@ describe("task run --local", () => {
     expect(logs.join("\n")).toContain("run-local-1");
   });
 
+  it("forwards the adapter run_configuration and renders Model/Effort", async () => {
+    const sdk = await import("@apo/sdk/agent-task");
+    vi.mocked(sdk.runTaskDir).mockResolvedValueOnce({
+      taskDir: join(testDir, "cfg-task"),
+      taskId: "cfg-task",
+      pass: true,
+      checks: [{ id: "c1", pass: true }],
+      adapterName: "demoAdapter",
+      traceRunId: "trace-cfg-1",
+      deliverables: { summary: "ok" },
+      transcript: { turns: [] },
+      runConfiguration: { model: "gpt-5.6-terra", effort: "high" },
+    });
+
+    const taskDir = join(testDir, "cfg-task");
+    writeTaskFile(
+      taskDir,
+      `import { task } from "@apo/sdk/agent-task";\ntask("cfg-task", { adapter: "a" });`,
+    );
+
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(new Response("ok", { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "batch-cfg",
+            project: "example-service",
+            status: "running",
+            task_runs: [
+              {
+                id: "run-cfg",
+                task_id: "cfg-task",
+                task_path: "cfg-task",
+                status: "running",
+                started_at: "2026-07-20T10:00:00Z",
+                trace_token: "token-cfg",
+              },
+            ],
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "run-cfg",
+            batch_run_id: "batch-cfg",
+            task_id: "cfg-task",
+            task_path: "cfg-task",
+            adapter_name: "demoAdapter",
+            status: "passed",
+            pass_result: true,
+            started_at: "2026-07-20T10:00:00Z",
+            completed_at: "2026-07-20T10:00:05Z",
+            trace_run_id: "trace-cfg-1",
+            error_message: null,
+            total_cost: null,
+            run_configuration: { model: "gpt-5.6-terra", effort: "high" },
+            trigger: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => logs.push(args.join(" "));
+
+    const code = await run([
+      "cfg-task",
+      "--local",
+      "--dir",
+      testDir,
+      "--backend",
+      "http://backend.test",
+      "--project",
+      "example-service",
+    ]);
+
+    console.log = originalLog;
+
+    expect(code).toBe(0);
+
+    // The reported result body carries the exact nested pair.
+    const reportCall = fetchMock.mock.calls[2];
+    const reportBody = JSON.parse(String(reportCall?.[1]?.body));
+    expect(reportBody.run_configuration).toEqual({
+      model: "gpt-5.6-terra",
+      effort: "high",
+    });
+
+    // Completion output shows Model and Effort.
+    const output = logs.join("\n");
+    expect(output).toContain("Model:");
+    expect(output).toContain("gpt-5.6-terra");
+    expect(output).toContain("Effort:");
+    expect(output).toContain("high");
+  });
+
   it("falls back to unrecorded local run when backend is unreachable", async () => {
     const taskDir = join(testDir, "meeting-summary");
     writeTaskFile(

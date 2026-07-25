@@ -442,6 +442,16 @@ class AgentTaskBatchRunDB(SQLModel, table=True):
 
 class AgentTaskRunDB(SQLModel, table=True):
     __tablename__: ClassVar[str] = "agent_task_runs"
+    __table_args__: ClassVar[tuple[object, ...]] = (
+        # SPEC-148: composite index for the model/effort filtering and
+        # comparison dimensions across a batch's children.
+        Index(
+            "ix_agent_task_runs_configuration",
+            "configured_model",
+            "configured_effort",
+            "batch_run_id",
+        ),
+    )
 
     id: str = Field(primary_key=True)
     batch_run_id: str = Field(foreign_key="agent_task_batch_runs.id", index=True)
@@ -476,6 +486,11 @@ class AgentTaskRunDB(SQLModel, table=True):
     )
     total_cost: float | None = Field(default=None)
     total_tokens: int | None = Field(default=None)
+    # SPEC-148: adapter-reported Run Configuration. Typed, indexed product
+    # dimensions — never backfilled from adapter name, env, or trace data.
+    # Both columns nullable so legacy rows remain readable as "unknown".
+    configured_model: str | None = Field(default=None)
+    configured_effort: str | None = Field(default=None)
     # SPEC-119: link the run back to the exact inventory row and resolved
     # commit SHA it executed against. ``task_inventory_id`` is nullable so
     # legacy runs (created before inventory existed) keep rendering.

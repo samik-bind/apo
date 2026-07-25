@@ -22,6 +22,25 @@ export type AgentTurnResult = {
   response: unknown;
 };
 
+/**
+ * The adapter-reported identity of the agent under test for one Task Run
+ * (SPEC-148). The adapter resolves its configuration (env vars, aliases,
+ * defaults), constructs the agent from that same resolved object, and reports
+ * the resolved values here.
+ *
+ * - `model` is the exact identifier the adapter passed to its runtime.
+ * - `effort` is the exact short value that runtime used (`low`/`medium`/...
+ *   or `"default"`). Omitted means "the adapter did not report effort".
+ *
+ * The whole configuration is absent (`undefined`) when the adapter does not
+ * support reporting it. Values are descriptive — they never affect task
+ * selection, execution, scoring, retry, or deduplication.
+ */
+export interface AgentTaskRunConfiguration {
+  model: string;
+  effort?: string;
+}
+
 export type AdapterRuntimeState = Record<string, unknown>;
 
 export type InitializeContext = {
@@ -58,6 +77,13 @@ export type CleanupContext = {
 };
 
 export type AdapterSession = {
+  /**
+   * The adapter's resolved model/effort for this run (SPEC-148). Read by
+   * `runTask()` immediately after `startSession()` returns, validated, and
+   * copied into {@link TaskRunResult.runConfiguration}. Absent for adapters
+   * that do not report configuration.
+   */
+  runConfiguration?: AgentTaskRunConfiguration;
   sendUserTurn: (
     turn: unknown,
     context: {

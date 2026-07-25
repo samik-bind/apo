@@ -1,5 +1,6 @@
 import { runTask } from "./run/runTask.ts";
 import type { EvaluationItemResult } from "./run/types.ts";
+import type { AgentTaskRunConfiguration } from "./adapter/types.ts";
 import { loadTask } from "./task/loadTask.ts";
 import type { JudgeConfig } from "./checks/t.ts";
 import { createOtelAgentTaskTraceClient } from "./otel-trace-client.ts";
@@ -22,6 +23,8 @@ export type AgentTaskRunSummary = {
   deliverables?: Record<string, unknown>;
   /** Per-turn transcript of the run. */
   transcript?: Record<string, unknown>;
+  /** SPEC-148: adapter-reported model/effort, forwarded when recording locally. */
+  runConfiguration?: AgentTaskRunConfiguration;
 };
 
 export async function loadTaskRuntime(
@@ -97,6 +100,7 @@ export async function runTaskDir(
     traceRunId: result.traceRunId,
     deliverables: result.deliverables,
     transcript: result.transcript as unknown as Record<string, unknown>,
+    runConfiguration: result.runConfiguration,
   };
 }
 

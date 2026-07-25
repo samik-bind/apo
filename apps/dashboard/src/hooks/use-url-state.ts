@@ -47,6 +47,7 @@ export function useUrlParam(key: string, fallback = ""): [string, (value: string
 export function useUrlParamSet(key: string): [
   Set<string>,
   (value: string, open?: boolean) => void,
+  () => void,
 ] {
   const router = useRouter();
   const pathname = usePathname();
@@ -66,7 +67,14 @@ export function useUrlParamSet(key: string): [
     [router, pathname, searchParams, key, raw],
   );
 
-  return [values, toggle];
+  // Clear every value at once. The toggle closure reads a stale `raw` snapshot,
+  // so removing items in a loop is unreliable — this writes the empty set
+  // directly in one router update.
+  const clearAll = useCallback(() => {
+    updateParam(router, pathname, searchParams, key, null);
+  }, [router, pathname, searchParams, key]);
+
+  return [values, toggle, clearAll];
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────

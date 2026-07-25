@@ -24,6 +24,8 @@ from ..models.db import (
     ProjectTaskInventoryDB,
     ProjectTaskSourceDB,
 )
+from ..models.schemas import AgentTaskRunConfiguration
+from .agent_task_configuration import normalize_run_configuration
 from .agent_task_discovery import DEFAULT_TASK_ROOT, resolve_task_paths
 from .check_result_storage import normalize_checks_for_storage
 from .trace_backend import get_trace_backend
@@ -383,6 +385,7 @@ def finalize_task_run_with_result(
     deliverables: dict[str, object] | None,
     errored: bool = False,
     error_message: str | None = None,
+    run_configuration: AgentTaskRunConfiguration | None = None,
 ) -> None:
     """Write an executor's result onto a task run and roll up the batch.
 
@@ -401,10 +404,26 @@ def finalize_task_run_with_result(
     producing a result, so the run lands as ``status: error`` with the
     caller-supplied message preserved — ahead of the Issue #8 precedence,
     which only applies to ``passed``/``failed`` verdicts.
+
+    ``run_configuration`` (SPEC-148): the adapter's resolved model/effort.
+    Validated before any terminal state is mutated — an invalid reported
+    configuration is an adapter contract error (``ValueError``) and must not
+    partially mutate the row. Persisted as the typed/indexed
+    ``configured_model`` / ``configured_effort`` columns.
     """
+    # SPEC-148: validate before mutating terminal state.
+    normalized_config = normalize_run_configuration(run_configuration)
     task_run.adapter_name = adapter_name
     task_run.pass_result = pass_result
     task_run.trace_run_id = reconcile_trace_id(task_run, trace_run_id)
+    # SPEC-148: persist the typed, indexed configuration columns. Absent
+    # (None) when the adapter did not report a configuration.
+    task_run.configured_model = (
+        normalized_config.model if normalized_config else None
+    )
+    task_run.configured_effort = (
+        normalized_config.effort if normalized_config else None
+    )
     # SPEC-140 ticket 03: normalize checks before any persistence or event
     # emission so a large Deliverable repeated across judge assertions cannot
     # blow up the row or the list/detail query. Direct service calls and tests
@@ -512,6 +531,7 @@ def finalize_external_task_run(
     deliverables: dict[str, object] | None,
     errored: bool = False,
     error_message: str | None = None,
+    run_configuration: AgentTaskRunConfiguration | None = None,
 ) -> None:
     """Apply an external executor's final result to a task run.
 
@@ -524,6 +544,10 @@ def finalize_external_task_run(
     externally-reported failure reason is persisted (Issue #8). ``errored``
     flows through so an executor that threw lands as ``status: error`` with
     that message, ahead of the Issue #8 precedence (Issue #13).
+    ``run_configuration`` (SPEC-148) flows through to the shared finalizer,
+    which validates it before persisting; an invalid configuration raises
+    ``ValueError`` (mapped to 400 by the route, since the terminal-check above
+    has already passed).
     """
     if task_run.status in ("passed", "failed", "error"):
         raise ValueError(
@@ -546,6 +570,7 @@ def finalize_external_task_run(
         deliverables=deliverables,
         errored=errored,
         error_message=error_message,
+        run_configuration=run_configuration,
     )
     task_run.completed_at = datetime.now(timezone.utc)
     session.add(task_run)

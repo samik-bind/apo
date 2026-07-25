@@ -1,11 +1,14 @@
 export type ParsedArgs = {
   positional: string[];
   flags: Record<string, string | boolean>;
+  /** Every value seen for a flag, in order (supports repeatable flags). */
+  multiFlags: Record<string, string[]>;
 };
 
 export function parseArgs(argv: string[]): ParsedArgs {
   const positional: string[] = [];
   const flags: Record<string, string | boolean> = {};
+  const multiFlags: Record<string, string[]> = {};
 
   let i = 0;
   while (i < argv.length) {
@@ -38,6 +41,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const next = argv[i + 1];
       if (next && !next.startsWith("--")) {
         flags[key] = next;
+        (multiFlags[key] ??= []).push(next);
         i += 2;
       } else {
         flags[key] = true;
@@ -50,7 +54,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     i += 1;
   }
 
-  return { positional, flags };
+  return { positional, flags, multiFlags };
 }
 
 export function requirePositional(
@@ -84,3 +88,11 @@ export function getBoolFlag(
 }
 
 export { getFlag as getFlagValue };
+
+/** Read every value for a (possibly repeatable) flag. Empty when absent. */
+export function getFlagValues(
+  multiFlags: Record<string, string[]>,
+  name: string,
+): string[] {
+  return multiFlags[name] ?? [];
+}

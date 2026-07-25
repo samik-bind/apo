@@ -14,9 +14,11 @@ from datetime import datetime
 from typing import cast
 
 from ..models import (
+    AgentTaskBatchRunConfigurationSummary,
     AgentTaskBatchRunDB,
     AgentTaskBatchRunDetail,
     AgentTaskBatchRunSummary,
+    AgentTaskRunConfiguration,
     AgentTaskRunDB,
     AgentTaskRunTrigger,
     AgentTaskRunSummary,
@@ -28,6 +30,10 @@ from ..models.execution import (
     ExecutionPhase,
     PoolExecutionTarget,
     TaskRevisionSummary,
+)
+from .agent_task_configuration import (
+    configuration_from_row,
+    summarize_batch_configurations,
 )
 from .agent_task_outcome import build_failure_breakdown, classify_run_outcome
 
@@ -116,13 +122,24 @@ def to_task_run_summary(
         error_category=classify_run_outcome(
             tr.status, tr.error_message, tr.trace_persistence_status
         ),
+        run_configuration=configuration_from_row(
+            tr.configured_model, tr.configured_effort
+        ),
     )
 
 
 def to_batch_run_summary(
-    br: AgentTaskBatchRunDB, total_cost: float | None = None
+    br: AgentTaskBatchRunDB,
+    total_cost: float | None = None,
+    configuration: AgentTaskBatchRunConfigurationSummary | None = None,
 ) -> AgentTaskBatchRunSummary:
-    """Project a batch run DB row to its summary view model."""
+    """Project a batch run DB row to its summary view model.
+
+    ``configuration`` is the derived Run Configuration summary for the batch's
+    children. The list endpoint builds it from one grouped query across the
+    page's batch IDs (no per-batch N+1); when omitted the batch projects as
+    "unknown" configuration.
+    """
     trigger = parse_trigger(br.run_metadata)
     return AgentTaskBatchRunSummary(
         id=br.id,
@@ -146,6 +163,8 @@ def to_batch_run_summary(
         started_at=br.started_at,
         completed_at=br.completed_at,
         trigger=trigger,
+        configuration=configuration
+        or AgentTaskBatchRunConfigurationSummary(state="unknown"),
     )
 
 
@@ -177,6 +196,13 @@ def to_batch_run_detail(
     total_cost = sum(tr.total_cost or 0 for tr in task_runs)
     breakdown = build_failure_breakdown(task_runs)
     execution_target = _pool_execution_target(br.execution_target_json)
+    configuration = summarize_batch_configurations(
+        [
+            configuration_from_row(tr.configured_model, tr.configured_effort)
+            for tr in task_runs
+        ],
+        total_task_runs=len(task_runs),
+    )
     return AgentTaskBatchRunDetail(
         id=br.id,
         project=br.project,
@@ -217,7 +243,33 @@ def to_batch_run_detail(
             )
             for attempt in attempts
         ],
+        configuration=configuration,
     )
+
+
+def group_batch_configuration_summaries(
+    task_runs: Sequence[AgentTaskRunDB],
+) -> dict[str, AgentTaskBatchRunConfigurationSummary]:
+    """Build per-batch configuration summaries from already-loaded child rows.
+
+    Used by the batch list endpoint: it already loads all of the page's child
+    task runs in one query (for cost rollup), so this reuses those in-memory
+    rows to derive each batch's ``uniform``/``mixed``/``partial``/``unknown``
+    summary without an N+1 per-batch query. Batches with no children present
+    here project as ``unknown``.
+    """
+    by_batch: dict[str, list[AgentTaskRunConfiguration | None]] = {}
+    totals: dict[str, int] = {}
+    for tr in task_runs:
+        bid = tr.batch_run_id
+        by_batch.setdefault(bid, []).append(
+            configuration_from_row(tr.configured_model, tr.configured_effort)
+        )
+        totals[bid] = totals.get(bid, 0) + 1
+    return {
+        bid: summarize_batch_configurations(rows, total_task_runs=totals[bid])
+        for bid, rows in by_batch.items()
+    }
 
 
 def _pool_execution_target(
@@ -257,6 +309,7 @@ def _attempt_summary(
 
 
 __all__ = [
+    "group_batch_configuration_summaries",
     "parse_trigger",
     "to_batch_run_detail",
     "to_batch_run_summary",

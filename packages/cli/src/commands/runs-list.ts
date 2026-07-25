@@ -1,8 +1,10 @@
-import { parseArgs, getFlagValue } from "../lib/args.ts";
+import { getFlagValues, getFlagValue, parseArgs } from "../lib/args.ts";
 import { resolveConfig } from "../lib/config.ts";
 import { dim, formatCost, formatJson, formatTable, formatTime } from "../lib/format.ts";
 import { apiGet } from "../lib/api.ts";
 import { highlightIds } from "../lib/prefix.ts";
+
+type RunConfiguration = { model: string; effort?: string | null } | null;
 
 type RunSummary = {
   id: string;
@@ -17,13 +19,20 @@ type RunSummary = {
   passed_checks: number;
   failed_checks: number;
   adapter_name: string;
+  run_configuration?: RunConfiguration;
 };
 
+function formatExecution(cfg: RunConfiguration | undefined): string {
+  if (!cfg) return dim("-");
+  const effort = cfg.effort && cfg.effort !== "" ? cfg.effort : dim("—");
+  return `${cfg.model} · ${effort}`;
+}
+
 export async function run(argv: string[]): Promise<number> {
-  const { flags } = parseArgs(argv);
+  const { flags, multiFlags } = parseArgs(argv);
   const config = resolveConfig(flags);
 
-  const params: Record<string, string> = {};
+  const params: Record<string, string | string[]> = {};
   const taskId = getFlagValue(flags, "task");
   if (taskId) params.task_id = taskId;
   if (config.projectId) params.project = config.projectId;
@@ -31,6 +40,11 @@ export async function run(argv: string[]): Promise<number> {
   if (status) params.status = status;
   const limit = getFlagValue(flags, "limit");
   if (limit) params.limit = limit;
+  // SPEC-148: repeatable model/effort filters (OR within dimension, AND across).
+  const models = getFlagValues(multiFlags, "model");
+  if (models.length > 0) params.model = models;
+  const efforts = getFlagValues(multiFlags, "effort");
+  if (efforts.length > 0) params.effort = efforts;
 
   let runs: RunSummary[];
   try {
@@ -75,11 +89,15 @@ export async function run(argv: string[]): Promise<number> {
     r.batch_run_id.slice(0, 8),
     r.status,
     r.pass_result === null ? "-" : r.pass_result ? "PASS" : "FAIL",
+    formatExecution(r.run_configuration),
     formatCost(r.total_cost),
     formatTime(r.started_at),
   ]);
   console.log(
-    formatTable(["Run ID", "Task", "Batch", "Status", "Result", "Cost", "Started"], rows),
+    formatTable(
+      ["Run ID", "Task", "Batch", "Status", "Result", "Execution", "Cost", "Started"],
+      rows,
+    ),
   );
   console.log("");
   console.log(dim(`${runs.length} run${runs.length === 1 ? "" : "s"}`));

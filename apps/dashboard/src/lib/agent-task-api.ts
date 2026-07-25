@@ -63,6 +63,25 @@ export interface FailureBreakdownItem {
   count: number;
 }
 
+// SPEC-148: adapter-reported Run Configuration (typed, indexed dimensions).
+export interface AgentTaskRunConfiguration {
+  model: string;
+  effort: string | null;
+}
+
+export type BatchRunConfigurationState = "uniform" | "mixed" | "partial" | "unknown";
+
+export interface AgentTaskRunConfigurationCount extends AgentTaskRunConfiguration {
+  task_runs: number;
+}
+
+export interface AgentTaskBatchRunConfigurationSummary {
+  state: BatchRunConfigurationState;
+  configurations: AgentTaskRunConfigurationCount[];
+  reported_task_runs: number;
+  total_task_runs: number;
+}
+
 export interface AgentTaskRunSummary {
   id: string;
   batch_run_id: string;
@@ -86,6 +105,8 @@ export interface AgentTaskRunSummary {
   trace_persistence_status: TracePersistenceStatus;
   trace_error_message: string | null;
   error_category: string | null;
+  /** SPEC-148: adapter-reported model/effort. Absent when not reported. */
+  run_configuration: AgentTaskRunConfiguration | null;
 }
 
 export type EvaluatorType = "llm" | "code" | "regex";
@@ -168,6 +189,8 @@ export interface AgentTaskBatchRunSummary {
   trigger: AgentTaskRunTrigger | null;
   trace_persistence_status: TracePersistenceStatus;
   trace_error_message: string | null;
+  /** SPEC-148: derived configuration summary (uniform/mixed/partial/unknown). */
+  configuration: AgentTaskBatchRunConfigurationSummary;
 }
 
 export interface AgentTaskBatchRunDetail extends AgentTaskBatchRunSummary {

@@ -32,6 +32,7 @@ type LocalRunSummary = {
   traceRunId?: string;
   deliverables?: Record<string, unknown>;
   transcript?: Record<string, unknown>;
+  runConfiguration?: { model: string; effort?: string };
 };
 
 type ExternalTaskRun = {
@@ -86,6 +87,7 @@ type TaskRunSummary = {
   error_message: string | null;
   total_cost: number | null;
   trigger: TaskRunTrigger | null;
+  run_configuration?: { model: string; effort?: string } | null;
 };
 
 type TaskRunDetail = TaskRunSummary & {
@@ -542,6 +544,7 @@ async function runLocallyRecorded(config: Config, task: ResolvedTask): Promise<n
     trace_run_id: summary.traceRunId,
     checks: summary.checks,
     deliverables: recordedDeliverables,
+    run_configuration: summary.runConfiguration,
   });
 
   if (config.json) {
@@ -565,6 +568,7 @@ async function reportResultSafely(
     deliverables?: Record<string, unknown>;
     errored?: boolean;
     error_message?: string;
+    run_configuration?: { model: string; effort?: string };
   },
 ): Promise<TaskRunSummary | null> {
   try {
@@ -595,6 +599,11 @@ function printLocalRecordedSummary(
   console.log(`  Batch:     ${batch.id} ${dim("(apo batch show " + batch.id + ")")}`);
   if (reported?.trace_run_id ?? summary.traceRunId) {
     console.log(`  Trace:     ${reported?.trace_run_id ?? summary.traceRunId}`);
+  }
+  const cfg = reported?.run_configuration ?? summary.runConfiguration;
+  if (cfg) {
+    console.log(`  Model:     ${cfg.model}`);
+    console.log(`  Effort:    ${cfg.effort ?? "-"}`);
   }
   if (summary.checks.length > 0) {
     console.log(bold("  Checks:"));

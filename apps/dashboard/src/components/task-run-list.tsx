@@ -7,6 +7,7 @@ import { TraceHomeLink } from "@/components/trace-detail";
 import { TriggerBadge } from "@/components/trigger-badge";
 import { cn } from "@/lib/utils";
 import { formatCostMicro } from "@/lib/format";
+import { formatRunExecution } from "@/lib/run-configuration";
 import {
   TASK_RUN_STATUS,
   type TaskRunStatus,
@@ -67,6 +68,14 @@ export function TaskRunRow({ run, projectId }: { run: AgentTaskRunSummary; proje
             <span className="font-mono text-muted-foreground">{run.id.slice(0, 10)}</span>
             <span className="text-muted-foreground">&middot;</span>
             <span className="font-mono text-muted-foreground">{run.task_path.split("/").slice(-2).join("/")}</span>
+            {run.run_configuration && (
+              <>
+                <span className="text-muted-foreground">&middot;</span>
+                <span className="font-mono text-muted-foreground">
+                  {formatRunExecution(run.run_configuration)}
+                </span>
+              </>
+            )}
             {isRunning && run.trace_run_id && (
               <>
                 <span className="text-muted-foreground">&middot;</span>
