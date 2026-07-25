@@ -60,7 +60,7 @@ from ..services.agent_task_runner import (
     create_batch_run,
     finalize_external_task_run,
     prepare_external_batch_runs,
-    start_batch_run_execution,
+
 )
 from ..services.project_task_source_sync import SyncError
 
@@ -336,7 +336,6 @@ async def create_agent_task_batch_run(
         select(AgentTaskRunDB).where(AgentTaskRunDB.batch_run_id == batch.id)
     ).all()
 
-    start_batch_run_execution(batch.id)
 
     return to_batch_run_detail(batch, task_runs)
 

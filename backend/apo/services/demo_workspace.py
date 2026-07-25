@@ -24,7 +24,7 @@ from ..models.db import (
     RunDB,
     RunMetricDB,
 )
-from .agent_task_runner import create_batch_run, start_batch_run_execution
+from .agent_task_runner import create_batch_run
 from .agent_task_scheduler import compute_next_run_at
 
 DEMO_PROJECT_ID = "demo"
@@ -333,7 +333,6 @@ def seed_demo_workspace(force: bool = False) -> str | None:
             session.add(schedule)
         session.commit()
 
-        start_batch_run_execution(batch.id)
         return batch.id
 
 

@@ -21,7 +21,58 @@ from .adaptive_scheduler import (
     recompute_schedule_next_run,
     select_due_task_ids,
 )
-from .agent_task_runner import create_batch_run, start_batch_run_execution
+from .agent_task_runner import create_batch_run
+
+
+def _create_scheduled_batch(
+    session: Session,
+    *,
+    schedule: AgentTaskScheduleDB,
+    task_source: "object | None",
+    selection_type: str,
+    task_paths: list[str] | None,
+) -> tuple[str, bool]:
+    """Create a Batch for a due schedule.
+
+    Returns ``(batch_id, is_pooled)``. When the schedule has an
+    ``executor_pool_id``, a SPEC-146 pooled Batch is created (durable queued
+    Attempts, no subprocess). Otherwise the legacy path applies and the caller
+    must NOT invoke the removed in-process executor (SPEC-146 cutover).
+    """
+    pool_id = schedule.executor_pool_id
+    if pool_id is not None:
+        import asyncio
+
+        from apo.services.execution_queue import create_pooled_batch_run
+
+        batch = asyncio.run(
+            create_pooled_batch_run(
+                session,
+                project_id=schedule.project,
+                pool_id=pool_id,
+                selection_type=selection_type,
+                task_paths=task_paths,
+                task_root=schedule.task_root,
+                grep=schedule.grep,
+                environment=schedule.environment,
+                run_metadata=_schedule_run_metadata(schedule),
+                task_source=task_source,  # type: ignore[arg-type]
+            )
+        )
+        return batch.id, True
+
+    batch = create_batch_run(
+        session,
+        project=schedule.project,
+        selection_type=selection_type,
+        task_paths=task_paths,
+        task_root=schedule.task_root,
+        grep=schedule.grep,
+        environment=schedule.environment,
+        run_metadata=_schedule_run_metadata(schedule),
+        task_source=task_source,  # type: ignore[arg-type]
+    )
+    return batch.id, False
 from .project_task_inventory import task_source_inventory_is_stale
 from .project_task_sources import get_task_source_db
 
@@ -175,21 +226,14 @@ def run_due_schedules_once() -> int:
                     session.add(schedule)
                     continue
 
-                batch = create_batch_run(
-                    session,
-                    project=schedule.project,
-                    selection_type="tasks",
-                    task_paths=due_task_ids,
-                    task_root=schedule.task_root,
-                    grep=None,
-                    environment=schedule.environment,
-                    run_metadata=_schedule_run_metadata(schedule),
-                    task_source=task_source,
+                batch_id, is_pooled = _create_scheduled_batch(
+                    session, schedule=schedule, task_source=task_source,
+                    selection_type="tasks", task_paths=due_task_ids,
                 )
-                created_batch_ids.append(batch.id)
+                created_batch_ids.append(batch_id)
 
                 schedule.last_triggered_at = now
-                schedule.last_batch_run_id = batch.id
+                schedule.last_batch_run_id = batch_id
                 # Temporary safety value: the post-batch adaptive update
                 # (see ``_update_adaptive_state_if_needed``) overwrites this
                 # with the earliest task-state next_run_at once the batch
@@ -200,21 +244,15 @@ def run_due_schedules_once() -> int:
                 session.add(schedule)
                 continue
 
-            batch = create_batch_run(
-                session,
-                project=schedule.project,
+            batch_id, is_pooled = _create_scheduled_batch(
+                session, schedule=schedule, task_source=task_source,
                 selection_type=schedule.selection_type,
                 task_paths=_selection_task_paths(schedule.selection_query),
-                task_root=schedule.task_root,
-                grep=schedule.grep,
-                environment=schedule.environment,
-                run_metadata=_schedule_run_metadata(schedule),
-                task_source=task_source,
             )
-            created_batch_ids.append(batch.id)
+            created_batch_ids.append(batch_id)
 
             schedule.last_triggered_at = now
-            schedule.last_batch_run_id = batch.id
+            schedule.last_batch_run_id = batch_id
             schedule.next_run_at = compute_next_run_at(
                 cadence_type=schedule.cadence_type,
                 timezone_name=schedule.timezone,
@@ -227,9 +265,6 @@ def run_due_schedules_once() -> int:
             session.add(schedule)
 
         session.commit()
-
-    for batch_id in created_batch_ids:
-        start_batch_run_execution(batch_id)
 
     return len(created_batch_ids)
 

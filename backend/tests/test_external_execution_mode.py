@@ -166,18 +166,12 @@ class TestCreateExternalBatch:
         self, client: TestClient, session: Session, monkeypatch: MonkeyPatch
     ) -> None:
         _seed_project(session)
-        # The legacy pool dispatcher must never run for external batches.
-        submit_calls: list[str] = []
-        monkeypatch.setattr(
-            agent_task_runner,
-            "_run_batch_in_background",
-            lambda batch_id: submit_calls.append(batch_id),
-        )
-
+        # SPEC-146: the legacy subprocess runner was removed. External batch
+        # creation never executes customer code. This test now just verifies
+        # the batch is created without error.
         resp = client.post("/v1/agent-task-batch-runs/external", json=_create_external_body())
 
         assert resp.status_code == 201, resp.text
-        assert submit_calls == []  # executor never invoked
 
     def test_external_create_returns_task_run_with_scoped_token(
         self, client: TestClient, session: Session, force_service_token_secret: str

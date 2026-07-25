@@ -12,7 +12,6 @@ from sqlmodel import Session
 
 from .bootstrap import bootstrap_initial_user
 from .db import init_db, engine
-from .services.agent_task_runner import recover_stuck_runs
 from .services.email import init_email_service
 from .services.run_events import set_event_loop
 from .routes import (
@@ -63,7 +62,6 @@ async def lifespan(app: FastAPI):
     _ensure_demo_project_exists()
     with Session(engine) as session:
         bootstrap_initial_user(session)
-    recover_stuck_runs()
     from .services.agent_task_scheduler import start_schedule_dispatcher, stop_schedule_dispatcher
     from .services.retention import apply_max_page_count, start_retention_loop, stop_retention_loop
     from .services.trace_ingestion_queue import (

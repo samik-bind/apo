@@ -312,11 +312,13 @@ const commands: Record<string, CommandEntry> = {
     help: "Create a new batch run on backend",
     options: [
       ["--tasks <id1,id2,...>", "Comma-separated task ids (required)"],
+      ["--executor <pool-id>", "Target an executor Pool for durable queued execution (SPEC-146)"],
     ],
     examples: [
       "apo batch create --tasks meeting-summary,code-review",
+      "apo batch create --tasks meeting-summary --executor private-vpc",
     ],
-    note: "Without --project, task ids resolve from local --dir. Requires backend auth.",
+    note: "Without --project, task ids resolve from local --dir. --executor submits the batch as durable queued Attempts on a Pool (no in-process execution). Requires backend auth.",
   },
   reprice: {
     handler: loadCommand("reprice"),

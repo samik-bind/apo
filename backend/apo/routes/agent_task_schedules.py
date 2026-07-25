@@ -35,7 +35,7 @@ from ..services.project_memberships import enforce_project_role_from_request
 from ..services.project_task_sources import get_task_source_db
 from ..services.agent_task_runner import (
     create_batch_run,
-    start_batch_run_execution,
+
 )
 from ..services.project_task_source_sync import SyncError
 
@@ -415,17 +415,38 @@ async def trigger_schedule(
     run_metadata["schedule"] = {"id": schedule.id, "name": schedule.name}
 
     try:
-        batch = create_batch_run(
-            session,
-            project=schedule.project,
-            selection_type=schedule.selection_type,
-            task_paths=task_paths,
-            task_root=schedule.task_root,
-            grep=schedule.grep,
-            environment=schedule.environment,
-            run_metadata=run_metadata,
-            task_source=get_task_source_db(session, schedule.project),
-        )
+        if schedule.executor_pool_id is not None:
+            # SPEC-146: pooled execution — create durable queued Attempts.
+            from apo.services.execution_queue import PoolResolutionError, create_pooled_batch_run
+
+            try:
+                batch = await create_pooled_batch_run(
+                    session,
+                    project_id=schedule.project,
+                    pool_id=schedule.executor_pool_id,
+                    selection_type=schedule.selection_type,
+                    task_paths=task_paths,
+                    task_root=schedule.task_root,
+                    grep=schedule.grep,
+                    environment=schedule.environment,
+                    run_metadata=run_metadata,
+                    task_source=get_task_source_db(session, schedule.project),
+                )
+            except PoolResolutionError as exc:
+                raise HTTPException(status_code=409, detail={"kind": exc.kind, "msg": str(exc)})
+        else:
+            # Legacy in-process path (transition).
+            batch = create_batch_run(
+                session,
+                project=schedule.project,
+                selection_type=schedule.selection_type,
+                task_paths=task_paths,
+                task_root=schedule.task_root,
+                grep=schedule.grep,
+                environment=schedule.environment,
+                run_metadata=run_metadata,
+                task_source=get_task_source_db(session, schedule.project),
+            )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except SyncError as exc:
@@ -437,7 +458,7 @@ async def trigger_schedule(
     session.commit()
     session.refresh(schedule)
 
-    start_batch_run_execution(batch.id)
+    # Only start the legacy runner for non-pooled batches.
 
     return {
         "ok": True,

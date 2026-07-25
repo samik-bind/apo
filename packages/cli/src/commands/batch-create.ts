@@ -70,6 +70,12 @@ export async function run(argv: string[]): Promise<number> {
     body.project = config.projectId;
   }
 
+  // SPEC-146: --executor targets a Pool for durable queued execution.
+  const executorFlag = getFlagValue(flags, "executor");
+  if (executorFlag) {
+    body.execution_target = { kind: "pool", pool_id: executorFlag };
+  }
+
   let batch: BatchDetail;
   try {
     batch = await apiPost<BatchDetail>(

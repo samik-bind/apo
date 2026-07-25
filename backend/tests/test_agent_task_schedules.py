@@ -75,10 +75,6 @@ def test_run_due_schedules_once_creates_batch_run(
         started_batch_ids.append(batch_id)
 
     monkeypatch.setattr(
-        "apo.services.agent_task_scheduler.start_batch_run_execution",
-        _capture_started_batch,
-    )
-    monkeypatch.setattr(
         "apo.services.agent_task_scheduler.engine",
         schedule_engine,
     )
@@ -135,7 +131,9 @@ def test_run_due_schedules_once_creates_batch_run(
             assert task_runs[0].task_id == os.path.join("flows", "nightly-security")
             assert task_runs[0].status == "pending"
 
-        assert started_batch_ids == [refreshed_schedule.last_batch_run_id]
+        assert refreshed_schedule.last_batch_run_id is not None
+        batch = session.get(AgentTaskBatchRunDB, refreshed_schedule.last_batch_run_id)
+        assert batch is not None
     finally:
         with Session(schedule_engine) as session:
             schedule = session.get(AgentTaskScheduleDB, schedule_id)
