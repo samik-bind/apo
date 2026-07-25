@@ -1,12 +1,10 @@
-"""SPEC-143/145: execution queue — Batch + Task Run + Attempt creation.
+"""SPEC-143/145/146: execution queue — Batch + Task Run + Attempt creation.
 
-SPEC-145 adds ``create_caller_batch_run``: the caller Executor is ephemeral and
-atomically creates and claims one Task Run without enrolling a persistent
-Executor identity. It materializes an attested Task Revision (SPEC-142), creates
-a ``target_kind="caller"`` Attempt already leased at generation 1, and mints the
-Attempt JWT the CLI uses for /start, heartbeat, and result.
-
-No production pooled entry point uses this yet (SPEC-146 wires pooled Batches).
+- SPEC-145 ``create_caller_batch_run``: ephemeral caller Executor.
+- SPEC-146 ``create_pooled_batch_run``: server-initiated runs become durable
+  queued Attempts on a Project Pool. The Control Plane never executes customer
+  code; it returns immediately after the Revision/Bundle and Attempts are
+  durable, and an Executor claims later.
 """
 
 from __future__ import annotations
@@ -14,13 +12,16 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from apo.models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
+    ExecutorPoolDB,
     ProjectDB,
+    ProjectTaskSourceDB,
     TaskExecutionAttemptDB,
 )
 from apo.models.execution import (
@@ -172,4 +173,154 @@ def _validate_caller_identity(identity: CallerIdentity) -> None:
         raise CallerExecutionError("caller_identity exceeds 4 KiB total limit")
 
 
-__all__ = ["CallerClaimResult", "CallerExecutionError", "create_caller_batch_run"]
+__all__ = [
+    "CallerClaimResult",
+    "CallerExecutionError",
+    "PoolResolutionError",
+    "create_caller_batch_run",
+    "create_pooled_batch_run",
+    "resolve_execution_pool",
+]
+
+
+# ============================================================================
+# SPEC-146: pooled Batch creation
+# ============================================================================
+
+
+class PoolResolutionError(ValueError):
+    """Raised when no usable execution Pool can be resolved for a Batch.
+
+    Carries a ``kind`` (``executor_pool_required`` / ``executor_pool_disabled`` /
+    ``executor_pool_archived`` / ``executor_pool_not_owned``) so routes map to
+    the spec's 409/422 contract.
+    """
+
+    def __init__(self, kind: str, message: str) -> None:
+        super().__init__(f"[{kind}] {message}")
+        self.kind = kind
+
+
+def resolve_execution_pool(
+    session: Session,
+    *,
+    project_id: str,
+    explicit_pool_id: str | None,
+) -> ExecutorPoolDB:
+    """Resolve the Pool a Batch targets: explicit wins, else Project default.
+
+    Disabled/archived Pools reject new Batch creation (the user can correct it
+    before creating misleading queued work). Offline Pools are accepted.
+    """
+    pool_id = explicit_pool_id
+    if pool_id is None:
+        project = session.get(ProjectDB, project_id)
+        pool_id = project.default_executor_pool_id if project is not None else None
+    if pool_id is None:
+        raise PoolResolutionError(
+            "executor_pool_required",
+            "no executor pool specified and the project has no default pool",
+        )
+    pool = session.get(ExecutorPoolDB, pool_id)
+    if pool is None or pool.project != project_id:
+        raise PoolResolutionError(
+            "executor_pool_not_owned",
+            "executor pool does not belong to this project",
+        )
+    if pool.archived_at is not None:
+        raise PoolResolutionError(
+            "executor_pool_archived", "executor pool is archived"
+        )
+    if not pool.enabled:
+        raise PoolResolutionError(
+            "executor_pool_disabled", "executor pool is disabled"
+        )
+    return pool
+
+
+async def create_pooled_batch_run(
+    session: Session,
+    *,
+    project_id: str,
+    pool_id: str | None,
+    selection_type: str,
+    task_paths: list[str] | None,
+    task_root: str | None,
+    grep: str | None,
+    environment: str,
+    run_metadata: dict[str, object] | None,
+    task_source: ProjectTaskSourceDB | None,
+    resolved_commit_sha: str | None = None,
+) -> AgentTaskBatchRunDB:
+    """Create a pooled Batch: Revision/Bundle + ordered queued Attempts.
+
+    Returns immediately after the work is durable. The Control Plane does not
+    execute customer code or wait for an Executor. Sequential Task order within
+    one Batch is preserved by ``sequence_index`` (only the lowest non-terminal
+    Attempt is claimable). If Bundle persistence succeeds but the DB transaction
+    fails, the SPEC-142 service deletes the orphan object.
+    """
+    from apo.services.agent_task_runner import create_batch_run
+    from apo.services.task_revisions import materialize_pooled_task_revision
+
+    if task_source is None:
+        raise PoolResolutionError(
+            "executor_pool_required",
+            "pooled execution requires a configured project task source",
+        )
+    pool = resolve_execution_pool(session, project_id=project_id, explicit_pool_id=pool_id)
+
+    # create_batch_run resolves the selection + creates Batch + Task Runs.
+    batch = create_batch_run(
+        session,
+        project=project_id,
+        selection_type=selection_type,
+        task_paths=task_paths,
+        task_root=task_root,
+        grep=grep,
+        environment=environment,
+        run_metadata=run_metadata,
+        task_source=task_source,
+    )
+    # Persist the resolved target so it never changes after creation.
+    batch.execution_target_json = {"kind": "pool", "pool_id": pool.id}
+    session.add(batch)
+    session.commit()
+    session.refresh(batch)
+
+    # Materialize one SPEC-142 bundled Revision for the Batch.
+    revision = await materialize_pooled_task_revision(
+        session,
+        project_id=project_id,
+        batch_run_id=batch.id,
+        task_source=task_source,
+        resolved_commit_sha=resolved_commit_sha,
+    )
+    # Create one queued Attempt per Task Run, ordered by sequence_index.
+    task_runs = session.exec(
+        select(AgentTaskRunDB)
+        .where(AgentTaskRunDB.batch_run_id == batch.id)
+        .order_by(AgentTaskRunDB.id)
+    ).all()
+    now = datetime.now(timezone.utc)
+    queue_ttl = pool.queue_ttl_seconds
+    for idx, task_run in enumerate(task_runs):
+        task_run.sequence_index = idx
+        attempt = TaskExecutionAttemptDB(
+            project=project_id,
+            batch_run_id=batch.id,
+            task_run_id=task_run.id,
+            task_revision_id=revision.id,
+            sequence_index=idx,
+            target_kind="pool",
+            executor_pool_id=pool.id,
+            executor_id=None,
+            status="queued",
+            queue_expires_at=now + timedelta(seconds=queue_ttl),
+            queued_at=now,
+        )
+        session.add(attempt)
+        session.add(task_run)
+    session.commit()
+    session.refresh(batch)
+    return batch

@@ -569,6 +569,11 @@ class CreateAgentTaskBatchRunRequest(SQLModel):
     grep: str | None = None
     environment: str = "default"
     run_metadata: dict[str, object] | None = None
+    # SPEC-146: explicit pooled execution target. When set, the Batch is created
+    # as durable queued Attempts on the named Pool (no Control-Plane subprocess).
+    # When omitted, the Project default Pool is used; if none, the legacy
+    # in-process path applies during the transition period.
+    execution_target: dict[str, object] | None = None
 
 
 class AgentTaskRunExternalSummary(SQLModel):
