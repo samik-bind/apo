@@ -1,3 +1,5 @@
+# pyright: reportPrivateUsage=false
+
 """SPEC-143: Execution Attempt finalization (result / failure).
 
 Owns the bounded result body, completion idempotency, exit code, and bounded
@@ -14,7 +16,7 @@ body raises a ``CompletionConflict`` (mapped to 409 by the route).
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 
 from sqlmodel import Session, select
@@ -22,7 +24,13 @@ from sqlmodel import Session, select
 from apo.db_helpers import _as_column
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskRunDB, TaskExecutionAttemptDB
 from apo.services.agent_task_run_service import finalize_task_run_with_result, update_batch_run_status
-from apo.services.execution_leases import SUCCEEDED, FAILED, CurrentAttemptLease, LeaseError, _require_current
+from apo.services.execution_leases import (
+    FAILED,
+    SUCCEEDED,
+    CurrentAttemptLease,
+    LeaseError,
+    _require_current,
+)
 
 # Bounded diagnostic tails (SPEC-143 §result/failure): 64 KiB each.
 DIAGNOSTIC_TAIL_BYTES = 64 * 1024
@@ -47,6 +55,8 @@ class CompletionConflict(Exception):
 
 
 class FinalizationError(Exception):
+    kind: str
+
     def __init__(self, kind: str, message: str) -> None:
         super().__init__(f"[{kind}] {message}")
         self.kind = kind
@@ -94,7 +104,12 @@ def _body_digest(payload: object) -> str:
 
 
 def _check_completion_idempotency(
-    session: Session, *, attempt: TaskExecutionAttemptDB, completion_id: str, digest: str
+    session: Session,
+    *,
+    attempt: TaskExecutionAttemptDB,
+    completion_id: str,
+    digest: str,
+    terminal_status: str,
 ) -> bool:
     """Return True if this completion is an idempotent replay (already done)."""
     existing = session.exec(
@@ -105,7 +120,7 @@ def _check_completion_idempotency(
     ).first()
     if existing is not None:
         raise CompletionConflict("completion_id already used by another attempt")
-    if attempt.completion_id == completion_id and attempt.status == SUCCEEDED:
+    if attempt.completion_id == completion_id and attempt.status == terminal_status:
         if attempt.completion_sha256 == digest:
             return True  # idempotent replay
         raise CompletionConflict("completion_id replayed with a different body")
@@ -123,12 +138,16 @@ def finalize_attempt_result(
     """Apply a bounded result: attempt succeeded, Task Run finalized via the
     shared finalizer, batch rolled up. Idempotent by (completion_id, digest)."""
     attempt = _require_current(session, lease)
-    digest = _body_digest(
-        {"pass_result": body.pass_result, "checks": body.checks, "trace_run_id": body.trace_run_id}
-    )
-    if _check_completion_idempotency(session, attempt=attempt, completion_id=body.completion_id, digest=digest):
+    digest = _body_digest({"kind": "result", "body": asdict(body)})
+    if _check_completion_idempotency(
+        session,
+        attempt=attempt,
+        completion_id=body.completion_id,
+        digest=digest,
+        terminal_status=SUCCEEDED,
+    ):
         return attempt
-    if attempt.status not in ("running", "leased"):
+    if attempt.status != "running":
         raise LeaseError("state_mismatch", f"cannot finalize result from status {attempt.status!r}")
 
     now = datetime.now(timezone.utc)
@@ -150,6 +169,7 @@ def finalize_attempt_result(
     )
     session.commit()
     session.refresh(attempt)
+    _emit_finalization_events(session, attempt)
     return attempt
 
 
@@ -163,11 +183,22 @@ def finalize_attempt_failure(
     if body.failure_kind not in _VALID_FAILURE_KINDS:
         raise FinalizationError("bad_failure_kind", f"unknown failure kind {body.failure_kind!r}")
     attempt = _require_current(session, lease)
-    if attempt.status in ("succeeded", "failed", "cancelled", "lost"):
-        raise LeaseError("state_mismatch", f"attempt already terminal: {attempt.status!r}")
+    digest = _body_digest({"kind": "failure", "body": asdict(body)})
+    if _check_completion_idempotency(
+        session,
+        attempt=attempt,
+        completion_id=body.completion_id,
+        digest=digest,
+        terminal_status=FAILED,
+    ):
+        return attempt
+    if attempt.status != "running":
+        raise LeaseError("state_mismatch", f"cannot finalize failure from status {attempt.status!r}")
 
     now = datetime.now(timezone.utc)
     attempt.status = FAILED
+    attempt.completion_id = body.completion_id
+    attempt.completion_sha256 = digest
     attempt.failure_kind = body.failure_kind
     attempt.error_message = body.error_message
     attempt.exit_code = body.exit_code
@@ -183,6 +214,7 @@ def finalize_attempt_failure(
     )
     session.commit()
     session.refresh(attempt)
+    _emit_finalization_events(session, attempt)
     return attempt
 
 
@@ -214,6 +246,29 @@ def _finalize_task_run(
     task_run.completed_at = datetime.now(timezone.utc)
     session.add(task_run)
     update_batch_run_status(session, batch)
+
+
+def _emit_finalization_events(
+    session: Session,
+    attempt: TaskExecutionAttemptDB,
+) -> None:
+    """Publish the same lifecycle events as the former subprocess path."""
+    from apo.services.run_events import emit_batch_run_event, emit_task_run_event
+
+    task_run = session.get(AgentTaskRunDB, attempt.task_run_id)
+    batch = session.get(AgentTaskBatchRunDB, attempt.batch_run_id)
+    if task_run is None or batch is None:
+        return
+    emit_task_run_event(attempt.project, task_run)
+    if batch.status in ("completed", "error"):
+        task_runs = list(
+            session.exec(
+                select(AgentTaskRunDB).where(
+                    _as_column(AgentTaskRunDB.batch_run_id) == batch.id
+                )
+            ).all()
+        )
+        emit_batch_run_event(attempt.project, batch, task_runs)
 
 
 __all__ = [

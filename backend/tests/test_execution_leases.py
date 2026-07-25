@@ -9,10 +9,12 @@ generation), #13 (cancellation idempotent), #15 (reaper leaves terminal rows).
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from threading import Barrier
 
 import pytest
-from apo.db_helpers import _as_column
 from apo.models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
@@ -23,10 +25,7 @@ from apo.models.db import (
     TaskRevisionDB,
 )
 from apo.services.execution_leases import (
-    ATTEMPT_LEASE_SECONDS,
-    ClaimedAttempt,
     CurrentAttemptLease,
-    HeartbeatResponse,
     LeaseError,
     claim_next_attempt,
     heartbeat_attempt,
@@ -34,7 +33,8 @@ from apo.services.execution_leases import (
     request_cancellation,
     start_attempt,
 )
-from sqlmodel import Session, select
+from sqlalchemy.engine import Engine
+from sqlmodel import Session, SQLModel, create_engine
 
 
 def _now() -> datetime:
@@ -132,6 +132,55 @@ def test_two_executors_race_one_attempt_only_one_wins(session: Session) -> None:
     assert none is None
 
 
+def test_sqlite_real_concurrent_claim_race_has_one_winner(tmp_path: Path) -> None:
+    engine = _create_sqlite_race_engine(tmp_path)
+    try:
+        with Session(engine) as setup:
+            _seed(setup, sequence_indices=[0])
+            setup.add(
+                ExecutorDB(
+                    id="ex-2",
+                    scope_kind="pool",
+                    project="proj-x",
+                    executor_pool_id="pool-1",
+                    name="exec-2",
+                    credential_prefix="apo_ex_2",
+                    credential_hash="hex-2",
+                    protocol_version=1,
+                    executor_version="v",
+                    driver_kinds_json=["subprocess"],
+                    max_concurrency=1,
+                    enrolled_at=_now(),
+                    created_at=_now(),
+                    updated_at=_now(),
+                )
+            )
+            setup.commit()
+
+        winners = _race_claims(engine, ["ex-1", "ex-2"])
+        assert sum(winner is not None for winner in winners) == 1
+        assert {winner for winner in winners if winner is not None} == {
+            "att-batch-x-0"
+        }
+    finally:
+        engine.dispose()
+
+
+def test_sqlite_concurrent_claims_cannot_exceed_executor_capacity(
+    tmp_path: Path,
+) -> None:
+    engine = _create_sqlite_race_engine(tmp_path)
+    try:
+        with Session(engine) as setup:
+            _seed(setup, sequence_indices=[0])
+            _seed_second_batch_attempt(setup)
+
+        winners = _race_claims(engine, ["ex-1", "ex-1"])
+        assert sum(winner is not None for winner in winners) == 1
+    finally:
+        engine.dispose()
+
+
 def test_pool_scoped_executor_cannot_claim_other_pool(session: Session) -> None:
     _seed(session, project_id="proj-a", pool_id="pool-a", executor_id="ex-a", batch_id="batch-a")
     _seed(session, project_id="proj-b", pool_id="pool-b", executor_id="ex-b", batch_id="batch-b")
@@ -210,6 +259,10 @@ def test_start_fences_before_customer_code(session: Session) -> None:
     assert started.status == "running"
     assert started.started_at is not None
     assert started.driver_kind == "subprocess"
+    task_run = session.get(AgentTaskRunDB, started.task_run_id)
+    batch = session.get(AgentTaskBatchRunDB, started.batch_run_id)
+    assert task_run is not None and task_run.status == "running"
+    assert batch is not None and batch.status == "running"
 
 
 def test_stale_generation_cannot_start(session: Session) -> None:
@@ -217,6 +270,7 @@ def test_stale_generation_cannot_start(session: Session) -> None:
     claimed = claim_next_attempt(
         session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
     )
+    assert claimed is not None
     stale = CurrentAttemptLease(attempt_id=claimed.lease.attempt_id, lease_generation=99, executor_id="ex-1")
     with pytest.raises(LeaseError):
         start_attempt(session, lease=stale, driver_kind="subprocess", runtime={})
@@ -242,6 +296,7 @@ def test_stale_generation_cannot_heartbeat(session: Session) -> None:
     claimed = claim_next_attempt(
         session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
     )
+    assert claimed is not None
     stale = CurrentAttemptLease(attempt_id=claimed.lease.attempt_id, lease_generation=99, executor_id="ex-1")
     with pytest.raises(LeaseError):
         heartbeat_attempt(session, lease=stale, phase="running")
@@ -281,6 +336,10 @@ def test_post_start_lease_expiry_becomes_lost_and_never_requeues(session: Sessio
     assert counts.lost == 1
     session.refresh(atts[0])
     assert atts[0].status == "lost"
+    task_run = session.get(AgentTaskRunDB, atts[0].task_run_id)
+    batch = session.get(AgentTaskBatchRunDB, atts[0].batch_run_id)
+    assert task_run is not None and task_run.status == "error"
+    assert batch is not None and batch.status == "completed"
     # never requeued: claim finds nothing
     claimed = claim_next_attempt(
         session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"subprocess"}),
@@ -298,6 +357,10 @@ def test_expired_queued_becomes_executor_unavailable(session: Session) -> None:
     session.refresh(atts[0])
     assert atts[0].status == "failed"
     assert atts[0].failure_kind == "executor_unavailable"
+    task_run = session.get(AgentTaskRunDB, atts[0].task_run_id)
+    batch = session.get(AgentTaskBatchRunDB, atts[0].batch_run_id)
+    assert task_run is not None and task_run.status == "error"
+    assert batch is not None and batch.status == "completed"
 
 
 def test_reaper_does_not_mutate_terminal_rows(session: Session) -> None:
@@ -314,6 +377,11 @@ def test_cancellation_of_queued_is_immediate_and_idempotent(session: Session) ->
     request_cancellation(session, attempt_id=atts[0].id)
     session.refresh(atts[0])
     assert atts[0].status == "cancelled"
+    task_run = session.get(AgentTaskRunDB, atts[0].task_run_id)
+    batch = session.get(AgentTaskBatchRunDB, atts[0].batch_run_id)
+    assert task_run is not None and task_run.status == "error"
+    assert batch is not None and batch.status == "completed"
+    assert batch.cancelled_tasks == 1
     # idempotent
     request_cancellation(session, attempt_id=atts[0].id)
     session.refresh(atts[0])
@@ -332,3 +400,86 @@ def test_cancellation_of_running_records_request(session: Session) -> None:
     assert att is not None
     assert att.status == "running"  # not immediately cancelled; heartbeat asks to stop
     assert att.cancel_requested_at is not None
+
+
+def _create_sqlite_race_engine(tmp_path: Path) -> Engine:
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'claim-race.db'}",
+        connect_args={"check_same_thread": False, "timeout": 10},
+    )
+    SQLModel.metadata.create_all(engine)
+    return engine
+
+
+def _race_claims(engine: Engine, executor_ids: list[str]) -> list[str | None]:
+    barrier = Barrier(len(executor_ids))
+
+    def claim(executor_id: str) -> str | None:
+        with Session(engine) as worker:
+            executor = worker.get(ExecutorDB, executor_id)
+            assert executor is not None
+            barrier.wait()
+            claimed = claim_next_attempt(
+                worker,
+                executor=executor,
+                accepted_driver_kinds=frozenset({"subprocess"}),
+            )
+            return claimed.attempt.id if claimed is not None else None
+
+    with ThreadPoolExecutor(max_workers=len(executor_ids)) as pool:
+        return list(pool.map(claim, executor_ids))
+
+
+def _seed_second_batch_attempt(session: Session) -> None:
+    session.add(
+        AgentTaskBatchRunDB(
+            id="batch-y",
+            project="proj-x",
+            selection_type="single",
+            status="queued",
+            created_at=_now(),
+        )
+    )
+    session.flush()
+    session.add(
+        TaskRevisionDB(
+            id="rev-batch-y",
+            project="proj-x",
+            batch_run_id="batch-y",
+            materialization="bundled",
+            source_type="filesystem",
+            content_sha256="d" * 64,
+            file_count=1,
+            uncompressed_size_bytes=1,
+            manifest_summary_json={"fileCount": 1},
+            created_at=_now(),
+        )
+    )
+    session.add(
+        AgentTaskRunDB(
+            id="run-batch-y-0",
+            batch_run_id="batch-y",
+            task_id="ty",
+            task_path="ty",
+            sequence_index=0,
+            status="pending",
+            created_at=_now(),
+        )
+    )
+    session.flush()
+    session.add(
+        TaskExecutionAttemptDB(
+            id="att-batch-y-0",
+            project="proj-x",
+            batch_run_id="batch-y",
+            task_run_id="run-batch-y-0",
+            task_revision_id="rev-batch-y",
+            sequence_index=0,
+            target_kind="pool",
+            executor_pool_id="pool-1",
+            status="queued",
+            queue_expires_at=_now() + timedelta(hours=1),
+            queued_at=_now(),
+        )
+    )
+    session.commit()

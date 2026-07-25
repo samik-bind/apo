@@ -1,3 +1,5 @@
+# pyright: reportPrivateUsage=false
+
 """SPEC-143: Executor authentication — enrollment, credentials, Attempt JWTs.
 
 Three concerns, all mirroring existing patterns so there is one credential
@@ -224,6 +226,53 @@ def decode_attempt_jwt(token: str) -> dict[str, object] | None:
     return payload
 
 
+def validate_current_attempt_jwt(
+    session: Session,
+    token: str,
+) -> tuple[TaskExecutionAttemptDB, dict[str, object]] | None:
+    """Validate an Attempt JWT against the authoritative live lease.
+
+    Signature and expiry validation are necessary but insufficient: a token
+    from an expired/requeued lease must immediately lose trace and Artifact
+    access. Every non-protocol request therefore checks all identity claims,
+    the current generation and owner, and an active lease status.
+    """
+    claims = decode_attempt_jwt(token)
+    if claims is None:
+        return None
+
+    attempt_id = claims.get("attempt_id")
+    task_run_id = claims.get("task_run_id")
+    project = claims.get("project")
+    generation = claims.get("lease_generation")
+    executor_id = claims.get("executor_id")
+    if (
+        not isinstance(attempt_id, str)
+        or not isinstance(task_run_id, str)
+        or not isinstance(project, str)
+        or not isinstance(generation, int)
+        or (executor_id is not None and not isinstance(executor_id, str))
+    ):
+        return None
+
+    attempt = session.get(TaskExecutionAttemptDB, attempt_id)
+    if attempt is None or attempt.status not in ("leased", "running"):
+        return None
+    if (
+        attempt.lease_expires_at is None
+        or attempt.lease_expires_at <= datetime.now(timezone.utc)
+    ):
+        return None
+    if (
+        attempt.task_run_id != task_run_id
+        or attempt.project != project
+        or attempt.lease_generation != generation
+        or attempt.executor_id != executor_id
+    ):
+        return None
+    return attempt, claims
+
+
 # ── Lease constants (SPEC-143 §Lease constants) ───────────────────────────
 # Env-overridable per repo convention; defaults are the spec's constants.
 
@@ -256,4 +305,5 @@ __all__ = [
     "generate_enrollment_token",
     "hash_credential",
     "resolve_executor_by_credential",
+    "validate_current_attempt_jwt",
 ]

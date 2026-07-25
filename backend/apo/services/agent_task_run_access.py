@@ -9,8 +9,8 @@ strategy.
 The Project is ALWAYS derived through ``AgentTaskBatchRunDB`` — never from
 request JSON or query parameters.
 
-- service token: ``request.state.project`` must equal the batch Project and
-  ``service_task_run_id`` must equal the Task Run ID;
+- service or Attempt token: ``request.state.project`` must equal the batch
+  Project and ``service_task_run_id`` must equal the Task Run ID;
 - API key / dashboard cookie / open-dev: the batch Project is trusted; the
   demo Project rejects writes via the existing ``require_project_not_demo``.
 """
@@ -43,7 +43,7 @@ def require_task_run_access(
     project = batch.project
 
     auth_method = getattr(request.state, "auth_method", None)
-    if auth_method == "service_token":
+    if auth_method in ("service_token", "attempt_token"):
         token_project = getattr(request.state, "project", None)
         token_run_id = getattr(request.state, "service_task_run_id", None)
         # A service token is bound to one Task Run; any mismatch is a cross-run

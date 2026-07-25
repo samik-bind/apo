@@ -31,6 +31,7 @@ from .api_key_auth import (
 )
 from .api_key_tracker import api_key_usage_tracker
 from .service_tokens import decode_service_token
+from ..services.executor_auth import validate_current_attempt_jwt
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ _TASK_RUN_DELIVERABLES_RE = re.compile(
 _ARTIFACT_UPLOAD_RE = re.compile(r"^/v1/agent-task-artifact-uploads/[^/]+$")
 _TASK_RUN_RESULT_RE = re.compile(r"^/v1/agent-task-runs/[^/]+/result$")
 _warned_no_secret = False
-AuthContextValue: TypeAlias = str | bool
+AuthContextValue: TypeAlias = str | bool | int
 AuthContext: TypeAlias = dict[str, AuthContextValue]
 
 
@@ -113,10 +114,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if user_info is None:
             return _unauthorized()
 
-        if (
-            user_info.get("auth_method") == "service_token"
-            and not _service_token_allows_request(request)
-        ):
+        auth_method = user_info.get("auth_method")
+        if auth_method == "service_token" and not _service_token_allows_request(request):
+            return _forbidden()
+        if auth_method == "attempt_token" and not _attempt_token_allows_request(request):
             return _forbidden()
 
         for key, value in user_info.items():
@@ -347,6 +348,17 @@ def _authenticate_bearer(token: str) -> AuthContext | None:
         }
 
     with Session(engine) as session:
+        attempt_auth = validate_current_attempt_jwt(session, token)
+        if attempt_auth is not None:
+            attempt, _claims = attempt_auth
+            return {
+                "project": attempt.project,
+                "service_task_run_id": attempt.task_run_id,
+                "attempt_id": attempt.id,
+                "lease_generation": attempt.lease_generation,
+                "auth_method": "attempt_token",
+            }
+
         # Public-key Bearer (pk-apo- prefix): ingest-only scope, forced by auth method
         if is_public_key(token):
             api_key = validate_bearer_public_key(token, session)
@@ -416,6 +428,21 @@ def _service_token_allows_request(request: Request) -> bool:
     if method == "POST" and _TASK_RUN_RESULT_RE.match(path) is not None:
         return True
     return False
+
+
+def _attempt_token_allows_request(request: Request) -> bool:
+    """Confine a live Attempt capability to trace and Artifact transport."""
+    path = request.url.path
+    method = request.method.upper()
+    if method == "POST" and path == "/api/public/otel/v1/traces":
+        return True
+    if (
+        method == "POST"
+        and _TASK_RUN_DELIVERABLES_RE.match(path) is not None
+        and path.endswith("/artifact-uploads")
+    ):
+        return True
+    return method == "PUT" and _ARTIFACT_UPLOAD_RE.match(path) is not None
 
 
 def _unauthorized() -> JSONResponse:

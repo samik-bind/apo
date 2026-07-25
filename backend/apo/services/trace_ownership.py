@@ -138,14 +138,15 @@ def authorize_and_claim_trace(
 ) -> bool:
     """Verify an ingestion claim and reserve the Task Run in this transaction.
 
-    Telemetry attributes are never sufficient authorization. Only a service
-    token whose subject matches ``task_run_id`` and whose Project owns the Task
-    Run may reserve the trace. Invalid claim attributes remain ordinary
-    telemetry and return ``False`` without mutating ownership.
+    Telemetry attributes are never sufficient authorization. Only a task-bound
+    service token or a current generation-fenced Attempt token whose subject
+    matches ``task_run_id`` and whose Project owns the Task Run may reserve the
+    trace. Invalid claim attributes remain ordinary telemetry and return
+    ``False`` without mutating ownership.
     """
     if context is None or not context.may_claim_task_run:
         logger.warning(
-            "Rejecting task-run claim for trace %s: no authenticated service token subject",
+            "Rejecting task-run claim for trace %s: no authenticated task token subject",
             trace_id,
         )
         return False

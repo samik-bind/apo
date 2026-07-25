@@ -1,3 +1,5 @@
+# pyright: reportCallInDefaultInitializer=false
+
 """SPEC-143: Executor Control Plane HTTP protocol.
 
 All endpoints under ``/v1/executor-protocol/v1``. The protocol authenticates
@@ -13,10 +15,9 @@ Executor.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Annotated
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from jose import JWTError
 from pydantic import BaseModel
 from sqlmodel import Session
@@ -33,17 +34,13 @@ from apo.services.execution_finalization import (
     finalize_attempt_result,
 )
 from apo.services.execution_leases import (
-    ClaimedAttempt,
     CurrentAttemptLease,
     LeaseError,
     claim_next_attempt,
     heartbeat_attempt,
-    request_cancellation,
     start_attempt,
 )
 from apo.services.executor_auth import (
-    ATTEMPT_LEASE_SECONDS,
-    EXECUTOR_HEARTBEAT_SECONDS,
     create_attempt_jwt,
     decode_attempt_jwt,
     exchange_enrollment_token,
@@ -66,10 +63,6 @@ class EnrollResponse(BaseModel):
     credential: str
     heartbeat_interval_seconds: int
     lease_ttl_seconds: int
-
-
-class HeartbeatExecRequest(BaseModel):
-    pass
 
 
 class ClaimsRequest(BaseModel):
@@ -102,6 +95,8 @@ class ResultRequest(BaseModel):
     adapter_name: str | None = None
     trace_run_id: str | None = None
     checks: list[dict[str, object]] | None = None
+    transcript: dict[str, object] | None = None
+    deliverables: dict[str, object] | None = None
     exit_code: int | None = None
     stdout_tail: str | None = None
     stderr_tail: str | None = None
@@ -205,7 +200,6 @@ async def executor_heartbeat(
 @router.post("/claims", response_model=ClaimAttemptResponse | None)
 async def claims(
     body: ClaimsRequest,
-    request: Request,
     response: Response,
     executor: ExecutorDB = Depends(require_executor),
     session: Session = Depends(get_session),
@@ -240,7 +234,6 @@ async def download_bundle(
     attempt_id: str,
     response: Response,
     lease: CurrentAttemptLease = Depends(require_attempt_lease),
-    session: Session = Depends(get_session),
 ) -> Response:
     response.headers["X-Apo-Executor-Protocol"] = str(PROTOCOL_VERSION)
     if lease.attempt_id != attempt_id:
@@ -304,7 +297,8 @@ async def attempt_result(
             body=AttemptResultBody(
                 completion_id=body.completion_id, pass_result=body.pass_result,
                 adapter_name=body.adapter_name, trace_run_id=body.trace_run_id,
-                checks=body.checks, exit_code=body.exit_code,
+                checks=body.checks, transcript=body.transcript,
+                deliverables=body.deliverables, exit_code=body.exit_code,
                 stdout_tail=body.stdout_tail, stderr_tail=body.stderr_tail,
                 error_message=body.error_message,
             ),
@@ -335,6 +329,11 @@ async def attempt_failure(
                 error_message=body.error_message, exit_code=body.exit_code,
                 stdout_tail=body.stdout_tail, stderr_tail=body.stderr_tail,
             ),
+        )
+    except CompletionConflict as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"kind": "completion_conflict", "msg": str(exc)},
         )
     except FinalizationError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))

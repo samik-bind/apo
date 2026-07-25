@@ -1,3 +1,5 @@
+# pyright: reportPrivateUsage=false
+
 """SPEC-143: lease state machine — atomic claim, start/heartbeat fencing, reaper.
 
 The database is authoritative for ownership; an Executor's heartbeat or request
@@ -22,11 +24,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import update
+from sqlalchemy import func, update
+from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
 from apo.db_helpers import _as_column
-from apo.models.db import ExecutorDB, TaskExecutionAttemptDB
+from apo.models.db import (
+    AgentTaskBatchRunDB,
+    AgentTaskRunDB,
+    ExecutorDB,
+    TaskExecutionAttemptDB,
+)
 from apo.services.executor_auth import ATTEMPT_LEASE_SECONDS
 
 # Attempt statuses.
@@ -100,6 +108,23 @@ def _active_count(session: Session, executor: ExecutorDB) -> int:
     return len(rows)
 
 
+def _lock_executor_for_claim(
+    session: Session,
+    executor_id: str,
+) -> ExecutorDB | None:
+    """Serialize capacity decisions for one Executor.
+
+    PostgreSQL's row lock prevents two claims for different Attempt rows from
+    both observing the same free slot. SQLite serializes writes at the database
+    level and safely ignores ``FOR UPDATE``.
+    """
+    return session.exec(
+        select(ExecutorDB)
+        .where(_as_column(ExecutorDB.id) == executor_id)
+        .with_for_update()
+    ).one_or_none()
+
+
 def _sequential_blocker(session: Session, attempt: TaskExecutionAttemptDB) -> bool:
     """True if a lower sequence_index attempt in the same Batch is non-terminal."""
     blockers = session.exec(
@@ -125,8 +150,14 @@ def claim_next_attempt(
     Returns None when no work is available.
     """
     now = _now()
-    if executor.revoked_at is not None or not executor.enabled:
+    locked_executor = _lock_executor_for_claim(session, executor.id)
+    if (
+        locked_executor is None
+        or locked_executor.revoked_at is not None
+        or not locked_executor.enabled
+    ):
         return None
+    executor = locked_executor
 
     # Pool scope: a pool-scoped executor claims only its own pool's attempts.
     scope_filter = (
@@ -164,11 +195,22 @@ def claim_next_attempt(
             continue
 
         new_generation = attempt.lease_generation + 1
+        active_attempt = aliased(TaskExecutionAttemptDB)
+        active_count = (
+            select(func.count())
+            .select_from(active_attempt)
+            .where(
+                active_attempt.executor_id == executor.id,
+                _as_column(active_attempt.status).in_([LEASED, RUNNING]),
+            )
+            .scalar_subquery()
+        )
         result = session.exec(
             update(TaskExecutionAttemptDB)
             .where(
                 _as_column(TaskExecutionAttemptDB.id) == attempt.id,
                 _as_column(TaskExecutionAttemptDB.status) == QUEUED,
+                active_count < executor.max_concurrency,
             )
             .values(
                 status=LEASED,
@@ -213,6 +255,14 @@ def _require_current(session: Session, lease: CurrentAttemptLease) -> TaskExecut
     # None and "" as equivalent so the own-only check passes for caller leases.
     if (attempt.executor_id or "") != (lease.executor_id or ""):
         raise LeaseError("stale_generation", "lease executor does not own this attempt")
+    if (
+        attempt.status in NONTERMINAL_STATUSES
+        and (
+            attempt.lease_expires_at is None
+            or attempt.lease_expires_at <= _now()
+        )
+    ):
+        raise LeaseError("stale_generation", "attempt lease has expired")
     return attempt
 
 
@@ -241,9 +291,22 @@ def start_attempt(
     attempt.lease_expires_at = _now() + timedelta(seconds=ATTEMPT_LEASE_SECONDS)
     attempt.driver_kind = driver_kind
     attempt.executor_snapshot_json = {"runtime": dict(runtime)}
+    task_run = session.get(AgentTaskRunDB, attempt.task_run_id)
+    batch = session.get(AgentTaskBatchRunDB, attempt.batch_run_id)
+    if task_run is None or batch is None:
+        raise LeaseError("not_found", "attempt references a missing Task Run or Batch")
+    task_run.status = "running"
+    task_run.started_at = task_run.started_at or attempt.started_at
+    batch.status = "running"
+    batch.started_at = batch.started_at or attempt.started_at
     session.add(attempt)
+    session.add(task_run)
+    session.add(batch)
     session.commit()
     session.refresh(attempt)
+    from apo.services.run_events import emit_task_run_event
+
+    emit_task_run_event(attempt.project, task_run)
     return attempt
 
 
@@ -279,6 +342,12 @@ def request_cancellation(session: Session, *, attempt_id: str) -> None:
         attempt.status = CANCELLED
         attempt.cancel_requested_at = now
         attempt.completed_at = now
+        _finalize_logical_run(
+            session,
+            attempt,
+            error_message="Execution was cancelled before task code started",
+            cancelled=True,
+        )
     else:  # running
         attempt.cancel_requested_at = now
     session.add(attempt)
@@ -315,7 +384,15 @@ def recover_expired_attempts(session: Session, *, now: datetime) -> RecoveryCoun
             # Post-start: uncertain; never auto-retry.
             attempt.status = LOST
             attempt.failure_kind = "lease_expired"
+            attempt.error_message = (
+                "Executor lease expired after task code started; outcome is unknown"
+            )
             attempt.completed_at = now
+            _finalize_logical_run(
+                session,
+                attempt,
+                error_message=attempt.error_message,
+            )
             lost += 1
         session.add(attempt)
 
@@ -330,12 +407,59 @@ def recover_expired_attempts(session: Session, *, now: datetime) -> RecoveryCoun
         attempt.failure_kind = "executor_unavailable"
         attempt.error_message = "queue TTL expired before an executor claimed the task"
         attempt.completed_at = now
+        _finalize_logical_run(
+            session,
+            attempt,
+            error_message=attempt.error_message,
+        )
         failed_unavailable += 1
         session.add(attempt)
 
     if requeued or lost or failed_unavailable:
         session.commit()
     return RecoveryCounts(requeued=requeued, lost=lost, failed_unavailable=failed_unavailable)
+
+
+def _finalize_logical_run(
+    session: Session,
+    attempt: TaskExecutionAttemptDB,
+    *,
+    error_message: str,
+    cancelled: bool = False,
+) -> None:
+    """Keep operational Attempt failure aligned with user-facing Run state."""
+    task_run = session.get(AgentTaskRunDB, attempt.task_run_id)
+    batch = session.get(AgentTaskBatchRunDB, attempt.batch_run_id)
+    if task_run is None or batch is None:
+        raise LeaseError("not_found", "attempt references a missing Task Run or Batch")
+    if task_run.status in ("passed", "failed", "error"):
+        return
+
+    now = _now()
+    task_run.status = "error"
+    task_run.pass_result = None
+    task_run.error_message = error_message
+    task_run.completed_at = now
+    if cancelled:
+        batch.cancelled_tasks += 1
+    session.add(task_run)
+    session.add(batch)
+    session.flush()
+
+    from apo.services.agent_task_run_service import update_batch_run_status
+    from apo.services.run_events import emit_batch_run_event, emit_task_run_event
+
+    update_batch_run_status(session, batch)
+    emit_task_run_event(attempt.project, task_run)
+    if batch.status in ("completed", "error"):
+        task_runs = list(
+            session.exec(
+                select(AgentTaskRunDB).where(
+                    _as_column(AgentTaskRunDB.batch_run_id) == batch.id
+                )
+            ).all()
+        )
+        emit_batch_run_event(attempt.project, batch, task_runs)
 
 
 __all__ = [
@@ -367,7 +491,7 @@ __all__ = [
 
 import asyncio  # noqa: E402
 
-from apo.db import Session, engine  # noqa: E402
+from apo.db import engine  # noqa: E402
 
 _reaper_task: asyncio.Task[None] | None = None
 _reaper_stop: asyncio.Event | None = None
@@ -379,18 +503,21 @@ async def _run_reaper(stop_event: asyncio.Event) -> None:
     # Recover interrupted work once at startup (replaces the blanket
     # recover_stuck_runs failure), then sweep on the configured interval.
     with Session(engine) as session:
-        recover_expired_attempts(session, now=_now())
+        _ = recover_expired_attempts(session, now=_now())
         session.commit()
     while not stop_event.is_set():
         try:
-            await asyncio.wait_for(stop_event.wait(), timeout=REAPER_INTERVAL_SECONDS)
+            _ = await asyncio.wait_for(
+                stop_event.wait(),
+                timeout=REAPER_INTERVAL_SECONDS,
+            )
         except asyncio.TimeoutError:
             pass
         if stop_event.is_set():
             break
         try:
             with Session(engine) as session:
-                recover_expired_attempts(session, now=_now())
+                _ = recover_expired_attempts(session, now=_now())
                 session.commit()
         except Exception:
             # A reaper sweep must never crash the background loop.
@@ -414,9 +541,9 @@ async def stop_lease_reaper() -> None:
     """Stop the background lease reaper."""
     global _reaper_task, _reaper_stop
     if _reaper_stop is not None:
-        _reaper_stop.set()
+        _ = _reaper_stop.set()
     if _reaper_task is not None:
-        _reaper_task.cancel()
+        _ = _reaper_task.cancel()
         try:
             await _reaper_task
         except (asyncio.CancelledError, Exception):

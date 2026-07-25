@@ -14,12 +14,9 @@ Rules (SPEC-131 §Authenticated ingestion context):
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict
-
-_ALLOWED_AUTH_METHODS = {"api_key", "service_token", "cookie", "open_dev"}
-
 
 class TraceIngestionContext(BaseModel):
     """The authenticated context bound to one OTLP ingest request.
@@ -28,16 +25,21 @@ class TraceIngestionContext(BaseModel):
     for service-token auth and is the subject the claim must match.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     project_id: str
-    auth_method: Literal["api_key", "service_token", "cookie", "open_dev"]
+    auth_method: Literal[
+        "api_key", "service_token", "attempt_token", "cookie", "open_dev"
+    ]
     service_task_run_id: str | None = None
 
     @property
     def may_claim_task_run(self) -> bool:
         """Only a service token may attempt a Task Run claim."""
-        return self.auth_method == "service_token" and self.service_task_run_id is not None
+        return self.auth_method in (
+            "service_token",
+            "attempt_token",
+        ) and self.service_task_run_id is not None
 
     @classmethod
     def for_request_state(
@@ -53,9 +55,13 @@ class TraceIngestionContext(BaseModel):
         unexpected to ``open_dev`` (least privilege: no Task Run claim).
         """
         if auth_method == "api_key":
-            method: Literal["api_key", "service_token", "cookie", "open_dev"] = "api_key"
+            method: Literal[
+                "api_key", "service_token", "attempt_token", "cookie", "open_dev"
+            ] = "api_key"
         elif auth_method == "service_token":
             method = "service_token"
+        elif auth_method == "attempt_token":
+            method = "attempt_token"
         elif auth_method == "cookie":
             method = "cookie"
         else:

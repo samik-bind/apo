@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false
+# pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUnusedParameter=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false
 
 """SPEC-143: registered-route scene + authorization tests.
 
@@ -15,7 +15,6 @@ import pytest
 from apo.models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
-    ExecutorPoolDB,
     ProjectDB,
     ProjectMembershipDB,
     TaskExecutionAttemptDB,
@@ -143,6 +142,24 @@ def test_executor_protocol_end_to_end_scene(
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "succeeded"
 
+    # Exact replay is idempotent, while changing any result field conflicts.
+    replay_body = {
+        "completion_id": "comp-1", "pass_result": True, "adapter_name": "openai",
+        "checks": [{"name": "c1", "pass": True}],
+    }
+    r = client.post(
+        "/v1/executor-protocol/v1/attempts/apx/result",
+        json=replay_body,
+        headers=att_headers,
+    )
+    assert r.status_code == 200, r.text
+    r = client.post(
+        "/v1/executor-protocol/v1/attempts/apx/result",
+        json={**replay_body, "adapter_name": "different"},
+        headers=att_headers,
+    )
+    assert r.status_code == 409
+
     # rollup
     att = session.get(TaskExecutionAttemptDB, "apx")
     assert att is not None and att.status == "succeeded"
@@ -211,3 +228,43 @@ def test_empty_claim_returns_retry_after(
                     headers={"Authorization": f"Bearer {cred}"})
     assert r.status_code == 204
     assert r.headers.get("retry-after") == "2"
+
+
+def test_result_requires_start_boundary(
+    client: "object", session: Session, auth_secret: str
+) -> None:
+    user_id = _seed_owner_project(session)
+    pool = create_executor_pool(
+        session,
+        project_id="proj-px",
+        actor=ProjectActor("proj-px", user_id, "owner"),
+        name="Start Boundary",
+        kind="connected",
+    )
+    raw_token, _ = executor_auth.generate_enrollment_token(
+        session,
+        scope_kind="pool",
+        project_id="proj-px",
+        pool_id=pool.id,
+        created_by_user_id=user_id,
+    )
+    _seed_queued_attempt(session, pool_id=pool.id)
+    credential = client.post(
+        "/v1/executor-protocol/v1/enroll",
+        json={
+            "token": raw_token,
+            "name": "e",
+            "capabilities": _capabilities().model_dump(),
+        },
+    ).json()["credential"]
+    claim = client.post(
+        "/v1/executor-protocol/v1/claims",
+        json={"available_slots": 1, "accepted_driver_kinds": ["subprocess"]},
+        headers={"Authorization": f"Bearer {credential}"},
+    ).json()
+    response = client.post(
+        "/v1/executor-protocol/v1/attempts/apx/result",
+        json={"completion_id": "before-start", "pass_result": True},
+        headers={"Authorization": f"Bearer {claim['attempt_jwt']}"},
+    )
+    assert response.status_code == 409
