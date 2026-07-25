@@ -1,0 +1,485 @@
+"""SPEC-146/147: Executor Pool management APIs.
+
+SPEC-146 added read/default. SPEC-147 adds the full Connected-Executor product
+surface: create/archive Pool, enrollment tokens, executor list/revoke/rename —
+all Project-scoped with role enforcement. User APIs can only create ``connected``
+Pools; ``bundled``/``managed`` are provider-only.
+"""
+
+# pyright: reportCallInDefaultInitializer=false
+
+from __future__ import annotations
+
+import re
+from datetime import datetime, timedelta, timezone
+from collections.abc import Sequence
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
+from sqlmodel import Session, select
+
+from apo.db import get_session
+from apo.db_helpers import _as_column
+from apo.models.db import (
+    AgentTaskScheduleDB,
+    ExecutorDB,
+    ExecutorEnrollmentTokenDB,
+    ExecutorPoolDB,
+    ProjectDB,
+    TaskExecutionAttemptDB,
+)
+from apo.services.execution_pools import PoolError, set_default_pool
+from apo.services.executor_auth import generate_enrollment_token
+from apo.services.project_memberships import enforce_project_role_from_request
+
+router = APIRouter(prefix="/v1", tags=["executor-pools"])
+
+_EXECUTOR_OFFLINE_THRESHOLD_SECONDS = 60
+_MAX_LIVE_ENROLLMENT_TOKENS = 5
+_SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+
+
+class PoolSummary(BaseModel):
+    id: str
+    name: str
+    slug: str
+    kind: str
+    enabled: bool
+    archived: bool
+    is_default: bool
+    health: str  # online | busy | offline | disabled | incompatible
+    online_executor_count: int
+    available_capacity: int
+
+
+class PoolListResponse(BaseModel):
+    pools: list[PoolSummary]
+
+
+class SetDefaultPoolRequest(BaseModel):
+    pool_id: str
+
+
+@router.get("/projects/{project_id}/executor-pools", response_model=PoolListResponse)
+async def list_executor_pools(
+    project_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> PoolListResponse:
+    """List a Project's Executor Pools with derived health + capacity."""
+    _ = enforce_project_role_from_request(request, session, project_id, minimum_role="member")
+    pools = session.exec(
+        select(ExecutorPoolDB).where(ExecutorPoolDB.project == project_id)
+    ).all()
+    summaries: list[PoolSummary] = []
+    for pool in pools:
+        executors = session.exec(
+            select(ExecutorDB).where(
+                ExecutorDB.executor_pool_id == pool.id,
+                _as_column(ExecutorDB.enabled).is_(True),
+                _as_column(ExecutorDB.revoked_at).is_(None),
+            )
+        ).all()
+        now = datetime.now(timezone.utc)
+        online = [
+            e for e in executors
+            if e.last_seen_at is not None and (now - e.last_seen_at) <= timedelta(seconds=_EXECUTOR_OFFLINE_THRESHOLD_SECONDS)
+        ]
+        summaries.append(PoolSummary(
+            id=pool.id,
+            name=pool.name,
+            slug=pool.slug,
+            kind=pool.kind,
+            enabled=pool.enabled,
+            archived=pool.archived_at is not None,
+            is_default=_project_default_id(session, project_id) == pool.id,
+            health=_derive_health(pool, online),
+            online_executor_count=len(online),
+            available_capacity=sum(e.max_concurrency for e in online),
+        ))
+    return PoolListResponse(pools=summaries)
+
+
+@router.put("/projects/{project_id}/default-executor-pool")
+async def set_default_executor_pool(
+    project_id: str,
+    body: SetDefaultPoolRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """Designate an existing Pool as the Project default (admin/owner)."""
+    _ = enforce_project_role_from_request(request, session, project_id, minimum_role="admin")
+    try:
+        project = set_default_pool(session, project_id=project_id, pool_id=body.pool_id)
+    except PoolError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    return {"ok": True, "default_executor_pool_id": project.default_executor_pool_id}
+
+
+def _project_default_id(session: Session, project_id: str) -> str | None:
+    from apo.models.db import ProjectDB
+
+    project = session.get(ProjectDB, project_id)
+    return project.default_executor_pool_id if project is not None else None
+
+
+def _derive_health(pool: ExecutorPoolDB, online: Sequence[ExecutorDB]) -> str:
+    if pool.archived_at is not None:
+        return "disabled"
+    if not pool.enabled:
+        return "disabled"
+    if not online:
+        return "offline"
+    return "online"
+
+
+def _executor_status(ex: ExecutorDB, *, active_count: int) -> str:
+    if ex.revoked_at is not None or not ex.enabled:
+        return "disabled"
+    if ex.last_seen_at is None or (datetime.now(timezone.utc) - ex.last_seen_at) > timedelta(seconds=_EXECUTOR_OFFLINE_THRESHOLD_SECONDS):
+        return "offline"
+    if active_count >= ex.max_concurrency:
+        return "busy"
+    return "online"
+
+
+def _active_attempt_count(session: Session, executor_id: str) -> int:
+    return len(session.exec(
+        select(TaskExecutionAttemptDB).where(
+            TaskExecutionAttemptDB.executor_id == executor_id,
+            _as_column(TaskExecutionAttemptDB.status).in_(["leased", "running"]),
+        )
+    ).all())
+
+
+# ============================================================================
+# SPEC-147: Connected Pool CRUD
+# ============================================================================
+
+
+class CreatePoolRequest(BaseModel):
+    name: str
+    slug: str
+    kind: str = "connected"
+    queue_ttl_seconds: int = 86_400
+    required_driver_kind: str = "subprocess"
+
+
+class PatchPoolRequest(BaseModel):
+    name: str | None = None
+    enabled: bool | None = None
+    queue_ttl_seconds: int | None = None
+    required_driver_kind: str | None = None
+
+
+@router.post("/projects/{project_id}/executor-pools", status_code=201)
+async def create_executor_pool_route(
+    project_id: str,
+    body: CreatePoolRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """Create a Connected Pool. Users cannot create bundled/managed kinds."""
+    _ = enforce_project_role_from_request(request, session, project_id, minimum_role="admin")
+    if body.kind != "connected":
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "user APIs can only create 'connected' pools")
+    if not _SLUG_RE.match(body.slug) or not (1 <= len(body.slug) <= 63):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "slug must be 1-63 lowercase ASCII letters/numbers/hyphens")
+    existing = session.exec(
+        select(ExecutorPoolDB).where(ExecutorPoolDB.project == project_id, ExecutorPoolDB.slug == body.slug)
+    ).first()
+    if existing is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "a pool with this slug already exists")
+    now = datetime.now(timezone.utc)
+    pool = ExecutorPoolDB(
+        project=project_id, name=body.name, slug=body.slug, kind="connected",
+        enabled=True, queue_ttl_seconds=body.queue_ttl_seconds,
+        required_driver_kind=body.required_driver_kind, created_at=now, updated_at=now,
+    )
+    session.add(pool)
+    session.commit()
+    session.refresh(pool)
+    return _pool_detail(session, project_id, pool)
+
+
+@router.patch("/projects/{project_id}/executor-pools/{pool_id}")
+async def patch_executor_pool(
+    project_id: str,
+    pool_id: str,
+    body: PatchPoolRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    _ = enforce_project_role_from_request(request, session, project_id, minimum_role="admin")
+    pool = _require_project_pool(session, project_id, pool_id)
+    if body.name is not None:
+        pool.name = body.name
+    if body.enabled is not None:
+        pool.enabled = body.enabled
+    if body.queue_ttl_seconds is not None:
+        pool.queue_ttl_seconds = body.queue_ttl_seconds
+    if body.required_driver_kind is not None:
+        # Only when no nonterminal attempt exists.
+        active = session.exec(
+            select(TaskExecutionAttemptDB).where(
+                TaskExecutionAttemptDB.executor_pool_id == pool_id,
+                _as_column(TaskExecutionAttemptDB.status).in_(["queued", "leased", "running"]),
+            )
+        ).first()
+        if active is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "cannot change driver kind with nonterminal attempts")
+        pool.required_driver_kind = body.required_driver_kind
+    pool.updated_at = datetime.now(timezone.utc)
+    session.add(pool)
+    session.commit()
+    session.refresh(pool)
+    return _pool_detail(session, project_id, pool)
+
+
+@router.delete("/projects/{project_id}/executor-pools/{pool_id}")
+async def archive_executor_pool(
+    project_id: str,
+    pool_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """Soft-archive a Pool: require no active Attempt, clear default, disable schedules."""
+    _ = enforce_project_role_from_request(request, session, project_id, minimum_role="owner")
+    pool = _require_project_pool(session, project_id, pool_id)
+    active = session.exec(
+        select(TaskExecutionAttemptDB).where(
+            TaskExecutionAttemptDB.executor_pool_id == pool_id,
+            _as_column(TaskExecutionAttemptDB.status).in_(["leased", "running"]),
+        )
+    ).first()
+    if active is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail={"kind": "pool_in_use"})
+    pool.enabled = False
+    pool.archived_at = datetime.now(timezone.utc)
+    session.add(pool)
+    # Clear Project default if it references this Pool.
+    project = session.get(ProjectDB, project_id)
+    if project is not None and project.default_executor_pool_id == pool_id:
+        project.default_executor_pool_id = None
+        session.add(project)
+    # Disable referencing schedules.
+    schedules = session.exec(
+        select(AgentTaskScheduleDB).where(AgentTaskScheduleDB.executor_pool_id == pool_id)
+    ).all()
+    for s in schedules:
+        s.disabled_reason = "executor_pool_archived"
+        session.add(s)
+    session.commit()
+    session.refresh(pool)
+    return {"ok": True, "archived": pool_id}
+
+
+# ============================================================================
+# SPEC-147: Enrollment tokens
+# ============================================================================
+
+
+class EnrollmentTokenResponse(BaseModel):
+    token: str
+    expires_at: datetime
+    container: dict[str, object]
+
+
+@router.post(
+    "/projects/{project_id}/executor-pools/{pool_id}/enrollment-tokens",
+    response_model=EnrollmentTokenResponse,
+    status_code=201,
+)
+async def create_enrollment_token_route(
+    project_id: str,
+    pool_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> EnrollmentTokenResponse:
+    _ = enforce_project_role_from_request(request, session, project_id, minimum_role="admin")
+    pool = _require_project_pool(session, project_id, pool_id)
+    if pool.archived_at is not None or not pool.enabled:
+        raise HTTPException(status.HTTP_409_CONFLICT, "cannot enroll into an archived/disabled pool")
+    live = session.exec(
+        select(ExecutorEnrollmentTokenDB).where(
+            ExecutorEnrollmentTokenDB.executor_pool_id == pool_id,
+            _as_column(ExecutorEnrollmentTokenDB.used_at).is_(None),
+            _as_column(ExecutorEnrollmentTokenDB.revoked_at).is_(None),
+            ExecutorEnrollmentTokenDB.expires_at > datetime.now(timezone.utc),
+        )
+    ).all()
+    if len(live) >= _MAX_LIVE_ENROLLMENT_TOKENS:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"at most {_MAX_LIVE_ENROLLMENT_TOKENS} live enrollment tokens per pool")
+    raw_token, row = generate_enrollment_token(
+        session, scope_kind="pool", project_id=project_id, pool_id=pool_id,
+    )
+    return EnrollmentTokenResponse(
+        token=raw_token,
+        expires_at=row.expires_at,
+        container=_container_config(raw_token, pool),
+    )
+
+
+def _container_config(token: str, pool: ExecutorPoolDB) -> dict[str, object]:
+    image = "ghcr.io/samikuikka/apo-backend:latest"
+    control_url = "https://apo.example"  # SPEC-147: derived from runtime config in production
+    return {
+        "image": image,
+        "command": ["python", "-m", "apo.executor", "connect"],
+        "environment": {
+            "APO_CONTROL_PLANE_URL": control_url,
+            "APO_EXECUTOR_ENROLLMENT_TOKEN": token,
+            "APO_EXECUTOR_NAME": f"{pool.slug}-1",
+        },
+        "state_volume": "/var/lib/apo-executor",
+    }
+
+
+# ============================================================================
+# SPEC-147: Executor list / revoke / rename
+# ============================================================================
+
+
+class ExecutorSummaryResponse(BaseModel):
+    id: str
+    pool_id: str
+    name: str
+    status: str
+    executor_version: str
+    protocol_version: int
+    driver_kinds: list[str]
+    os: str
+    architecture: str
+    max_concurrency: int
+    active_attempts: int
+    last_seen_at: datetime | None
+    enrolled_at: datetime
+
+
+class ExecutorListResponse(BaseModel):
+    executors: list[ExecutorSummaryResponse]
+
+
+@router.get("/projects/{project_id}/executors", response_model=ExecutorListResponse)
+async def list_executors(
+    project_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> ExecutorListResponse:
+    _ = enforce_project_role_from_request(request, session, project_id, minimum_role="member")
+    executors = session.exec(
+        select(ExecutorDB).where(ExecutorDB.project == project_id)
+    ).all()
+    summaries = [
+        ExecutorSummaryResponse(
+            id=ex.id, pool_id=ex.executor_pool_id or "", name=ex.name,
+            status=_executor_status(ex, active_count=_active_attempt_count(session, ex.id)),
+            executor_version=ex.executor_version, protocol_version=ex.protocol_version,
+            driver_kinds=ex.driver_kinds_json or [], os=str((ex.capabilities_json or {}).get("os", "")),
+            architecture=str((ex.capabilities_json or {}).get("architecture", "")),
+            max_concurrency=ex.max_concurrency,
+            active_attempts=_active_attempt_count(session, ex.id),
+            last_seen_at=ex.last_seen_at, enrolled_at=ex.enrolled_at,
+        )
+        for ex in executors
+    ]
+    return ExecutorListResponse(executors=summaries)
+
+
+class RevokeExecutorRequest(BaseModel):
+    pass
+
+
+@router.post("/projects/{project_id}/executors/{executor_id}/revoke")
+async def revoke_executor_route(
+    project_id: str,
+    executor_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """Revoke an Executor: fence running (lost) + requeue pre-start."""
+    _ = enforce_project_role_from_request(request, session, project_id, minimum_role="admin")
+    ex = session.get(ExecutorDB, executor_id)
+    if ex is None or ex.project != project_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "executor not found")
+    ex.revoked_at = datetime.now(timezone.utc)
+    ex.enabled = False
+    session.add(ex)
+    # Fence its attempts.
+    attempts = session.exec(
+        select(TaskExecutionAttemptDB).where(
+            TaskExecutionAttemptDB.executor_id == executor_id,
+            _as_column(TaskExecutionAttemptDB.status).in_(["leased", "running"]),
+        )
+    ).all()
+    now = datetime.now(timezone.utc)
+    for att in attempts:
+        if att.started_at is None:
+            att.status = "queued"
+            att.executor_id = None
+            att.claimed_at = None
+            att.lease_expires_at = None
+        else:
+            att.status = "lost"
+            att.failure_kind = "executor_revoked"
+            att.completed_at = now
+        session.add(att)
+    session.commit()
+    return {"ok": True, "revoked": executor_id}
+
+
+class RenameExecutorRequest(BaseModel):
+    name: str
+
+
+@router.post("/projects/{project_id}/executors/{executor_id}/rename")
+async def rename_executor_route(
+    project_id: str,
+    executor_id: str,
+    body: RenameExecutorRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    _ = enforce_project_role_from_request(request, session, project_id, minimum_role="admin")
+    ex = session.get(ExecutorDB, executor_id)
+    if ex is None or ex.project != project_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "executor not found")
+    ex.name = body.name
+    ex.updated_at = datetime.now(timezone.utc)
+    session.add(ex)
+    session.commit()
+    session.refresh(ex)
+    return {"ok": True, "id": ex.id, "name": ex.name}
+
+
+# ── helpers ───────────────────────────────────────────────────────────────
+
+
+def _require_project_pool(session: Session, project_id: str, pool_id: str) -> ExecutorPoolDB:
+    pool = session.get(ExecutorPoolDB, pool_id)
+    if pool is None or pool.project != project_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "pool not found")
+    return pool
+
+
+def _pool_detail(session: Session, project_id: str, pool: ExecutorPoolDB) -> dict[str, object]:
+    online = session.exec(
+        select(ExecutorDB).where(
+            ExecutorDB.executor_pool_id == pool.id,
+            _as_column(ExecutorDB.enabled).is_(True),
+            _as_column(ExecutorDB.revoked_at).is_(None),
+        )
+    ).all()
+    return {
+        "id": pool.id, "project": pool.project, "name": pool.name, "slug": pool.slug,
+        "kind": pool.kind, "enabled": pool.enabled, "archived": pool.archived_at is not None,
+        "is_default": _project_default_id(session, project_id) == pool.id,
+        "health": _derive_health(pool, online),
+        "online_executors": len(online),
+        "available_slots": sum(e.max_concurrency for e in online),
+        "queue_ttl_seconds": pool.queue_ttl_seconds,
+        "required_driver_kind": pool.required_driver_kind,
+    }
+
+
+__all__ = ["router"]
