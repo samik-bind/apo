@@ -13,6 +13,16 @@ import {
   resolveExecutionMode,
   type ExecutionReason,
 } from "../lib/execution-mode.ts";
+import { resolveExecutionTarget } from "../lib/execution-target.ts";
+import { walkWorkspaceForRevision } from "../lib/task-revision.ts";
+import { readGitProvenance, buildCallerIdentity } from "../lib/git-provenance.ts";
+import {
+  createCallerRun,
+  startCallerAttempt,
+  submitCallerResult,
+  submitCallerFailure,
+  CallerHeartbeat,
+} from "../lib/caller-execution.ts";
 
 type LocalRunSummary = {
   taskId: string;
@@ -95,6 +105,8 @@ export async function run(argv: string[]): Promise<number> {
 
   const flagLocal = getBoolFlag(flags, "local");
   const flagRemote = getBoolFlag(flags, "remote");
+  const executorFlag = typeof flags["executor"] === "string" ? flags["executor"] : undefined;
+  const noRecord = getBoolFlag(flags, "no-record");
 
   // Resolve the task's filesystem path + its declared execution preference.
   // We read `execution` statically (no module load) so we don't re-register
@@ -105,7 +117,34 @@ export async function run(argv: string[]): Promise<number> {
     return 2;
   }
 
-  // Pure dispatch decision (SPEC-136): flag > task > project > reachability.
+  // SPEC-145: explicit --executor uses the new target model + create-and-claim
+  // protocol. Legacy --local/--remote/task/project-default stay on the /external
+  // compat dispatch for one release (SPEC-146 cuts over); they must NOT pass
+  // through resolveExecutionTarget (which would throw for remote/backend
+  // without a configured Bundled Pool).
+  if (executorFlag !== undefined) {
+    const target = resolveExecutionTarget({
+      executorFlag,
+      localFlag: flagLocal,
+      remoteFlag: flagRemote,
+      taskExecution: resolved.execution,
+      defaultExecutor: config.defaultExecutor,
+      legacyDefaultExecution: config.defaultExecution,
+    });
+    if (target.target.kind === "pool" && noRecord) {
+      console.error("--no-record cannot be combined with a Pool target");
+      return 2;
+    }
+    if (target.target.kind === "caller" && !noRecord && config.projectId && config.apiKey) {
+      if (await isBackendReachable(config.backendUrl)) {
+        return runCallerRecorded(config, resolved);
+      }
+      console.error(`${red("error:")} backend unreachable; configured recording failed (use --no-record to run unrecorded)`);
+      return 2;
+    }
+  }
+
+  // Legacy dispatch for --local / --remote / task / project-default / unrecorded.
   const decision = resolveExecutionMode({
     flagLocal,
     flagRemote,
@@ -289,6 +328,112 @@ async function runLocally(config: Config, taskDir: string): Promise<number> {
   }
 
   return summary.pass ? 0 : 1;
+}
+
+/**
+ * SPEC-145: recorded caller execution. Hashes the real caller workspace, creates
+ * + claims one Attempt, /start, runs the SDK Task locally with the Attempt JWT
+ * in the child env (never the Project API key), heartbeats, and submits the
+ * result/failure through the scoped protocol.
+ */
+async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promise<number> {
+  const taskDir = resolved.taskDir;
+  const taskId = resolved.taskId ?? taskDir;
+  const backendUrl = config.backendUrl;
+
+  // 1. Build the attestation over the actual caller bytes + Git provenance.
+  const walked = walkWorkspaceForRevision({ rootDir: config.taskRoot });
+  const git = readGitProvenance(config.taskRoot);
+  const identity = buildCallerIdentity({ clientVersion: "0.1.0" });
+
+  // 2. Create-and-claim.
+  let created;
+  try {
+    created = await createCallerRun({
+      backendUrl, apiKey: config.apiKey ?? "", project: config.projectId ?? "",
+      task: {
+        task_id: taskId, task_path: taskId, display_name: taskId,
+        adapter_name: null, has_checks: false,
+      },
+      environment: "default", runMetadata: { trigger: { source: "cli", executor: "caller" } },
+      attestation: {
+        source_type: "caller_worktree",
+        repository_url: git.repositoryUrl,
+        base_commit_sha: git.baseCommitSha,
+        dirty: git.dirty,
+        content_sha256: walked.contentSha256,
+        task_root_label: config.taskRoot,
+        file_count: walked.manifest.summary.fileCount,
+        uncompressed_size_bytes: walked.manifest.summary.uncompressedSizeBytes,
+      },
+      identity,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(red(`Error: caller create-and-claim failed: ${message}`));
+    return 2;
+  }
+
+  console.log(dim(`Executor: caller (recorded in project ${config.projectId})`));
+  console.log(dim(
+    `Revision: ${git.dirty ? "dirty worktree" : "clean worktree"} ` +
+    `${git.baseCommitSha ?? "(no commit)"}` +
+    (git.repositoryUrl ? ` from ${git.repositoryUrl}` : ""),
+  ));
+
+  // 3. Thread only Task-scoped values to the child SDK (Attempt JWT, not API key).
+  process.env.AGENT_TASK_TRACE_ENDPOINT = created.traceEndpoint.replace(/\/$/, "");
+  process.env.AGENT_TASK_TRACE_PROJECT = created.traceProject;
+  process.env.AGENT_TASK_RUN_ID = created.taskRunId;
+  process.env.AGENT_TASK_TRACE_REQUIRED = "true";
+  process.env.APO_AUTH_TOKEN = created.lease.token;
+
+  // 4. /start before importing/running the Task.
+  try {
+    await startCallerAttempt(backendUrl, created.lease);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(red(`Error: /start failed: ${message}`));
+    return 2;
+  }
+
+  // 5. Run the Task locally with a background heartbeat.
+  const heartbeat = new CallerHeartbeat(backendUrl, created.lease, () => {
+    console.error(red("Warning: lease reported stale/cancelled"));
+  });
+  heartbeat.start("running");
+  loadEnvFiles(taskDir);
+
+  const completionId = `${created.lease.attemptId}-${created.lease.generation}`;
+  let exitCode = 0;
+  try {
+    const { runTaskDir } = await import("@apo/sdk/agent-task");
+    const summary = await runTaskDir(taskDir);
+    await heartbeat.stop();
+    await submitCallerResult(backendUrl, created.lease, {
+      completion_id: completionId,
+      pass_result: summary.pass,
+      adapter_name: summary.adapterName ?? null,
+      trace_run_id: summary.traceRunId ?? null,
+      checks: summary.checks as unknown,
+    });
+    exitCode = summary.pass ? 0 : 1;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await heartbeat.stop();
+    try {
+      await submitCallerFailure(backendUrl, created.lease, {
+        completion_id: completionId, failure_kind: "task_process", error_message: message,
+      });
+    } catch {
+      // best-effort; the reaper will mark the lease lost if this also fails.
+    }
+    console.error(red(`Error: ${message}`));
+    exitCode = 2;
+  } finally {
+    delete process.env.APO_AUTH_TOKEN;
+  }
+  return exitCode;
 }
 
 async function runLocallyRecorded(config: Config, task: ResolvedTask): Promise<number> {
