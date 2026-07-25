@@ -17,6 +17,12 @@ export type StoredCredentials = {
    * Old credential files lack the field → treated as unset.
    */
   default_execution?: "local" | "backend";
+  /**
+   * SPEC-145: preferred executor for `apo task run` — either `"caller"` or a
+   * Pool ID. Takes precedence over the legacy `default_execution` field.
+   * Old credential files lack the field → treated as unset.
+   */
+  default_executor?: "caller" | string;
 };
 
 export function readCredentials(): StoredCredentials | null {

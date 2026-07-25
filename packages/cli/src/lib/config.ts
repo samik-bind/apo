@@ -17,6 +17,12 @@ export type Config = {
    * per-invocation by `--local` / `--remote`.
    */
   defaultExecution: "local" | "backend" | undefined;
+  /**
+   * SPEC-145: preferred executor — `"caller"` or a Pool ID. Populated from
+   * `StoredCredentials.default_executor`; takes precedence over the legacy
+   * `defaultExecution` field.
+   */
+  defaultExecutor: "caller" | string | undefined;
   _rawFlags: Record<string, string | boolean>;
 };
 
@@ -54,6 +60,7 @@ export function resolveConfig(
     json: flags.json === true,
     ci: flags.ci === true || process.env.CI === "true",
     defaultExecution: stored?.default_execution,
+    defaultExecutor: stored?.default_executor,
     _rawFlags: flags,
   };
 }

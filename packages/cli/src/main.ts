@@ -168,16 +168,19 @@ const commands: Record<string, CommandEntry> = {
     ],
     options: [
       ["--ci", "CI mode: records CI metadata, uses strict exit codes"],
-      ["--local", "Run on this machine but record as a backend task run (override; for tasks needing dev-machine credentials / VPC / stage)"],
-      ["--remote", "Force backend execution (symmetric to --local); overrides a task's execution: 'local' or a 'local' project default"],
+      ["--executor <caller|pool>", "Target executor: 'caller' (this machine) or a Pool id/slug (SPEC-145)"],
+      ["--no-record", "Run on this machine WITHOUT recording (explicit unrecorded; conflicts with a Pool target)"],
+      ["--local", "(compat) alias for --executor caller; deprecated"],
+      ["--remote", "(compat) force a Bundled Pool; deprecated — errors if none is configured"],
     ],
     examples: [
       "apo task run meeting-summary",
       "apo task run ./tasks/my-task",
-      "apo task run meeting-summary --json",
+      "apo task run meeting-summary --executor caller",
+      "apo task run meeting-summary --no-record",
       "apo task run bind-e2e --local",
     ],
-    note: "Dispatch order: --local/--remote flag > task's execution declaration > project default-execution > reachability. A task with execution: \"local\" (or a project with default-execution local) runs locally with no flag. Set project default via `apo project config set default-execution local`. Exit codes: 0=pass, 1=fail, 2=error.",
+    note: "Target precedence: --executor > --local/--remote > task execution > project default_executor > legacy default_execution > caller. Reachability never changes placement (a configured recording either succeeds or exits 2). --no-record conflicts with a Pool target. Exit codes: 0=pass, 1=fail, 2=error.",
   },
   "runs list": {
     handler: loadCommand("runs-list"),
