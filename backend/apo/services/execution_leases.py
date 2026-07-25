@@ -209,7 +209,9 @@ def _require_current(session: Session, lease: CurrentAttemptLease) -> TaskExecut
         raise LeaseError("not_found", "attempt not found")
     if attempt.lease_generation != lease.lease_generation:
         raise LeaseError("stale_generation", "lease generation does not match current")
-    if attempt.executor_id != lease.executor_id:
+    # Caller Attempts carry no persistent Executor (executor_id is None); treat
+    # None and "" as equivalent so the own-only check passes for caller leases.
+    if (attempt.executor_id or "") != (lease.executor_id or ""):
         raise LeaseError("stale_generation", "lease executor does not own this attempt")
     return attempt
 

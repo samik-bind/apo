@@ -7,10 +7,13 @@ and inspecting individual task runs.
 
 # pyright: reportCallInDefaultInitializer=false
 
+import os
 from collections.abc import Sequence
+from datetime import datetime, timezone
 from typing import cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import asc, desc
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, col, select
@@ -354,6 +357,137 @@ async def create_external_agent_task_batch_run(
             )
             for task_run, token in pairs
         ],
+    )
+
+
+# ============================================================================
+# SPEC-145: Caller Executor create-and-claim
+# ============================================================================
+
+
+class CallerCreateRequest(BaseModel):
+    project: str
+    task: "CallerTaskDescriptorBody"
+    environment: str = "default"
+    run_metadata: dict[str, object] | None = None
+    source_attestation: "CallerSourceAttestationBody"
+    caller_identity: "CallerIdentityBody"
+
+
+class CallerTaskDescriptorBody(BaseModel):
+    task_id: str
+    task_path: str
+    display_name: str
+    adapter_name: str | None = None
+    has_checks: bool = False
+
+
+class CallerSourceAttestationBody(BaseModel):
+    source_type: str = "caller_worktree"
+    repository_url: str | None = None
+    base_commit_sha: str | None = None
+    dirty: bool
+    content_sha256: str
+    task_root_label: str
+    file_count: int
+    uncompressed_size_bytes: int
+
+
+class CallerIdentityBody(BaseModel):
+    client: str
+    client_version: str
+    hostname_hash: str | None = None
+    ci_provider: str | None = None
+    ci_job_id: str | None = None
+    git_branch: str | None = None
+    os: str
+    architecture: str
+
+
+class CallerCreateResponse(BaseModel):
+    batch_run_id: str
+    task_run_id: str
+    attempt_id: str
+    lease_generation: int
+    lease_expires_at: datetime
+    attempt_jwt: str
+    trace_endpoint: str
+    trace_project: str
+    trace_required: bool = True
+
+
+@router.post(
+    "/agent-task-batch-runs/caller",
+    response_model=CallerCreateResponse,
+    status_code=201,
+)
+async def create_caller_batch_run_route(
+    request: CallerCreateRequest,
+    session: Session = Depends(get_session),
+) -> CallerCreateResponse:
+    """SPEC-145: atomically create one Batch + Task Run + attested Revision +
+    leased caller Attempt, and return the Attempt JWT the CLI uses for
+    /start, heartbeat, and result. The caller owns execution; no Executor
+    process is enrolled."""
+    require_project_not_demo(request.project)
+    from apo.models.execution import (
+        CallerIdentity,
+        CallerSourceAttestation,
+        CallerTaskDescriptor,
+    )
+    from apo.services.execution_queue import (
+        CallerExecutionError,
+        create_caller_batch_run,
+    )
+
+    try:
+        result = create_caller_batch_run(
+            session,
+            project_id=request.project,
+            task=CallerTaskDescriptor(
+                task_id=request.task.task_id,
+                task_path=request.task.task_path,
+                display_name=request.task.display_name,
+                adapter_name=request.task.adapter_name,
+                has_checks=request.task.has_checks,
+            ),
+            environment=request.environment,
+            run_metadata=request.run_metadata,
+            attestation=CallerSourceAttestation(
+                source_type="caller_worktree",
+                repository_url=request.source_attestation.repository_url,
+                base_commit_sha=request.source_attestation.base_commit_sha,
+                dirty=request.source_attestation.dirty,
+                content_sha256=request.source_attestation.content_sha256,
+                task_root_label=request.source_attestation.task_root_label,
+                file_count=request.source_attestation.file_count,
+                uncompressed_size_bytes=request.source_attestation.uncompressed_size_bytes,
+            ),
+            caller_identity=CallerIdentity(
+                client=request.caller_identity.client,
+                client_version=request.caller_identity.client_version,
+                hostname_hash=request.caller_identity.hostname_hash,
+                ci_provider=request.caller_identity.ci_provider,
+                ci_job_id=request.caller_identity.ci_job_id,
+                git_branch=request.caller_identity.git_branch,
+                os=request.caller_identity.os,
+                architecture=request.caller_identity.architecture,
+            ),
+        )
+    except CallerExecutionError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+    backend_url = os.environ.get("APO_BACKEND_URL", "http://127.0.0.1:8000")
+    return CallerCreateResponse(
+        batch_run_id=result.batch.id,
+        task_run_id=result.task_run.id,
+        attempt_id=result.attempt.id,
+        lease_generation=result.attempt.lease_generation,
+        lease_expires_at=result.attempt.lease_expires_at or datetime.now(timezone.utc),
+        attempt_jwt=result.attempt_jwt,
+        trace_endpoint=os.environ.get("AGENT_TASK_TRACE_ENDPOINT", backend_url),
+        trace_project=request.project,
+        trace_required=True,
     )
 
 

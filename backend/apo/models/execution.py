@@ -56,10 +56,44 @@ class CallerSourceAttestation(SQLModel):
     uncompressed_size_bytes: int
 
 
+class CallerTaskDescriptor(SQLModel):
+    """Bounded discovered metadata for the single Task a caller run targets.
+
+    If it matches current backend inventory, the Task Run links the inventory
+    row; if it is new/dirty-only, the backend stores ``task_inventory_id=null``
+    and uses this descriptor. It never substitutes a different inventory Task.
+    """
+
+    task_id: str
+    task_path: str
+    display_name: str
+    adapter_name: str | None = None
+    has_checks: bool = False
+
+
+class CallerIdentity(SQLModel):
+    """Bounded allow-listed caller metadata (no raw hostname by default).
+
+    Each value <=255 UTF-8 bytes; total <=4 KiB. Stored on the caller Attempt's
+    ``executor_snapshot_json`` for auditability.
+    """
+
+    client: str  # "apo-cli"
+    client_version: str
+    hostname_hash: str | None = None
+    ci_provider: str | None = None
+    ci_job_id: str | None = None
+    git_branch: str | None = None
+    os: str
+    architecture: str
+
+
 __all__ = [
     "AttemptStatus",
     "AttemptSummary",
+    "CallerIdentity",
     "CallerSourceAttestation",
+    "CallerTaskDescriptor",
     "ExecutionPhase",
     "ExecutorCapabilities",
     "ExecutorPoolKind",
