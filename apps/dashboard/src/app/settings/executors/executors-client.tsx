@@ -10,6 +10,7 @@ import {
   listExecutors,
   patchExecutorPool,
   renameExecutor,
+  revokeEnrollmentToken,
   revokeExecutor,
   setDefaultExecutorPool,
 } from "@/lib/executor-api";
@@ -21,16 +22,10 @@ import { EnrollmentDialog } from "./enrollment-dialog";
 import { ExecutorList } from "./executor-list";
 import { PoolList } from "./pool-list";
 import { RenameExecutorDialog } from "./rename-executor-dialog";
-import {
-  INITIAL_EXECUTORS_PAGE_STATE,
-  executorsPageReducer,
-} from "./executors-page-state";
+import { INITIAL_EXECUTORS_PAGE_STATE, executorsPageReducer } from "./executors-page-state";
 
 export function ExecutorsClient() {
-  const [state, dispatch] = useReducer(
-    executorsPageReducer,
-    INITIAL_EXECUTORS_PAGE_STATE,
-  );
+  const [state, dispatch] = useReducer(executorsPageReducer, INITIAL_EXECUTORS_PAGE_STATE);
   const {
     projects,
     projectId,
@@ -124,21 +119,21 @@ export function ExecutorsClient() {
     <div className="mx-auto max-w-4xl space-y-6 px-6 py-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1.5">
-          <label htmlFor="executor-project" className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <label
+            htmlFor="executor-project"
+            className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+          >
             Project
           </label>
           <select
             id="executor-project"
             value={projectId}
-            onChange={(event) => dispatch({
-              type: "project-selected",
-              projectId: event.target.value,
-            })}
+            onChange={(event) => dispatch(
+              { type: "project-selected", projectId: event.target.value },
+            )}
             className="flex h-8 min-w-56 border border-input bg-transparent px-2.5 text-[12px] outline-none focus:border-ring"
           >
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>{project.name}</option>
-            ))}
+            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
           </select>
         </div>
         {canManage && (
@@ -220,7 +215,12 @@ export function ExecutorsClient() {
       {enrollment && (
         <EnrollmentDialog
           enrollment={enrollment}
+          busy={busy}
           onClose={() => dispatch({ type: "enrollment", enrollment: null })}
+          onRevoke={() => void mutate(async () => {
+            await revokeEnrollmentToken(projectId, enrollment.pool_id, enrollment.id);
+            dispatch({ type: "enrollment", enrollment: null });
+          })}
         />
       )}
       {editingPool && (

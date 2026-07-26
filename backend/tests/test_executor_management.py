@@ -196,12 +196,81 @@ def test_create_enrollment_token_returns_raw_once(client: object, session: Sessi
     r = client.post("/v1/projects/proj-m/executor-pools/p1/enrollment-tokens", json={})  # type: ignore[attr-defined]
     assert r.status_code == 201, r.text
     body = r.json()
+    assert body["id"]
+    assert body["pool_id"] == "p1"
     assert body["token"].startswith("apo_enroll_")
     assert "container" in body
     assert body["container"]["environment"]["APO_EXECUTOR_ENROLLMENT_TOKEN"] == body["token"]
     # raw token NOT persisted
     tokens = session.exec(select_tokens()).all()
     assert all(not t.token_hash.startswith("apo_enroll_") for t in tokens)
+
+
+def test_revoke_unused_enrollment_token(
+    client: object,
+    session: Session,
+) -> None:
+    _seed_project(session)
+    _seed_pool(session, "proj-m", "p1")
+    _seed_pool(session, "proj-m", "p2")
+    created = client.post(  # type: ignore[attr-defined]
+        "/v1/projects/proj-m/executor-pools/p1/enrollment-tokens",
+        json={},
+    )
+    assert created.status_code == 201
+    token_id = created.json()["id"]
+
+    wrong_pool = client.delete(  # type: ignore[attr-defined]
+        (
+            "/v1/projects/proj-m/executor-pools/p2"
+            f"/enrollment-tokens/{token_id}"
+        )
+    )
+    assert wrong_pool.status_code == 404
+
+    revoked = client.delete(  # type: ignore[attr-defined]
+        (
+            "/v1/projects/proj-m/executor-pools/p1"
+            f"/enrollment-tokens/{token_id}"
+        )
+    )
+    assert revoked.status_code == 200
+    row = session.get(ExecutorEnrollmentTokenDB, token_id)
+    assert row is not None and row.revoked_at is not None
+    revoked_again = client.delete(  # type: ignore[attr-defined]
+        (
+            "/v1/projects/proj-m/executor-pools/p1"
+            f"/enrollment-tokens/{token_id}"
+        )
+    )
+    assert revoked_again.status_code == 200
+
+
+def test_revoke_consumed_enrollment_token_is_rejected(
+    client: object,
+    session: Session,
+) -> None:
+    _seed_project(session)
+    _seed_pool(session, "proj-m", "p1")
+    created = client.post(  # type: ignore[attr-defined]
+        "/v1/projects/proj-m/executor-pools/p1/enrollment-tokens",
+        json={},
+    )
+    token_id = created.json()["id"]
+    row = session.get(ExecutorEnrollmentTokenDB, token_id)
+    assert row is not None
+    row.used_at = datetime.now(timezone.utc)
+    session.add(row)
+    session.commit()
+
+    response = client.delete(  # type: ignore[attr-defined]
+        (
+            "/v1/projects/proj-m/executor-pools/p1"
+            f"/enrollment-tokens/{token_id}"
+        )
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"]["kind"] == "token_used"
 
 
 def test_five_live_token_limit(client: object, session: Session) -> None:

@@ -24,6 +24,8 @@ const POOL: ExecutorPoolSummary = {
 };
 
 const ENROLLMENT: EnrollmentTokenResponse = {
+  id: "token-1",
+  pool_id: "pool-private",
   token: "apo_enroll_secret-once",
   expires_at: "2026-07-26T12:15:00Z",
   container: {
@@ -63,7 +65,15 @@ describe("Executor settings", () => {
     });
     const persist = vi.spyOn(Storage.prototype, "setItem");
 
-    render(<EnrollmentDialog enrollment={ENROLLMENT} onClose={vi.fn()} />);
+    const revoke = vi.fn();
+    render(
+      <EnrollmentDialog
+        enrollment={ENROLLMENT}
+        busy={false}
+        onClose={vi.fn()}
+        onRevoke={revoke}
+      />,
+    );
     expect(screen.getByText(/apo-backend:0\.2\.0/)).toBeInTheDocument();
     expect(screen.getByText(/apo_enroll_secret-once/)).toBeInTheDocument();
 
@@ -74,6 +84,10 @@ describe("Executor settings", () => {
       "ghcr.io/samikuikka/apo-backend:0.2.0",
     ));
     expect(persist).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", {
+      name: "Revoke unused token",
+    }));
+    expect(revoke).toHaveBeenCalledOnce();
     persist.mockRestore();
   });
 });

@@ -352,6 +352,8 @@ async def archive_executor_pool(
 
 
 class EnrollmentTokenResponse(BaseModel):
+    id: str
+    pool_id: str
     token: str
     expires_at: datetime
     container: dict[str, object]
@@ -401,10 +403,52 @@ async def create_enrollment_token_route(
         ),
     )
     return EnrollmentTokenResponse(
+        id=row.id,
+        pool_id=pool.id,
         token=raw_token,
         expires_at=row.expires_at,
         container=_container_config(raw_token, pool),
     )
+
+
+@router.delete(
+    (
+        "/projects/{project_id}/executor-pools/{pool_id}"
+        "/enrollment-tokens/{token_id}"
+    )
+)
+async def revoke_enrollment_token_route(
+    project_id: str,
+    pool_id: str,
+    token_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """Revoke one unused enrollment token without exposing its secret."""
+    _ = enforce_project_role_from_request(
+        request,
+        session,
+        project_id,
+        minimum_role="admin",
+    )
+    pool = _require_project_pool(session, project_id, pool_id)
+    token = session.get(ExecutorEnrollmentTokenDB, token_id)
+    if (
+        token is None
+        or token.project != project_id
+        or token.executor_pool_id != pool.id
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "enrollment token not found")
+    if token.used_at is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"kind": "token_used"},
+        )
+    if token.revoked_at is None:
+        token.revoked_at = datetime.now(timezone.utc)
+        session.add(token)
+        session.commit()
+    return {"ok": True, "revoked": token.id}
 
 
 def _container_config(token: str, pool: ExecutorPoolDB) -> dict[str, object]:

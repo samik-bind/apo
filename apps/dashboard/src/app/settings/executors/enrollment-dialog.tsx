@@ -15,10 +15,14 @@ import {
 
 export function EnrollmentDialog({
   enrollment,
+  busy,
   onClose,
+  onRevoke,
 }: {
   enrollment: EnrollmentTokenResponse;
+  busy: boolean;
   onClose: () => void;
+  onRevoke: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const command = buildDockerCommand(enrollment);
@@ -58,7 +62,16 @@ export function EnrollmentDialog({
           </Button>
         </div>
         <DialogFooter>
-          <Button type="button" onClick={onClose}>Done</Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={onRevoke}
+            className="text-destructive"
+          >
+            Revoke unused token
+          </Button>
+          <Button type="button" disabled={busy} onClick={onClose}>Done</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

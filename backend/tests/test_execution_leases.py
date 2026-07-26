@@ -9,10 +9,12 @@ generation), #13 (cancellation idempotent), #15 (reaper leaves terminal rows).
 
 from __future__ import annotations
 
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Barrier
+from uuid import uuid4
 
 import pytest
 from apo.models.db import (
@@ -33,6 +35,7 @@ from apo.services.execution_leases import (
     request_cancellation,
     start_attempt,
 )
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -179,6 +182,61 @@ def test_sqlite_concurrent_claims_cannot_exceed_executor_capacity(
         assert sum(winner is not None for winner in winners) == 1
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize("capacity_race", [False, True], ids=["one-attempt", "executor-capacity"])
+def test_postgres_concurrent_claim_guarantees(capacity_race: bool) -> None:
+    database_url = os.environ.get("APO_TEST_POSTGRES_URL")
+    if database_url is None:
+        pytest.skip("set APO_TEST_POSTGRES_URL to run the PostgreSQL concurrency gate")
+
+    schema = f"claim_race_{uuid4().hex}"
+    admin_engine = create_engine(database_url)
+    with admin_engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(
+        database_url,
+        connect_args={"options": f"-csearch_path={schema}"},
+    )
+    try:
+        SQLModel.metadata.create_all(engine)
+        with Session(engine) as setup:
+            _seed(setup, sequence_indices=[0])
+            if capacity_race:
+                _seed_second_batch_attempt(setup)
+            else:
+                setup.add(
+                    ExecutorDB(
+                        id="ex-2",
+                        scope_kind="pool",
+                        project="proj-x",
+                        executor_pool_id="pool-1",
+                        name="exec-2",
+                        credential_prefix="apo_ex_2",
+                        credential_hash="hex-2",
+                        protocol_version=1,
+                        executor_version="v",
+                        driver_kinds_json=["subprocess"],
+                        max_concurrency=1,
+                        enrolled_at=_now(),
+                        created_at=_now(),
+                        updated_at=_now(),
+                    )
+                )
+                setup.commit()
+
+        executor_ids = ["ex-1", "ex-1"] if capacity_race else ["ex-1", "ex-2"]
+        winners = _race_claims(engine, executor_ids)
+        assert sum(winner is not None for winner in winners) == 1
+        if not capacity_race:
+            assert {winner for winner in winners if winner is not None} == {
+                "att-batch-x-0"
+            }
+    finally:
+        engine.dispose()
+        with admin_engine.begin() as connection:
+            connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin_engine.dispose()
 
 
 def test_pool_scoped_executor_cannot_claim_other_pool(session: Session) -> None:

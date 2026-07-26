@@ -86,6 +86,11 @@ Provider credentials belong on the Executor service, not the backend. The
 long-lived Executor credential and one-time enrollment token never enter Task
 child environments.
 
+The enrollment command is shown once under **Settings → Executors**. If you
+decide not to use it, revoke the unused token from that dialog before closing
+it. A consumed token cannot be revoked because it has already been exchanged
+for an Executor credential; revoke the Executor instead.
+
 ## Scheduler ownership
 
 Alpha assumes **one backend process owns the scheduler**. The in-process dispatcher starts in the FastAPI lifespan and is controlled by `SCHEDULER_ENABLED`:

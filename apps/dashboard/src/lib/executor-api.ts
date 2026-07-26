@@ -57,6 +57,8 @@ export interface ExecutorSummary {
 }
 
 export interface EnrollmentTokenResponse {
+  id: string;
+  pool_id: string;
   token: string;
   expires_at: string;
   container: {
@@ -103,6 +105,20 @@ export const createEnrollmentToken = (
   apiClient(
     `/v1/projects/${encodeURIComponent(projectId)}/executor-pools/${encodeURIComponent(poolId)}/enrollment-tokens`,
     { method: "POST" },
+  );
+
+export const revokeEnrollmentToken = (
+  projectId: string,
+  poolId: string,
+  tokenId: string,
+): Promise<void> =>
+  apiClient(
+    (
+      `/v1/projects/${encodeURIComponent(projectId)}` +
+      `/executor-pools/${encodeURIComponent(poolId)}` +
+      `/enrollment-tokens/${encodeURIComponent(tokenId)}`
+    ),
+    { method: "DELETE" },
   );
 
 export const patchExecutorPool = (
