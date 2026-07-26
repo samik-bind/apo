@@ -145,15 +145,21 @@ def bootstrap_bundled_executor(
         # The token file is a bootstrap convenience for the bundled executor
         # (the enrollment row in the DB is authoritative). A write failure —
         # e.g. a read-only or permission-restricted volume — must not prevent
-        # the backend from starting. Revoke the row and continue; the executor
-        # simply won't auto-enroll until the path is writable.
+        # the backend from starting. Revoke the row so it can't be reused, but
+        # surface an ERROR (not a warning): the bundled executor cannot enroll
+        # until the path is writable, which manifests upstream as a permanent
+        # restart loop that's easy to miss when this is only a WARNING.
+        # See issue #38: a root-owned named volume is the common cause.
         row.revoked_at = datetime.now(timezone.utc)
         session.add(row)
         session.commit()
-        logger.warning(
-            "Could not write bundled-executor bootstrap token to %s (%s); "
-            "the backend will start but the bundled executor cannot enroll "
-            "until the path is writable by this process.",
+        logger.error(
+            "Bundled executor is enabled but the bootstrap token file could not be written to %s (%s). "
+            "The bundled executor will restart-loop until the path is writable by the backend process. "
+            "Fix: ensure the directory exists and is owned by the backend user (uid 1000). "
+            "For existing stacks with a root-owned volume, run "
+            "`docker compose run --rm --user 0:0 backend chown -R 1000:1000 /var/lib/apo/executor-bootstrap` "
+            "or remove the apo_executor_bootstrap volume and recreate the stack.",
             path,
             exc,
         )

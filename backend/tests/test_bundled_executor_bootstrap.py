@@ -4,10 +4,12 @@
 
 from __future__ import annotations
 
+import logging
 import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
+from _pytest.logging import LogCaptureFixture
 from _pytest.monkeypatch import MonkeyPatch
 from sqlmodel import Session, select
 
@@ -123,3 +125,40 @@ def test_existing_project_default_is_preserved(session: Session) -> None:
     session.refresh(project)
     assert bundled.kind == "bundled"
     assert project.default_executor_pool_id == connected.id
+
+
+def test_bootstrap_logs_loud_error_when_token_file_not_writable(
+    session: Session,
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+    caplog: LogCaptureFixture,
+) -> None:
+    """A root-owned/bootstrap volume must not look like an advisory warning.
+
+    Regression test for issue #38: when the bundled executor is enabled but
+    the bootstrap token file can't be written, the backend must surface an
+    ERROR (not a WARNING) so the operator doesn't correlate a restart-looping
+    executor with an "advisory" backend log line.
+    """
+    _ = _project(session)
+    monkeypatch.setenv("APO_BUNDLED_EXECUTOR_ENABLED", "true")
+    # Make the token's parent path a regular file: any write attempt
+    # (mkdir/open) inside it fails with NotADirectoryError regardless of the
+    # UID running the test, mirroring an unwritable bootstrap volume.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a directory")
+    token_file = blocker / "enrollment-token"
+
+    caplog.set_level(logging.ERROR, logger="apo.services.bundled_executor")
+    bootstrap_bundled_executor(session, token_file=token_file)
+
+    # The DB token row is revoked so the enrollment can't be reused.
+    tokens = session.exec(select(ExecutorEnrollmentTokenDB)).all()
+    assert len(tokens) == 1
+    assert tokens[0].revoked_at is not None
+    # The error is loud and actionable, not an advisory warning.
+    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert error_records, "expected an ERROR-level log when the token file is unwritable"
+    message = error_records[0].getMessage()
+    assert str(token_file) in message
+    assert "executor" in message.lower()
