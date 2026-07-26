@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Play } from "lucide-react";
+import { useMemo, useState } from "react";
+import { GitCompare, Play, X } from "lucide-react";
 import { type AgentTaskRunSummary } from "@/lib/agent-task-api";
 import { Button } from "@/components/ui/button";
 import { TaskRunListHeader, TaskRunRow } from "@/components/task-run-list";
@@ -13,6 +14,26 @@ interface TaskRunHistoryProps {
 
 export function TaskRunHistory({ runs }: TaskRunHistoryProps) {
   const projectId = useProjectId();
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+
+  // Map selected run ids → their parent batch ids. Compare is only meaningful
+  // across two DIFFERENT batches (comparing a batch to itself is nonsensical).
+  const compareBatches = useMemo(() => {
+    return compareIds
+      .map((rid) => runs.find((r) => r.id === rid)?.batch_run_id)
+      .filter((b): b is string => typeof b === "string");
+  }, [compareIds, runs]);
+  const canCompare =
+    compareIds.length === 2 && compareBatches.length === 2 && compareBatches[0] !== compareBatches[1];
+
+  const toggleCompare = (id: string) => {
+    setCompareIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      // Cap at two; replace the older (second) slot when adding a third.
+      return prev.length >= 2 ? [prev[1], id] : [...prev, id];
+    });
+  };
+
   if (!runs || runs.length === 0) {
     return (
       <div className="m-6 rounded-md border border-dashed border-border bg-card/40 p-10 text-center text-[13px] text-muted-foreground">
@@ -38,13 +59,53 @@ export function TaskRunHistory({ runs }: TaskRunHistoryProps) {
         </Button>
       </div>
 
-      <TaskRunListHeader />
+      <TaskRunListHeader withCompare />
 
       <div className="divide-y divide-border">
         {runs.map((run) => (
-          <TaskRunRow key={run.id} run={run} projectId={projectId} />
+          <TaskRunRow
+            key={run.id}
+            run={run}
+            projectId={projectId}
+            compareSelected={compareIds.includes(run.id)}
+            compareDisabled={compareIds.length >= 2 && !compareIds.includes(run.id)}
+            onToggleCompare={() => toggleCompare(run.id)}
+          />
         ))}
       </div>
+
+      {/* Compare bar — appears when one or two runs are selected. Compares the
+          two parent batch runs (same-batch pairs are disabled: a batch vs
+          itself is meaningless). */}
+      {compareIds.length > 0 && (
+        <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-3 border-t border-border bg-background/95 px-6 py-3 text-[12px] backdrop-blur">
+          <GitCompare className="h-4 w-4 text-muted-foreground" />
+          <span className="text-muted-foreground">
+            <span className="font-medium text-foreground">{compareIds.length}</span> of 2 runs selected
+            {compareIds.length === 2 && !canCompare && (
+              <span className="ml-2 text-warning">pick two from different batches to compare</span>
+            )}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-[12px] font-medium text-muted-foreground"
+              onClick={() => setCompareIds([])}
+            >
+              <X className="h-3 w-3" /> Clear
+            </Button>
+            {canCompare && (
+              <Button type="button" asChild size="sm" className="h-7 gap-1.5 text-[12px] font-medium">
+                <Link href={`/project/${projectId}/runs/compare?a=${compareBatches[0]}&b=${compareBatches[1]}`}>
+                  <GitCompare className="h-3 w-3" /> Compare batches
+                </Link>
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,13 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, Clock, DollarSign } from "lucide-react";
+import { ArrowUpRight, Clock, DollarSign, GitCompare } from "lucide-react";
 import { type AgentTaskRunSummary } from "@/lib/agent-task-api";
 import { TraceHomeLink } from "@/components/trace-detail";
 import { TriggerBadge } from "@/components/trigger-badge";
 import { cn } from "@/lib/utils";
 import { formatCostMicro } from "@/lib/format";
-import { formatRunExecution } from "@/lib/run-configuration";
+import { formatRunExecution, formatRunExecutionFull } from "@/lib/run-configuration";
 import {
   TASK_RUN_STATUS,
   type TaskRunStatus,
@@ -28,7 +28,20 @@ function TaskRunPassBar({ value, muted }: { value: number; muted?: boolean }) {
   );
 }
 
-export function TaskRunRow({ run, projectId }: { run: AgentTaskRunSummary; projectId: string }) {
+export function TaskRunRow({
+  run,
+  projectId,
+  compareSelected = false,
+  compareDisabled = false,
+  onToggleCompare,
+}: {
+  run: AgentTaskRunSummary;
+  projectId: string;
+  /** Optional compare toggle (task page). When omitted, no compare button renders. */
+  compareSelected?: boolean;
+  compareDisabled?: boolean;
+  onToggleCompare?: () => void;
+}) {
   const router = useRouter();
   const status = (run.status in TASK_RUN_STATUS ? run.status : "pending") as TaskRunStatus;
   const statusConfig = TASK_RUN_STATUS[status];
@@ -37,6 +50,7 @@ export function TaskRunRow({ run, projectId }: { run: AgentTaskRunSummary; proje
   const isInactive = status === "pending" || status === "error";
   const passRate = run.total_checks > 0 ? Math.round((run.passed_checks / run.total_checks) * 100) : 0;
   const href = `/project/${projectId}/runs/task/${run.id}`;
+  const hasCompare = typeof onToggleCompare === "function";
 
   return (
     <div
@@ -55,7 +69,7 @@ export function TaskRunRow({ run, projectId }: { run: AgentTaskRunSummary; proje
         }
       }}
     >
-      <div className="grid grid-cols-1 items-center gap-3 md:grid-cols-[minmax(0,2fr)_minmax(9rem,1.5fr)_auto_auto_auto] md:gap-6">
+      <div className="grid grid-cols-1 items-center gap-3 md:grid-cols-[minmax(0,2fr)_minmax(8rem,1.25fr)_minmax(7rem,1fr)_auto_auto_auto] md:gap-6">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
             <span className={cn("h-2 w-2 shrink-0 rounded-full", statusConfig.dot)} aria-hidden />
@@ -68,14 +82,6 @@ export function TaskRunRow({ run, projectId }: { run: AgentTaskRunSummary; proje
             <span className="font-mono text-muted-foreground">{run.id.slice(0, 10)}</span>
             <span className="text-muted-foreground">&middot;</span>
             <span className="font-mono text-muted-foreground">{run.task_path.split("/").slice(-2).join("/")}</span>
-            {run.run_configuration && (
-              <>
-                <span className="text-muted-foreground">&middot;</span>
-                <span className="font-mono text-muted-foreground">
-                  {formatRunExecution(run.run_configuration)}
-                </span>
-              </>
-            )}
             {isRunning && run.trace_run_id && (
               <>
                 <span className="text-muted-foreground">&middot;</span>
@@ -101,6 +107,17 @@ export function TaskRunRow({ run, projectId }: { run: AgentTaskRunSummary; proje
         <div className="flex min-w-0 items-center gap-2">
           <TriggerBadge trigger={run.trigger} />
           <span className="shrink-0 font-mono text-[12px] text-muted-foreground">{run.batch_run_id.slice(0, 8)}</span>
+        </div>
+
+        {/* SPEC-148: Execution — model · effort in its own column (not crammed
+            into the name meta line). Full qualified name on hover. */}
+        <div className="min-w-0">
+          <span
+            className="block truncate font-mono text-[12px] tabular-nums text-muted-foreground"
+            title={formatRunExecutionFull(run.run_configuration)}
+          >
+            {run.run_configuration ? formatRunExecution(run.run_configuration) : "\u2014"}
+          </span>
         </div>
 
         <div className="w-32 text-right">
@@ -143,6 +160,29 @@ export function TaskRunRow({ run, projectId }: { run: AgentTaskRunSummary; proje
           <span className="font-mono text-[12px] tabular-nums text-muted-foreground">
             {formatTaskRunRelativeTime(run.started_at)}
           </span>
+          {hasCompare && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleCompare?.();
+              }}
+              disabled={compareDisabled}
+              aria-pressed={compareSelected}
+              aria-label={compareSelected ? "Remove from comparison" : "Add to comparison"}
+              title={compareDisabled ? "Clear a selection to compare this run" : compareSelected ? "Selected for comparison" : "Compare this run"}
+              className={cn(
+                "grid h-6 w-6 place-items-center rounded border transition-colors",
+                compareSelected
+                  ? "border-foreground bg-foreground text-background"
+                  : compareDisabled
+                    ? "cursor-not-allowed border-border text-muted-foreground/30"
+                    : "border-border text-muted-foreground hover:border-foreground/50 hover:text-foreground",
+              )}
+            >
+              <GitCompare className="h-3.5 w-3.5" />
+            </button>
+          )}
           <span className="opacity-0 transition-opacity group-hover:opacity-100">
             <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
           </span>
@@ -152,15 +192,16 @@ export function TaskRunRow({ run, projectId }: { run: AgentTaskRunSummary; proje
   );
 }
 
-export function TaskRunListHeader() {
+export function TaskRunListHeader({ withCompare = false }: { withCompare?: boolean }) {
   return (
     <div className="sticky top-0 z-10 hidden border-b border-border bg-background/95 px-6 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground backdrop-blur md:block">
-      <div className="grid grid-cols-[minmax(0,2fr)_minmax(9rem,1.5fr)_auto_auto_auto] items-center gap-6">
+      <div className="grid grid-cols-[minmax(0,2fr)_minmax(8rem,1.25fr)_minmax(7rem,1fr)_auto_auto_auto] items-center gap-6">
         <span>Task run</span>
         <span>Trigger · Batch</span>
+        <span>Execution</span>
         <span className="w-32 text-right">Judges</span>
         <span className="w-28 text-right">Duration · Cost</span>
-        <span className="w-36 text-right">Started</span>
+        <span className="w-36 text-right">{withCompare ? "Started · Compare" : "Started"}</span>
       </div>
     </div>
   );
