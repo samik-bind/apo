@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_MAX_OBSERVATIONS,
+  DETAIL_MAX_RETRIES,
   fetchLangfuseTrace,
   LangfuseEmptyTraceError,
   type LangfuseConnectorConfig,
@@ -696,5 +697,253 @@ describe("fetchLangfuseTrace I/O coercion (parseIoAsJson removed)", () => {
 
     expect(obs.input).toEqual(structured);
     expect(obs.output).toEqual(structured);
+  });
+});
+
+// ============================================================================
+// Detail hydration rate-limit backoff (issue #28)
+// ====================================================================
+// The v2 LIST returns no content, so every observation costs one detail GET.
+// On traces with many observations the burst trips Langfuse Cloud's project
+// rate limit (429). Hydration must back off in-run (honoring Retry-After),
+// retry the rate-limited observation in place, and preserve already-hydrated
+// observations — NOT fail the whole import and restart from scratch.
+
+type ScriptedResp = { status?: number; body?: unknown; headers?: Record<string, string> };
+
+// Detail mock that pops scripted responses per observation id. Each id has a
+// queue; the front is returned and the queue is drained. If the queue runs
+// dry, the last response repeats (handy for "always 429").
+function scriptedDetailFetch(
+  listPages: ListPage[],
+  scripts: Record<string, ScriptedResp[]>,
+): { detailCalls: FetchCall[]; detailCallsById: Map<string, number>; mock: ReturnType<typeof vi.spyOn> } {
+  const detailCalls: FetchCall[] = [];
+  const detailCallsById = new Map<string, number>();
+  const queues = new Map<string, ScriptedResp[]>();
+  for (const [id, resps] of Object.entries(scripts)) queues.set(id, [...resps]);
+  let listCallsCount = 0;
+  const mock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: URL | RequestInfo, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const detailMatch = url.match(/\/api\/public\/observations\/([^/?]+)/);
+    if (detailMatch) {
+      const id = decodeURIComponent(detailMatch[1]!);
+      detailCalls.push({ url, init });
+      detailCallsById.set(id, (detailCallsById.get(id) ?? 0) + 1);
+      const q = queues.get(id);
+      const resp = q && q.length > 1 ? q.shift()! : q?.[0] ?? { status: 200, body: detailBody({ id }) };
+      return new Response(JSON.stringify(resp.body ?? {}), {
+        status: resp.status ?? 200,
+        headers: { "Content-Type": "application/json", ...resp.headers },
+      });
+    }
+    // List: drain from listPages (repeat last on overflow).
+    const idx = Math.min(listCallsCount++, listPages.length - 1);
+    const lp = listPages[idx] ?? listPages[listPages.length - 1];
+    return new Response(JSON.stringify(lp.body ?? {}), {
+      status: lp.status ?? 200,
+      headers: { "Content-Type": "application/json", ...lp.headers },
+    });
+  });
+  return { detailCalls, detailCallsById, mock };
+}
+
+describe("fetchLangfuseTrace detail hydration rate-limit backoff (issue #28)", () => {
+  beforeEach(() => {
+    withKeys();
+  });
+
+  it("retries the same observation after a 429 and completes the import", async () => {
+    scriptedDetailFetch(
+      [{ body: page([bareListRow({ id: "obs-1" })], { cursor: null }) }],
+      {
+        "obs-1": [
+          { status: 429, body: {}, headers: { "Retry-After": "2" } },
+          { status: 200, body: detailBody({ id: "obs-1" }) },
+        ],
+      },
+    );
+    const sleeps: number[] = [];
+
+    const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig(), {
+      now: () => 1_000_000,
+      sleep: async (ms) => { sleeps.push(ms); },
+    });
+
+    const obs = graph.observations[0]!;
+    expect(obs.name).toBe("agent-llm-call");
+    expect(obs.providedModelName).toBe("claude-opus-4-6");
+    // The detail endpoint was hit twice: the 429 then the successful retry.
+    expect(sleeps.some((s) => s === 2_000)).toBe(true);
+  });
+
+  it("honors a delta-seconds Retry-After header value", async () => {
+    const { detailCallsById } = scriptedDetailFetch(
+      [{ body: page([bareListRow({ id: "obs-1" })], { cursor: null }) }],
+      {
+        "obs-1": [
+          { status: 429, body: {}, headers: { "Retry-After": "5" } },
+          { status: 200, body: detailBody({ id: "obs-1" }) },
+        ],
+      },
+    );
+    const sleeps: number[] = [];
+
+    await fetchLangfuseTrace(TRACE_ID, basicConfig(), {
+      now: () => 2_000_000,
+      sleep: async (ms) => { sleeps.push(ms); },
+    });
+
+    expect(detailCallsById.get("obs-1")).toBe(2);
+    // Retry-After: 5 (seconds) -> 5000ms backoff applied.
+    expect(sleeps.some((s) => s === 5_000)).toBe(true);
+  });
+
+  it("honors an HTTP-date Retry-After header relative to now()", async () => {
+    const fixedNow = Date.parse("2026-07-26T12:00:00Z");
+    const future = new Date(fixedNow + 3_000).toUTCString();
+    scriptedDetailFetch(
+      [{ body: page([bareListRow({ id: "obs-1" })], { cursor: null }) }],
+      {
+        "obs-1": [
+          { status: 429, body: {}, headers: { "Retry-After": future } },
+          { status: 200, body: detailBody({ id: "obs-1" }) },
+        ],
+      },
+    );
+    const sleeps: number[] = [];
+
+    await fetchLangfuseTrace(TRACE_ID, basicConfig(), {
+      now: () => fixedNow,
+      sleep: async (ms) => { sleeps.push(ms); },
+    });
+
+    // HTTP-date 3s in the future -> ~3000ms wait.
+    expect(sleeps.some((s) => s === 3_000)).toBe(true);
+  });
+
+  it("uses exponential backoff when Retry-After is absent", async () => {
+    scriptedDetailFetch(
+      [{ body: page([bareListRow({ id: "obs-1" })], { cursor: null }) }],
+      {
+        "obs-1": [
+          { status: 429, body: {} },
+          { status: 200, body: detailBody({ id: "obs-1" }) },
+        ],
+      },
+    );
+    const sleeps: number[] = [];
+
+    await fetchLangfuseTrace(TRACE_ID, basicConfig(), {
+      now: () => 1_000_000,
+      sleep: async (ms) => { sleeps.push(ms); },
+    });
+
+    // First backoff with no Retry-After is the base delay (1000ms).
+    expect(sleeps.some((s) => s === 1_000)).toBe(true);
+  });
+
+  it("preserves already-hydrated observations when a later one is rate-limited", async () => {
+    // Three observations; b is rate-limited once then succeeds. a and c
+    // hydrate on the first attempt. None of the three may be lost.
+    const { detailCallsById } = scriptedDetailFetch(
+      [{ body: page([bareListRow({ id: "a" }), bareListRow({ id: "b" }), bareListRow({ id: "c" })], { cursor: null }) }],
+      {
+        a: [{ status: 200, body: detailBody({ id: "a", name: "gen-a", model: "model-a" }) }],
+        b: [
+          { status: 429, body: {}, headers: { "Retry-After": "1" } },
+          { status: 200, body: detailBody({ id: "b", name: "tool-b", type: "TOOL", model: "model-b" }) },
+        ],
+        c: [{ status: 200, body: detailBody({ id: "c", name: "span-c", type: "SPAN", model: "model-c" }) }],
+      },
+    );
+
+    const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig(), {
+      now: () => 1_000_000,
+      sleep: async () => {},
+    });
+
+    expect(graph.observations.map((o) => o.id)).toEqual(["a", "b", "c"]);
+    expect(graph.observations.map((o) => o.name)).toEqual(["gen-a", "tool-b", "span-c"]);
+    expect(graph.observations.map((o) => o.providedModelName)).toEqual(["model-a", "model-b", "model-c"]);
+    // b was retried after the 429; a and c were fetched exactly once.
+    expect(detailCallsById.get("a")).toBe(1);
+    expect(detailCallsById.get("b")).toBe(2);
+    expect(detailCallsById.get("c")).toBe(1);
+  });
+
+  it("fails with a clear error after exhausting retries on a persistently rate-limited observation", async () => {
+    scriptedDetailFetch(
+      [{ body: page([bareListRow({ id: "obs-1" })], { cursor: null }) }],
+      { "obs-1": [{ status: 429, body: {} }] },
+    );
+
+    await expect(
+      fetchLangfuseTrace(TRACE_ID, basicConfig(), {
+        now: () => 1_000_000,
+        sleep: async () => {},
+      }),
+    ).rejects.toThrow(/after \d+ attempts.*safe to retry/i);
+  });
+
+  it("makes exactly DETAIL_MAX_RETRIES + 1 attempts before giving up", async () => {
+    const { detailCalls } = scriptedDetailFetch(
+      [{ body: page([bareListRow({ id: "obs-1" })], { cursor: null }) }],
+      { "obs-1": [{ status: 429, body: {} }] },
+    );
+
+    await expect(
+      fetchLangfuseTrace(TRACE_ID, basicConfig(), {
+        now: () => 1_000_000,
+        sleep: async () => {},
+      }),
+    ).rejects.toThrow();
+
+    expect(detailCalls).toHaveLength(DETAIL_MAX_RETRIES + 1);
+  });
+
+  it("still fails immediately on non-rate-limit detail errors (does not retry 404)", async () => {
+    const { detailCalls } = scriptedDetailFetch(
+      [{ body: page([bareListRow({ id: "obs-1" })], { cursor: null }) }],
+      { "obs-1": [{ status: 404, body: {} }] },
+    );
+
+    await expect(
+      fetchLangfuseTrace(TRACE_ID, basicConfig(), {
+        now: () => 1_000_000,
+        sleep: async () => {},
+      }),
+    ).rejects.toThrow(/404|deleted/i);
+
+    // 404 is not retryable; exactly one attempt.
+    expect(detailCalls).toHaveLength(1);
+  });
+
+  it("throttles detail requests globally (observable inter-request spacing)", async () => {
+    // Five observations hydrate cleanly on the first call each. With a global
+    // throttle, workers must space their requests rather than burst all five
+    // simultaneously — observable as non-zero sleeps in the injected clock.
+    scriptedDetailFetch(
+      [{ body: page([
+        bareListRow({ id: "a" }), bareListRow({ id: "b" }), bareListRow({ id: "c" }),
+        bareListRow({ id: "d" }), bareListRow({ id: "e" }),
+      ], { cursor: null }) }],
+      {
+        a: [{ status: 200, body: detailBody({ id: "a" }) }],
+        b: [{ status: 200, body: detailBody({ id: "b" }) }],
+        c: [{ status: 200, body: detailBody({ id: "c" }) }],
+        d: [{ status: 200, body: detailBody({ id: "d" }) }],
+        e: [{ status: 200, body: detailBody({ id: "e" }) }],
+      },
+    );
+    const sleeps: number[] = [];
+
+    await fetchLangfuseTrace(TRACE_ID, basicConfig(), {
+      now: () => 5_000_000,
+      sleep: async (ms) => { if (ms > 0) sleeps.push(ms); },
+    });
+
+    // More than one observation means at least one throttle wait occurred.
+    expect(sleeps.length).toBeGreaterThan(0);
   });
 });

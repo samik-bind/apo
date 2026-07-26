@@ -229,7 +229,10 @@ function fetchSourceTrace(
   deps: LangfuseRunDeps,
 ): Promise<LangfuseTraceGraph> {
   if (wait.kind !== "ok" || wait.seconds <= 0) {
-    return fetchLangfuseTrace(sourceTraceId, connector);
+    return fetchLangfuseTrace(sourceTraceId, connector, {
+      ...(deps.now ? { now: deps.now } : {}),
+      ...(deps.sleep ? { sleep: deps.sleep } : {}),
+    });
   }
   const timing = deps.pollTiming ?? DEFAULT_LANGFUSE_POLL_TIMING;
   return pollLangfuseTrace(sourceTraceId, connector, {

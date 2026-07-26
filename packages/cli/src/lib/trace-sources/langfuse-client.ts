@@ -34,6 +34,13 @@ export interface LangfusePollOptions extends LangfusePollTiming {
   sleep?: (ms: number) => Promise<void>;
 }
 
+// Injectable clock/sleep for detail hydration backoff (issue #28). Defaults to
+// Date.now/setTimeout in production; tests pass deterministic stubs.
+export interface HydrationOptions {
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
 export const DEFAULT_LANGFUSE_POLL_TIMING: LangfusePollTiming = {
   initialIntervalMs: 2_000,
   maxIntervalMs: 15_000,
@@ -49,6 +56,33 @@ const DETAIL_TIMEOUT_MS = 15_000;
 // Per-id detail requests run concurrently but capped — N+1 requests against
 // Langfuse, bounded by --max-observations and this pool size.
 const DETAIL_CONCURRENCY = 6;
+// Detail hydration rate-limit handling (issue #28): the v2 LIST returns no
+// content, so every observation costs one detail GET. On traces with many
+// observations this bursts and Langfuse Cloud returns 429. Rather than failing
+// the whole import (and restarting from scratch on the next attempt), we
+// throttle requests globally, honor 429 Retry-After with in-run backoff, and
+// retry the rate-limited observation in place so already-hydrated observations
+// are preserved.
+const DETAIL_INTER_REQUEST_MS = 100;
+export const DETAIL_MAX_RETRIES = 5;
+const DETAIL_BASE_BACKOFF_MS = 1_000;
+const DETAIL_MAX_BACKOFF_MS = 60_000;
+const DETAIL_HYDRATION_DEADLINE_MS = 10 * 60_000;
+
+// A 429 from the per-id detail endpoint. Carries the server-advised wait so
+// the hydration pool can back off the whole pool (Langfuse rate limits are
+// project-wide, not per-request).
+class LangfuseDetailRateLimitedError extends Error {
+  readonly retryAfterMs: number | null;
+  constructor(observationId: string, retryAfterMs: number | null) {
+    const hint = retryAfterMs !== null ? ` (Retry-After: ${Math.round(retryAfterMs / 1000)}s)` : "";
+    super(
+      `Langfuse rate-limited the detail request for observation ${observationId}${hint}; backing off and retrying`,
+    );
+    this.name = "LangfuseDetailRateLimitedError";
+    this.retryAfterMs = retryAfterMs;
+  }
+}
 const FIELD_GROUPS = [
   "core",
   "basic",
@@ -94,6 +128,7 @@ export function resolveConnectorConfig(options: ResolveOptions = {}): LangfuseCo
 export async function fetchLangfuseTrace(
   sourceTraceId: string,
   config: LangfuseConnectorConfig,
+  hydration: HydrationOptions = {},
 ): Promise<LangfuseTraceGraph> {
   const rows: LangfuseObservation[] = [];
   let cursor: string | null = null;
@@ -127,7 +162,7 @@ export async function fetchLangfuseTrace(
   // Content-bearing fields (name/input/output/metadata/model) live exclusively
   // on the per-id detail endpoint — hydrate each observation there before
   // handing the graph to the converter, otherwise imports arrive empty (issue #25).
-  const observations = await hydrateObservations(rows, config);
+  const observations = await hydrateObservations(rows, config, hydration);
 
   return {
     sourceHost: config.host,
@@ -150,7 +185,10 @@ export async function pollLangfuseTrace(
   for (;;) {
     attempts += 1;
     try {
-      return await fetchLangfuseTrace(sourceTraceId, config);
+      return await fetchLangfuseTrace(sourceTraceId, config, {
+        now: options.now,
+        sleep: options.sleep,
+      });
     } catch (error) {
       if (!(error instanceof LangfuseEmptyTraceError)) throw error;
     }
@@ -311,21 +349,158 @@ function validateObservation(
 // model only appear on GET /api/public/observations/{id}. We fetch the detail
 // for every discovered observation (bounded concurrency) and merge it over the
 // list row so content is never silently lost (issue #25).
+//
+// Rate-limit safety (issue #28): a trace with many observations fans out into
+// one detail GET per observation, which bursts past Langfuse Cloud's project
+// rate limit and gets 429'd. Rather than fail the import (and restart from
+// zero on the next attempt), hydration:
+//   1. Throttles detail requests GLOBALLY (smooth inter-request spacing).
+//   2. Honors 429 Retry-After with exponential backoff.
+//   3. Pauses the WHOLE pool on a 429 (rate limits are project-wide).
+//   4. Retries the rate-limited observation in place, so observations already
+//      hydrated by other workers are preserved.
 
 async function hydrateObservations(
   rows: readonly LangfuseObservation[],
   config: LangfuseConnectorConfig,
+  hydration: HydrationOptions,
 ): Promise<LangfuseObservation[]> {
-  const details = await mapWithConcurrency(rows, DETAIL_CONCURRENCY, (row) =>
-    fetchObservationDetail(row.id, row.traceId, config),
-  );
+  if (rows.length === 0) return [];
+  const now = hydration.now ?? Date.now;
+  const sleep = hydration.sleep ?? defaultSleep;
+
+  const details: Record<string, unknown>[] = Array.from({ length: rows.length });
+  // Shared, mutable coordination state across all workers in the pool. JS is
+  // single-threaded and the only interleave points are `await`s, so these
+  // read-modify-write blocks are race-free between workers.
+  const gate = { pausedUntilMs: 0 }; // project-wide 429 backoff deadline
+  const limiter = { nextAllowedAtMs: 0 }; // global request spacing
+  const deadline = now() + DETAIL_HYDRATION_DEADLINE_MS;
+
+  await runHydrationPool(rows, config, details, gate, limiter, deadline, now, sleep);
+
   return rows.map((row, i) => mergeObservation(row, details[i]!));
+}
+
+async function runHydrationPool(
+  rows: readonly LangfuseObservation[],
+  config: LangfuseConnectorConfig,
+  details: Record<string, unknown>[],
+  gate: { pausedUntilMs: number },
+  limiter: { nextAllowedAtMs: number },
+  deadline: number,
+  now: () => number,
+  sleep: (ms: number) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const index = cursor;
+      if (index >= rows.length) return;
+      cursor += 1;
+      details[index] = await fetchDetailWithRetry(
+        rows[index]!,
+        config,
+        gate,
+        limiter,
+        deadline,
+        now,
+        sleep,
+      );
+    }
+  }
+  const workers: Promise<void>[] = [];
+  for (let i = 0; i < Math.min(DETAIL_CONCURRENCY, rows.length); i++) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+}
+
+async function fetchDetailWithRetry(
+  row: LangfuseObservation,
+  config: LangfuseConnectorConfig,
+  gate: { pausedUntilMs: number },
+  limiter: { nextAllowedAtMs: number },
+  deadline: number,
+  now: () => number,
+  sleep: (ms: number) => Promise<void>,
+): Promise<Record<string, unknown>> {
+  let attempt = 0;
+  let backoffMs = DETAIL_BASE_BACKOFF_MS;
+  for (;;) {
+    await throttleRequest(limiter, now, sleep);
+    await waitForGate(gate, now, sleep);
+    if (now() >= deadline) {
+      throw new Error(
+        `Langfuse detail hydration exceeded the ${Math.round(DETAIL_HYDRATION_DEADLINE_MS / 60_000)}min deadline at observation ${row.id} (source trace ${row.traceId}); safe to retry`,
+      );
+    }
+    try {
+      return await fetchObservationDetail(row.id, row.traceId, config, now);
+    } catch (error) {
+      if (!(error instanceof LangfuseDetailRateLimitedError)) throw error;
+      if (attempt >= DETAIL_MAX_RETRIES) {
+        throw new Error(
+          `Langfuse rate-limited the detail request for observation ${row.id} (source trace ${row.traceId}) after ${attempt + 1} attempts with backoff. The trace has too many observations to hydrate under the current Langfuse rate limit; safe to retry.`,
+        );
+      }
+      // Honor the server's Retry-After when present, else exponential backoff.
+      const waitMs = Math.min(error.retryAfterMs ?? backoffMs, DETAIL_MAX_BACKOFF_MS);
+      // The rate limit is project-wide: pause every worker, not just this one.
+      gate.pausedUntilMs = Math.max(gate.pausedUntilMs, now() + waitMs);
+      await sleep(waitMs);
+      attempt += 1;
+      backoffMs = Math.min(backoffMs * 2, DETAIL_MAX_BACKOFF_MS);
+    }
+  }
+}
+
+// Space detail requests globally so the pool never bursts. Each call claims the
+// next available slot and sleeps until it arrives. Synchronous between awaits,
+// so the read-modify-write on nextAllowedAtMs is race-free across workers.
+async function throttleRequest(
+  limiter: { nextAllowedAtMs: number },
+  now: () => number,
+  sleep: (ms: number) => Promise<void>,
+): Promise<void> {
+  const slotAt = limiter.nextAllowedAtMs;
+  const current = now();
+  limiter.nextAllowedAtMs = Math.max(slotAt, current) + DETAIL_INTER_REQUEST_MS;
+  const wait = slotAt - current;
+  if (wait > 0) await sleep(wait);
+}
+
+async function waitForGate(
+  gate: { pausedUntilMs: number },
+  now: () => number,
+  sleep: (ms: number) => Promise<void>,
+): Promise<void> {
+  const wait = gate.pausedUntilMs - now();
+  if (wait > 0) await sleep(wait);
+}
+
+// Parse the Retry-After header (RFC 7231 §7.1.3): either delta-seconds or an
+// HTTP-date. Returns null when absent or unparseable. `nowMs` anchors the
+// HTTP-date form to an absolute wait duration.
+function parseRetryAfter(header: string | null, nowMs: number): number | null {
+  if (!header) return null;
+  const trimmed = header.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return Number(trimmed) * 1000;
+  }
+  const parsed = Date.parse(trimmed);
+  if (!Number.isNaN(parsed)) {
+    const delta = parsed - nowMs;
+    return delta > 0 ? delta : null;
+  }
+  return null;
 }
 
 async function fetchObservationDetail(
   observationId: string,
   sourceTraceId: string,
   config: LangfuseConnectorConfig,
+  now: () => number,
 ): Promise<Record<string, unknown>> {
   const url = new URL(
     `/api/public/observations/${encodeURIComponent(observationId)}`,
@@ -368,8 +543,11 @@ async function fetchObservationDetail(
     );
   }
   if (response.status === 429) {
-    throw new Error(
-      `Langfuse rate-limited the detail request for observation ${observationId}; safe to retry after backoff`,
+    // Hand control back to the hydration pool so it can back off the whole
+    // pool (rate limits are project-wide) and retry this observation in place.
+    throw new LangfuseDetailRateLimitedError(
+      observationId,
+      parseRetryAfter(response.headers.get("retry-after"), now()),
     );
   }
   if (!response.ok) {
@@ -452,28 +630,6 @@ function resolveModelName(
   if (typeof detail.providedModelName === "string") return detail.providedModelName;
   if (typeof detail.model === "string") return detail.model;
   return listRow.providedModelName ?? null;
-}
-
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  limit: number,
-  worker: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = Array.from({ length: items.length });
-  let cursor = 0;
-  async function run(): Promise<void> {
-    while (cursor < items.length) {
-      const index = cursor;
-      cursor += 1;
-      results[index] = await worker(items[index]!, index);
-    }
-  }
-  const workers: Promise<void>[] = [];
-  for (let i = 0; i < Math.min(limit, items.length); i++) {
-    workers.push(run());
-  }
-  await Promise.all(workers);
-  return results;
 }
 
 // Both the v2 LIST rows and the per-id DETAIL payload may carry input/output/
