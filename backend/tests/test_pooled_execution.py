@@ -158,10 +158,16 @@ async def test_create_pooled_batch_run_creates_revision_and_queued_attempts(
                created_at=datetime.now(timezone.utc))
         session.add(b)
         session.flush()
-        session.add(_R(id="run-1", batch_run_id="batch-pooled", task_id="demo-task",
-                       task_path="demo-task", sequence_index=0, status="pending"))
-        session.commit()
-        session.refresh(b)
+        session.add(_R(
+            id="run-1",
+            batch_run_id="batch-pooled",
+            task_id="demo-task",
+            task_path="/host-only/demo-task",
+            task_inventory_id="inv-p1",
+            sequence_index=0,
+            status="pending",
+        ))
+        session.flush()
         return b
 
     monkeypatch.setattr(_queue, "create_batch_run", _stub_create_batch_run, raising=False)
@@ -191,6 +197,9 @@ async def test_create_pooled_batch_run_creates_revision_and_queued_attempts(
     assert all(a.target_kind == "pool" for a in attempts)
     assert all(a.executor_pool_id == pool.id for a in attempts)
     assert all(a.task_revision_id == revision.id for a in attempts)
+    task_run = session.get(AgentTaskRunDB, "run-1")
+    assert task_run is not None
+    assert task_run.task_path == "demo-task"
 
     # Target persisted and immutable.
     assert batch.execution_target_json == {"kind": "pool", "pool_id": pool.id}
@@ -212,3 +221,70 @@ async def test_create_pooled_batch_run_no_source_raises(
     # No Batch/Attempt left behind.
     assert session.exec(select(AgentTaskBatchRunDB)).all() == []
     assert session.exec(select(TaskExecutionAttemptDB)).all() == []
+
+
+@pytest.mark.asyncio
+async def test_pooled_creation_rolls_back_rows_and_bundle_on_commit_failure(
+    session: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store_root = tmp_path / "store"
+    monkeypatch.setenv("APO_ARTIFACT_DIR", str(store_root))
+    source_root = tmp_path / "src"
+    _write_task(source_root)
+    _seed_project(session, "p1")
+    pool = _seed_pool(session, "p1", "pool-1")
+    source = _seed_filesystem_source(session, "p1", source_root)
+
+    import apo.services.agent_task_runner as runner
+
+    def stub_batch(session: Session, **kwargs: object) -> AgentTaskBatchRunDB:
+        batch = AgentTaskBatchRunDB(
+            id="batch-fail",
+            project="p1",
+            selection_type="all",
+            status="queued",
+            environment="default",
+            total_tasks=1,
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(batch)
+        session.flush()
+        session.add(
+            AgentTaskRunDB(
+                id="run-fail",
+                batch_run_id=batch.id,
+                task_id="demo-task",
+                task_path="/host/demo-task",
+                task_inventory_id="inv-p1",
+                sequence_index=0,
+                status="pending",
+            )
+        )
+        session.flush()
+        return batch
+
+    monkeypatch.setattr(runner, "create_batch_run", stub_batch)
+
+    def fail_commit() -> None:
+        raise RuntimeError("forced final commit failure")
+
+    monkeypatch.setattr(session, "commit", fail_commit)
+    with pytest.raises(RuntimeError, match="forced final commit"):
+        await create_pooled_batch_run(
+            session,
+            project_id="p1",
+            pool_id=pool.id,
+            selection_type="all",
+            task_paths=None,
+            task_root=str(source_root),
+            grep=None,
+            environment="default",
+            run_metadata=None,
+            task_source=source,
+        )
+
+    assert session.get(AgentTaskBatchRunDB, "batch-fail") is None
+    objects = store_root / "objects"
+    assert not objects.exists() or not any(path.is_file() for path in objects.rglob("*"))

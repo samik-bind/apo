@@ -35,6 +35,7 @@ from apo.models.db import (
     ExecutorDB,
     TaskExecutionAttemptDB,
 )
+from apo.models.execution import EXECUTOR_PROTOCOL_VERSION
 from apo.services.executor_auth import ATTEMPT_LEASE_SECONDS
 
 # Attempt statuses.
@@ -155,6 +156,7 @@ def claim_next_attempt(
         locked_executor is None
         or locked_executor.revoked_at is not None
         or not locked_executor.enabled
+        or locked_executor.protocol_version != EXECUTOR_PROTOCOL_VERSION
     ):
         return None
     executor = locked_executor
@@ -168,8 +170,7 @@ def claim_next_attempt(
         if executor.executor_pool_id is None:
             return None
         scope_filter = (*scope_filter, _as_column(TaskExecutionAttemptDB.executor_pool_id) == executor.executor_pool_id)
-    else:
-        # installation scope: SPEC-144 Bundled Pools. Not claimable here yet.
+    elif executor.scope_kind != "installation":
         return None
 
     candidates = session.exec(
@@ -189,7 +190,12 @@ def claim_next_attempt(
         pool = _pool_for(session, attempt)
         if pool is None or not pool.enabled or pool.archived_at is not None:
             continue
-        if pool.required_driver_kind not in accepted_driver_kinds:
+        if executor.scope_kind == "installation" and pool.kind != "bundled":
+            continue
+        if (
+            pool.required_driver_kind not in accepted_driver_kinds
+            or pool.required_driver_kind not in driver_kinds
+        ):
             continue
         if _sequential_blocker(session, attempt):
             continue
@@ -501,7 +507,7 @@ async def _run_reaper(stop_event: asyncio.Event) -> None:
     from apo.services.executor_auth import REAPER_INTERVAL_SECONDS
 
     # Recover interrupted work once at startup (replaces the blanket
-    # recover_stuck_runs failure), then sweep on the configured interval.
+    # Recover immediately at startup, then sweep on the configured interval.
     with Session(engine) as session:
         _ = recover_expired_attempts(session, now=_now())
         session.commit()

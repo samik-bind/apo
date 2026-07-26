@@ -3,7 +3,7 @@
 import os
 from collections.abc import Callable
 
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.engine import Connection
 from sqlmodel import SQLModel, create_engine, Session
 
@@ -189,6 +189,14 @@ def _migrate_to_baseline():
     databases run exactly once before being stamped at version 1.
     Works across SQLite and PostgreSQL.
     """
+    timestamp_type = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    auto_increment_pk = (
+        "INTEGER PRIMARY KEY AUTOINCREMENT"
+        if _is_sqlite()
+        else "SERIAL PRIMARY KEY"
+    )
+    boolean_true = "1" if _is_sqlite() else "TRUE"
+
     with engine.begin() as conn:
         _add_column_if_missing(conn, "logged_calls", "version", "VARCHAR")
         _add_column_if_missing(conn, "logged_calls", "latency_ms", "FLOAT")
@@ -249,8 +257,13 @@ def _migrate_to_baseline():
             conn, "logged_calls", "level", "VARCHAR DEFAULT 'DEFAULT'"
         )
         _add_column_if_missing(conn, "logged_calls", "status_message", "VARCHAR")
-        _add_column_if_missing(conn, "logged_calls", "completion_start_time", "DATETIME")
-        _add_column_if_missing(conn, "logged_calls", "end_time", "DATETIME")
+        _add_column_if_missing(
+            conn,
+            "logged_calls",
+            "completion_start_time",
+            timestamp_type,
+        )
+        _add_column_if_missing(conn, "logged_calls", "end_time", timestamp_type)
         _add_column_if_missing(conn, "logged_calls", "prompt_tokens", "INTEGER")
         _add_column_if_missing(conn, "logged_calls", "completion_tokens", "INTEGER")
         _add_column_if_missing(conn, "logged_calls", "session_id", "VARCHAR")
@@ -296,7 +309,7 @@ def _migrate_to_baseline():
         table_names = _get_table_names(conn)
 
         if "agent_task_batch_runs" not in table_names:
-            conn.exec_driver_sql("""
+            conn.exec_driver_sql(f"""
                 CREATE TABLE agent_task_batch_runs (
                     id VARCHAR PRIMARY KEY,
                     project VARCHAR NOT NULL,
@@ -311,9 +324,9 @@ def _migrate_to_baseline():
                     passed_tasks INTEGER DEFAULT 0,
                     failed_tasks INTEGER DEFAULT 0,
                     errored_tasks INTEGER DEFAULT 0,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    started_at DATETIME,
-                    completed_at DATETIME
+                    created_at {timestamp_type} DEFAULT CURRENT_TIMESTAMP,
+                    started_at {timestamp_type},
+                    completed_at {timestamp_type}
                 );
             """)
             _create_index_if_not_exists(
@@ -336,7 +349,7 @@ def _migrate_to_baseline():
             )
 
         if "agent_task_runs" not in table_names:
-            conn.exec_driver_sql("""
+            conn.exec_driver_sql(f"""
                 CREATE TABLE agent_task_runs (
                     id VARCHAR PRIMARY KEY,
                     batch_run_id VARCHAR NOT NULL REFERENCES agent_task_batch_runs(id),
@@ -345,8 +358,8 @@ def _migrate_to_baseline():
                     adapter_name VARCHAR,
                     status VARCHAR NOT NULL DEFAULT 'pending',
                     pass_result BOOLEAN,
-                    started_at DATETIME,
-                    completed_at DATETIME,
+                    started_at {timestamp_type},
+                    completed_at {timestamp_type},
                     trace_run_id VARCHAR,
                     error_message VARCHAR,
                     checks_json JSON,
@@ -368,9 +381,9 @@ def _migrate_to_baseline():
             )
 
         if "model_definitions" not in table_names:
-            conn.exec_driver_sql("""
+            conn.exec_driver_sql(f"""
                 CREATE TABLE model_definitions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id {auto_increment_pk},
                     project VARCHAR DEFAULT '__global__',
                     model_name VARCHAR NOT NULL,
                     match_pattern VARCHAR NOT NULL,
@@ -378,8 +391,8 @@ def _migrate_to_baseline():
                     input_price REAL DEFAULT 0.0,
                     output_price REAL DEFAULT 0.0,
                     cached_input_price REAL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    created_at {timestamp_type} DEFAULT CURRENT_TIMESTAMP,
+                    updated_at {timestamp_type} DEFAULT CURRENT_TIMESTAMP
                 );
             """)
             _create_index_if_not_exists(
@@ -436,7 +449,7 @@ def _migrate_to_baseline():
         tables = _get_table_names(conn)
 
         if "comments" not in tables:
-            conn.exec_driver_sql("""
+            conn.exec_driver_sql(f"""
                 CREATE TABLE IF NOT EXISTS comments (
                     id TEXT PRIMARY KEY,
                     project_id TEXT NOT NULL,
@@ -447,8 +460,8 @@ def _migrate_to_baseline():
                     author_name TEXT,
                     parent_comment_id TEXT,
                     mentioned_user_ids TEXT,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    created_at {timestamp_type} DEFAULT CURRENT_TIMESTAMP,
+                    updated_at {timestamp_type} DEFAULT CURRENT_TIMESTAMP
                 );
             """)
             _create_index_if_not_exists(
@@ -456,23 +469,38 @@ def _migrate_to_baseline():
             )
 
         if "comment_reactions" not in tables:
-            conn.exec_driver_sql("""
+            conn.exec_driver_sql(f"""
                 CREATE TABLE IF NOT EXISTS comment_reactions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id {auto_increment_pk},
                     comment_id TEXT NOT NULL REFERENCES comments(id),
                     emoji TEXT NOT NULL,
                     user_id TEXT NOT NULL,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    created_at {timestamp_type} DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(comment_id, emoji, user_id)
                 );
             """)
 
-        _add_column_if_missing(conn, "users", "is_active", "BOOLEAN DEFAULT 1")
+        _add_column_if_missing(
+            conn,
+            "users",
+            "is_active",
+            f"BOOLEAN DEFAULT {boolean_true}",
+        )
         _create_index_if_not_exists(conn, "ix_users_is_active", "users", "is_active")
 
-        _add_column_if_missing(conn, "users", "email_verified_at", "DATETIME")
+        _add_column_if_missing(
+            conn,
+            "users",
+            "email_verified_at",
+            timestamp_type,
+        )
 
-        _add_column_if_missing(conn, "users", "token_invalid_before", "DATETIME")
+        _add_column_if_missing(
+            conn,
+            "users",
+            "token_invalid_before",
+            timestamp_type,
+        )
 
         _add_column_if_missing(conn, "api_keys", "scope", "VARCHAR DEFAULT 'full'")
 
@@ -813,10 +841,12 @@ def _migrate_projection_identity_postgres(conn: Connection) -> None:
                 f'ALTER TABLE "{table_name}" ADD COLUMN row_id BIGSERIAL'
             )
 
-        primary_key = conn.exec_driver_sql(
-            "SELECT conname, pg_get_constraintdef(oid) "
-            "FROM pg_constraint "
-            "WHERE conrelid = to_regclass(:table_name) AND contype = 'p'",
+        primary_key = conn.execute(
+            text(
+                "SELECT conname, pg_get_constraintdef(oid) "
+                "FROM pg_constraint "
+                "WHERE conrelid = to_regclass(:table_name) AND contype = 'p'"
+            ),
             {"table_name": table_name},
         ).first()
         if primary_key is not None and "row_id" not in primary_key[1]:
@@ -827,9 +857,11 @@ def _migrate_projection_identity_postgres(conn: Connection) -> None:
         conn.exec_driver_sql(
             f'ALTER TABLE "{table_name}" ALTER COLUMN row_id SET NOT NULL'
         )
-        current_pk = conn.exec_driver_sql(
-            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
-            "WHERE conrelid = to_regclass(:table_name) AND contype = 'p'",
+        current_pk = conn.execute(
+            text(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conrelid = to_regclass(:table_name) AND contype = 'p'"
+            ),
             {"table_name": table_name},
         ).scalar_one_or_none()
         if current_pk is None:

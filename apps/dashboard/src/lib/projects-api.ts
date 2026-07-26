@@ -58,14 +58,17 @@ export interface ProjectTaskSourceFormData {
   demo_seed_id?: string;
 }
 
-export const listProjects = (): Promise<Project[]> =>
-  apiClient("/v1/projects", { cache: "no-store" });
+export const listProjects = (signal?: AbortSignal): Promise<Project[]> =>
+  apiClient("/v1/projects", { cache: "no-store", signal });
 
 export const createProject = (name: string): Promise<ProjectDetail> =>
   apiClient("/v1/projects", { method: "POST", body: { name } });
 
-export const getProject = (projectId: string): Promise<ProjectDetail> =>
-  apiClient(`/v1/projects/${projectId}`, { cache: "no-store" });
+export const getProject = (
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ProjectDetail> =>
+  apiClient(`/v1/projects/${projectId}`, { cache: "no-store", signal });
 
 export const updateProjectTaskSource = (
   projectId: string,

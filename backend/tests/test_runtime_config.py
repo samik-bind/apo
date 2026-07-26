@@ -48,7 +48,7 @@ class TestRuntimeConfig:
 
         assert config.supported_topology == SUPPORTED_TOPOLOGY
         assert config.supported_topology == "single-node"
-        assert config.task_execution_mode == "local_subprocess"
+        assert config.task_execution_mode == "executor_pools"
         assert isinstance(config.scheduler_enabled, bool)
         assert config.backend_url.startswith("http")
         assert config.frontend_url.startswith("http")
@@ -82,7 +82,7 @@ class TestReadinessChecks:
         # SPEC-140: the local artifact store is ready by default (zero-config).
         assert report.checks["artifact_store"].ok
 
-    def test_readiness_includes_task_runtime_when_scheduler_enabled(
+    def test_readiness_does_not_depend_on_task_runtime_when_scheduler_enabled(
         self, tmp_path: Path, monkeypatch: MonkeyPatch
     ) -> None:
         cache_dir = tmp_path / "cache"
@@ -94,7 +94,7 @@ class TestReadinessChecks:
         module = _reload_runtime_config()
         report = cast(ModuleType, module).run_readiness_checks()
 
-        assert "task_runtime" in report.checks
+        assert "task_runtime" not in report.checks
 
     def test_unwritable_cache_dir_fails_readiness(
         self, tmp_path: Path, monkeypatch: MonkeyPatch
@@ -246,7 +246,7 @@ class TestRuntimeConfigEndpoint:
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["supported_topology"] == "single-node"
-        assert body["task_execution_mode"] == "local_subprocess"
+        assert body["task_execution_mode"] == "executor_pools"
         assert "scheduler_enabled" in body
         assert "backend_url" in body
         assert "frontend_url" in body

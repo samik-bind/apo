@@ -9,8 +9,8 @@ topology: ``single-node``, exposed under two release profiles
 
 This module also provides the readiness checks used by the
 ``/health/ready`` endpoint: database reachability, task-source cache
-writability, auth-secret presence in non-dev mode, and task-runtime
-availability.
+writability, artifact-store readiness, and auth-secret presence in non-dev
+mode. Executor availability is operational state, not API readiness.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from .readiness import ReadinessCheckResult, ReadinessReport
 # ---------------------------------------------------------------------------
 
 SUPPORTED_TOPOLOGY = "single-node"
-DEFAULT_TASK_EXECUTION_MODE = "local_subprocess"
+DEFAULT_TASK_EXECUTION_MODE = "executor_pools"
 
 # SPEC-132 Behavior 7: bounded batch concurrency. Default 1, min 1, max 8.
 DEFAULT_MAX_CONCURRENT_BATCHES = 1
@@ -368,12 +368,10 @@ def _check_artifact_store() -> ReadinessCheckResult:
     probe (local: writable root + same-filesystem rename; S3: reachable
     bucket) on the configured write backend.
 
-    The probe is async (S3 needs network I/O); readiness is aggregated
-    synchronously and may run inside a running event loop (the /health/ready
-    endpoint is async), so the coroutine runs in a worker thread.
+    The probe is async (S3 needs network I/O). HTTP callers run this synchronous
+    readiness aggregate in a worker via ``asyncio.to_thread``.
     """
     import asyncio
-    import concurrent.futures
 
     from .artifact_stores.registry import describe_artifact_store, get_store
 
@@ -384,8 +382,7 @@ def _check_artifact_store() -> ReadinessCheckResult:
         return asyncio.run(store.check_ready())
 
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            ok, reason = ex.submit(_probe).result()
+        ok, reason = _probe()
     except Exception as exc:  # noqa: BLE001 - readiness must never crash the probe
         return ReadinessCheckResult(
             name="artifact_store",
@@ -411,10 +408,6 @@ def run_readiness_checks() -> ReadinessReport:
         _check_auth_secret(cfg.dev_mode),
         _check_artifact_store(),
     ]
-    # Task runtime only matters when scheduler / execution is expected.
-    if cfg.scheduler_enabled:
-        checks.append(_check_task_runtime())
-
     by_name = {check.name: check for check in checks}
     overall_ok = all(check.ok for check in checks)
     return ReadinessReport(ok=overall_ok, checks=by_name)

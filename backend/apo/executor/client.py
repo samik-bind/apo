@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import random
 from datetime import datetime
-from typing import Any
+from pathlib import Path
+from typing import cast, final
 
 import httpx
 from pydantic import BaseModel
@@ -40,12 +42,27 @@ class ClaimedTaskAssignment(BaseModel):
     attempt_id: str
     task_run_id: str
     batch_run_id: str
+    task_id: str
+    task_path: str
+    environment: str
+    timeout_seconds: int
     project: str
     lease_generation: int
     lease_expires_at: datetime
     attempt_jwt: str
+    task_revision_id: str
+    content_sha256: str
+    bundle_sha256: str
+    bundle_size_bytes: int
+    bundle_url: str
+    trace_endpoint: str
+    trace_required: bool
+    result_max_bytes: int
+    diagnostic_tail_bytes: int
+    run_metadata: dict[str, object] | None = None
 
 
+@final
 class ExecutorProtocolClient:
     def __init__(
         self,
@@ -57,14 +74,12 @@ class ExecutorProtocolClient:
         self._http = http_client or httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT)
         self._owns_http = http_client is None
         self._credential: str | None = None
-        self._attempt_id: str | None = None
-        self._attempt_jwt: str | None = None
-        self._attempt_generation: int = 0
         self._max_retries = _MAX_RETRIES
 
     def _backoff(self, attempt: int) -> float:
         # Capped exponential backoff with jitter: 0.5s, 1s, 2s, 4s (+jitter).
-        return min(8.0, 0.5 * (2 ** attempt)) + random.uniform(0, 0.25)
+        exponential = 0.5 * math.pow(2.0, float(attempt))
+        return min(8.0, exponential) + random.uniform(0, 0.25)
 
     async def aclose(self) -> None:
         if self._owns_http:
@@ -73,15 +88,10 @@ class ExecutorProtocolClient:
     async def set_credential(self, credential: str) -> None:
         self._credential = credential
 
-    async def _set_attempt(self, attempt_id: str, jwt: str, generation: int) -> None:
-        self._attempt_id = attempt_id
-        self._attempt_jwt = jwt
-        self._attempt_generation = generation
-
     # ── protocol methods ──────────────────────────────────────────────────
 
     async def enroll(
-        self, *, token: str, name: str, capabilities: dict[str, Any]
+        self, *, token: str, name: str, capabilities: dict[str, object]
     ) -> ExecutorState:
         body = await self._post(
             "/v1/executor-protocol/v1/enroll",
@@ -97,7 +107,7 @@ class ExecutorProtocolClient:
         )
 
     async def executor_heartbeat(self) -> None:
-        await self._post(
+        _ = await self._post(
             "/v1/executor-protocol/v1/heartbeat",
             {},
             auth_credential=True,
@@ -115,37 +125,50 @@ class ExecutorProtocolClient:
         )
         if body is None:
             return None
-        assignment = ClaimedTaskAssignment.model_validate(body)
-        self._attempt_id = assignment.attempt_id
-        self._attempt_jwt = assignment.attempt_jwt
-        self._attempt_generation = assignment.lease_generation
-        return assignment
+        return ClaimedTaskAssignment.model_validate(body)
 
-    async def start_attempt(self, *, driver_kind: str, runtime: dict[str, str]) -> dict[str, Any]:
+    async def start_attempt(
+        self,
+        assignment: ClaimedTaskAssignment,
+        *,
+        driver_kind: str,
+        runtime: dict[str, str],
+    ) -> dict[str, object]:
         # /start is idempotent per generation; transient 5xx is safe to retry
         # (a 409 lease_stale still raises immediately and is not retried).
         return await self._attempt_post(
+            assignment,
             "/start", {"driver_kind": driver_kind, "runtime": runtime}, retryable=True
         )
 
-    async def heartbeat_attempt(self, *, phase: str) -> dict[str, Any]:
+    async def heartbeat_attempt(
+        self,
+        assignment: ClaimedTaskAssignment,
+        *,
+        phase: str,
+    ) -> dict[str, object]:
         return await self._attempt_post(
+            assignment,
             "/heartbeat", {"phase": phase}, retryable=True
         )
 
     async def submit_result(
-        self, *, completion_id: str, pass_result: bool,
+        self, assignment: ClaimedTaskAssignment, *, completion_id: str, pass_result: bool,
         adapter_name: str | None = None, trace_run_id: str | None = None,
-        checks: list[dict[str, Any]] | None = None, exit_code: int | None = None,
+        checks: list[dict[str, object]] | None = None, exit_code: int | None = None,
+        transcript: dict[str, object] | None = None,
+        deliverables: dict[str, object] | None = None,
         stdout_tail: str | None = None, stderr_tail: str | None = None,
         error_message: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, object]:
         return await self._attempt_post(
+            assignment,
             "/result",
             {
                 "completion_id": completion_id, "pass_result": pass_result,
                 "adapter_name": adapter_name, "trace_run_id": trace_run_id,
-                "checks": checks, "exit_code": exit_code,
+                "checks": checks, "transcript": transcript,
+                "deliverables": deliverables, "exit_code": exit_code,
                 "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
                 "error_message": error_message,
             },
@@ -154,11 +177,12 @@ class ExecutorProtocolClient:
         )
 
     async def submit_failure(
-        self, *, completion_id: str, failure_kind: str,
+        self, assignment: ClaimedTaskAssignment, *, completion_id: str, failure_kind: str,
         error_message: str | None = None, exit_code: int | None = None,
         stdout_tail: str | None = None, stderr_tail: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, object]:
         return await self._attempt_post(
+            assignment,
             "/failure",
             {
                 "completion_id": completion_id, "failure_kind": failure_kind,
@@ -168,55 +192,89 @@ class ExecutorProtocolClient:
             retryable=True,
         )
 
-    async def download_bundle(self, *, destination: "Any", expected_sha256: str | None = None) -> "Any":
+    async def download_bundle(
+        self,
+        assignment: ClaimedTaskAssignment,
+        *,
+        destination: Path,
+    ) -> Path:
+        """Stream one exact bounded Bundle into a supervisor-owned file."""
         import hashlib
-        from pathlib import Path
 
-        path = Path(destination)
+        path = destination
         path.parent.mkdir(parents=True, exist_ok=True)
-        url = f"{self._base_url}/v1/executor-protocol/v1/attempts/{self._attempt_id}/bundle"
+        path.parent.chmod(0o700)
+        url = f"{self._base_url}{assignment.bundle_url}"
         digest = hashlib.sha256()
-        async with self._http.stream(
-            "GET", url, headers=self._attempt_header(), timeout=_DEFAULT_TIMEOUT
-        ) as resp:
-            resp.raise_for_status()
-            with open(path, "wb") as fh:
-                async for chunk in resp.aiter_bytes(1024 * 1024):
-                    fh.write(chunk)
-                    digest.update(chunk)
-        if expected_sha256 is not None and digest.hexdigest() != expected_sha256:
-            raise ValueError("bundle sha256 mismatch")
-        return path
+        received = 0
+        try:
+            async with self._http.stream(
+                "GET",
+                url,
+                headers=self._attempt_header(assignment),
+                timeout=_DEFAULT_TIMEOUT,
+            ) as resp:
+                if resp.status_code == 401:
+                    raise CredentialRejected(_detail(resp))
+                if resp.status_code == 409:
+                    raise LeaseStale(_detail(resp))
+                _ = resp.raise_for_status()
+                with open(path, "wb") as fh:
+                    async for chunk in resp.aiter_bytes(1024 * 1024):
+                        received += len(chunk)
+                        if received > assignment.bundle_size_bytes:
+                            raise ValueError("bundle exceeds declared size")
+                        _ = fh.write(chunk)
+                        digest.update(chunk)
+            if received != assignment.bundle_size_bytes:
+                raise ValueError("bundle size mismatch")
+            if digest.hexdigest() != assignment.bundle_sha256:
+                raise ValueError("bundle sha256 mismatch")
+            path.chmod(0o600)
+            return path
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
 
     # ── request plumbing ──────────────────────────────────────────────────
 
-    def _attempt_header(self) -> dict[str, str]:
-        if not self._attempt_jwt:
-            raise RuntimeError("no current attempt JWT")
-        return {"Authorization": f"Bearer {self._attempt_jwt}"}
+    def _attempt_header(
+        self,
+        assignment: ClaimedTaskAssignment,
+    ) -> dict[str, str]:
+        return {"Authorization": f"Bearer {assignment.attempt_jwt}"}
 
     async def _attempt_post(
-        self, suffix: str, body: dict[str, Any], *, retryable: bool
-    ) -> dict[str, Any]:
-        if not self._attempt_id:
-            raise RuntimeError("no current attempt")
-        url = f"/v1/executor-protocol/v1/attempts/{self._attempt_id}{suffix}"
+        self,
+        assignment: ClaimedTaskAssignment,
+        suffix: str,
+        body: dict[str, object],
+        *,
+        retryable: bool,
+    ) -> dict[str, object]:
+        url = (
+            f"/v1/executor-protocol/v1/attempts/"
+            f"{assignment.attempt_id}{suffix}"
+        )
         result = await self._post(
-            url, body, auth_token=self._attempt_jwt or "", retryable=retryable
+            url,
+            body,
+            auth_token=assignment.attempt_jwt,
+            retryable=retryable,
         )
         return result or {}
 
     async def _post(
         self,
         path: str,
-        body: dict[str, Any],
+        body: dict[str, object],
         *,
         auth_token: str | None = None,
         auth_credential: bool = False,
         retryable: bool,
         expect_204: bool = False,
         allow_204: bool = False,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, object] | None:
         headers: dict[str, str] = {}
         token = self._credential if auth_credential else auth_token
         if token:
@@ -249,38 +307,51 @@ class ExecutorProtocolClient:
                 raise LeaseStale(_detail(resp))
             if 500 <= resp.status_code < 600:
                 if not retryable or attempt >= self._max_retries:
-                    resp.raise_for_status()
+                    _ = resp.raise_for_status()
                 await asyncio.sleep(self._backoff(attempt))
                 continue
-            resp.raise_for_status()
-            try:
-                return json.loads(resp.content.decode("utf-8")) if resp.content else None
-            except (ValueError, json.JSONDecodeError):
-                return None
+            _ = resp.raise_for_status()
+            return _decode_json_object(resp.content)
         if last_exc is not None:
             raise last_exc
         raise RuntimeError("request exhausted retries without resolution")
 
 
 def _detail(resp: httpx.Response) -> str:
-    try:
-        return str(resp.json())
-    except Exception:
-        return resp.text
+    decoded = _decode_json_object(resp.content)
+    return str(decoded) if decoded is not None else resp.text
 
 
 def _conflict_kind(resp: httpx.Response) -> str | None:
-    try:
-        data = resp.json()
-        if isinstance(data, dict):
-            detail = data.get("detail")
-            if isinstance(detail, dict):
-                return str(detail.get("kind"))
-            if isinstance(detail, str):
-                return detail
-    except Exception:
-        pass
+    data = _decode_json_object(resp.content)
+    if data is None:
+        return None
+    detail = data.get("detail")
+    if isinstance(detail, dict):
+        detail_dict = cast(dict[object, object], detail)
+        kind = detail_dict.get("kind")
+        return str(kind) if kind is not None else None
+    if isinstance(detail, str):
+        return detail
     return None
+
+
+def _decode_json_object(content: bytes) -> dict[str, object] | None:
+    if not content:
+        return None
+    try:
+        decoded = cast(object, json.loads(content.decode("utf-8")))
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(decoded, dict):
+        return None
+    source = cast(dict[object, object], decoded)
+    result: dict[str, object] = {}
+    for key, value in source.items():
+        if not isinstance(key, str):
+            return None
+        result[key] = value
+    return result
 
 
 __all__ = [

@@ -1,6 +1,9 @@
 # Self-Hosted Alpha Topology (SPEC-124)
 
-The agent-testing platform has exactly **one supported self-hosted topology for alpha**: a single node that colocates web, scheduler, and execution. This is intentional — it is cheap, observable, and supportable. Horizontal scaling is a non-goal for alpha.
+The agent-testing platform has exactly **one supported self-hosted topology for
+alpha**: a single node with separate frontend, Control Plane, and Bundled
+Executor processes. This keeps Task code and provider secrets out of FastAPI
+without adding a queue broker.
 
 ## Supported shape
 
@@ -15,19 +18,18 @@ The agent-testing platform has exactly **one supported self-hosted topology for 
         │  One host (VM or bare metal)              │
         │                                           │
         │  ┌─────────────┐    ┌──────────────────┐  │
-        │  │  frontend   │◀──▶│     backend      │  │
-        │  │  dashboard  │    │  (FastAPI +      │  │
-        │  │  container  │    │   scheduler +    │  │
-        │  └─────────────┘    │   task runtime)  │  │
-        │                     └────────┬─────────┘  │
-        │                              │            │
-        │             ┌────────────────┼─────────┐  │
-        │             ▼                ▼         ▼  │
-        │      ┌────────────┐  ┌────────────┐ ┌───┐ │
-        │      │ SQLite     │  │ task-source│ │ … │ │
-        │      │ default or │  │ cache vol  │ │   │ │
-        │      │ Postgres   │  │            │ │   │ │
-        │      └────────────┘  └────────────┘ └───┘ │
+        │  │  frontend   │◀──▶│ Control Plane    │  │
+        │  │  dashboard  │    │ API + scheduler  │  │
+        │  └─────────────┘    └────────┬─────────┘  │
+        │                              │ HTTP pull   │
+        │                     ┌────────▼─────────┐  │
+        │                     │ Bundled Executor │  │
+        │                     │ Task subprocess │  │
+        │                     └──────────────────┘  │
+        │  ┌────────────┐  ┌─────────────────────┐ │
+        │  │ SQLite or  │  │ persistent source, │ │
+        │  │ Postgres   │  │ artifact + state   │ │
+        │  └────────────┘  └─────────────────────┘ │
         └───────────────────────────────────────────┘
 ```
 
@@ -37,14 +39,15 @@ Components:
 |-----------|-----------|
 | Reverse proxy | TLS termination, single ingress, no path-based routing tricks. |
 | Frontend dashboard (Next.js) | One container, one replica. |
-| Backend (FastAPI) | One container, **one replica**. Owns API, scheduler, task execution. |
+| Backend / Control Plane | One container, **one replica**. Owns API, scheduler, queue/leases, Runs, and authorization. Never executes Task code. |
+| Bundled Executor | Private container. Pulls work outbound and owns dependency installation + Task subprocesses. |
 | Database | SQLite is the supported default. Postgres is an explicit opt-in for longer-lived shared installations or heavier concurrent writes. |
 | Persistent volumes | Database data + task-source cache must survive container restarts. |
 
 ## What is explicitly unsupported in alpha
 
 - Two or more backend replicas (the in-memory rate limiter and SSE broadcaster require a single process; multi-replica needs Redis, which is out of scope).
-- Stateless / horizontally scaled task execution.
+- Stateless / horizontally scaled managed execution.
 - Kubernetes manifests and multi-region deploys.
 - Queue brokers (Redis, RabbitMQ, SQS, etc).
 
@@ -181,7 +184,7 @@ Turning it on instantly lights up all senders: invitation emails, verification c
 - **database** — can the backend reach the configured `DATABASE_URL`?
 - **task_source_cache** — is `TASK_SOURCE_CACHE_DIR` writable? (A non-persistent rootfs path will fail this and should be relocated to a volume.)
 - **auth_secret** — present, non-placeholder, and at least 16 characters when not in dev mode.
-- **task_runtime** — agent-task subprocess runtime is installed (added by SPEC-125).
+- **artifact_store** — Revision Bundles and Artifacts can be persisted.
 
 This endpoint is intentionally separate from the basic `/health` liveness probe, which only confirms the process booted.
 
@@ -201,7 +204,7 @@ This endpoint is intentionally separate from the basic `/health` liveness probe,
     "shared_use_recommended": false
   },
   "task_source_cache_dir": "/var/lib/apo/task-sources",
-  "task_execution_mode": "local_subprocess",
+  "task_execution_mode": "executor_pools",
   "scheduler_enabled": true,
   "supported_topology": "single-node-alpha"
 }
@@ -213,7 +216,9 @@ dashboard at **Settings → System → Deployment Topology**.
 
 ## Task execution dependencies (SPEC-125)
 
-Real synced Git sources almost always need their own dependencies installed before `runner.mjs` can load their task modules. Without a deterministic install step, self-hosted task execution fails on every real user repo with cryptic module-resolution errors.
+Real synced Git sources almost always need dependencies before `runner.mjs`
+can load their task modules. The Executor performs this deterministic install
+inside its private workspace before importing Task code.
 
 ### Policy
 
@@ -225,11 +230,11 @@ Real synced Git sources almost always need their own dependencies installed befo
 | What commands are used? | `npm ci --no-audit --no-fund`, `pnpm install --frozen-lockfile`, `yarn install --immutable`, `uv sync --frozen`, `poetry install --no-root`, `pip install -r requirements.txt`. |
 | What timeout applies? | `TASK_INSTALL_TIMEOUT_SECONDS` (default 180s, clamped to minimum 30s). |
 | How do I disable it? | `TASK_INSTALL_DISABLE=true` — escape hatch for air-gapped deploys that pre-install dependencies in the image. |
-| How do failures surface? | The task run is marked `error` with an operator-readable message containing the failed command, workspace, exit code, and a trimmed stderr excerpt. The backend process never crashes. |
+| How do failures surface? | The Attempt fails as `dependency_install_failed` with bounded diagnostics. The Control Plane remains healthy. |
 
 ### Operator notes
 
-- The backend image must include every package manager your synced sources need (`node`, `npm`, `pnpm`, `yarn`, `python`, `uv`, `poetry`). The base Dockerfile installs `nodejs`, `npm`, and Python — add others via a derived image if your sources need them.
+- The Executor image must include every package manager your synced sources need (`node`, `npm`, `pnpm`, `yarn`, `python`, `uv`, `poetry`).
 - The install cache should live on a persistent volume so it survives container restarts. The default location already inherits from `TASK_SOURCE_CACHE_DIR`, so the Compose `task_source_cache` volume covers it.
 - If a source repo intentionally ships without a lockfile (e.g. the bundled example-service tasks that rely on the SDK resolved via the monorepo), no install runs and execution proceeds normally.
 
@@ -276,7 +281,7 @@ Alpha defaults are intentionally cheap:
 | `/health/ready` returns 503 with `task_source_cache` failing | The cache dir is inside the container rootfs or read-only. | Mount the `task_source_cache` volume and set `TASK_SOURCE_CACHE_DIR=/var/lib/apo/task-sources`. |
 | `/health/ready` returns 503 with `auth_secret` failing | You left `AUTH_SECRET` set to the placeholder or unset in non-dev mode. | Generate a strong secret with `openssl rand -hex 32`. |
 | Schedules visible but never fire | `SCHEDULER_ENABLED=false`. | Either set it to `true` (one backend process only) or run an external dispatcher. |
-| Tasks fail with "agent-task runtime not installed" | The backend image is missing the packaged runtime (SPEC-125). | Rebuild the backend image; if pre-SPEC-125, run dev mode with the repo mounted. |
+| Attempt fails because the task runtime is unavailable | The Executor image is missing the packaged runtime. | Rebuild or replace the Executor image; the backend remains healthy. |
 | Tasks fail with "Task dependency install failed" | The synced Git source's lockfile requires a package manager that isn't in the backend image (e.g. `pnpm`, `uv`), or the install command returned non-zero. | Bake the missing package manager into the image; or set `TASK_INSTALL_DISABLE=true` and pre-install dependencies in the source repo. |
 | Tasks fail with "Task dependency install timed out" | The workspace has a large dependency tree. | Raise `TASK_INSTALL_TIMEOUT_SECONDS` or pre-install dependencies in the image. |
 | SQLite shows sustained lock contention or write latency | The installation has outgrown the default database profile. | Back up the installation, configure the Postgres override, and migrate the data deliberately. Do not use `docker compose down -v`; it deletes volumes. |

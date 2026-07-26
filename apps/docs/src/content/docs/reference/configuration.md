@@ -18,14 +18,17 @@ The backend reads these on start. Set them in `backend/.env` (or your container 
 
 ### LLM (agent-task runs)
 
-These defaults are deliberately cheap (`google/gemini-2.5-flash-lite`) — stronger models are opt-in only, never forced. See [Cost-aware defaults](/self-hosting/configuration/#cost-aware-defaults) for the full policy. Passed through to agent-task subprocesses so judge calls and adapter LLM calls reach the model:
+These defaults are deliberately cheap (`google/gemini-2.5-flash-lite`) —
+stronger models are opt-in only. Put provider credentials on the Executor
+service, not the Control Plane. Only allow-listed variables enter Task
+subprocesses:
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `OPENROUTER_API_KEY` | — | OpenRouter API key. Required for LLM-judge checks and adapter LLM calls. |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter-compatible base URL. |
 | `OPENROUTER_MODEL` | — | OpenRouter model for local/dev runs. Read by the SDK when `AGENT_TASK_OPENROUTER_MODEL` is unset. |
-| `AGENT_TASK_OPENROUTER_MODEL` | `google/gemini-2.5-flash-lite` | Default model for agent-task runs (backend → subprocess). Falls back to `OPENROUTER_MODEL`, then `google/gemini-2.5-flash`. |
+| `AGENT_TASK_OPENROUTER_MODEL` | `google/gemini-2.5-flash-lite` | Default model for Executor Task subprocesses. Falls back to `OPENROUTER_MODEL`, then `google/gemini-2.5-flash`. |
 | `OPENAI_API_KEY` | — | OpenAI API key. Alternative to OpenRouter for local/dev judge calls. |
 | `OPENAI_BASE_URL` | — | OpenAI-compatible base URL. |
 | `OPENAI_MODEL` | — | OpenAI model for local/dev judge calls. Read when `OPENROUTER_MODEL` is unset. |
@@ -35,6 +38,20 @@ These defaults are deliberately cheap (`google/gemini-2.5-flash-lite`) — stron
 | Variable | Default | Purpose |
 |---|---|---|
 | `SCHEDULER_ENABLED` | `true` | Set `false` to disable schedule dispatch. Schedules stay visible but don't fire. **Never run two backends with this `true` against the same database** — the scheduler is in-process and single-owner. |
+
+### Executors
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `APO_BUNDLED_EXECUTOR_ENABLED` | `false` outside Compose; `true` in Compose | Bootstrap the installation-scoped Bundled Executor and Project Pools. |
+| `APO_CONTROL_PLANE_URL` | — | Executor-only base URL for outbound protocol calls. Required by the Executor. |
+| `APO_EXECUTOR_STATE_DIR` | `/var/lib/apo-executor` | Persistent supervisor-owned identity directory. |
+| `APO_EXECUTOR_MAX_CONCURRENCY` | `1` | Executor capacity. |
+| `APO_EXECUTOR_DRIVER` | `subprocess` | Driver advertised by this Executor. |
+| `APO_EXECUTOR_TASK_USER` | `appuser` | OS user used for Task subprocesses. |
+| `APO_TASK_ENV_ALLOWLIST` | empty | Exact provider variables copied into Task children. |
+| `APO_EXECUTOR_IMAGE` | current exact version | Connected enrollment command image override. |
+| `APO_EXECUTOR_CONTROL_PLANE_URL` | `<APO_PUBLIC_URL>/backend-proxy` | Public URL rendered for Connected enrollment. |
 
 ### Task source
 
@@ -111,9 +128,12 @@ The tracing SDK reads these (or their `NEXT_PUBLIC_` variants for browser use):
 | `APO_API_KEY` | API key (alternative auth). |
 | `APO_AUTH_TOKEN` | Auth token (alternative auth). |
 
-## Task runner (subprocess)
+## Task runner (Executor subprocess)
 
-These are set automatically by the backend when spawning agent-task subprocesses. You normally don't set them directly — documented here for completeness and debugging.
+These are set automatically by an Executor. The Control Plane never spawns
+Task subprocesses. The child receives task-scoped values and allow-listed
+provider configuration, never the long-lived Executor credential, enrollment
+token, database DSN, source OAuth token, or ArtifactStore credentials.
 
 | Variable | Purpose |
 |---|---|

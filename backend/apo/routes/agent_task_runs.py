@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import asc, desc
 from sqlalchemy.sql.elements import ColumnElement
@@ -20,7 +20,7 @@ from sqlmodel import Session, col, select
 from sqlmodel.sql.expression import SelectOfScalar
 
 from ..db import get_session
-from ..db_helpers import _as_column
+from ..db_helpers import as_column
 from ..models import (
     AgentTaskBatchRunDB,
     AgentTaskBatchRunDetail,
@@ -63,11 +63,12 @@ from ..services.agent_task_runner import (
 
 )
 from ..services.project_task_source_sync import SyncError
+from ..services.project_memberships import enforce_project_role_from_request
 
 router = APIRouter(prefix="/v1", tags=["agent-tasks"])
 
 
-AGENT_TASK_BATCH_RUN_CREATED_AT_COL: ColumnElement[object] = _as_column(
+AGENT_TASK_BATCH_RUN_CREATED_AT_COL: ColumnElement[object] = as_column(
     cast(object, AgentTaskBatchRunDB.created_at)
 )
 
@@ -108,7 +109,7 @@ def _load_batch_triggers(
 
     batches = session.exec(
         select(AgentTaskBatchRunDB).where(
-            _as_column(cast(object, AgentTaskBatchRunDB.id)).in_(unique_ids)
+            as_column(cast(object, AgentTaskBatchRunDB.id)).in_(unique_ids)
         )
     ).all()
     return {batch.id: parse_trigger(batch.run_metadata) for batch in batches}
@@ -138,8 +139,8 @@ def _load_primary_models(
 
     runs = session.exec(
         select(RunDB).where(
-            _as_column(cast(object, RunDB.id)).in_(unique_trace_ids),
-            _as_column(cast(object, RunDB.project)) == project,
+            as_column(cast(object, RunDB.id)).in_(unique_trace_ids),
+            as_column(cast(object, RunDB.project)) == project,
         )
     ).all()
     model_map: dict[str, str] = {
@@ -159,13 +160,13 @@ def _load_primary_models(
         calls = session.exec(
             select(LoggedCallDB)
             .where(
-                _as_column(cast(object, LoggedCallDB.run_id)).in_(missing),
-                _as_column(cast(object, LoggedCallDB.project)) == project,
+                as_column(cast(object, LoggedCallDB.run_id)).in_(missing),
+                as_column(cast(object, LoggedCallDB.project)) == project,
             )
             .order_by(
                 # GENERATION first (0), everything else after (1).
-                _as_column(cast(object, LoggedCallDB.observation_type)) != "GENERATION",
-                asc(_as_column(cast(object, LoggedCallDB.created_at))),
+                as_column(cast(object, LoggedCallDB.observation_type)) != "GENERATION",
+                asc(as_column(cast(object, LoggedCallDB.created_at))),
             )
         ).all()
         structural_models = {"agent-task", "unknown", ""}
@@ -232,7 +233,7 @@ async def get_agent_task(
         latest_query: SelectOfScalar[AgentTaskRunDB] = (
             select(AgentTaskRunDB)
             .where(AgentTaskRunDB.task_id == task_id)
-            .order_by(desc(_as_column(cast(object, AgentTaskRunDB.started_at))))
+            .order_by(desc(as_column(cast(object, AgentTaskRunDB.started_at))))
             .limit(1)
         )
         latest_query = _apply_project_filter_to_task_runs(latest_query, project)
@@ -265,86 +266,62 @@ async def get_agent_task(
     status_code=201,
 )
 async def create_agent_task_batch_run(
-    request: CreateAgentTaskBatchRunRequest,
+    body: CreateAgentTaskBatchRunRequest,
+    http_request: Request,
     session: Session = Depends(get_session),
 ):
     """Create a new batch run from a task selection.
 
-    SPEC-146: when an explicit ``execution_target`` Pool is supplied, the Batch
-    is created as durable queued Attempts (no Control-Plane subprocess). The
-    Project default Pool is used when available; otherwise the legacy in-process
-    path runs during the transition.
+    SPEC-146: every server-initiated Batch becomes durable queued Attempts.
+    An explicit Pool wins; otherwise the Project default is required.
     """
-    require_project_not_demo(request.project)
-    task_source = get_task_source_db(session, request.project)
+    require_project_not_demo(body.project)
+    _ = enforce_project_role_from_request(
+        http_request,
+        session,
+        body.project,
+        minimum_role="member",
+    )
+    task_source = get_task_source_db(session, body.project)
 
     explicit_pool_id_raw = (
-        request.execution_target.get("pool_id")
-        if request.execution_target and request.execution_target.get("kind") == "pool"
+        body.execution_target.pool_id
+        if body.execution_target is not None
         else None
     )
     explicit_pool_id = str(explicit_pool_id_raw) if explicit_pool_id_raw else None
-    use_pooled = explicit_pool_id is not None or _project_has_default_pool(session, request.project)
+    from apo.services.execution_queue import (
+        PoolResolutionError,
+        create_pooled_batch_run,
+    )
 
-    if use_pooled:
-        from apo.services.execution_queue import PoolResolutionError, create_pooled_batch_run
-
-        try:
-            batch = await create_pooled_batch_run(
-                session,
-                project_id=request.project,
-                pool_id=explicit_pool_id,
-                selection_type=request.selection_type,
-                task_paths=request.task_paths or None,
-                task_root=request.task_root,
-                grep=request.grep,
-                environment=request.environment,
-                run_metadata=request.run_metadata,
-                task_source=task_source,
-            )
-        except PoolResolutionError as e:
-            raise HTTPException(status_code=409, detail={"kind": e.kind, "msg": str(e)})
-        except ValueError as e:
-            raise HTTPException(status_code=409, detail=str(e))
-        except SyncError as e:
-            raise HTTPException(status_code=422, detail=str(e))
-
-        task_runs = session.exec(
-            select(AgentTaskRunDB).where(AgentTaskRunDB.batch_run_id == batch.id)
-        ).all()
-        return to_batch_run_detail(batch, task_runs)
-
-    # Legacy in-process path (transition; removed once every project has a Pool).
     try:
-        batch = create_batch_run(
-            session=session,
-            project=request.project,
-            selection_type=request.selection_type,
-            task_paths=request.task_paths,
-            task_root=request.task_root,
-            grep=request.grep,
-            environment=request.environment,
-            run_metadata=request.run_metadata,
+        batch = await create_pooled_batch_run(
+            session,
+            project_id=body.project,
+            pool_id=explicit_pool_id,
+            selection_type=body.selection_type,
+            task_paths=body.task_paths or None,
+            task_root=body.task_root,
+            grep=body.grep,
+            environment=body.environment,
+            run_metadata=body.run_metadata,
             task_source=task_source,
         )
+    except PoolResolutionError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={"kind": error.kind, "msg": str(error)},
+        ) from error
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except SyncError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
     task_runs = session.exec(
         select(AgentTaskRunDB).where(AgentTaskRunDB.batch_run_id == batch.id)
     ).all()
-
-
     return to_batch_run_detail(batch, task_runs)
-
-
-def _project_has_default_pool(session: Session, project_id: str) -> bool:
-    from apo.models.db import ProjectDB
-
-    project = session.get(ProjectDB, project_id)
-    return project is not None and project.default_executor_pool_id is not None
 
 
 # ============================================================================
@@ -355,12 +332,22 @@ def _project_has_default_pool(session: Session, project_id: str) -> bool:
 @router.post("/agent-task-runs/{task_run_id}/cancel")
 async def cancel_agent_task_run(
     task_run_id: str,
+    http_request: Request,
     session: Session = Depends(get_session),
 ) -> dict[str, object]:
     """Cancel one Task Run's Attempt (SPEC-143 semantics). Idempotent."""
     from apo.models.db import TaskExecutionAttemptDB
     from apo.services.execution_leases import request_cancellation
 
+    task_run = session.get(AgentTaskRunDB, task_run_id)
+    if task_run is None:
+        raise HTTPException(status_code=404, detail="Task run not found")
+    batch = session.get(AgentTaskBatchRunDB, task_run.batch_run_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Batch run not found")
+    _ = enforce_project_role_from_request(
+        http_request, session, batch.project, minimum_role="member"
+    )
     attempt = session.exec(
         select(TaskExecutionAttemptDB).where(TaskExecutionAttemptDB.task_run_id == task_run_id)
     ).first()
@@ -375,6 +362,7 @@ async def cancel_agent_task_run(
 @router.post("/agent-task-batch-runs/{batch_run_id}/cancel")
 async def cancel_agent_task_batch_run(
     batch_run_id: str,
+    http_request: Request,
     session: Session = Depends(get_session),
 ) -> dict[str, object]:
     """Cancel a Batch: future queued/leased Attempts cancel immediately; a
@@ -382,6 +370,12 @@ async def cancel_agent_task_batch_run(
     from apo.models.db import TaskExecutionAttemptDB
     from apo.services.execution_leases import request_cancellation
 
+    batch = session.get(AgentTaskBatchRunDB, batch_run_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Batch run not found")
+    _ = enforce_project_role_from_request(
+        http_request, session, batch.project, minimum_role="member"
+    )
     attempts = session.exec(
         select(TaskExecutionAttemptDB).where(TaskExecutionAttemptDB.batch_run_id == batch_run_id)
     ).all()
@@ -397,6 +391,7 @@ async def cancel_agent_task_batch_run(
 )
 async def create_external_agent_task_batch_run(
     request: CreateAgentTaskBatchRunRequest,
+    http_request: Request,
     session: Session = Depends(get_session),
 ):
     """Create a batch run whose tasks execute out-of-band (Issue #4).
@@ -415,6 +410,9 @@ async def create_external_agent_task_batch_run(
     No subprocess is spawned — the caller owns execution.
     """
     require_project_not_demo(request.project)
+    _ = enforce_project_role_from_request(
+        http_request, session, request.project, minimum_role="member"
+    )
     task_source = get_task_source_db(session, request.project)
     try:
         batch = create_batch_run(
@@ -516,6 +514,7 @@ class CallerCreateResponse(BaseModel):
 )
 async def create_caller_batch_run_route(
     request: CallerCreateRequest,
+    http_request: Request,
     session: Session = Depends(get_session),
 ) -> CallerCreateResponse:
     """SPEC-145: atomically create one Batch + Task Run + attested Revision +
@@ -523,6 +522,9 @@ async def create_caller_batch_run_route(
     /start, heartbeat, and result. The caller owns execution; no Executor
     process is enrolled."""
     require_project_not_demo(request.project)
+    _ = enforce_project_role_from_request(
+        http_request, session, request.project, minimum_role="member"
+    )
     from apo.models.execution import (
         CallerIdentity,
         CallerSourceAttestation,
@@ -636,7 +638,43 @@ async def get_agent_task_batch_run(
     from apo.services.task_revisions import get_revision_summary_for_batch
 
     task_revision = get_revision_summary_for_batch(session, batch_run_id)
-    return to_batch_run_detail(batch, task_runs, model_map=model_map, task_revision=task_revision)
+    from apo.models.db import ExecutorDB, ExecutorPoolDB, TaskExecutionAttemptDB
+
+    attempts = session.exec(
+        select(TaskExecutionAttemptDB).where(
+            TaskExecutionAttemptDB.batch_run_id == batch_run_id
+        )
+    ).all()
+    executor_ids = {
+        attempt.executor_id
+        for attempt in attempts
+        if attempt.executor_id is not None
+    }
+    executors: Sequence[ExecutorDB] = (
+        session.exec(
+            select(ExecutorDB).where(
+                col(ExecutorDB.id).in_(executor_ids)
+            )
+        ).all()
+        if executor_ids
+        else []
+    )
+    executor_names = {executor.id: executor.name for executor in executors}
+    pool_name: str | None = None
+    target = batch.execution_target_json or {}
+    pool_id = target.get("pool_id")
+    if isinstance(pool_id, str):
+        pool = session.get(ExecutorPoolDB, pool_id)
+        pool_name = pool.name if pool is not None else None
+    return to_batch_run_detail(
+        batch,
+        task_runs,
+        model_map=model_map,
+        task_revision=task_revision,
+        attempts=attempts,
+        executor_names=executor_names,
+        executor_pool_name=pool_name,
+    )
 
 
 # ============================================================================
@@ -666,7 +704,7 @@ async def list_agent_task_runs(
     if batch_run_id:
         query = query.where(AgentTaskRunDB.batch_run_id == batch_run_id)
 
-    query = query.order_by(desc(_as_column(cast(object, AgentTaskRunDB.started_at))))
+    query = query.order_by(desc(as_column(cast(object, AgentTaskRunDB.started_at))))
     task_runs = session.exec(query).all()
     triggers = _load_batch_triggers(session, [tr.batch_run_id for tr in task_runs])
     return [to_task_run_summary(tr, triggers.get(tr.batch_run_id)) for tr in task_runs]

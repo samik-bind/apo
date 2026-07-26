@@ -27,9 +27,14 @@ from jose import JWTError, jwt
 from sqlmodel import Session, select
 
 from apo.auth.api_key_auth import _get_salt
-from apo.db_helpers import _as_column
-from apo.models.db import ExecutorDB, ExecutorEnrollmentTokenDB, TaskExecutionAttemptDB
-from apo.models.execution import ExecutorCapabilities
+from apo.db_helpers import as_column
+from apo.models.db import (
+    ExecutorDB,
+    ExecutorEnrollmentTokenDB,
+    ExecutorPoolDB,
+    TaskExecutionAttemptDB,
+)
+from apo.models.execution import EXECUTOR_PROTOCOL_VERSION, ExecutorCapabilities
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +56,13 @@ class CredentialHashError(ValueError):
 
 
 class EnrollmentError(ValueError):
-    """Raised when an enrollment token cannot be exchanged (expired/used/revoked/unknown)."""
+    """Raised when a token or enrollment request cannot be exchanged safely."""
+
+    kind: str
+
+    def __init__(self, kind: str, message: str) -> None:
+        super().__init__(message)
+        self.kind = kind
 
 
 def _hash_with_salt(raw: str) -> str:
@@ -100,6 +111,21 @@ def generate_enrollment_token(
     return raw, row
 
 
+def resolve_enrollment_token(
+    session: Session,
+    raw_token: str,
+) -> ExecutorEnrollmentTokenDB | None:
+    """Resolve an enrollment token without consuming it."""
+    if not raw_token.startswith(_ENROLLMENT_PREFIX):
+        return None
+    token_hash = _hash_with_salt(raw_token)
+    return session.exec(
+        select(ExecutorEnrollmentTokenDB).where(
+            ExecutorEnrollmentTokenDB.token_hash == token_hash
+        )
+    ).first()
+
+
 def exchange_enrollment_token(
     session: Session,
     *,
@@ -113,19 +139,17 @@ def exchange_enrollment_token(
     Raises :class:`EnrollmentError` if the token is unknown, expired, revoked, or
     already used. Concurrent exchange permits exactly one success.
     """
-    token_hash = _hash_with_salt(raw_token)
-    row = session.exec(
-        select(ExecutorEnrollmentTokenDB).where(
-            ExecutorEnrollmentTokenDB.token_hash == token_hash
-        )
-    ).first()
+    row = resolve_enrollment_token(session, raw_token)
     if row is None:
-        raise EnrollmentError("unknown enrollment token")
+        raise EnrollmentError("token_invalid", "unknown enrollment token")
     now = datetime.now(timezone.utc)
-    if row.used_at is not None or row.revoked_at is not None:
-        raise EnrollmentError("enrollment token no longer redeemable")
+    if row.used_at is not None:
+        raise EnrollmentError("token_used", "enrollment token already redeemed")
+    if row.revoked_at is not None:
+        raise EnrollmentError("token_invalid", "enrollment token was revoked")
     if row.expires_at <= now:
-        raise EnrollmentError("enrollment token expired")
+        raise EnrollmentError("token_expired", "enrollment token expired")
+    _validate_enrollment_request(session, row, name, capabilities)
 
     # Atomic single-use: conditional update only when still unused.
     from sqlalchemy import update
@@ -133,20 +157,22 @@ def exchange_enrollment_token(
     result = session.exec(
         update(ExecutorEnrollmentTokenDB)
         .where(
-            _as_column(ExecutorEnrollmentTokenDB.id) == row.id,
-            _as_column(ExecutorEnrollmentTokenDB.used_at).is_(None),
+            as_column(ExecutorEnrollmentTokenDB.id) == row.id,
+            as_column(ExecutorEnrollmentTokenDB.used_at).is_(None),
+            as_column(ExecutorEnrollmentTokenDB.revoked_at).is_(None),
+            as_column(ExecutorEnrollmentTokenDB.expires_at) > now,
         )
         .values(used_at=now)
     )
     if result.rowcount == 0:
-        raise EnrollmentError("enrollment token already redeemed")
+        raise EnrollmentError("token_used", "enrollment token already redeemed")
 
     raw_credential, prefix, cred_hash = generate_credential()
     executor = ExecutorDB(
         scope_kind=row.scope_kind,
         project=row.project,
         executor_pool_id=row.executor_pool_id,
-        name=name,
+        name=name.strip(),
         enabled=True,
         credential_prefix=prefix,
         credential_hash=cred_hash,
@@ -169,6 +195,42 @@ def exchange_enrollment_token(
     return executor, raw_credential, EXECUTOR_HEARTBEAT_SECONDS, ATTEMPT_LEASE_SECONDS
 
 
+def _validate_enrollment_request(
+    session: Session,
+    token: ExecutorEnrollmentTokenDB,
+    name: str,
+    capabilities: ExecutorCapabilities,
+) -> None:
+    if not name.strip() or len(name.strip()) > 255:
+        raise EnrollmentError(
+            "capability_invalid",
+            "executor name must be between 1 and 255 characters",
+        )
+    if capabilities.protocol_version != EXECUTOR_PROTOCOL_VERSION:
+        raise EnrollmentError(
+            "protocol_mismatch",
+            "executor protocol version is not supported",
+        )
+    if not 1 <= capabilities.max_concurrency <= 128:
+        raise EnrollmentError(
+            "capability_invalid",
+            "max_concurrency must be between 1 and 128",
+        )
+    if token.executor_pool_id is None:
+        return
+    pool = session.get(ExecutorPoolDB, token.executor_pool_id)
+    if (
+        pool is None
+        or not pool.enabled
+        or pool.archived_at is not None
+        or pool.required_driver_kind not in capabilities.driver_kinds
+    ):
+        raise EnrollmentError(
+            "capability_invalid",
+            "executor does not satisfy the target Pool requirements",
+        )
+
+
 def resolve_executor_by_credential(session: Session, raw_credential: str) -> ExecutorDB | None:
     """Resolve an enabled, non-revoked Executor by raw credential, else None."""
     if not raw_credential.startswith(_CREDENTIAL_PREFIX):
@@ -176,9 +238,9 @@ def resolve_executor_by_credential(session: Session, raw_credential: str) -> Exe
     cred_hash = _hash_with_salt(raw_credential)
     return session.exec(
         select(ExecutorDB).where(
-            _as_column(ExecutorDB.credential_hash) == cred_hash,
-            _as_column(ExecutorDB.enabled).is_(True),
-            _as_column(ExecutorDB.revoked_at).is_(None),
+            as_column(ExecutorDB.credential_hash) == cred_hash,
+            as_column(ExecutorDB.enabled).is_(True),
+            as_column(ExecutorDB.revoked_at).is_(None),
         )
     ).first()
 
@@ -305,5 +367,6 @@ __all__ = [
     "generate_enrollment_token",
     "hash_credential",
     "resolve_executor_by_credential",
+    "resolve_enrollment_token",
     "validate_current_attempt_jwt",
 ]

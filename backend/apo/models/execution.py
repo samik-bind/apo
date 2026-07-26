@@ -107,6 +107,8 @@ __all__ = [
 # SPEC-143: Execution Control Plane domain types
 # ============================================================================
 
+EXECUTOR_PROTOCOL_VERSION = 1
+
 ExecutorPoolKind = Literal["bundled", "connected", "managed"]
 AttemptStatus = Literal[
     "queued", "leased", "running",
@@ -146,7 +148,7 @@ class AttemptSummary(SQLModel):
     phase: ExecutionPhase | None = None
     executor_id: str | None = None
     executor_name: str | None = None
-    executor_pool_id: str
+    executor_pool_id: str | None = None
     driver_kind: str | None = None
     queued_at: datetime
     claimed_at: datetime | None = None

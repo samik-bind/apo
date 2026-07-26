@@ -50,7 +50,12 @@ The curve climbs as the task keeps passing — 1d → 2.5d → 6.4d → 16.6d �
 
 ## Where schedules live
 
-Schedules are configured in the dashboard. Each is project-scoped and owns its own task selection, environment, and cadence rules. You can pause and resume a schedule (the `enabled` flag), or run one on demand via the manual trigger without waiting for its next fire time.
+Schedules are configured in the dashboard. Each is project-scoped and owns its
+task selection, environment, cadence, **Executor Pool**, and queue timeout.
+Placement is snapshot policy: changing the Project default does not move an
+existing schedule. If its Pool is offline, the Batch waits there rather than
+running somewhere surprising. You can pause and resume a schedule, reassign
+its Pool explicitly, or run it on demand without waiting for its next fire.
 
 ## Next
 

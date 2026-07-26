@@ -78,6 +78,7 @@ def create_batch_run(
     run_metadata: dict[str, object] | None = None,
     *,
     task_source: ProjectTaskSourceDB | None = None,
+    commit: bool = True,
 ) -> AgentTaskBatchRunDB:
     """
     Create a batch run and its associated task run rows.
@@ -181,8 +182,11 @@ def create_batch_run(
             )
             session.add(task_run)
 
-    session.commit()
-    session.refresh(batch)
+    if commit:
+        session.commit()
+        session.refresh(batch)
+    else:
+        session.flush()
     return batch
 
 
@@ -609,5 +613,4 @@ _TASK_ENV_PROVIDER_VARS = (
     "AGENT_TASK_JUDGE_MODEL",
     "AGENT_TASK_OPENROUTER_MODEL",
 )
-
 

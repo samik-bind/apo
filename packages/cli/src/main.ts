@@ -168,7 +168,7 @@ const commands: Record<string, CommandEntry> = {
     ],
     options: [
       ["--ci", "CI mode: records CI metadata, uses strict exit codes"],
-      ["--executor <caller|pool>", "Target executor: 'caller' (this machine) or a Pool id/slug (SPEC-145)"],
+      ["--executor <caller|pool-id>", "Target executor: 'caller' (this machine) or an exact Pool id (SPEC-145)"],
       ["--no-record", "Run on this machine WITHOUT recording (explicit unrecorded; conflicts with a Pool target)"],
       ["--local", "(compat) alias for --executor caller; deprecated"],
       ["--remote", "(compat) force a Bundled Pool; deprecated — errors if none is configured"],
@@ -312,13 +312,13 @@ const commands: Record<string, CommandEntry> = {
     help: "Create a new batch run on backend",
     options: [
       ["--tasks <id1,id2,...>", "Comma-separated task ids (required)"],
-      ["--executor <pool-id>", "Target an executor Pool for durable queued execution (SPEC-146)"],
+      ["--executor <pool-id>", "Target this exact executor Pool instead of the Project default"],
     ],
     examples: [
       "apo batch create --tasks meeting-summary,code-review",
-      "apo batch create --tasks meeting-summary --executor private-vpc",
+      "apo batch create --tasks meeting-summary --executor pool_01JXYZ",
     ],
-    note: "Without --project, task ids resolve from local --dir. --executor submits the batch as durable queued Attempts on a Pool (no in-process execution). Requires backend auth.",
+    note: "Every batch is queued for an executor Pool; apo uses --executor when supplied, otherwise the Project default. Missing, disabled, or archived targets fail instead of silently running elsewhere. Without --project, task ids resolve from local --dir. Requires backend auth.",
   },
   reprice: {
     handler: loadCommand("reprice"),

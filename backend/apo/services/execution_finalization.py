@@ -25,6 +25,7 @@ from apo.db_helpers import _as_column
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskRunDB, TaskExecutionAttemptDB
 from apo.services.agent_task_run_service import finalize_task_run_with_result, update_batch_run_status
 from apo.services.execution_leases import (
+    CANCELLED,
     FAILED,
     SUCCEEDED,
     CurrentAttemptLease,
@@ -38,6 +39,7 @@ DIAGNOSTIC_TAIL_BYTES = 64 * 1024
 _VALID_FAILURE_KINDS = frozenset(
     {
         "dependency_install",
+        "bundle_invalid",
         "task_import",
         "task_runtime",
         "timeout",
@@ -45,6 +47,8 @@ _VALID_FAILURE_KINDS = frozenset(
         "driver",
         "lease_expired",
         "executor_unavailable",
+        "executor_shutdown",
+        "cancelled",
         "internal",
     }
 )
@@ -183,20 +187,21 @@ def finalize_attempt_failure(
     if body.failure_kind not in _VALID_FAILURE_KINDS:
         raise FinalizationError("bad_failure_kind", f"unknown failure kind {body.failure_kind!r}")
     attempt = _require_current(session, lease)
+    terminal_status = CANCELLED if body.failure_kind == "cancelled" else FAILED
     digest = _body_digest({"kind": "failure", "body": asdict(body)})
     if _check_completion_idempotency(
         session,
         attempt=attempt,
         completion_id=body.completion_id,
         digest=digest,
-        terminal_status=FAILED,
+        terminal_status=terminal_status,
     ):
         return attempt
-    if attempt.status != "running":
+    if attempt.status not in ("leased", "running"):
         raise LeaseError("state_mismatch", f"cannot finalize failure from status {attempt.status!r}")
 
     now = datetime.now(timezone.utc)
-    attempt.status = FAILED
+    attempt.status = terminal_status
     attempt.completion_id = body.completion_id
     attempt.completion_sha256 = digest
     attempt.failure_kind = body.failure_kind
@@ -206,6 +211,12 @@ def finalize_attempt_failure(
     attempt.stderr_tail = _tail(body.stderr_tail)
     attempt.completed_at = now
     session.add(attempt)
+    if terminal_status == CANCELLED:
+        batch = session.get(AgentTaskBatchRunDB, attempt.batch_run_id)
+        if batch is None:
+            raise FinalizationError("not_found", "batch run not found")
+        batch.cancelled_tasks += 1
+        session.add(batch)
 
     _finalize_task_run(
         session, attempt, pass_result=False, adapter_name=None, trace_run_id=None,

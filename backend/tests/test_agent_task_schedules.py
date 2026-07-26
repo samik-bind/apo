@@ -15,6 +15,10 @@ from apo.models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
     AgentTaskScheduleDB,
+    ExecutorPoolDB,
+    ProjectDB,
+    ProjectTaskSourceDB,
+    TaskExecutionAttemptDB,
 )
 from apo.services.agent_task_scheduler import (
     compute_next_run_at,
@@ -25,6 +29,7 @@ from apo.services.adaptive_scheduler import (
     compute_adaptive_next_run,
     compute_adaptive_next_run_at,
 )
+from apo.services.project_task_source_sync import sync_task_source
 
 
 @pytest.fixture
@@ -68,18 +73,55 @@ def test_run_due_schedules_once_creates_batch_run(
 
     schedule_id = uuid4().hex[:16]
     project = f"schedule-test-{uuid4().hex[:8]}"
+    pool_id = f"pool-{uuid4().hex[:8]}"
     now = datetime.now(timezone.utc)
-    started_batch_ids: list[str] = []
-
-    def _capture_started_batch(batch_id: str) -> None:
-        started_batch_ids.append(batch_id)
 
     monkeypatch.setattr(
         "apo.services.agent_task_scheduler.engine",
         schedule_engine,
     )
+    monkeypatch.setenv("APO_ARTIFACT_DIR", str(tmp_path / "artifacts"))
 
     with Session(schedule_engine) as session:
+        session.add(
+            ProjectDB(
+                id=project,
+                name=project,
+                created_at=now,
+            )
+        )
+        session.flush()
+        session.add(
+            ExecutorPoolDB(
+                id=pool_id,
+                project=project,
+                name="Bundled",
+                slug="bundled",
+                kind="bundled",
+                enabled=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.flush()
+        project_row = session.get(ProjectDB, project)
+        assert project_row is not None
+        project_row.default_executor_pool_id = pool_id
+        session.add(project_row)
+        source = ProjectTaskSourceDB(
+            id=f"source-{project}",
+            project=project,
+            source_type="filesystem",
+            display_name="Schedule tasks",
+            filesystem_path=str(tmp_path),
+            status="ready",
+            last_synced_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(source)
+        session.commit()
+        _ = sync_task_source(session, source)
         schedule = AgentTaskScheduleDB(
             id=schedule_id,
             project=project,
@@ -93,6 +135,8 @@ def test_run_due_schedules_once_creates_batch_run(
             hour=9,
             minute=0,
             enabled=True,
+            executor_pool_id=pool_id,
+            queue_ttl_seconds=3600,
             next_run_at=now - timedelta(minutes=5),
             created_at=now,
             updated_at=now,
@@ -100,57 +144,43 @@ def test_run_due_schedules_once_creates_batch_run(
         session.add(schedule)
         session.commit()
 
-    try:
-        created = run_due_schedules_once()
-        assert created == 1
+    created = run_due_schedules_once()
+    assert created == 1
 
-        with Session(schedule_engine) as session:
-            refreshed_schedule = session.get(AgentTaskScheduleDB, schedule_id)
-            assert refreshed_schedule is not None
-            assert refreshed_schedule.last_batch_run_id is not None
-            assert refreshed_schedule.last_triggered_at is not None
-            assert refreshed_schedule.next_run_at is not None
-            assert refreshed_schedule.next_run_at.timestamp() > now.timestamp()
-
-            batch = session.get(
-                AgentTaskBatchRunDB, refreshed_schedule.last_batch_run_id
-            )
-            assert batch is not None
-            assert batch.project == project
-            assert batch.selection_type == "task"
-
-            task_runs = session.exec(
-                select(AgentTaskRunDB).where(
-                    AgentTaskRunDB.batch_run_id == refreshed_schedule.last_batch_run_id
-                )
-            ).all()
-            assert len(task_runs) == 1
-            # Discovery ids are folder-scoped (folder/name) so tasks that
-            # share a name remain selectable independently. This task lives
-            # under the "flows" folder relative to the task root.
-            assert task_runs[0].task_id == os.path.join("flows", "nightly-security")
-            assert task_runs[0].status == "pending"
-
+    with Session(schedule_engine) as session:
+        refreshed_schedule = session.get(AgentTaskScheduleDB, schedule_id)
+        assert refreshed_schedule is not None
         assert refreshed_schedule.last_batch_run_id is not None
-        batch = session.get(AgentTaskBatchRunDB, refreshed_schedule.last_batch_run_id)
+        assert refreshed_schedule.last_triggered_at is not None
+        assert refreshed_schedule.next_run_at is not None
+        next_run_at = refreshed_schedule.next_run_at
+        if next_run_at.tzinfo is None:
+            next_run_at = next_run_at.replace(tzinfo=timezone.utc)
+        assert next_run_at > now
+
+        batch = session.get(
+            AgentTaskBatchRunDB, refreshed_schedule.last_batch_run_id
+        )
         assert batch is not None
-    finally:
-        with Session(schedule_engine) as session:
-            schedule = session.get(AgentTaskScheduleDB, schedule_id)
-            if schedule is not None:
-                if schedule.last_batch_run_id:
-                    task_runs = session.exec(
-                        select(AgentTaskRunDB).where(
-                            AgentTaskRunDB.batch_run_id == schedule.last_batch_run_id
-                        )
-                    ).all()
-                    for task_run in task_runs:
-                        session.delete(task_run)
-                    batch = session.get(AgentTaskBatchRunDB, schedule.last_batch_run_id)
-                    if batch is not None:
-                        session.delete(batch)
-                session.delete(schedule)
-                session.commit()
+        assert batch.project == project
+        assert batch.selection_type == "task"
+        assert batch.execution_target_json == {"kind": "pool", "pool_id": pool_id}
+
+        task_runs = session.exec(
+            select(AgentTaskRunDB).where(
+                AgentTaskRunDB.batch_run_id == refreshed_schedule.last_batch_run_id
+            )
+        ).all()
+        assert len(task_runs) == 1
+        assert task_runs[0].task_id == os.path.join("flows", "nightly-security")
+        assert task_runs[0].status == "pending"
+        attempt = session.exec(
+            select(TaskExecutionAttemptDB).where(
+                TaskExecutionAttemptDB.task_run_id == task_runs[0].id
+            )
+        ).one()
+        assert attempt.status == "queued"
+        assert attempt.executor_pool_id == pool_id
 
 
 # ============================================================================

@@ -173,8 +173,36 @@ export interface AgentTaskBatchRunSummary {
 export interface AgentTaskBatchRunDetail extends AgentTaskBatchRunSummary {
   run_metadata: Record<string, unknown> | null;
   total_cost: number | null;
+  cancelled_tasks: number;
   task_runs: AgentTaskRunSummary[];
   failure_breakdown: FailureBreakdownItem[];
+  execution_target: PoolExecutionTarget | null;
+  executor_pool_name: string | null;
+  attempts: ExecutionAttemptSummary[];
+}
+
+export interface PoolExecutionTarget {
+  kind: "pool";
+  pool_id: string;
+}
+
+export interface ExecutionAttemptSummary {
+  id: string;
+  task_run_id: string;
+  status: string;
+  phase: string | null;
+  executor_id: string | null;
+  executor_name: string | null;
+  executor_pool_id: string | null;
+  driver_kind: string | null;
+  queued_at: string;
+  claimed_at: string | null;
+  started_at: string | null;
+  heartbeat_at: string | null;
+  completed_at: string | null;
+  failure_kind: string | null;
+  error_message: string | null;
+  cancel_requested_at: string | null;
 }
 
 export interface CreateAgentTaskBatchRunRequest {
@@ -184,6 +212,7 @@ export interface CreateAgentTaskBatchRunRequest {
   task_root?: string | null;
   grep?: string | null;
   environment?: string;
+  execution_target: PoolExecutionTarget;
   run_metadata?: {
     trigger?: Partial<AgentTaskRunTrigger> | null;
     [key: string]: unknown;
@@ -243,6 +272,9 @@ export interface AgentTaskScheduleSummary {
   min_interval_days: number;
   max_interval_days: number;
   enabled: boolean;
+  executor_pool_id: string | null;
+  queue_ttl_seconds: number;
+  disabled_reason: string | null;
   last_triggered_at: string | null;
   last_batch_run_id: string | null;
   next_run_at: string | null;
@@ -273,6 +305,8 @@ export interface CreateAgentTaskScheduleRequest {
   min_interval_days?: number;
   max_interval_days?: number;
   enabled?: boolean;
+  executor_pool_id: string;
+  queue_ttl_seconds?: number | null;
   run_metadata?: Record<string, unknown> | null;
 }
 
@@ -291,6 +325,8 @@ export interface UpdateAgentTaskScheduleRequest {
   min_interval_days?: number | null;
   max_interval_days?: number | null;
   enabled?: boolean | null;
+  executor_pool_id?: string | null;
+  queue_ttl_seconds?: number | null;
   run_metadata?: Record<string, unknown> | null;
 }
 

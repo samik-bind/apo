@@ -1,5 +1,9 @@
 """Demo workspace API endpoints."""
 
+# pyright: reportCallInDefaultInitializer=false
+
+import asyncio
+
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
 
@@ -34,7 +38,10 @@ async def seed_demo(
 ):
     """Seed the demo workspace with real task data. Idempotent unless force=True."""
     reset_demo_schedules(session)
-    batch_id = seed_demo_workspace(force=force)
+    # The synchronous seeder owns its SQLModel session and materializes an
+    # async Revision bundle. Run it outside FastAPI's event loop so its
+    # internal ``asyncio.run`` cannot become a nested-loop failure.
+    batch_id = await asyncio.to_thread(seed_demo_workspace, force=force)
     return {
         "ok": True,
         "project_id": DEMO_PROJECT_ID,

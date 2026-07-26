@@ -17,10 +17,6 @@ def test_v13_migration_is_registered() -> None:
     assert 13 in _SCHEMA_MIGRATIONS
 
 
-def test_v13_migration_is_registered() -> None:
-    assert 13 in _SCHEMA_MIGRATIONS
-
-
 def test_migration_creates_execution_tables_and_columns() -> None:
     test_engine = create_engine("sqlite://")
     with test_engine.begin() as conn:

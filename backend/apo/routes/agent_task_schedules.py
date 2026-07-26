@@ -13,7 +13,7 @@ from sqlalchemy import desc
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..db_helpers import _as_column
+from ..db_helpers import as_column
 from ..models import (
     AdaptiveTaskStateSummary,
     AgentTaskBatchRunDB,
@@ -21,9 +21,9 @@ from ..models import (
     AgentTaskScheduleDetail,
     AgentTaskScheduleSummary,
     CreateAgentTaskScheduleRequest,
-    ScheduleLastBatchSummary,
     UpdateAgentTaskScheduleRequest,
 )
+from ..models.schemas import ScheduleLastBatchSummary
 from ..models.db import AdaptiveTaskStateDB, AgentTaskRunDB
 from ..services.agent_task_outcome import build_failure_breakdown
 from ..services.agent_task_scheduler import (
@@ -33,10 +33,6 @@ from ..services.agent_task_scheduler import (
 from ..services.demo_workspace import require_project_not_demo
 from ..services.project_memberships import enforce_project_role_from_request
 from ..services.project_task_sources import get_task_source_db
-from ..services.agent_task_runner import (
-    create_batch_run,
-
-)
 from ..services.project_task_source_sync import SyncError
 
 router = APIRouter(prefix="/v1", tags=["agent-tasks"])
@@ -49,15 +45,18 @@ def _count_consecutive_failures(
     recent = session.exec(
         select(AgentTaskBatchRunDB)
         .where(AgentTaskBatchRunDB.project == project)
-        .order_by(desc(_as_column(cast(object, AgentTaskBatchRunDB.created_at))))
+        .order_by(desc(as_column(cast(object, AgentTaskBatchRunDB.created_at))))
         .limit(20)
     ).all()
 
     count = 0
     for batch in recent:
         meta = batch.run_metadata or {}
-        sched = meta.get("schedule")
-        if not isinstance(sched, dict) or sched.get("id") != schedule_id:
+        raw_schedule = meta.get("schedule")
+        if not isinstance(raw_schedule, dict):
+            continue
+        schedule_metadata = cast(dict[str, object], raw_schedule)
+        if schedule_metadata.get("id") != schedule_id:
             continue
         if batch.status in ("completed", "error") and (
             batch.failed_tasks > 0 or batch.errored_tasks > 0
@@ -115,6 +114,9 @@ def _format_schedule(
         min_interval_days=schedule.min_interval_days,
         max_interval_days=schedule.max_interval_days,
         enabled=schedule.enabled,
+        executor_pool_id=schedule.executor_pool_id,
+        queue_ttl_seconds=schedule.queue_ttl_seconds,
+        disabled_reason=schedule.disabled_reason,
         last_triggered_at=schedule.last_triggered_at,
         last_batch_run_id=schedule.last_batch_run_id,
         next_run_at=schedule.next_run_at,
@@ -129,19 +131,18 @@ def _format_schedule_detail(
     schedule: AgentTaskScheduleDB, session: Session | None = None
 ) -> AgentTaskScheduleDetail:
     base = _format_schedule(schedule, session)
-    return AgentTaskScheduleDetail(
-        **base.model_dump(),
-        run_metadata=schedule.run_metadata,
-    )
+    payload = cast(dict[str, object], base.model_dump())
+    payload["run_metadata"] = schedule.run_metadata
+    return AgentTaskScheduleDetail.model_validate(payload)
 
 
 @router.get("/agent-task-schedules", response_model=list[AgentTaskScheduleSummary])
 async def list_agent_task_schedules(
     project: str | None = Query(default=None),
     session: Session = Depends(get_session),
-):
+) -> list[AgentTaskScheduleSummary]:
     query = select(AgentTaskScheduleDB).order_by(
-        desc(_as_column(cast(object, AgentTaskScheduleDB.created_at)))
+        desc(as_column(cast(object, AgentTaskScheduleDB.created_at)))
     )
     if project:
         query = query.where(AgentTaskScheduleDB.project == project)
@@ -153,7 +154,7 @@ async def list_agent_task_schedules(
 async def get_agent_task_schedule(
     schedule_id: str,
     session: Session = Depends(get_session),
-):
+) -> AgentTaskScheduleDetail:
     schedule = session.get(AgentTaskScheduleDB, schedule_id)
     if schedule is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
@@ -167,7 +168,7 @@ async def get_agent_task_schedule(
 async def get_adaptive_states(
     schedule_id: str,
     session: Session = Depends(get_session),
-):
+) -> list[AdaptiveTaskStateSummary]:
     """Per-task adaptive scheduling state for display."""
     schedule = session.get(AgentTaskScheduleDB, schedule_id)
     if schedule is None:
@@ -231,6 +232,27 @@ async def create_agent_task_schedule(
         _schedule_source_ref(task_source) if task_source else None
     )
     task_source_subpath = task_source.subpath if task_source else None
+    from ..services.execution_queue import (
+        PoolResolutionError,
+        resolve_execution_pool,
+    )
+
+    try:
+        pool = resolve_execution_pool(
+            session,
+            project_id=request.project,
+            explicit_pool_id=request.executor_pool_id,
+        )
+    except PoolResolutionError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={"kind": error.kind, "msg": str(error)},
+        ) from error
+    if request.queue_ttl_seconds <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail="queue_ttl_seconds must be positive",
+        )
 
     schedule = AgentTaskScheduleDB(
         id=uuid4().hex[:16],
@@ -250,6 +272,9 @@ async def create_agent_task_schedule(
         min_interval_days=request.min_interval_days,
         max_interval_days=request.max_interval_days,
         enabled=request.enabled,
+        executor_pool_id=pool.id,
+        queue_ttl_seconds=request.queue_ttl_seconds,
+        disabled_reason=None,
         run_metadata=request.run_metadata,
         next_run_at=compute_next_run_at(
             cadence_type=request.cadence_type,
@@ -340,6 +365,37 @@ async def update_agent_task_schedule(
         schedule.enabled = request.enabled
     if request.run_metadata is not None:
         schedule.run_metadata = request.run_metadata
+    if request.executor_pool_id is not None:
+        from ..services.execution_queue import (
+            PoolResolutionError,
+            resolve_execution_pool,
+        )
+
+        try:
+            pool = resolve_execution_pool(
+                session,
+                project_id=schedule.project,
+                explicit_pool_id=request.executor_pool_id,
+            )
+        except PoolResolutionError as error:
+            raise HTTPException(
+                status_code=409,
+                detail={"kind": error.kind, "msg": str(error)},
+            ) from error
+        schedule.executor_pool_id = pool.id
+        if schedule.disabled_reason in {
+            "executor_pool_required",
+            "executor_pool_archived",
+            "executor_pool_disabled",
+        }:
+            schedule.disabled_reason = None
+    if request.queue_ttl_seconds is not None:
+        if request.queue_ttl_seconds <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail="queue_ttl_seconds must be positive",
+            )
+        schedule.queue_ttl_seconds = request.queue_ttl_seconds
 
     try:
         validate_schedule_fields(
@@ -396,15 +452,19 @@ async def trigger_schedule(
     now = datetime.now(timezone.utc)
 
     task_paths = None
-    if schedule.selection_query and isinstance(schedule.selection_query, dict):
+    if schedule.selection_query:
         raw = schedule.selection_query.get("task_paths")
         if isinstance(raw, list):
-            task_paths = [p for p in raw if isinstance(p, str)] or None
+            task_paths = [
+                path for path in cast(list[object], raw) if isinstance(path, str)
+            ] or None
 
     run_metadata = dict(schedule.run_metadata) if schedule.run_metadata else {}
-    trigger = run_metadata.get("trigger")
-    if isinstance(trigger, dict):
-        trigger = dict(trigger)
+    raw_trigger = run_metadata.get("trigger")
+    if isinstance(raw_trigger, dict):
+        trigger: dict[str, object] = dict(
+            cast(dict[str, object], raw_trigger)
+        )
     else:
         trigger = {}
     trigger["source"] = "schedule"
@@ -415,30 +475,24 @@ async def trigger_schedule(
     run_metadata["schedule"] = {"id": schedule.id, "name": schedule.name}
 
     try:
-        if schedule.executor_pool_id is not None:
-            # SPEC-146: pooled execution — create durable queued Attempts.
-            from apo.services.execution_queue import PoolResolutionError, create_pooled_batch_run
+        from apo.services.execution_queue import (
+            PoolResolutionError,
+            create_pooled_batch_run,
+        )
 
-            try:
-                batch = await create_pooled_batch_run(
-                    session,
-                    project_id=schedule.project,
-                    pool_id=schedule.executor_pool_id,
-                    selection_type=schedule.selection_type,
-                    task_paths=task_paths,
-                    task_root=schedule.task_root,
-                    grep=schedule.grep,
-                    environment=schedule.environment,
-                    run_metadata=run_metadata,
-                    task_source=get_task_source_db(session, schedule.project),
-                )
-            except PoolResolutionError as exc:
-                raise HTTPException(status_code=409, detail={"kind": exc.kind, "msg": str(exc)})
-        else:
-            # Legacy in-process path (transition).
-            batch = create_batch_run(
+        if schedule.executor_pool_id is None:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "kind": "executor_pool_required",
+                    "msg": "schedule has no persisted executor pool",
+                },
+            )
+        try:
+            batch = await create_pooled_batch_run(
                 session,
-                project=schedule.project,
+                project_id=schedule.project,
+                pool_id=schedule.executor_pool_id,
                 selection_type=schedule.selection_type,
                 task_paths=task_paths,
                 task_root=schedule.task_root,
@@ -446,7 +500,13 @@ async def trigger_schedule(
                 environment=schedule.environment,
                 run_metadata=run_metadata,
                 task_source=get_task_source_db(session, schedule.project),
+                queue_ttl_seconds=schedule.queue_ttl_seconds,
             )
+        except PoolResolutionError as error:
+            raise HTTPException(
+                status_code=409,
+                detail={"kind": error.kind, "msg": str(error)},
+            ) from error
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except SyncError as exc:
@@ -457,8 +517,6 @@ async def trigger_schedule(
     session.add(schedule)
     session.commit()
     session.refresh(schedule)
-
-    # Only start the legacy runner for non-pooled batches.
 
     return {
         "ok": True,

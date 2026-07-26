@@ -6,6 +6,7 @@ import {
 } from "@/lib/agent-task-api";
 import type { Metadata } from "next";
 import { ScheduleDetailClient } from "./schedule-detail-client";
+import { listExecutorPools } from "@/lib/executor-api";
 
 export const dynamic = "force-dynamic";
 
@@ -54,9 +55,10 @@ export default async function ScheduleDetailPage({
   if (!schedule) return null;
 
   // Non-critical data — degrade gracefully if these fail
-  const [adaptiveStates, taskInventory] = await Promise.all([
+  const [adaptiveStates, taskInventory, executorPools] = await Promise.all([
     getAdaptiveStates(scheduleId).catch(() => [] as Awaited<ReturnType<typeof getAdaptiveStates>>),
     listProjectAgentTasks(projectId).catch(() => [] as AgentTaskSummary[]),
+    listExecutorPools(projectId).catch(() => []),
   ]);
 
   const taskNames = new Map<string, AgentTaskSummary>();
@@ -70,6 +72,7 @@ export default async function ScheduleDetailPage({
       schedule={schedule}
       adaptiveStates={adaptiveStates}
       taskNames={taskNames}
+      executorPools={executorPools}
     />
   );
 }

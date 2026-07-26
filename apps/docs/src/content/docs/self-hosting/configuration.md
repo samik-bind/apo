@@ -29,8 +29,8 @@ docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --buil
 Expected database services:
 
 ```text
-SQLite:    frontend, backend
-Postgres:  frontend, backend, postgres
+SQLite:    frontend, backend, executor
+Postgres:  frontend, backend, executor, postgres
 ```
 
 The database choice composes with public ingress. To run a public Server
@@ -43,7 +43,7 @@ docker compose -f docker-compose.yml -f docker-compose.postgres.yml -f docker-co
 Expected public services:
 
 ```text
-frontend, backend, postgres, caddy
+frontend, backend, executor, postgres, caddy
 ```
 
 :::caution[Database profiles are not scaling profiles]
@@ -59,9 +59,32 @@ the alpha topology.
 - **database**: can the backend reach the configured `DATABASE_URL`?
 - **task_source_cache**: is `TASK_SOURCE_CACHE_DIR` writable?
 - **auth_secret**: present, non-placeholder, and at least 16 characters when not in dev mode.
-- **task_runtime**: agent-task subprocess runtime is installed.
+- **artifact_store**: the Control Plane can persist Revision bundles and Artifacts.
 
 This endpoint is intentionally separate from the basic `/health` liveness probe, which only confirms the process booted.
+
+Executor availability is deliberately not a readiness check. An offline Pool
+is operational state: the API remains healthy, accepts Runs, and shows them as
+waiting until their queue timeout.
+
+## Executor configuration
+
+The default Compose stack enables `APO_BUNDLED_EXECUTOR_ENABLED=true`. It
+creates a Bundled Pool automatically, uses it as the Project default when no
+default exists, and enrolls the private `executor` service through a one-time
+bootstrap file.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `APO_BUNDLED_EXECUTOR_ENABLED` | `true` | Create/backfill Bundled Pools and bootstrap the installation Executor. |
+| `APO_EXECUTOR_MAX_CONCURRENCY` | `1` | Maximum concurrent Tasks in the Bundled Executor. Existing Batch Tasks still run sequentially. |
+| `APO_TASK_ENV_ALLOWLIST` | OpenRouter variables | Exact comma-separated provider variables allowed into Task children. |
+| `APO_EXECUTOR_IMAGE` | Current exact Apo version | Image rendered in Connected Pool enrollment commands. |
+| `APO_EXECUTOR_CONTROL_PLANE_URL` | `<APO_PUBLIC_URL>/backend-proxy` | Reachable Control Plane URL rendered for Connected Executors. |
+
+Provider credentials belong on the Executor service, not the backend. The
+long-lived Executor credential and one-time enrollment token never enter Task
+child environments.
 
 ## Scheduler ownership
 
@@ -129,19 +152,21 @@ Alpha defaults are intentionally cheap across the rest of the stack too:
 | `/health/ready` returns 503 with `task_source_cache` failing | The cache dir is inside the container rootfs or read-only. | Mount the `task_source_cache` volume and set `TASK_SOURCE_CACHE_DIR=/var/lib/apo/task-sources`. |
 | `/health/ready` returns 503 with `auth_secret` failing | `AUTH_SECRET` is the placeholder or unset in non-dev mode. | Generate a strong secret with `openssl rand -hex 32`. |
 | Schedules visible but never fire | `SCHEDULER_ENABLED=false`. | Set it to `true` (one backend process only). |
-| Tasks fail with "agent-task runtime not installed" | The backend image is missing the packaged runtime. | Rebuild the backend image. |
+| Pool stays offline | Executor identity volume is missing, bootstrap failed, or the Executor cannot reach the Control Plane. | Inspect `docker compose logs executor`, preserve `apo_executor_state`, and verify the configured Control Plane URL. |
+| Run waits, then fails `executor_unavailable` | The selected Pool stayed offline past its queue timeout. | Restore that Pool or explicitly submit a new Run to another Pool. Apo will not retarget the existing Run. |
 | SQLite shows sustained lock contention or write latency | The installation has outgrown the default database profile. | Back up the installation, configure the Postgres override, and migrate the data deliberately. Do not use `docker compose down -v`; it deletes volumes. |
 
 ## Operator checklist
 
 Before declaring an internal alpha instance production-ready for coworkers:
 
-- [ ] One host, one backend container, one scheduler owner.
+- [ ] One host, one backend container, one scheduler owner, and at least one online Executor Pool.
 - [ ] `AUTH_SECRET` is a strong random value (not the placeholder).
 - [ ] The chosen database profile matches the expected write load; SQLite is
       supported for a small alpha, while Postgres is preferred for sustained
       shared use.
 - [ ] `task_source_cache` is on a persistent volume.
+- [ ] `apo_executor_state` and the artifact volume are persistent.
 - [ ] The [Server Profile smoke test](/self-hosting/public-server/#3-prove-the-public-route) passes from outside the host.
 - [ ] `/health/ready` returns 200 from outside the host.
 - [ ] At least one end-to-end task run has been completed successfully.

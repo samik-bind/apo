@@ -4,6 +4,7 @@ Agent task schedule service.
 Schedules create normal agent-task batch runs when they become due.
 """
 
+import asyncio
 import calendar
 import logging
 import threading
@@ -14,65 +15,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlmodel import Session, select
 
 from ..db import engine
-from ..db_helpers import _as_column
-from ..models.db import AgentTaskScheduleDB
+from ..db_helpers import as_column
+from ..models.db import AgentTaskScheduleDB, ProjectTaskSourceDB
 from .adaptive_scheduler import (
     compute_adaptive_next_run_at,
     recompute_schedule_next_run,
     select_due_task_ids,
 )
-from .agent_task_runner import create_batch_run
-
-
-def _create_scheduled_batch(
-    session: Session,
-    *,
-    schedule: AgentTaskScheduleDB,
-    task_source: "object | None",
-    selection_type: str,
-    task_paths: list[str] | None,
-) -> tuple[str, bool]:
-    """Create a Batch for a due schedule.
-
-    Returns ``(batch_id, is_pooled)``. When the schedule has an
-    ``executor_pool_id``, a SPEC-146 pooled Batch is created (durable queued
-    Attempts, no subprocess). Otherwise the legacy path applies and the caller
-    must NOT invoke the removed in-process executor (SPEC-146 cutover).
-    """
-    pool_id = schedule.executor_pool_id
-    if pool_id is not None:
-        import asyncio
-
-        from apo.services.execution_queue import create_pooled_batch_run
-
-        batch = asyncio.run(
-            create_pooled_batch_run(
-                session,
-                project_id=schedule.project,
-                pool_id=pool_id,
-                selection_type=selection_type,
-                task_paths=task_paths,
-                task_root=schedule.task_root,
-                grep=schedule.grep,
-                environment=schedule.environment,
-                run_metadata=_schedule_run_metadata(schedule),
-                task_source=task_source,  # type: ignore[arg-type]
-            )
-        )
-        return batch.id, True
-
-    batch = create_batch_run(
-        session,
-        project=schedule.project,
-        selection_type=selection_type,
-        task_paths=task_paths,
-        task_root=schedule.task_root,
-        grep=schedule.grep,
-        environment=schedule.environment,
-        run_metadata=_schedule_run_metadata(schedule),
-        task_source=task_source,  # type: ignore[arg-type]
-    )
-    return batch.id, False
+from .execution_queue import PoolResolutionError, create_pooled_batch_run
 from .project_task_inventory import task_source_inventory_is_stale
 from .project_task_sources import get_task_source_db
 
@@ -193,12 +143,29 @@ def run_due_schedules_once() -> int:
         schedules = session.exec(
             select(AgentTaskScheduleDB).where(
                 AgentTaskScheduleDB.enabled == True,  # noqa: E712
-                _as_column(cast(object, AgentTaskScheduleDB.next_run_at)).is_not(None),
-                _as_column(cast(object, AgentTaskScheduleDB.next_run_at)) <= now,
+                as_column(cast(object, AgentTaskScheduleDB.next_run_at)).is_not(None),
+                as_column(cast(object, AgentTaskScheduleDB.next_run_at)) <= now,
             )
         ).all()
 
         for schedule in schedules:
+            from apo.services.execution_queue import (
+                PoolResolutionError,
+                resolve_execution_pool,
+            )
+
+            try:
+                _ = resolve_execution_pool(
+                    session,
+                    project_id=schedule.project,
+                    explicit_pool_id=schedule.executor_pool_id,
+                )
+            except PoolResolutionError as error:
+                schedule.enabled = False
+                schedule.disabled_reason = error.kind
+                schedule.next_run_at = None
+                session.add(schedule)
+                continue
             task_source = get_task_source_db(session, schedule.project)
             if task_source is not None:
                 if task_source.status != "ready":
@@ -226,7 +193,7 @@ def run_due_schedules_once() -> int:
                     session.add(schedule)
                     continue
 
-                batch_id, is_pooled = _create_scheduled_batch(
+                batch_id, _ = _create_scheduled_batch(
                     session, schedule=schedule, task_source=task_source,
                     selection_type="tasks", task_paths=due_task_ids,
                 )
@@ -244,7 +211,7 @@ def run_due_schedules_once() -> int:
                 session.add(schedule)
                 continue
 
-            batch_id, is_pooled = _create_scheduled_batch(
+            batch_id, _ = _create_scheduled_batch(
                 session, schedule=schedule, task_source=task_source,
                 selection_type=schedule.selection_type,
                 task_paths=_selection_task_paths(schedule.selection_query),
@@ -286,6 +253,42 @@ def start_schedule_dispatcher() -> None:
 
 def stop_schedule_dispatcher() -> None:
     _scheduler_stop_event.set()
+
+
+def _create_scheduled_batch(
+    session: Session,
+    *,
+    schedule: AgentTaskScheduleDB,
+    task_source: ProjectTaskSourceDB | None,
+    selection_type: str,
+    task_paths: list[str] | None,
+) -> tuple[str, bool]:
+    """Create a Batch for a due schedule.
+
+    Returns ``(batch_id, True)`` after durable pooled work is created.
+    """
+    pool_id = schedule.executor_pool_id
+    if pool_id is None:
+        raise PoolResolutionError(
+            "executor_pool_required",
+            "schedule has no executor pool",
+        )
+    batch = asyncio.run(
+        create_pooled_batch_run(
+            session,
+            project_id=schedule.project,
+            pool_id=pool_id,
+            selection_type=selection_type,
+            task_paths=task_paths,
+            task_root=schedule.task_root,
+            grep=schedule.grep,
+            environment=schedule.environment,
+            run_metadata=_schedule_run_metadata(schedule),
+            task_source=task_source,
+            queue_ttl_seconds=schedule.queue_ttl_seconds,
+        )
+    )
+    return batch.id, True
 
 
 def _scheduler_loop() -> None:

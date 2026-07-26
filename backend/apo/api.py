@@ -58,10 +58,13 @@ async def lifespan(app: FastAPI):
     # SPEC-122: ensure the demo project exists at startup so it shows
     # up in project lists and users can browse it read-only, regardless
     # of whether demo *authoring* (seeding task runs) is enabled.
-    from .services.demo_workspace import _ensure_demo_project_exists
+    from .services.demo_workspace import _ensure_demo_project_exists  # pyright: ignore[reportPrivateUsage]
     _ensure_demo_project_exists()
     with Session(engine) as session:
         bootstrap_initial_user(session)
+        from .services.bundled_executor import bootstrap_bundled_executor
+
+        bootstrap_bundled_executor(session)
     from .services.agent_task_scheduler import start_schedule_dispatcher, stop_schedule_dispatcher
     from .services.retention import apply_max_page_count, start_retention_loop, stop_retention_loop
     from .services.trace_ingestion_queue import (

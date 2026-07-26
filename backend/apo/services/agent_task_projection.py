@@ -21,7 +21,14 @@ from ..models import (
     AgentTaskRunTrigger,
     AgentTaskRunSummary,
 )
-from ..models.execution import TaskRevisionSummary
+from ..models.db import TaskExecutionAttemptDB
+from ..models.execution import (
+    AttemptStatus,
+    AttemptSummary,
+    ExecutionPhase,
+    PoolExecutionTarget,
+    TaskRevisionSummary,
+)
 from .agent_task_outcome import build_failure_breakdown, classify_run_outcome
 
 
@@ -147,6 +154,9 @@ def to_batch_run_detail(
     task_runs: Sequence[AgentTaskRunDB],
     model_map: Mapping[str, str] | None = None,
     task_revision: TaskRevisionSummary | None = None,
+    attempts: Sequence[TaskExecutionAttemptDB] = (),
+    executor_names: Mapping[str, str] | None = None,
+    executor_pool_name: str | None = None,
 ) -> AgentTaskBatchRunDetail:
     """Project a batch run DB row + its task runs to a detail view model.
 
@@ -166,6 +176,7 @@ def to_batch_run_detail(
     ]
     total_cost = sum(tr.total_cost or 0 for tr in task_runs)
     breakdown = build_failure_breakdown(task_runs)
+    execution_target = _pool_execution_target(br.execution_target_json)
     return AgentTaskBatchRunDetail(
         id=br.id,
         project=br.project,
@@ -180,6 +191,7 @@ def to_batch_run_detail(
         passed_tasks=br.passed_tasks,
         failed_tasks=br.failed_tasks,
         errored_tasks=br.errored_tasks,
+        cancelled_tasks=br.cancelled_tasks,
         total_checks=br.total_checks,
         passed_checks=br.passed_checks,
         trace_persistence_status=br.trace_persistence_status,
@@ -192,6 +204,55 @@ def to_batch_run_detail(
         task_runs=task_run_summaries,
         failure_breakdown=breakdown,
         task_revision=task_revision,
+        execution_target=execution_target,
+        executor_pool_name=executor_pool_name,
+        attempts=[
+            _attempt_summary(
+                attempt,
+                executor_name=(
+                    executor_names.get(attempt.executor_id)
+                    if executor_names is not None and attempt.executor_id is not None
+                    else None
+                ),
+            )
+            for attempt in attempts
+        ],
+    )
+
+
+def _pool_execution_target(
+    raw: dict[str, object] | None,
+) -> PoolExecutionTarget | None:
+    if raw is None or raw.get("kind") != "pool":
+        return None
+    pool_id = raw.get("pool_id")
+    if not isinstance(pool_id, str):
+        return None
+    return PoolExecutionTarget(kind="pool", pool_id=pool_id)
+
+
+def _attempt_summary(
+    attempt: TaskExecutionAttemptDB,
+    *,
+    executor_name: str | None,
+) -> AttemptSummary:
+    return AttemptSummary(
+        id=attempt.id,
+        task_run_id=attempt.task_run_id,
+        status=cast(AttemptStatus, attempt.status),
+        phase=cast(ExecutionPhase, attempt.phase) if attempt.phase else None,
+        executor_id=attempt.executor_id,
+        executor_name=executor_name,
+        executor_pool_id=attempt.executor_pool_id,
+        driver_kind=attempt.driver_kind,
+        queued_at=attempt.queued_at,
+        claimed_at=attempt.claimed_at,
+        started_at=attempt.started_at,
+        heartbeat_at=attempt.heartbeat_at,
+        completed_at=attempt.completed_at,
+        failure_kind=attempt.failure_kind,
+        error_message=attempt.error_message,
+        cancel_requested_at=attempt.cancel_requested_at,
     )
 
 

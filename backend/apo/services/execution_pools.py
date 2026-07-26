@@ -107,6 +107,10 @@ def set_default_pool(session: Session, *, project_id: str, pool_id: str) -> Proj
     pool = session.get(ExecutorPoolDB, pool_id)
     if pool is None or pool.project != project_id:
         raise PoolError("pool does not belong to this project")
+    if pool.archived_at is not None:
+        raise PoolError("archived pool cannot be the project default")
+    if not pool.enabled:
+        raise PoolError("disabled pool cannot be the project default")
     project = session.get(ProjectDB, project_id)
     if project is None:
         raise PoolError("project not found")

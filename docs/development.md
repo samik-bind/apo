@@ -101,22 +101,21 @@ Agent task batch runs persist caller-origin information inside `run_metadata.tri
 
 Backend routes should expose this information as first-class `trigger` fields on batch-run and task-run responses. Callers should send it when they create runs instead of forcing consumers to parse raw JSON ad hoc.
 
-### Agent Task Service Auth
+### Executor and Attempt Auth
 
-Do not use user-session cookies for backend-owned task subprocesses.
+The Control Plane never launches Task subprocesses. Keep the three credential
+classes separate:
 
-- Browser and dashboard auth should stay session-based.
-- Backend-launched jobs should use short-lived service bearer tokens.
-- For agent-task tracing, the backend runner passes `APO_AUTH_TOKEN` into the subprocess env.
-- The SDK trace client uses that token for:
-  - `POST /api/v1/ingestion`
-  - `PATCH /v1/runs/{id}`
+- browser/dashboard requests use user sessions;
+- an Executor uses a long-lived hashed credential only for heartbeat and claim;
+- a Task child uses a short-lived Attempt JWT for its current Run, Bundle,
+  Trace, Artifacts, heartbeat, and finalization.
 
-If you add new backend-owned workers or subprocesses, follow the same rule:
-
-- mint a scoped short-lived token in the backend
-- pass it through env or an equivalent internal channel
-- validate it narrowly on the backend routes it is allowed to call
+Every Attempt route must validate the JWT identity, permission, live status,
+lease owner, expiry, and generation against the database. JWT expiry alone is
+not a sufficient fence. The child environment must exclude the Executor
+credential, enrollment token, `AUTH_SECRET`, database/source/storage
+credentials, and every non-allow-listed provider variable.
 
 ### Example Agent Task Layout
 
@@ -172,6 +171,17 @@ The CLI should be able to drive the same project-scoped agent-task model as the 
 - When `--project` is present, `apo task list`, `apo task show`, `apo task run`, `apo task files`, and `apo task read` should prefer the project-scoped backend APIs over ad hoc local discovery.
 
 This keeps agents, dashboard users, and backend execution on the same source-of-truth task inventory.
+
+### Execution placement
+
+- Dashboard and schedule entry points submit durable pooled work. They never
+  call the Task runner directly.
+- Explicit Pool wins; otherwise resolve the Project default. A missing,
+  disabled, archived, or cross-Project Pool is an error, never a fallback.
+- A schedule persists its exact Pool ID and queue TTL. Changing the Project
+  default does not retarget it.
+- Caller CLI execution attests local source identity and records through the
+  same Attempt protocol. `--no-record` is the only intentional unrecorded path.
 
 ### Dashboard Information Architecture
 
@@ -369,7 +379,11 @@ function buildHierarchy(items: Item[]): Item[] {
 
 ### Agent Task Runtime Bundle (SPEC-125)
 
-The backend executes agent tasks by spawning `node /app/agent-task-runtime/runner.mjs`. In local dev that path is a fallback to the repo's `tsx` binary against the live TypeScript entrypoint (`packages/sdk/src/agent-task/runner-entry.ts`); in the container image it is the packaged ESM bundle produced by `packages/sdk/scripts/build-agent-task-runtime.mjs`.
+The Executor runs agent tasks by spawning
+`node /app/agent-task-runtime/runner.mjs`. The backend image and Bundled
+Executor currently share an image, but only the Executor process invokes the
+runtime. In local development the packaged path falls back to the repo's
+`tsx` binary against `packages/sdk/src/agent-task/runner-entry.ts`.
 
 When you change anything under `packages/sdk/src/agent-task/`, rebuild the bundle so the runtime matches the source:
 

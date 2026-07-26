@@ -3,7 +3,10 @@ title: Alpha Topology
 description: The single-node self-hosted topology supported for alpha.
 ---
 
-The agent-testing platform has exactly **one supported self-host topology for alpha**: a single node that colocates web, scheduler, and execution. This is intentional: it is cheap, observable, and supportable. Horizontal scaling is a non-goal for alpha.
+The agent-testing platform has exactly **one supported self-host topology for alpha**:
+one node with separate frontend, Control Plane, and Bundled Executor processes.
+The split keeps Task code and provider secrets out of the API process without
+adding a queue broker.
 
 ## Supported shape
 
@@ -18,19 +21,18 @@ The agent-testing platform has exactly **one supported self-host topology for al
         │  One host (VM or bare metal)              │
         │                                           │
         │  ┌─────────────┐    ┌──────────────────┐  │
-        │  │  frontend   │◀──▶│     backend      │  │
-        │  │  dashboard  │    │  (FastAPI +      │  │
-        │  │  container  │    │   scheduler +    │  │
-        │  └─────────────┘    │   task runtime)  │  │
-        │                     └────────┬─────────┘  │
-        │                              │            │
-        │             ┌────────────────┼─────────┐  │
-        │             ▼                ▼         ▼  │
-        │      ┌────────────┐  ┌────────────┐ ┌───┐ │
-        │      │ SQLite     │  │ task-source│ │ … │ │
-        │      │ default or │  │ cache vol  │ │   │ │
-        │      │ Postgres   │  │            │ │   │ │
-        │      └────────────┘  └────────────┘ └───┘ │
+        │  │  frontend   │◀──▶│ Control Plane    │  │
+        │  │  dashboard  │    │ API + scheduler  │  │
+        │  └─────────────┘    └────────┬─────────┘  │
+        │                              │ HTTP pull   │
+        │                     ┌────────▼─────────┐  │
+        │                     │ Bundled Executor │  │
+        │                     │ Task subprocess │  │
+        │                     └──────────────────┘  │
+        │  ┌────────────┐  ┌─────────────────────┐ │
+        │  │ SQLite or  │  │ persistent source, │ │
+        │  │ Postgres   │  │ artifact + state   │ │
+        │  └────────────┘  └─────────────────────┘ │
         └───────────────────────────────────────────┘
 ```
 
@@ -38,14 +40,15 @@ The agent-testing platform has exactly **one supported self-host topology for al
 |-----------|-----------|
 | Reverse proxy | TLS termination and one public ingress. The Server Profile includes Caddy. |
 | Frontend dashboard (Next.js) | One container, one replica. |
-| Backend (FastAPI) | One container, **one replica**. Owns API, scheduler, task execution. |
+| Control Plane (FastAPI) | One container, **one replica**. Owns Projects, schedules, durable queue/leases, Runs, and authorization. It never executes Task code. |
+| Bundled Executor | One private container by default. Pulls work outbound from the Control Plane and runs trusted-team Task subprocesses. |
 | Database | SQLite is the supported default. Postgres is an explicit opt-in for longer-lived shared installations or heavier concurrent writes. |
 | Persistent volumes | Database data + task-source cache must survive container restarts. |
 
 ## What is explicitly unsupported in alpha
 
 - Two or more backend replicas (the in-memory rate limiter and SSE broadcaster require a single process; multi-replica needs Redis, which is out of scope).
-- Stateless / horizontally scaled task execution.
+- Stateless / horizontally scaled managed execution.
 - Kubernetes manifests and multi-region deploys.
 - Queue brokers (Redis, RabbitMQ, SQS, etc).
 
@@ -86,18 +89,33 @@ This is the canonical alpha deploy path. It assumes Docker and Docker Compose on
    docker compose up -d --build
    ```
 
-   SQLite data is persisted in the `apo_db` Docker volume. Use the
+   Expect `frontend`, `backend`, and `executor`. The backend creates one
+   Bundled Pool per writable Project and enrolls the installation Executor
+   through a one-time bootstrap file shared only by those two containers.
+
+   SQLite data is persisted in the `apo_db` Docker volume. Executor identity
+   is persisted separately in `apo_executor_state`. Use the
    [Postgres profile](/self-hosting/configuration/#choose-a-database) when you
    want Postgres; it is not required to try apo or run a small alpha team.
 
-3. **Wait for readiness**: the backend healthcheck uses `/health/ready`, which verifies the database, task-source cache, and auth secret are actually usable.
+3. **Wait for readiness**: the backend healthcheck verifies Control Plane
+   prerequisites. Executor availability is visible under **Settings →
+   Executors** but does not make the API unready.
 
    ```bash
    curl -fsS http://localhost:8000/health/ready | jq
    ```
 
-   Expect `{"ok": true, "checks": {...}}`. A 503 with a `checks` payload tells you exactly which prerequisite failed.
+   Expect `{"ok": true, "checks": {...}}`. Then open **Settings → Executors**
+   and confirm the Bundled Pool reports `online`.
 
 4. **Create the first admin user.** Either visit the dashboard and walk the account-creation flow, or (for headless first boot only) set `INIT_USER_EMAIL` / `INIT_USER_PASSWORD` / `INIT_USER_NAME` env vars on the backend. The bootstrap runs once (idempotent: no-op when any users exist).
 
 After the first user exists, all further onboarding goes through normal account creation + project invite. See [Configuration](/self-hosting/configuration/) for env vars and email delivery.
+
+:::caution[Trusted process boundary]
+The Bundled Executor separates customer Task code from FastAPI, but its
+subprocess driver is not a hostile multi-tenant sandbox. Use it for trusted
+self-hosted teams. Use a Connected Pool in the customer environment when
+credentials or network access must stay outside the Apo host.
+:::

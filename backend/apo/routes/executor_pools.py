@@ -10,16 +10,20 @@ Pools; ``bundled``/``managed`` are provider-only.
 
 from __future__ import annotations
 
+import os
 import re
-from datetime import datetime, timedelta, timezone
 from collections.abc import Sequence
+from datetime import datetime, timedelta, timezone
+from importlib.metadata import PackageNotFoundError, version
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
+from apo.auth.rate_limit import LoginRateLimiter
 from apo.db import get_session
-from apo.db_helpers import _as_column
+from apo.db_helpers import as_column
 from apo.models.db import (
     AgentTaskScheduleDB,
     ExecutorDB,
@@ -27,16 +31,23 @@ from apo.models.db import (
     ExecutorPoolDB,
     ProjectDB,
     TaskExecutionAttemptDB,
+    UserDB,
 )
+from apo.models.execution import EXECUTOR_PROTOCOL_VERSION
 from apo.services.execution_pools import PoolError, set_default_pool
 from apo.services.executor_auth import generate_enrollment_token
 from apo.services.project_memberships import enforce_project_role_from_request
+from apo.services.runtime_config import get_runtime_config
 
 router = APIRouter(prefix="/v1", tags=["executor-pools"])
 
 _EXECUTOR_OFFLINE_THRESHOLD_SECONDS = 60
 _MAX_LIVE_ENROLLMENT_TOKENS = 5
+_MIN_QUEUE_TTL_SECONDS = 60
+_MAX_QUEUE_TTL_SECONDS = 30 * 24 * 60 * 60
+_SUPPORTED_DRIVER_KINDS = frozenset({"subprocess"})
 _SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+_token_creation_rate_limiter = LoginRateLimiter(max_attempts=20, window_seconds=60)
 
 
 class PoolSummary(BaseModel):
@@ -50,6 +61,8 @@ class PoolSummary(BaseModel):
     health: str  # online | busy | offline | disabled | incompatible
     online_executor_count: int
     available_capacity: int
+    queue_ttl_seconds: int
+    required_driver_kind: str
 
 
 class PoolListResponse(BaseModel):
@@ -73,11 +86,19 @@ async def list_executor_pools(
     ).all()
     summaries: list[PoolSummary] = []
     for pool in pools:
+        executor_scope = (
+            or_(
+                as_column(ExecutorDB.executor_pool_id) == pool.id,
+                as_column(ExecutorDB.scope_kind) == "installation",
+            )
+            if pool.kind == "bundled"
+            else as_column(ExecutorDB.executor_pool_id) == pool.id
+        )
         executors = session.exec(
             select(ExecutorDB).where(
-                ExecutorDB.executor_pool_id == pool.id,
-                _as_column(ExecutorDB.enabled).is_(True),
-                _as_column(ExecutorDB.revoked_at).is_(None),
+                executor_scope,
+                as_column(ExecutorDB.enabled).is_(True),
+                as_column(ExecutorDB.revoked_at).is_(None),
             )
         ).all()
         now = datetime.now(timezone.utc)
@@ -85,6 +106,16 @@ async def list_executor_pools(
             e for e in executors
             if e.last_seen_at is not None and (now - e.last_seen_at) <= timedelta(seconds=_EXECUTOR_OFFLINE_THRESHOLD_SECONDS)
         ]
+        compatible = [
+            executor
+            for executor in online
+            if executor.protocol_version == EXECUTOR_PROTOCOL_VERSION
+            and pool.required_driver_kind in (executor.driver_kinds_json or [])
+        ]
+        available_capacity = sum(
+            max(executor.max_concurrency - _active_attempt_count(session, executor.id), 0)
+            for executor in compatible
+        )
         summaries.append(PoolSummary(
             id=pool.id,
             name=pool.name,
@@ -93,9 +124,16 @@ async def list_executor_pools(
             enabled=pool.enabled,
             archived=pool.archived_at is not None,
             is_default=_project_default_id(session, project_id) == pool.id,
-            health=_derive_health(pool, online),
+            health=_derive_health(
+                pool,
+                online=online,
+                compatible=compatible,
+                available_capacity=available_capacity,
+            ),
             online_executor_count=len(online),
-            available_capacity=sum(e.max_concurrency for e in online),
+            available_capacity=available_capacity,
+            queue_ttl_seconds=pool.queue_ttl_seconds,
+            required_driver_kind=pool.required_driver_kind,
         ))
     return PoolListResponse(pools=summaries)
 
@@ -123,21 +161,42 @@ def _project_default_id(session: Session, project_id: str) -> str | None:
     return project.default_executor_pool_id if project is not None else None
 
 
-def _derive_health(pool: ExecutorPoolDB, online: Sequence[ExecutorDB]) -> str:
+def _derive_health(
+    pool: ExecutorPoolDB,
+    *,
+    online: Sequence[ExecutorDB],
+    compatible: Sequence[ExecutorDB],
+    available_capacity: int,
+) -> str:
     if pool.archived_at is not None:
         return "disabled"
     if not pool.enabled:
         return "disabled"
     if not online:
         return "offline"
+    if not compatible:
+        return "incompatible"
+    if available_capacity <= 0:
+        return "busy"
     return "online"
 
 
-def _executor_status(ex: ExecutorDB, *, active_count: int) -> str:
+def _executor_status(
+    ex: ExecutorDB,
+    *,
+    pool: ExecutorPoolDB | None,
+    active_count: int,
+) -> str:
     if ex.revoked_at is not None or not ex.enabled:
         return "disabled"
     if ex.last_seen_at is None or (datetime.now(timezone.utc) - ex.last_seen_at) > timedelta(seconds=_EXECUTOR_OFFLINE_THRESHOLD_SECONDS):
         return "offline"
+    if (
+        ex.protocol_version != EXECUTOR_PROTOCOL_VERSION
+        or pool is None
+        or pool.required_driver_kind not in (ex.driver_kinds_json or [])
+    ):
+        return "incompatible"
     if active_count >= ex.max_concurrency:
         return "busy"
     return "online"
@@ -147,7 +206,7 @@ def _active_attempt_count(session: Session, executor_id: str) -> int:
     return len(session.exec(
         select(TaskExecutionAttemptDB).where(
             TaskExecutionAttemptDB.executor_id == executor_id,
-            _as_column(TaskExecutionAttemptDB.status).in_(["leased", "running"]),
+            as_column(TaskExecutionAttemptDB.status).in_(["leased", "running"]),
         )
     ).all())
 
@@ -182,9 +241,13 @@ async def create_executor_pool_route(
     """Create a Connected Pool. Users cannot create bundled/managed kinds."""
     _ = enforce_project_role_from_request(request, session, project_id, minimum_role="admin")
     if body.kind != "connected":
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "user APIs can only create 'connected' pools")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "user APIs can only create 'connected' pools")
+    if not body.name.strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "name is required")
+    _validate_queue_ttl(body.queue_ttl_seconds)
+    _validate_driver_kind(body.required_driver_kind)
     if not _SLUG_RE.match(body.slug) or not (1 <= len(body.slug) <= 63):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "slug must be 1-63 lowercase ASCII letters/numbers/hyphens")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "slug must be 1-63 lowercase ASCII letters/numbers/hyphens")
     existing = session.exec(
         select(ExecutorPoolDB).where(ExecutorPoolDB.project == project_id, ExecutorPoolDB.slug == body.slug)
     ).first()
@@ -192,7 +255,7 @@ async def create_executor_pool_route(
         raise HTTPException(status.HTTP_409_CONFLICT, "a pool with this slug already exists")
     now = datetime.now(timezone.utc)
     pool = ExecutorPoolDB(
-        project=project_id, name=body.name, slug=body.slug, kind="connected",
+        project=project_id, name=body.name.strip(), slug=body.slug, kind="connected",
         enabled=True, queue_ttl_seconds=body.queue_ttl_seconds,
         required_driver_kind=body.required_driver_kind, created_at=now, updated_at=now,
     )
@@ -212,18 +275,24 @@ async def patch_executor_pool(
 ) -> dict[str, object]:
     _ = enforce_project_role_from_request(request, session, project_id, minimum_role="admin")
     pool = _require_project_pool(session, project_id, pool_id)
+    if pool.archived_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "archived pools cannot be modified")
     if body.name is not None:
-        pool.name = body.name
+        if not body.name.strip():
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "name is required")
+        pool.name = body.name.strip()
     if body.enabled is not None:
         pool.enabled = body.enabled
     if body.queue_ttl_seconds is not None:
+        _validate_queue_ttl(body.queue_ttl_seconds)
         pool.queue_ttl_seconds = body.queue_ttl_seconds
     if body.required_driver_kind is not None:
+        _validate_driver_kind(body.required_driver_kind)
         # Only when no nonterminal attempt exists.
         active = session.exec(
             select(TaskExecutionAttemptDB).where(
                 TaskExecutionAttemptDB.executor_pool_id == pool_id,
-                _as_column(TaskExecutionAttemptDB.status).in_(["queued", "leased", "running"]),
+                as_column(TaskExecutionAttemptDB.status).in_(["queued", "leased", "running"]),
             )
         ).first()
         if active is not None:
@@ -246,10 +315,12 @@ async def archive_executor_pool(
     """Soft-archive a Pool: require no active Attempt, clear default, disable schedules."""
     _ = enforce_project_role_from_request(request, session, project_id, minimum_role="owner")
     pool = _require_project_pool(session, project_id, pool_id)
+    if pool.archived_at is not None:
+        return {"ok": True, "archived": pool_id}
     active = session.exec(
         select(TaskExecutionAttemptDB).where(
             TaskExecutionAttemptDB.executor_pool_id == pool_id,
-            _as_column(TaskExecutionAttemptDB.status).in_(["leased", "running"]),
+            as_column(TaskExecutionAttemptDB.status).in_(["leased", "running"]),
         )
     ).first()
     if active is not None:
@@ -267,6 +338,7 @@ async def archive_executor_pool(
         select(AgentTaskScheduleDB).where(AgentTaskScheduleDB.executor_pool_id == pool_id)
     ).all()
     for s in schedules:
+        s.enabled = False
         s.disabled_reason = "executor_pool_archived"
         session.add(s)
     session.commit()
@@ -296,22 +368,37 @@ async def create_enrollment_token_route(
     request: Request,
     session: Session = Depends(get_session),
 ) -> EnrollmentTokenResponse:
-    _ = enforce_project_role_from_request(request, session, project_id, minimum_role="admin")
+    actor = enforce_project_role_from_request(
+        request,
+        session,
+        project_id,
+        minimum_role="admin",
+    )
+    rate_limit_key = f"{project_id}:{actor.user_id}"
+    _enforce_rate_limit(_token_creation_rate_limiter, rate_limit_key)
     pool = _require_project_pool(session, project_id, pool_id)
     if pool.archived_at is not None or not pool.enabled:
         raise HTTPException(status.HTTP_409_CONFLICT, "cannot enroll into an archived/disabled pool")
     live = session.exec(
         select(ExecutorEnrollmentTokenDB).where(
             ExecutorEnrollmentTokenDB.executor_pool_id == pool_id,
-            _as_column(ExecutorEnrollmentTokenDB.used_at).is_(None),
-            _as_column(ExecutorEnrollmentTokenDB.revoked_at).is_(None),
+            as_column(ExecutorEnrollmentTokenDB.used_at).is_(None),
+            as_column(ExecutorEnrollmentTokenDB.revoked_at).is_(None),
             ExecutorEnrollmentTokenDB.expires_at > datetime.now(timezone.utc),
         )
     ).all()
     if len(live) >= _MAX_LIVE_ENROLLMENT_TOKENS:
         raise HTTPException(status.HTTP_409_CONFLICT, f"at most {_MAX_LIVE_ENROLLMENT_TOKENS} live enrollment tokens per pool")
     raw_token, row = generate_enrollment_token(
-        session, scope_kind="pool", project_id=project_id, pool_id=pool_id,
+        session,
+        scope_kind="pool",
+        project_id=project_id,
+        pool_id=pool_id,
+        created_by_user_id=(
+            actor.user_id
+            if session.get(UserDB, actor.user_id) is not None
+            else None
+        ),
     )
     return EnrollmentTokenResponse(
         token=raw_token,
@@ -321,8 +408,18 @@ async def create_enrollment_token_route(
 
 
 def _container_config(token: str, pool: ExecutorPoolDB) -> dict[str, object]:
-    image = "ghcr.io/samikuikka/apo-backend:latest"
-    control_url = "https://apo.example"  # SPEC-147: derived from runtime config in production
+    try:
+        package_version = version("apo-backend")
+    except PackageNotFoundError:
+        package_version = "0.2.0"
+    image = os.environ.get(
+        "APO_EXECUTOR_IMAGE",
+        f"ghcr.io/samikuikka/apo-backend:{package_version}",
+    )
+    control_url = os.environ.get("APO_EXECUTOR_CONTROL_PLANE_URL", "").strip()
+    if not control_url:
+        public_url = get_runtime_config().public_url.rstrip("/")
+        control_url = f"{public_url}/backend-proxy"
     return {
         "image": image,
         "command": ["python", "-m", "apo.executor", "connect"],
@@ -370,10 +467,20 @@ async def list_executors(
     executors = session.exec(
         select(ExecutorDB).where(ExecutorDB.project == project_id)
     ).all()
+    pools_by_id = {
+        pool.id: pool
+        for pool in session.exec(
+            select(ExecutorPoolDB).where(ExecutorPoolDB.project == project_id)
+        ).all()
+    }
     summaries = [
         ExecutorSummaryResponse(
             id=ex.id, pool_id=ex.executor_pool_id or "", name=ex.name,
-            status=_executor_status(ex, active_count=_active_attempt_count(session, ex.id)),
+            status=_executor_status(
+                ex,
+                pool=pools_by_id.get(ex.executor_pool_id or ""),
+                active_count=_active_attempt_count(session, ex.id),
+            ),
             executor_version=ex.executor_version, protocol_version=ex.protocol_version,
             driver_kinds=ex.driver_kinds_json or [], os=str((ex.capabilities_json or {}).get("os", "")),
             architecture=str((ex.capabilities_json or {}).get("architecture", "")),
@@ -409,7 +516,7 @@ async def revoke_executor_route(
     attempts = session.exec(
         select(TaskExecutionAttemptDB).where(
             TaskExecutionAttemptDB.executor_id == executor_id,
-            _as_column(TaskExecutionAttemptDB.status).in_(["leased", "running"]),
+            as_column(TaskExecutionAttemptDB.status).in_(["leased", "running"]),
         )
     ).all()
     now = datetime.now(timezone.utc)
@@ -444,7 +551,10 @@ async def rename_executor_route(
     ex = session.get(ExecutorDB, executor_id)
     if ex is None or ex.project != project_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "executor not found")
-    ex.name = body.name
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "name is required")
+    ex.name = name
     ex.updated_at = datetime.now(timezone.utc)
     session.add(ex)
     session.commit()
@@ -462,21 +572,80 @@ def _require_project_pool(session: Session, project_id: str, pool_id: str) -> Ex
     return pool
 
 
+def _validate_queue_ttl(queue_ttl_seconds: int) -> None:
+    if not _MIN_QUEUE_TTL_SECONDS <= queue_ttl_seconds <= _MAX_QUEUE_TTL_SECONDS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            (
+                "queue_ttl_seconds must be between "
+                f"{_MIN_QUEUE_TTL_SECONDS} and {_MAX_QUEUE_TTL_SECONDS}"
+            ),
+        )
+
+
+def _validate_driver_kind(driver_kind: str) -> None:
+    if driver_kind not in _SUPPORTED_DRIVER_KINDS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "required_driver_kind must be 'subprocess'",
+        )
+
+
+def _enforce_rate_limit(limiter: LoginRateLimiter, key: str) -> None:
+    if not limiter.is_allowed(key):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "too many enrollment token requests",
+            headers={"Retry-After": str(limiter.get_retry_after(key))},
+        )
+    limiter.record_attempt(key)
+
+
 def _pool_detail(session: Session, project_id: str, pool: ExecutorPoolDB) -> dict[str, object]:
-    online = session.exec(
+    executor_scope = (
+        or_(
+            as_column(ExecutorDB.executor_pool_id) == pool.id,
+            as_column(ExecutorDB.scope_kind) == "installation",
+        )
+        if pool.kind == "bundled"
+        else as_column(ExecutorDB.executor_pool_id) == pool.id
+    )
+    executors = session.exec(
         select(ExecutorDB).where(
-            ExecutorDB.executor_pool_id == pool.id,
-            _as_column(ExecutorDB.enabled).is_(True),
-            _as_column(ExecutorDB.revoked_at).is_(None),
+            executor_scope,
+            as_column(ExecutorDB.enabled).is_(True),
+            as_column(ExecutorDB.revoked_at).is_(None),
         )
     ).all()
+    now = datetime.now(timezone.utc)
+    online = [
+        executor
+        for executor in executors
+        if executor.last_seen_at is not None
+        and now - executor.last_seen_at <= timedelta(seconds=_EXECUTOR_OFFLINE_THRESHOLD_SECONDS)
+    ]
+    compatible = [
+        executor
+        for executor in online
+        if executor.protocol_version == EXECUTOR_PROTOCOL_VERSION
+        and pool.required_driver_kind in (executor.driver_kinds_json or [])
+    ]
+    available_capacity = sum(
+        max(executor.max_concurrency - _active_attempt_count(session, executor.id), 0)
+        for executor in compatible
+    )
     return {
         "id": pool.id, "project": pool.project, "name": pool.name, "slug": pool.slug,
         "kind": pool.kind, "enabled": pool.enabled, "archived": pool.archived_at is not None,
         "is_default": _project_default_id(session, project_id) == pool.id,
-        "health": _derive_health(pool, online),
-        "online_executors": len(online),
-        "available_slots": sum(e.max_concurrency for e in online),
+        "health": _derive_health(
+            pool,
+            online=online,
+            compatible=compatible,
+            available_capacity=available_capacity,
+        ),
+        "online_executor_count": len(online),
+        "available_capacity": available_capacity,
         "queue_ttl_seconds": pool.queue_ttl_seconds,
         "required_driver_kind": pool.required_driver_kind,
     }

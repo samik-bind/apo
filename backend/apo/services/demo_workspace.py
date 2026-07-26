@@ -9,6 +9,7 @@ deterministic seeding, no fake walkthrough mode.
 """
 
 import os
+import asyncio
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
@@ -24,7 +25,6 @@ from ..models.db import (
     RunDB,
     RunMetricDB,
 )
-from .agent_task_runner import create_batch_run
 from .agent_task_scheduler import compute_next_run_at
 
 DEMO_PROJECT_ID = "demo"
@@ -230,25 +230,46 @@ def seed_demo_workspace(force: bool = False) -> str | None:
         from .project_task_sources import ensure_demo_task_source
 
         ensure_demo_task_source(session)
+        from .bundled_executor import (
+            bundled_executor_enabled,
+            ensure_bundled_pool,
+        )
+        from .execution_queue import create_pooled_batch_run
+        from .project_task_sources import get_task_source_db
+
+        if not bundled_executor_enabled():
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Demo authoring requires the Bundled Executor. Set "
+                    "APO_BUNDLED_EXECUTOR_ENABLED=true."
+                ),
+            )
+        pool = ensure_bundled_pool(session, project_id=DEMO_PROJECT_ID)
+        task_source = get_task_source_db(session, DEMO_PROJECT_ID)
 
         now = datetime.now(timezone.utc)
 
-        batch = create_batch_run(
-            session,
-            project=DEMO_PROJECT_ID,
-            selection_type="all",
-            task_paths=None,
-            task_root=DEMO_TASK_ROOT,
-            grep=None,
-            environment="demo",
-            run_metadata={
-                "trigger": {
-                    "source": "demo-seed",
-                    "actor": "system",
-                    "entrypoint": "seed_demo_workspace",
-                    "initiated_at": now.isoformat(),
-                }
-            },
+        batch = asyncio.run(
+            create_pooled_batch_run(
+                session,
+                project_id=DEMO_PROJECT_ID,
+                pool_id=pool.id,
+                selection_type="all",
+                task_paths=None,
+                task_root=DEMO_TASK_ROOT,
+                grep=None,
+                environment="demo",
+                run_metadata={
+                    "trigger": {
+                        "source": "demo-seed",
+                        "actor": "system",
+                        "entrypoint": "seed_demo_workspace",
+                        "initiated_at": now.isoformat(),
+                    }
+                },
+                task_source=task_source,
+            )
         )
 
         schedules = [
@@ -268,6 +289,7 @@ def seed_demo_workspace(force: bool = False) -> str | None:
                 # demo shows the pre-seeded runs as examples; it does not
                 # generate new runs on a schedule.
                 enabled=False,
+                executor_pool_id=pool.id,
                 last_triggered_at=now,
                 last_batch_run_id=batch.id,
                 next_run_at=compute_next_run_at(
@@ -292,6 +314,7 @@ def seed_demo_workspace(force: bool = False) -> str | None:
                 minute=0,
                 day_of_week=1,
                 enabled=False,
+                executor_pool_id=pool.id,
                 last_triggered_at=now,
                 next_run_at=compute_next_run_at(
                     cadence_type="weekly",
@@ -316,6 +339,7 @@ def seed_demo_workspace(force: bool = False) -> str | None:
                 minute=0,
                 day_of_month=1,
                 enabled=False,
+                executor_pool_id=pool.id,
                 last_triggered_at=now,
                 next_run_at=compute_next_run_at(
                     cadence_type="monthly",

@@ -3,6 +3,7 @@ import {
   listProjectAgentTasks,
 } from "@/lib/agent-task-api";
 import { getProject } from "@/lib/projects-api";
+import { listExecutorPools } from "@/lib/executor-api";
 import { DEMO_PROJECT } from "@/lib/project-router";
 import { AgentTasksClient } from "./tasks-client";
 
@@ -23,6 +24,8 @@ export default async function AgentTasksPage({
   let tasks: Awaited<ReturnType<typeof listAgentTasks>> = [];
   let error: string | null = null;
   let taskSource = null;
+  let executorPools: Awaited<ReturnType<typeof listExecutorPools>> = [];
+  let executorPoolsError: string | null = null;
 
     try {
       // Fetch the project so we can branch on task source presence.
@@ -52,6 +55,13 @@ export default async function AgentTasksPage({
     } else if (isDemo) {
       tasks = await listAgentTasks(TASK_ROOT, undefined, projectId);
     }
+
+    try {
+      executorPools = await listExecutorPools(projectId);
+    } catch (e: unknown) {
+      executorPoolsError =
+        e instanceof Error ? e.message : "Failed to load executor pools";
+    }
     // else: non-demo + no source → leave tasks empty so the setup card
     // renders instead of leaking example-service tasks.
   } catch (e: unknown) {
@@ -64,6 +74,8 @@ export default async function AgentTasksPage({
       error={error}
       taskSource={taskSource}
       isDemo={isDemo}
+      executorPools={executorPools}
+      executorPoolsError={executorPoolsError}
     />
   );
 }

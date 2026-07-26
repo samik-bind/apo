@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false
+# pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportPrivateUsage=false
 
 """SPEC-143: executor_auth — enrollment tokens, credentials, and Attempt JWTs.
 
@@ -11,9 +11,6 @@ only a hash/prefix persists; they never appear in logs.
 from __future__ import annotations
 
 import hashlib
-import logging
-import os
-import secrets
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -22,7 +19,6 @@ from apo.models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
     ExecutorDB,
-    ExecutorEnrollmentTokenDB,
     ExecutorPoolDB,
     ProjectDB,
     TaskExecutionAttemptDB,
@@ -31,6 +27,7 @@ from apo.models.db import (
 from apo.services.executor_auth import (
     ATTEMPT_JWT_TYPE,
     CredentialHashError,
+    EnrollmentError,
     create_attempt_jwt,
     decode_attempt_jwt,
     exchange_enrollment_token,
@@ -89,7 +86,7 @@ def test_credential_hash_rejects_unprefixed_raw() -> None:
 # ── enrollment token ──────────────────────────────────────────────────────
 
 
-def test_enrollment_token_generation_persists_only_hash(monkeypatch: pytest.MonkeyPatch, session: Session) -> None:
+def test_enrollment_token_generation_persists_only_hash(session: Session) -> None:
     _seed_project(session)
     raw_token, row = generate_enrollment_token(
         session, scope_kind="pool", project_id="proj-auth", pool_id="pool-1",
@@ -150,6 +147,52 @@ def test_enrollment_exchange_rejects_revoked_token(session: Session) -> None:
         exchange_enrollment_token(
             session, raw_token=raw_token, name="x", capabilities=_capabilities(),
         )
+
+
+@pytest.mark.parametrize(
+    ("name", "capabilities", "expected_kind"),
+    [
+        (" ", _capabilities(), "capability_invalid"),
+        (
+            "executor",
+            _capabilities().model_copy(update={"protocol_version": 99}),
+            "protocol_mismatch",
+        ),
+        (
+            "executor",
+            _capabilities().model_copy(update={"driver_kinds": ["docker"]}),
+            "capability_invalid",
+        ),
+        (
+            "executor",
+            _capabilities().model_copy(update={"max_concurrency": 0}),
+            "capability_invalid",
+        ),
+    ],
+)
+def test_invalid_enrollment_request_does_not_consume_token(
+    session: Session,
+    name: str,
+    capabilities: ExecutorCapabilities,
+    expected_kind: str,
+) -> None:
+    _seed_project(session)
+    raw_token, token = generate_enrollment_token(
+        session,
+        scope_kind="pool",
+        project_id="proj-auth",
+        pool_id="pool-1",
+    )
+    with pytest.raises(EnrollmentError) as caught:
+        exchange_enrollment_token(
+            session,
+            raw_token=raw_token,
+            name=name,
+            capabilities=capabilities,
+        )
+    assert caught.value.kind == expected_kind
+    session.refresh(token)
+    assert token.used_at is None
 
 
 # ── credential resolution ─────────────────────────────────────────────────
@@ -239,7 +282,7 @@ def test_attempt_jwt_round_trips_claims(session: Session) -> None:
     assert claims["lease_generation"] == 3
 
 
-def test_decode_attempt_jwt_rejects_wrong_type(session: Session) -> None:
+def test_decode_attempt_jwt_rejects_wrong_type() -> None:
     from apo.auth.service_tokens import create_agent_task_trace_token
 
     wrong = create_agent_task_trace_token(task_run_id="r1", project="proj-auth")

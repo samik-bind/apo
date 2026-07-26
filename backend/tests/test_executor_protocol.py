@@ -9,9 +9,11 @@ rollup. Plus the cross-attempt authorization invariant.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
 import pytest
+from apo.routes import executor_protocol
 from apo.models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
@@ -24,6 +26,7 @@ from apo.models.db import (
 from apo.models.execution import ExecutorCapabilities, ProjectActor
 from apo.services import executor_auth
 from apo.services.execution_pools import create_executor_pool
+from apo.services.execution_leases import CurrentAttemptLease
 from sqlmodel import Session
 
 
@@ -58,6 +61,10 @@ def _seed_queued_attempt(session: Session, *, pool_id: str) -> TaskExecutionAtte
         id="revpx", project="proj-px", batch_run_id="bpx", materialization="bundled",
         source_type="filesystem", content_sha256="c" * 64, file_count=1,
         uncompressed_size_bytes=1, manifest_summary_json={"fileCount": 1},
+        bundle_storage_backend="local",
+        bundle_storage_key="bnd-protocol-test",
+        bundle_sha256="d" * 64,
+        bundle_size_bytes=1,
         created_at=datetime.now(timezone.utc),
     ))
     session.flush()
@@ -230,6 +237,37 @@ def test_empty_claim_returns_retry_after(
     assert r.headers.get("retry-after") == "2"
 
 
+def test_reusing_enrollment_token_returns_token_used(
+    client: "object",
+    session: Session,
+) -> None:
+    user_id = _seed_owner_project(session)
+    pool = create_executor_pool(
+        session,
+        project_id="proj-px",
+        actor=ProjectActor("proj-px", user_id, "owner"),
+        name="Single Use",
+        kind="connected",
+    )
+    raw_token, _ = executor_auth.generate_enrollment_token(
+        session,
+        scope_kind="pool",
+        project_id="proj-px",
+        pool_id=pool.id,
+        created_by_user_id=user_id,
+    )
+    body = {
+        "token": raw_token,
+        "name": "executor",
+        "capabilities": _capabilities().model_dump(),
+    }
+    first = client.post("/v1/executor-protocol/v1/enroll", json=body)
+    second = client.post("/v1/executor-protocol/v1/enroll", json=body)
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert second.json()["detail"]["kind"] == "token_used"
+
+
 def test_result_requires_start_boundary(
     client: "object", session: Session, auth_secret: str
 ) -> None:
@@ -268,3 +306,49 @@ def test_result_requires_start_boundary(
         headers={"Authorization": f"Bearer {claim['attempt_jwt']}"},
     )
     assert response.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_bundle_download_streams_claimed_revision(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = _seed_owner_project(session)
+    pool = create_executor_pool(
+        session,
+        project_id="proj-px",
+        actor=ProjectActor("proj-px", user_id, "owner"),
+        name="Bundle Pool",
+        kind="connected",
+    )
+    attempt = _seed_queued_attempt(session, pool_id=pool.id)
+    attempt.status = "leased"
+    attempt.lease_generation = 1
+    session.add(attempt)
+    session.commit()
+    payload = b"x"
+
+    class _Store:
+        async def stat(self, key: str) -> object:
+            assert key == "bnd-protocol-test"
+            return object()
+
+        async def open(self, key: str) -> AsyncIterator[bytes]:
+            assert key == "bnd-protocol-test"
+            yield payload
+
+    monkeypatch.setattr(executor_protocol, "get_store", lambda _: _Store())
+    response = await executor_protocol.download_bundle(
+        "apx",
+        lease=CurrentAttemptLease(
+            attempt_id="apx",
+            lease_generation=1,
+            executor_id="executor-1",
+        ),
+        session=session,
+    )
+    body = b"".join([chunk async for chunk in response.body_iterator])
+
+    assert body == payload
+    assert response.headers["content-length"] == "1"
+    assert response.headers["x-apo-bundle-sha256"] == "d" * 64

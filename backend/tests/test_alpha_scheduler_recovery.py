@@ -125,21 +125,8 @@ class TestNoDuplicateDispatchOnRestart:
             session, project=project.id, next_run_at=future
         )
 
-        # Stub out batch creation — we only care that dispatch did NOT happen.
-        created: list[object] = []
-
-        def fake_create(*args, **kwargs):  # type: ignore[no-untyped-def]
-            created.append((args, kwargs))
-            raise AssertionError("schedule should not have dispatched")
-
-        monkeypatch.setattr(
-            "apo.services.agent_task_scheduler.create_batch_run",
-            fake_create,
-        )
-
         fired = run_due_schedules_once()
         assert fired == 0
-        assert created == []
 
         session.refresh(schedule)
         # next_run_at stays in the future; no double-fire window.

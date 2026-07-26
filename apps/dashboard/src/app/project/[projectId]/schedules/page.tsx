@@ -4,6 +4,7 @@ import {
   listProjectAgentTasks,
 } from "@/lib/agent-task-api";
 import { getProject, type ProjectTaskSource } from "@/lib/projects-api";
+import { listExecutorPools } from "@/lib/executor-api";
 import { AgentTaskSchedulesClient } from "./schedules-client";
 
 export const dynamic = "force-dynamic";
@@ -27,13 +28,15 @@ export default async function AgentTaskSchedulesPage({
   let schedules = EMPTY_SCHEDULES;
   let error: string | null = null;
   let taskSource: ProjectTaskSource | null = null;
+  let executorPools: Awaited<ReturnType<typeof listExecutorPools>> = [];
 
   try {
-    [schedules, taskSource] = await Promise.all([
+    [schedules, taskSource, executorPools] = await Promise.all([
       listAgentTaskSchedules(projectId),
       getProject(projectId)
         .then((project) => project.task_source)
         .catch(() => null),
+      listExecutorPools(projectId),
     ]);
 
     // SPEC-118: non-demo projects must NOT inherit example-service tasks
@@ -66,6 +69,7 @@ export default async function AgentTaskSchedulesPage({
       taskRoot={TASK_ROOT}
       error={error}
       taskSource={taskSource}
+      executorPools={executorPools}
     />
   );
 }

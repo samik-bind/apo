@@ -199,6 +199,7 @@ async def materialize_pooled_task_revision(
     source_root: Path | None = None,
     store: ArtifactStore | None = None,
     limits: BundleLimits = DEFAULT_BUNDLE_LIMITS,
+    commit: bool = True,
 ) -> TaskRevisionDB:
     """Snapshot, bundle, store, and persist one immutable bundled Task Revision.
 
@@ -281,8 +282,11 @@ async def materialize_pooled_task_revision(
 
     try:
         session.add(row)
-        session.commit()
-        session.refresh(row)
+        if commit:
+            session.commit()
+            session.refresh(row)
+        else:
+            session.flush()
     except Exception:
         # We only reach here after object storage succeeded, so committed_key
         # is guaranteed set — delete the orphan object best-effort.

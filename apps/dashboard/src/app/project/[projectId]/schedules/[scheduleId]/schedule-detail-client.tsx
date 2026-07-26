@@ -22,6 +22,8 @@ import {
   updateAgentTaskSchedule,
 } from "@/lib/agent-task-api";
 import { Button } from "@/components/ui/button";
+import { ExecutorPoolSelect } from "@/components/executor-pool-select";
+import type { ExecutorPoolSummary } from "@/lib/executor-api";
 import { cn } from "@/lib/utils";
 import { taskDetailHref } from "@/lib/task-routes";
 import {
@@ -43,6 +45,7 @@ interface ScheduleDetailClientProps {
   schedule: AgentTaskScheduleDetail;
   adaptiveStates: AdaptiveTaskState[];
   taskNames: Map<string, AgentTaskSummary>;
+  executorPools: ExecutorPoolSummary[];
 }
 
 const STATUS_DOT: Record<string, string> = {
@@ -62,11 +65,13 @@ export function ScheduleDetailClient({
   schedule: initialSchedule,
   adaptiveStates,
   taskNames,
+  executorPools,
 }: ScheduleDetailClientProps) {
   const router = useRouter();
   const [schedule, setSchedule] = useState(initialSchedule);
   const [clientNow, setClientNow] = useState<number | null>(null);
   const [triggering, setTriggering] = useState(false);
+  const [poolError, setPoolError] = useState<string | null>(null);
 
   useEffect(() => {
     setClientNow(Date.now());
@@ -92,6 +97,18 @@ export function ScheduleDetailClient({
     });
     setSchedule(updated);
   }, [schedule.id, schedule.enabled]);
+
+  const handlePoolChange = useCallback(async (executorPoolId: string) => {
+    setPoolError(null);
+    try {
+      const updated = await updateAgentTaskSchedule(schedule.id, {
+        executor_pool_id: executorPoolId,
+      });
+      setSchedule(updated);
+    } catch (error: unknown) {
+      setPoolError(error instanceof Error ? error.message : "Failed to update executor pool");
+    }
+  }, [schedule.id]);
 
   const outcome = getScheduleOutcome(schedule);
   const isAdaptive = schedule.cadence_type === "adaptive";
@@ -162,6 +179,15 @@ export function ScheduleDetailClient({
             <Zap className="h-3.5 w-3.5" />
             {triggering ? "Starting…" : "Run now"}
           </Button>
+          {!readOnly && (
+            <ExecutorPoolSelect
+              id="schedule-detail-executor-pool"
+              pools={executorPools}
+              value={schedule.executor_pool_id ?? ""}
+              onValueChange={handlePoolChange}
+              compact
+            />
+          )}
           <Button
             type="button"
             variant="outline"
@@ -182,6 +208,16 @@ export function ScheduleDetailClient({
             </Button>
           )}
         </div>
+        {poolError && (
+          <p className="border-t border-border px-6 py-2 text-[12px] text-destructive">
+            {poolError}
+          </p>
+        )}
+        {schedule.disabled_reason && (
+          <p className="border-t border-border px-6 py-2 text-[12px] text-warning">
+            Schedule paused: {schedule.disabled_reason.replaceAll("_", " ")}. Choose an available pool to repair its target.
+          </p>
+        )}
       </div>
 
       {/* Body */}

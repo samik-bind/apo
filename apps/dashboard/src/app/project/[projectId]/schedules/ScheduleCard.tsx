@@ -34,6 +34,7 @@ import {
 
 interface ScheduleCardProps {
   schedule: AgentTaskScheduleSummary;
+  executorPoolName: string | null;
   clientNow: number | null;
   onToggle: (schedule: AgentTaskScheduleSummary) => void;
   onDelete: (id: string) => void;
@@ -42,6 +43,7 @@ interface ScheduleCardProps {
 
 export default function ScheduleCard({
   schedule,
+  executorPoolName,
   clientNow,
   onToggle,
   onDelete,
@@ -55,7 +57,7 @@ export default function ScheduleCard({
   const readOnly = useProjectId() === "demo";
 
   return (
-    <div className={`rounded-lg border transition-all ${
+    <div className={`border transition-all ${
       schedule.enabled ? "border-border/60" : "border-border/40 opacity-60"
     } bg-card/75`}>
       {/* Layer 1: Rule */}
@@ -85,6 +87,8 @@ export default function ScheduleCard({
                   <span>{formatCadence(schedule)}</span>
                   <span className="text-muted-foreground/40">·</span>
                   <span className="truncate">{summarizeTasks(schedule)}</span>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span>{executorPoolName ?? "Pool unavailable"}</span>
                 </div>
               </Link>
             </div>

@@ -9,6 +9,8 @@ and detail endpoints read from persisted inventory instead of doing a
 live filesystem scan on every request.
 """
 
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnusedCallResult=false
+
 from collections.abc import Sequence
 from typing import cast
 from uuid import uuid4
@@ -24,7 +26,6 @@ from ..db import get_session
 from ..models.db import (
     ProjectDB,
     ProjectTaskSourceDB,
-    RunDB,
     UserDB,
 )
 from ..models.schemas import (
@@ -54,7 +55,6 @@ from ..services.project_memberships import (
     create_owner_membership,
     get_project_membership,
     list_projects_for_user,
-    require_project_member,
     require_project_role,
 )
 from ..services.project_task_inventory import (
@@ -109,6 +109,13 @@ def create_project_for_owner(
     session.commit()
     session.refresh(project)
     _ = create_owner_membership(session, project.id, user_id)
+    from ..services.bundled_executor import (
+        bundled_executor_enabled,
+        ensure_bundled_pool,
+    )
+
+    if bundled_executor_enabled():
+        _ = ensure_bundled_pool(session, project_id=project.id)
     return project
 
 

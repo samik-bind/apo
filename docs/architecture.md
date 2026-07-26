@@ -66,25 +66,29 @@ The system has three distinct authentication modes. They should not be mixed.
    - both paths forward the user session to the backend
    - FastAPI re-validates the same session before returning protected data
 
-3. **Backend-owned service auth**
-   - used by agent-task subprocesses and other backend-launched jobs
-   - must use a short-lived bearer token or scoped API key
-   - must never reuse a browser session cookie
+3. **Executor protocol auth**
+   - one-time enrollment tokens exchange for a long-lived Executor credential
+   - the long-lived credential may heartbeat and claim authorized Pool work
+   - every claimed Task receives a short-lived JWT scoped to its exact
+     Attempt, Run, lease generation, and permissions
+   - neither credential ever reuses a browser session cookie
 
 ### Agent-Task Trace Auth
 
-Agent-task tracing now uses a backend-issued short-lived service token:
+Agent-task tracing uses an Attempt-scoped short-lived service token:
 
-- the backend runner mints a token per task run
-- the token is scoped to one `agent_task_run_id` and one project
-- the token is passed into the subprocess as `APO_AUTH_TOKEN`
+- the Control Plane mints a token only after an Executor claims a live lease
+- the token is scoped to one Attempt, lease generation, Task Run, and Project
+- the Executor passes it into the subprocess as `APO_AUTH_TOKEN`
 - the SDK trace client sends it as `Authorization: Bearer <token>`
-- the backend only accepts that token on trace-ingestion and run-completion routes
+- every trace, Artifact, heartbeat, and finalization route checks the current
+  database lease as well as the JWT
 
 This keeps the auth model clean:
 
 - humans authenticate with sessions
-- internal jobs authenticate with service tokens
+- Executors authenticate with long-lived hashed credentials
+- Task children authenticate with expiring Attempt JWTs
 - external integrations authenticate with persistent API keys
 
 ### OTel-Native Trace Ingestion
@@ -299,11 +303,23 @@ The agent-testing product uses a layered execution model:
   - the shared observability layer used to inspect runtime behavior in detail
 - **Schedule**
   - a recurring trigger that creates normal batch runs with `trigger.source = "schedule"`
+- **Task Revision**
+  - immutable source identity; pooled Runs reference a bounded deterministic Bundle
+- **Execution Attempt**
+  - operational queue/lease state for one Task Run
+- **Executor Pool**
+  - an exact placement target owned by one Project
 
 Rules:
 
 - `Task Run` is the primary object users inspect
 - `Batch Run` provides execution context across related task runs
+- dashboard Batches and schedules always resolve one exact Pool before
+  materializing a Revision and queued Attempts
+- Pool placement never changes after creation; offline work waits until its TTL
+- the Control Plane owns durable state and never executes customer Task code
+- persistent Executors pull outbound and run one Batch sequentially while
+  different Batches may use available capacity
 - each `Task Run` owns at most one `Trace Run`; all calls, tool activity, and
   checks from that execution belong inside that trace
 - trace ingestion atomically claims the task run's trace ID and rejects a
@@ -448,11 +464,18 @@ For multi-instance deployments, replace the in-memory broadcaster with Redis pub
 
 ## Self-Hosted Alpha Topology (SPEC-124)
 
-The supported self-hosted shape for internal alpha is **single-node**: one host runs one frontend container, one backend container (owning API + scheduler + task execution), and one database. Multi-replica backends are explicitly unsupported until a future release. See [`docs/self-hosted-alpha.md`](self-hosted-alpha.md) for the operator guide.
+The supported self-hosted shape for internal alpha is **single-node**: one host
+runs a frontend, one backend Control Plane, one private Bundled Executor, and a
+database. The backend owns API + scheduler + durable execution state; the
+Executor owns dependency installation and Task subprocesses. Multi-replica
+backends remain unsupported. See
+[`docs/self-hosted-alpha.md`](self-hosted-alpha.md) for the operator guide.
 
 Operator-visible runtime state is exposed via:
 
-- `GET /health/ready` — deep readiness probe (database, task-source cache, auth secret, task runtime). Returns 503 with a per-check breakdown when any prerequisite fails.
+- `GET /health/ready` — Control Plane readiness (database, task-source cache,
+  ArtifactStore, auth secret). Executor availability is Pool health, not API
+  readiness.
 - `GET /v1/system/runtime-config` — admin-only descriptor of the running topology (backend URL, frontend URL, database URL, cache dir, scheduler state, supported topology).
 
 Both are surfaced in the dashboard under **Settings → System → Deployment Topology**. The Compose healthchecks use `/health/ready` instead of the basic liveness probe so a deployed backend is only marked healthy when it can actually serve.

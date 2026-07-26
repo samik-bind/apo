@@ -4,14 +4,12 @@
 
 from __future__ import annotations
 
-import os
 import stat
 from pathlib import Path
 
 import pytest
 from apo.executor.config import (
     ConfigError,
-    ExecutorConfig,
     load_config,
     is_loopback_or_internal_host,
 )
@@ -58,6 +56,23 @@ def test_load_config_allows_compose_internal_http(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("APO_EXECUTOR_NAME", "x")
     cfg = load_config()
     assert "backend" in cfg.control_plane_url
+
+
+def test_load_config_reads_bootstrap_token_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    token_file = tmp_path / "enrollment-token"
+    token_file.write_text("apo_enroll_from_file\n", encoding="utf-8")
+    monkeypatch.setenv("APO_CONTROL_PLANE_URL", "http://backend:8000")
+    monkeypatch.setenv("APO_EXECUTOR_NAME", "bundled-1")
+    monkeypatch.delenv("APO_EXECUTOR_ENROLLMENT_TOKEN", raising=False)
+    monkeypatch.setenv("APO_EXECUTOR_BOOTSTRAP_TOKEN_FILE", str(token_file))
+
+    config = load_config()
+
+    assert config.enrollment_token == "apo_enroll_from_file"
+    assert config.enrollment_token_file == str(token_file)
 
 
 def test_is_loopback_or_internal_host() -> None:

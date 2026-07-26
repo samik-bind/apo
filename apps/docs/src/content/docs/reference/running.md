@@ -74,7 +74,7 @@ for (const dir of dirs) {
 
 ## `runTaskDir(dir)`
 
-The thinnest wrapper: load + run in one call. The judge model is resolved from environment variables (`OPENROUTER_MODEL` / `OPENAI_MODEL`), not from options — this is the entry point the backend subprocess uses.
+The thinnest wrapper: load + run in one call. The judge model is resolved from environment variables (`OPENROUTER_MODEL` / `OPENAI_MODEL`), not from options — this is the entry point an Executor subprocess uses.
 
 ```typescript
 import { runTaskDir } from "@apo/sdk/agent-task";

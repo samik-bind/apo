@@ -10,17 +10,19 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from sqlmodel import Session, select
 
+from apo.db_helpers import as_column
 from apo.models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
     ExecutorPoolDB,
     ProjectDB,
+    ProjectTaskInventoryDB,
     ProjectTaskSourceDB,
     TaskExecutionAttemptDB,
 )
@@ -196,6 +198,8 @@ class PoolResolutionError(ValueError):
     the spec's 409/422 contract.
     """
 
+    kind: str
+
     def __init__(self, kind: str, message: str) -> None:
         super().__init__(f"[{kind}] {message}")
         self.kind = kind
@@ -251,6 +255,7 @@ async def create_pooled_batch_run(
     run_metadata: dict[str, object] | None,
     task_source: ProjectTaskSourceDB | None,
     resolved_commit_sha: str | None = None,
+    queue_ttl_seconds: int | None = None,
 ) -> AgentTaskBatchRunDB:
     """Create a pooled Batch: Revision/Bundle + ordered queued Attempts.
 
@@ -261,7 +266,10 @@ async def create_pooled_batch_run(
     fails, the SPEC-142 service deletes the orphan object.
     """
     from apo.services.agent_task_runner import create_batch_run
-    from apo.services.task_revisions import materialize_pooled_task_revision
+    from apo.services.task_revisions import (
+        delete_task_revision_bundle,
+        materialize_pooled_task_revision,
+    )
 
     if task_source is None:
         raise PoolResolutionError(
@@ -270,57 +278,103 @@ async def create_pooled_batch_run(
         )
     pool = resolve_execution_pool(session, project_id=project_id, explicit_pool_id=pool_id)
 
-    # create_batch_run resolves the selection + creates Batch + Task Runs.
-    batch = create_batch_run(
-        session,
-        project=project_id,
-        selection_type=selection_type,
-        task_paths=task_paths,
-        task_root=task_root,
-        grep=grep,
-        environment=environment,
-        run_metadata=run_metadata,
-        task_source=task_source,
-    )
-    # Persist the resolved target so it never changes after creation.
-    batch.execution_target_json = {"kind": "pool", "pool_id": pool.id}
-    session.add(batch)
-    session.commit()
-    session.refresh(batch)
-
-    # Materialize one SPEC-142 bundled Revision for the Batch.
-    revision = await materialize_pooled_task_revision(
-        session,
-        project_id=project_id,
-        batch_run_id=batch.id,
-        task_source=task_source,
-        resolved_commit_sha=resolved_commit_sha,
-    )
-    # Create one queued Attempt per Task Run, ordered by sequence_index.
-    task_runs = session.exec(
-        select(AgentTaskRunDB)
-        .where(AgentTaskRunDB.batch_run_id == batch.id)
-        .order_by(AgentTaskRunDB.id)
-    ).all()
-    now = datetime.now(timezone.utc)
-    queue_ttl = pool.queue_ttl_seconds
-    for idx, task_run in enumerate(task_runs):
-        task_run.sequence_index = idx
-        attempt = TaskExecutionAttemptDB(
+    revision = None
+    try:
+        # Selection, Batch, Task Runs, Revision, and Attempts share one DB
+        # transaction. The object store write precedes the final commit.
+        batch = create_batch_run(
+            session,
             project=project_id,
-            batch_run_id=batch.id,
-            task_run_id=task_run.id,
-            task_revision_id=revision.id,
-            sequence_index=idx,
-            target_kind="pool",
-            executor_pool_id=pool.id,
-            executor_id=None,
-            status="queued",
-            queue_expires_at=now + timedelta(seconds=queue_ttl),
-            queued_at=now,
+            selection_type=selection_type,
+            task_paths=task_paths,
+            task_root=task_root,
+            grep=grep,
+            environment=environment,
+            run_metadata=run_metadata,
+            task_source=task_source,
+            commit=False,
         )
-        session.add(attempt)
-        session.add(task_run)
-    session.commit()
-    session.refresh(batch)
-    return batch
+        batch.execution_target_json = {"kind": "pool", "pool_id": pool.id}
+        session.add(batch)
+
+        revision = await materialize_pooled_task_revision(
+            session,
+            project_id=project_id,
+            batch_run_id=batch.id,
+            task_source=task_source,
+            resolved_commit_sha=resolved_commit_sha,
+            commit=False,
+        )
+        task_runs = session.exec(
+            select(AgentTaskRunDB)
+            .where(AgentTaskRunDB.batch_run_id == batch.id)
+            .order_by(
+                as_column(AgentTaskRunDB.sequence_index),
+                as_column(AgentTaskRunDB.id),
+            )
+        ).all()
+        inventory = _inventory_paths(session, task_runs)
+        now = datetime.now(timezone.utc)
+        queue_ttl = (
+            queue_ttl_seconds
+            if queue_ttl_seconds is not None
+            else pool.queue_ttl_seconds
+        )
+        if queue_ttl <= 0:
+            raise ValueError("queue_ttl_seconds must be positive")
+        for idx, task_run in enumerate(task_runs):
+            task_run.sequence_index = idx
+            task_run.task_path = inventory[task_run.task_inventory_id]
+            session.add(
+                TaskExecutionAttemptDB(
+                    project=project_id,
+                    batch_run_id=batch.id,
+                    task_run_id=task_run.id,
+                    task_revision_id=revision.id,
+                    sequence_index=idx,
+                    target_kind="pool",
+                    executor_pool_id=pool.id,
+                    executor_id=None,
+                    status="queued",
+                    queue_expires_at=now
+                    + timedelta(seconds=queue_ttl),
+                    queued_at=now,
+                )
+            )
+            session.add(task_run)
+        session.commit()
+        session.refresh(batch)
+        return batch
+    except Exception:
+        session.rollback()
+        if revision is not None:
+            await delete_task_revision_bundle(revision)
+        raise
+
+
+def _inventory_paths(
+    session: Session,
+    task_runs: Sequence[AgentTaskRunDB],
+) -> dict[str | None, str]:
+    inventory_ids = {
+        task_run.task_inventory_id
+        for task_run in task_runs
+        if task_run.task_inventory_id is not None
+    }
+    rows = session.exec(
+        select(ProjectTaskInventoryDB).where(
+            as_column(ProjectTaskInventoryDB.id).in_(inventory_ids)
+        )
+    ).all()
+    paths: dict[str | None, str] = {row.id: row.task_path for row in rows}
+    missing = [
+        task_run.id
+        for task_run in task_runs
+        if task_run.task_inventory_id not in paths
+    ]
+    if missing:
+        raise ValueError(
+            "pooled Task Runs require persisted inventory-relative paths: "
+            + ", ".join(missing)
+        )
+    return paths

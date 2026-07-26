@@ -35,6 +35,8 @@ import {
   syncProjectTaskSource,
 } from "@/lib/projects-api";
 import { ProjectTaskSourceSetupCard } from "@/components/project-task-source";
+import { ExecutorPoolSelect } from "@/components/executor-pool-select";
+import type { ExecutorPoolSummary } from "@/lib/executor-api";
 const TASK_ROOT = process.env.NEXT_PUBLIC_AGENT_TASK_ROOT ?? null;
 
 function relativePath(path: string): string {
@@ -138,6 +140,8 @@ interface AgentTasksClientProps {
   error: string | null;
   taskSource: ProjectTaskSource | null;
   isDemo: boolean;
+  executorPools: ExecutorPoolSummary[];
+  executorPoolsError: string | null;
 }
 
 function TaskCard({
@@ -159,14 +163,14 @@ function TaskCard({
     <Link
       href={taskDetailHref(projectId, task.id)}
       className={cn(
-        "group/card relative block rounded-md border px-2 py-3 transition-colors",
+        "group/card relative block border px-2 py-3 transition-colors",
         isSel
           ? "border-foreground/30 bg-muted/20"
           : "border-border bg-card/40 hover:border-border hover:bg-card/60",
       )}
     >
       {isSel && (
-        <span className="pointer-events-none absolute inset-y-2 left-0 w-[2px] rounded-r bg-foreground/60" aria-hidden />
+        <span className="pointer-events-none absolute inset-y-2 left-0 w-[2px] bg-foreground/60" aria-hidden />
       )}
       <div className="flex items-start gap-3">
         <div
@@ -253,6 +257,9 @@ function TasksToolbar({
   onClearSelection,
   onToggleExpandAll,
   allExpanded,
+  executorPools,
+  selectedPoolId,
+  onPoolChange,
 }: {
   taskSource: ProjectTaskSource | null;
   isDemoProject: boolean;
@@ -268,11 +275,23 @@ function TasksToolbar({
   onClearSelection: () => void;
   onToggleExpandAll: () => void;
   allExpanded: boolean;
+  executorPools: ExecutorPoolSummary[];
+  selectedPoolId: string;
+  onPoolChange: (value: string) => void;
 }) {
   return (
     <div className="border-b border-border">
       <div className="flex flex-col gap-3 px-6 py-5 lg:flex-row lg:items-center lg:justify-end">
         <div className="flex items-center gap-2">
+          {!isDemoProject && (
+            <ExecutorPoolSelect
+              id="task-executor-pool"
+              pools={executorPools}
+              value={selectedPoolId}
+              onValueChange={onPoolChange}
+              compact
+            />
+          )}
           {taskSource && !isDemoProject && (
             <>
               <Button
@@ -301,7 +320,7 @@ function TasksToolbar({
           )}
           <Button type="button"
             size="sm"
-            disabled={selectedCount === 0 || runRunning || isDemoProject}
+            disabled={selectedCount === 0 || runRunning || isDemoProject || !selectedPoolId}
             onClick={onRun}
             title={isDemoProject ? "Demo workspace is read-only" : undefined}
             className="h-8 gap-1.5 text-[13px] font-medium disabled:opacity-40"
@@ -378,7 +397,7 @@ function FolderRow({
       {/* Folder row */}
       <div
         className={cn(
-          "group flex items-center gap-3 rounded-md px-2 py-2 transition-colors",
+          "group flex items-center gap-3 px-2 py-2 transition-colors",
           state !== "none" ? "bg-card/40" : "hover:bg-muted/10",
         )}
       >
@@ -389,7 +408,7 @@ function FolderRow({
         />
         <button type="button"
           onClick={() => toggleExpand(folder.id)}
-          className="grid h-5 w-5 place-items-center rounded text-muted-foreground/60 hover:bg-border hover:text-foreground/70"
+          className="grid h-5 w-5 place-items-center text-muted-foreground/60 hover:bg-border hover:text-foreground/70"
           aria-label={isOpen ? "Collapse" : "Expand"}
         >
           <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", isOpen && "rotate-90")} />
@@ -404,11 +423,11 @@ function FolderRow({
             <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
           )}
           <span className="truncate font-mono text-[14px] font-medium">{folder.id}</span>
-          <span className="rounded bg-border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+          <span className="bg-border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
             {folder.tasks.length} tasks
           </span>
           {selectedCount > 0 && (
-            <span className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] font-medium text-black">
+            <span className="bg-white px-1.5 py-0.5 font-mono text-[11px] font-medium text-black">
               {selectedCount} selected
             </span>
           )}
@@ -450,20 +469,22 @@ function SelectionActionBar({
   selectedCount,
   runRunning,
   isDemoProject,
+  poolName,
   onClear,
   onRun,
 }: {
   selectedCount: number;
   runRunning: boolean;
   isDemoProject: boolean;
+  poolName: string | null;
   onClear: () => void;
   onRun: () => void;
 }) {
   return (
     <div className="sticky bottom-4 z-20 mx-auto mb-4 w-fit">
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 shadow-2xl shadow-black/60">
+      <div className="flex items-center gap-3 border border-border bg-card px-3 py-2 shadow-2xl shadow-black/60">
         <div className="flex items-center gap-2 text-[12px]">
-          <span className="grid h-5 min-w-5 place-items-center rounded bg-white px-1 font-mono text-[11px] font-semibold text-black">
+          <span className="grid h-5 min-w-5 place-items-center bg-white px-1 font-mono text-[11px] font-semibold text-black">
             {selectedCount}
           </span>
           <span className="text-muted-foreground">
@@ -471,10 +492,14 @@ function SelectionActionBar({
           </span>
         </div>
         <div className="h-5 w-px bg-border" />
+        <span className="text-[12px] text-muted-foreground">
+          {poolName ? `on ${poolName}` : "Choose where this run should execute"}
+        </span>
+        <div className="h-5 w-px bg-border" />
         <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[12px] font-normal text-muted-foreground hover:text-foreground/70" onClick={onClear}>
           Clear
         </Button>
-        <Button type="button" size="sm" className="h-7 gap-1.5 px-3 text-[12px] font-medium" onClick={onRun} disabled={runRunning || isDemoProject} title={isDemoProject ? "Demo workspace is read-only" : undefined}>
+        <Button type="button" size="sm" className="h-7 gap-1.5 px-3 text-[12px] font-medium" onClick={onRun} disabled={runRunning || isDemoProject || !poolName} title={isDemoProject ? "Demo workspace is read-only" : undefined}>
           <Play className="h-3 w-3 fill-current" />
           {runRunning ? "Starting..." : "Run selection"}
         </Button>
@@ -488,6 +513,8 @@ export function AgentTasksClient({
   error,
   taskSource,
   isDemo,
+  executorPools,
+  executorPoolsError,
 }: AgentTasksClientProps) {
   const projectId = useProjectId();
   const router = useRouter();
@@ -498,6 +525,9 @@ export function AgentTasksClient({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [syncing, setSyncing] = useState(false);
   const [editingSource, setEditingSource] = useState(false);
+  const [selectedPoolId, setSelectedPoolId] = useState(
+    () => executorPools.find((pool) => pool.is_default && pool.enabled && !pool.archived)?.id ?? "",
+  );
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const folders = groupByFolder(tasks);
     return new Set(folders.map((f) => f.id));
@@ -582,6 +612,10 @@ export function AgentTasksClient({
 
   const handleRun = async () => {
     if (selected.size === 0 || isDemoProject) return;
+    if (!selectedPoolId) {
+      dispatchRun({ type: "ERROR", error: "Choose where this run should execute" });
+      return;
+    }
     dispatchRun({ type: "START" });
     try {
       const selectedTasks = tasks.filter((t) => selected.has(t.id));
@@ -591,6 +625,7 @@ export function AgentTasksClient({
         selection_type: selectedPaths.length === 1 ? "task" : "tasks",
         task_paths: selectedPaths,
         task_root: TASK_ROOT,
+        execution_target: { kind: "pool", pool_id: selectedPoolId },
         run_metadata: {
           trigger: {
             source: "dashboard",
@@ -667,18 +702,31 @@ export function AgentTasksClient({
         onClearSelection={() => setSelected(new Set())}
         onToggleExpandAll={() => setExpanded(allExpanded ? new Set() : new Set(allFolderIds))}
         allExpanded={allExpanded}
+        executorPools={executorPools}
+        selectedPoolId={selectedPoolId}
+        onPoolChange={setSelectedPoolId}
       />
 
       {/* Error alerts */}
       {(error || runState.error) && (
-        <div className="mx-6 mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
+        <div className="mx-6 mt-4 border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
           {error || runState.error}
+        </div>
+      )}
+      {!error && !runState.error && executorPoolsError && (
+        <div className="mx-6 mt-4 border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
+          Executor pools could not be loaded: {executorPoolsError}
+        </div>
+      )}
+      {!isDemoProject && !executorPoolsError && executorPools.filter((pool) => pool.enabled && !pool.archived).length === 0 && (
+        <div className="mx-6 mt-4 border border-border bg-muted/10 px-4 py-3 text-[13px] text-muted-foreground">
+          No executor pool is available. Configure a pool before starting a run.
         </div>
       )}
 
       {/* Empty state */}
       {!error && tasks.length === 0 && (
-        <div className="m-6 rounded-md border border-dashed border-border bg-muted/10 p-10 text-center text-[13px] text-muted-foreground">
+        <div className="m-6 border border-dashed border-border bg-muted/10 p-10 text-center text-[13px] text-muted-foreground">
           No agent tasks discovered. Ensure the task root directory is configured.
         </div>
       )}
@@ -699,7 +747,7 @@ export function AgentTasksClient({
         ))}
 
         {filtered.length === 0 && query && (
-          <div className="m-6 rounded-md border border-dashed border-border bg-muted/10 p-10 text-center text-[13px] text-muted-foreground">
+          <div className="m-6 border border-dashed border-border bg-muted/10 p-10 text-center text-[13px] text-muted-foreground">
             No tasks match <span className="font-mono text-foreground/70">&quot;{query}&quot;</span>
           </div>
         )}
@@ -711,6 +759,7 @@ export function AgentTasksClient({
           selectedCount={selected.size}
           runRunning={runState.running}
           isDemoProject={isDemoProject}
+          poolName={executorPools.find((pool) => pool.id === selectedPoolId)?.name ?? null}
           onClear={() => setSelected(new Set())}
           onRun={handleRun}
         />

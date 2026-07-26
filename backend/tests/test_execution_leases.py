@@ -191,6 +191,75 @@ def test_pool_scoped_executor_cannot_claim_other_pool(session: Session) -> None:
     assert claimed.attempt.executor_pool_id == "pool-a"
 
 
+def test_installation_executor_claims_bundled_pool(session: Session) -> None:
+    _seed(session, executor_id=None)
+    pool = session.get(ExecutorPoolDB, "pool-1")
+    assert pool is not None
+    pool.kind = "bundled"
+    session.add(pool)
+    session.add(
+        ExecutorDB(
+            id="install-ex",
+            scope_kind="installation",
+            project=None,
+            executor_pool_id=None,
+            name="bundled",
+            credential_prefix="apo_ex_install",
+            credential_hash="install-hash",
+            protocol_version=1,
+            executor_version="v",
+            driver_kinds_json=["subprocess"],
+            max_concurrency=1,
+            enrolled_at=_now(),
+            created_at=_now(),
+            updated_at=_now(),
+        )
+    )
+    session.commit()
+
+    claimed = claim_next_attempt(
+        session,
+        executor=_executor(session, "install-ex"),
+        accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+
+    assert claimed is not None
+    assert claimed.attempt.executor_pool_id == "pool-1"
+
+
+def test_installation_executor_cannot_claim_connected_pool(
+    session: Session,
+) -> None:
+    _seed(session, executor_id=None)
+    session.add(
+        ExecutorDB(
+            id="install-ex",
+            scope_kind="installation",
+            project=None,
+            executor_pool_id=None,
+            name="bundled",
+            credential_prefix="apo_ex_install",
+            credential_hash="install-hash",
+            protocol_version=1,
+            executor_version="v",
+            driver_kinds_json=["subprocess"],
+            max_concurrency=1,
+            enrolled_at=_now(),
+            created_at=_now(),
+            updated_at=_now(),
+        )
+    )
+    session.commit()
+
+    claimed = claim_next_attempt(
+        session,
+        executor=_executor(session, "install-ex"),
+        accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+
+    assert claimed is None
+
+
 def test_capacity_enforced_from_db_not_request_hint(session: Session) -> None:
     _seed(session, sequence_indices=[0, 1], executor_id="ex-1")
     ex = _executor(session, "ex-1")
@@ -241,6 +310,38 @@ def test_incompatible_driver_kind_not_claimed(session: Session) -> None:
     claimed = claim_next_attempt(
         session, executor=_executor(session, "ex-1"), accepted_driver_kinds=frozenset({"docker"}),
     )
+    assert claimed is None
+
+
+def test_incompatible_protocol_version_not_claimed(session: Session) -> None:
+    _seed(session, sequence_indices=[0])
+    executor = _executor(session, "ex-1")
+    executor.protocol_version = 2
+    session.add(executor)
+    session.commit()
+
+    claimed = claim_next_attempt(
+        session,
+        executor=executor,
+        accepted_driver_kinds=frozenset({"subprocess"}),
+    )
+
+    assert claimed is None
+
+
+def test_pool_driver_must_be_in_executor_capabilities(session: Session) -> None:
+    _seed(session, sequence_indices=[0])
+    executor = _executor(session, "ex-1")
+    executor.driver_kinds_json = ["docker"]
+    session.add(executor)
+    session.commit()
+
+    claimed = claim_next_attempt(
+        session,
+        executor=executor,
+        accepted_driver_kinds=frozenset({"docker", "subprocess"}),
+    )
+
     assert claimed is None
 
 

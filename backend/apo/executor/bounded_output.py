@@ -9,7 +9,9 @@ file, never from stdout parsing.
 
 from __future__ import annotations
 
+from typing import final
 
+@final
 class BoundedOutput:
     """A byte ring buffer retaining at most ``max_bytes`` of the most recent output."""
 

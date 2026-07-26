@@ -15,8 +15,10 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import pwd
 import signal
 from pathlib import Path
+from typing import cast, final
 
 from apo.executor.bounded_output import BoundedOutput
 from apo.executor.drivers.base import DriverResult, Heartbeat
@@ -28,6 +30,7 @@ DEFAULT_MAX_RESULT_BYTES = 10 * 1024 * 1024  # SPEC-140 / SPEC-144 §result file
 _RESULT_INVALID = "result_invalid"
 
 
+@final
 class SubprocessExecutionDriver:
     """Trusted subprocess driver: asyncio subprocess + bounded output + timeout."""
 
@@ -37,10 +40,12 @@ class SubprocessExecutionDriver:
         stdout_tail_bytes: int = STDOUT_TAIL_BYTES,
         heartbeat_interval_seconds: float = 5.0,
         max_result_bytes: int = DEFAULT_MAX_RESULT_BYTES,
+        task_user: str | None = None,
     ) -> None:
         self._tail_bytes = stdout_tail_bytes
         self._heartbeat_interval = heartbeat_interval_seconds
         self._max_result_bytes = max_result_bytes
+        self._task_user = task_user
 
     @property
     def kind(self) -> str:
@@ -59,18 +64,32 @@ class SubprocessExecutionDriver:
     ) -> DriverResult:
         stdout_buf = BoundedOutput(max_bytes=self._tail_bytes)
         stderr_buf = BoundedOutput(max_bytes=self._tail_bytes)
-        env = {**os.environ, **task_env}
+        env = dict(task_env)
         cwd = str(workspace) if isinstance(workspace, Path) else None
+        identity = self._task_identity()
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *runner_argv,
-                cwd=cwd,
-                env=env,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                start_new_session=True,  # new process group for group-wide signaling
-            )
+            if identity is None:
+                proc = await asyncio.create_subprocess_exec(
+                    *runner_argv,
+                    cwd=cwd,
+                    env=env,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    start_new_session=True,
+                )
+            else:
+                user_id, group_id = identity
+                proc = await asyncio.create_subprocess_exec(
+                    *runner_argv,
+                    cwd=cwd,
+                    env=env,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    start_new_session=True,
+                    user=user_id,
+                    group=group_id,
+                )
         except FileNotFoundError as exc:
             return DriverResult(
                 failure_kind="task_runtime", error_message=f"runner not found: {exc}",
@@ -95,10 +114,13 @@ class SubprocessExecutionDriver:
                 except Exception:
                     ok = True
                 if not ok:
-                    cancel_event.set()
+                    _ = cancel_event.set()
                     return
                 try:
-                    await asyncio.wait_for(cancel_event.wait(), timeout=self._heartbeat_interval)
+                    _ = await asyncio.wait_for(
+                        cancel_event.wait(),
+                        timeout=self._heartbeat_interval,
+                    )
                 except asyncio.TimeoutError:
                     pass
 
@@ -120,14 +142,18 @@ class SubprocessExecutionDriver:
                     cancelled = True
                 else:
                     timed_out = True
-                await self._terminate(proc, cancel_event)
+                await self._terminate(proc)
         finally:
-            wait_task.cancel()
-            cancel_wait.cancel()
+            _ = wait_task.cancel()
+            _ = cancel_wait.cancel()
             # Ensure streams are drained so tails are complete.
-            await asyncio.gather(drain_stdout, drain_stderr, return_exceptions=True)
-            hb_task.cancel()
-            await asyncio.gather(hb_task, return_exceptions=True)
+            _ = await asyncio.gather(
+                drain_stdout,
+                drain_stderr,
+                return_exceptions=True,
+            )
+            _ = hb_task.cancel()
+            _ = await asyncio.gather(hb_task, return_exceptions=True)
 
         exit_code = proc.returncode
         task_result, result_failure = self._read_result(result_path)
@@ -150,7 +176,7 @@ class SubprocessExecutionDriver:
             driver_metadata={"driver": "subprocess", "pid": proc.pid},
         )
 
-    async def _terminate(self, proc: asyncio.subprocess.Process, cancel_event: asyncio.Event) -> None:
+    async def _terminate(self, proc: asyncio.subprocess.Process) -> None:
         """SIGTERM the process group, wait the grace period, then SIGKILL."""
         if proc.returncode is not None:
             return
@@ -159,7 +185,10 @@ class SubprocessExecutionDriver:
         except (ProcessLookupError, PermissionError):
             return
         try:
-            await asyncio.wait_for(proc.wait(), timeout=CANCELLATION_GRACE_SECONDS)
+            _ = await asyncio.wait_for(
+                proc.wait(),
+                timeout=CANCELLATION_GRACE_SECONDS,
+            )
             return
         except asyncio.TimeoutError:
             pass
@@ -168,7 +197,7 @@ class SubprocessExecutionDriver:
         except (ProcessLookupError, PermissionError):
             return
         try:
-            await asyncio.wait_for(proc.wait(), timeout=5)
+            _ = await asyncio.wait_for(proc.wait(), timeout=5)
         except asyncio.TimeoutError:
             pass  # best-effort; the process will be reaped by the OS
 
@@ -183,12 +212,30 @@ class SubprocessExecutionDriver:
         if len(raw) > self._max_result_bytes:
             return None, _RESULT_INVALID
         try:
-            parsed = json.loads(raw.decode("utf-8"))
+            parsed = cast(object, json.loads(raw.decode("utf-8")))
         except (json.JSONDecodeError, UnicodeDecodeError):
             return None, _RESULT_INVALID
         if not isinstance(parsed, dict):
             return None, _RESULT_INVALID
-        return parsed, None
+        parsed_dict = cast(dict[object, object], parsed)
+        result: dict[str, object] = {}
+        for key, value in parsed_dict.items():
+            if not isinstance(key, str):
+                return None, _RESULT_INVALID
+            result[key] = value
+        return result, None
+
+    def _task_identity(self) -> tuple[int, int] | None:
+        """Return the configured Task user's uid and gid."""
+        if self._task_user is None:
+            return None
+        try:
+            account = pwd.getpwnam(self._task_user)
+        except KeyError as exc:
+            raise ValueError(
+                f"configured task user does not exist: {self._task_user!r}"
+            ) from exc
+        return account.pw_uid, account.pw_gid
 
 
 __all__ = [

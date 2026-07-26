@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from apo.models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
@@ -38,11 +37,23 @@ def _seed_pool(session: Session, project_id: str, pool_id: str, **kw) -> Executo
     return pool
 
 
-def _seed_executor(session: Session, pool_id: str, project_id: str, eid: str, *, online: bool = True, revoked: bool = False) -> ExecutorDB:
+def _seed_executor(
+    session: Session,
+    pool_id: str,
+    project_id: str,
+    eid: str,
+    *,
+    online: bool = True,
+    revoked: bool = False,
+    protocol_version: int = 1,
+    driver_kinds: list[str] | None = None,
+) -> ExecutorDB:
     ex = ExecutorDB(
         id=eid, scope_kind="pool", project=project_id, executor_pool_id=pool_id, name=eid,
         enabled=not revoked, credential_prefix="apo_ex_x", credential_hash="h" + eid,
-        protocol_version=1, executor_version="v1", driver_kinds_json=["subprocess"],
+        protocol_version=protocol_version,
+        executor_version="v1",
+        driver_kinds_json=driver_kinds or ["subprocess"],
         max_concurrency=2, last_seen_at=datetime.now(timezone.utc) if online else datetime.now(timezone.utc) - timedelta(hours=1),
         enrolled_at=datetime.now(timezone.utc), revoked_at=datetime.now(timezone.utc) if revoked else None,
         created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
@@ -122,6 +133,42 @@ def test_patch_pool_name_and_enabled(client: object, session: Session) -> None:
     assert r.json()["enabled"] is False
 
 
+def test_patch_rejects_archived_pool(client: object, session: Session) -> None:
+    _seed_project(session)
+    _seed_pool(
+        session,
+        "proj-m",
+        "p1",
+        enabled=False,
+        archived_at=datetime.now(timezone.utc),
+    )
+    response = client.patch(  # type: ignore[attr-defined]
+        "/v1/projects/proj-m/executor-pools/p1",
+        json={"enabled": True},
+    )
+    assert response.status_code == 409
+
+
+def test_pool_validates_queue_ttl_and_driver(
+    client: object,
+    session: Session,
+) -> None:
+    _seed_project(session)
+    for body in (
+        {"name": "Unsafe TTL", "slug": "unsafe-ttl", "queue_ttl_seconds": 1},
+        {
+            "name": "Unknown Driver",
+            "slug": "unknown-driver",
+            "required_driver_kind": "docker",
+        },
+    ):
+        response = client.post(  # type: ignore[attr-defined]
+            "/v1/projects/proj-m/executor-pools",
+            json=body,
+        )
+        assert response.status_code == 422
+
+
 def test_delete_archives_pool(client: object, session: Session) -> None:
     _seed_project(session)
     _seed_pool(session, "proj-m", "p1")
@@ -180,6 +227,24 @@ def test_list_executors_with_derived_health(client: object, session: Session) ->
     executors = {e["id"]: e for e in r.json()["executors"]}
     assert executors["ex-online"]["status"] == "online"
     assert executors["ex-offline"]["status"] == "offline"
+
+
+def test_list_marks_protocol_mismatch_incompatible(
+    client: object,
+    session: Session,
+) -> None:
+    _seed_project(session)
+    pool = _seed_pool(session, "proj-m", "p1")
+    _seed_executor(
+        session,
+        pool.id,
+        "proj-m",
+        "ex-incompatible",
+        protocol_version=99,
+    )
+    response = client.get("/v1/projects/proj-m/executors")  # type: ignore[attr-defined]
+    assert response.status_code == 200
+    assert response.json()["executors"][0]["status"] == "incompatible"
 
 
 # ── revoke ────────────────────────────────────────────────────────────────

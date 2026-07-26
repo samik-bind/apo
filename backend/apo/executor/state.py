@@ -12,7 +12,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import BaseModel
 
@@ -36,7 +36,7 @@ def save_state(path: Path, state: ExecutorState) -> None:
     fd, tmp = tempfile.mkstemp(prefix=".state-", suffix=".tmp", dir=str(path.parent))
     try:
         with os.fdopen(fd, "wb") as fh:
-            fh.write(payload)
+            _ = fh.write(payload)
             fh.flush()
             os.fsync(fh.fileno())
         os.chmod(tmp, 0o600)
@@ -54,7 +54,7 @@ def load_state(path: Path) -> ExecutorState | None:
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = cast(object, json.loads(path.read_text(encoding="utf-8")))
     except (OSError, json.JSONDecodeError) as exc:
         raise StateError(f"corrupt executor state at {path}") from exc
     try:

@@ -11,6 +11,7 @@ from __future__ import annotations
 import ipaddress
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import urlparse
 
 
@@ -28,6 +29,7 @@ class ExecutorConfig:
     task_user: str | None = None
     env_allowlist: list[str] = field(default_factory=list)
     enrollment_token: str | None = None
+    enrollment_token_file: str | None = None
     workspace_root: str = "/var/lib/apo-executor/workspaces"
     task_timeout_seconds: int = 600
 
@@ -75,6 +77,23 @@ def load_config() -> ExecutorConfig:
     allowlist_raw = os.environ.get("APO_TASK_ENV_ALLOWLIST", "").strip()
     env_allowlist = [s.strip() for s in allowlist_raw.split(",") if s.strip()]
 
+    enrollment_token = os.environ.get("APO_EXECUTOR_ENROLLMENT_TOKEN") or None
+    token_file: str | None = None
+    if enrollment_token is None:
+        candidate = os.environ.get(
+            "APO_EXECUTOR_BOOTSTRAP_TOKEN_FILE",
+            "/var/lib/apo/executor-bootstrap/enrollment-token",
+        )
+        try:
+            enrollment_token = Path(candidate).read_text(encoding="utf-8").strip()
+            token_file = candidate
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise ConfigError(
+                f"cannot read Executor bootstrap token file {candidate!r}: {exc}"
+            ) from exc
+
     return ExecutorConfig(
         control_plane_url=url.rstrip("/"),
         name=name,
@@ -83,7 +102,8 @@ def load_config() -> ExecutorConfig:
         driver=os.environ.get("APO_EXECUTOR_DRIVER", "subprocess"),
         task_user=os.environ.get("APO_EXECUTOR_TASK_USER") or None,
         env_allowlist=env_allowlist,
-        enrollment_token=os.environ.get("APO_EXECUTOR_ENROLLMENT_TOKEN") or None,
+        enrollment_token=enrollment_token or None,
+        enrollment_token_file=token_file,
         workspace_root=os.environ.get(
             "APO_EXECUTOR_WORKSPACE_ROOT", "/var/lib/apo-executor/workspaces"
         ),

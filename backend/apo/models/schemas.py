@@ -6,7 +6,7 @@ from pydantic import Field as PDField
 from sqlmodel import JSON, Field, SQLModel
 from sqlmodel._compat import SQLModelConfig
 
-from .execution import TaskRevisionSummary
+from .execution import AttemptSummary, PoolExecutionTarget, TaskRevisionSummary
 
 type JsonMap = dict[str, object]
 type MessageList = list[JsonMap]
@@ -547,6 +547,7 @@ class AgentTaskBatchRunDetail(SQLModel):
     passed_tasks: int = 0
     failed_tasks: int = 0
     errored_tasks: int = 0
+    cancelled_tasks: int = 0
     total_checks: int = 0
     passed_checks: int = 0
     trace_persistence_status: str = "pending"
@@ -559,6 +560,9 @@ class AgentTaskBatchRunDetail(SQLModel):
     task_runs: list[AgentTaskRunSummary] = Field(default_factory=list)
     failure_breakdown: list[FailureBreakdownItem] = Field(default_factory=list)
     task_revision: TaskRevisionSummary | None = None
+    execution_target: PoolExecutionTarget | None = None
+    executor_pool_name: str | None = None
+    attempts: list[AttemptSummary] = Field(default_factory=list)
 
 
 class CreateAgentTaskBatchRunRequest(SQLModel):
@@ -569,11 +573,8 @@ class CreateAgentTaskBatchRunRequest(SQLModel):
     grep: str | None = None
     environment: str = "default"
     run_metadata: dict[str, object] | None = None
-    # SPEC-146: explicit pooled execution target. When set, the Batch is created
-    # as durable queued Attempts on the named Pool (no Control-Plane subprocess).
-    # When omitted, the Project default Pool is used; if none, the legacy
-    # in-process path applies during the transition period.
-    execution_target: dict[str, object] | None = None
+    # Explicit Pool wins; omission resolves the Project default or returns 409.
+    execution_target: PoolExecutionTarget | None = None
 
 
 class AgentTaskRunExternalSummary(SQLModel):
@@ -755,6 +756,9 @@ class AgentTaskScheduleSummary(SQLModel):
     min_interval_days: float = 1.0
     max_interval_days: float = 30.0
     enabled: bool = True
+    executor_pool_id: str | None = None
+    queue_ttl_seconds: int = 86_400
+    disabled_reason: str | None = None
     last_triggered_at: datetime | None = None
     last_batch_run_id: str | None = None
     next_run_at: datetime | None = None
@@ -799,6 +803,8 @@ class CreateAgentTaskScheduleRequest(SQLModel):
     max_interval_days: float = 30.0
     enabled: bool = True
     run_metadata: dict[str, object] | None = None
+    executor_pool_id: str | None = None
+    queue_ttl_seconds: int = 86_400
 
 
 class UpdateAgentTaskScheduleRequest(SQLModel):
@@ -817,6 +823,8 @@ class UpdateAgentTaskScheduleRequest(SQLModel):
     max_interval_days: float | None = None
     enabled: bool | None = None
     run_metadata: dict[str, object] | None = None
+    executor_pool_id: str | None = None
+    queue_ttl_seconds: int | None = None
 
 
 class ApiKeyCreate(SQLModel):

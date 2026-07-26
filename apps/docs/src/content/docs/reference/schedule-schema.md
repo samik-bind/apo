@@ -29,6 +29,8 @@ Schedules are created and updated via the backend API (`POST` / `PATCH` `/v1/age
 | `min_interval_days` | `number` | `1.0` | Adaptive: minimum days between runs. |
 | `max_interval_days` | `number` | `30.0` | Adaptive: maximum days before forced run. |
 | `enabled` | `boolean` | `true` | Whether the schedule dispatches. |
+| `executor_pool_id` | `string` | Project default | Exact Pool used by every future Batch from this schedule. Required after default resolution. |
+| `queue_ttl_seconds` | `number` | `86400` | How long an offline Pool may leave each Attempt queued before it fails as `executor_unavailable`. |
 | `run_metadata` | `object` | — | Free-form metadata attached to each run. |
 
 ## Update fields
@@ -58,6 +60,9 @@ Same fields as create, except `project` and `selection_type` are not accepted. E
   min_interval_days: number;
   max_interval_days: number;
   enabled: boolean;
+  executor_pool_id: string | null;
+  queue_ttl_seconds: number;
+  disabled_reason: string | null;
   last_triggered_at: string | null;
   last_batch_run_id: string | null;
   last_batch: { id: string; status: string; total_tasks: number; passed_tasks: number; failed_tasks: number; errored_tasks: number } | null;
@@ -71,6 +76,14 @@ Same fields as create, except `project` and `selection_type` are not accepted. E
 `consecutive_failures` is computed at read time from recent batch runs, not persisted on the schedule itself.
 
 `AgentTaskScheduleDetail` extends this with the full `run_metadata` object.
+
+## Placement is part of the schedule
+
+A schedule snapshots one Pool ID. Changing the Project default later does not
+retarget existing schedules. An offline Pool is valid: Runs queue until the
+schedule's TTL. An archived Pool pauses the schedule with
+`disabled_reason: "executor_pool_archived"`; choose another Pool explicitly,
+then resume the schedule.
 
 ## Adaptive cadence
 

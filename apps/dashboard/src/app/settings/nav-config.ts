@@ -7,7 +7,7 @@
  * `app/settings/<segment>/page.tsx` to exist — which prevents the
  * "click Settings → 404" regression this module was introduced to guard.
  */
-import { KeyRound, LucideIcon, MonitorSmartphone, Settings, User, Users } from "lucide-react";
+import { KeyRound, LucideIcon, MonitorSmartphone, ServerCog, Settings, User, Users } from "lucide-react";
 
 export type SettingsNavItem = {
   label: string;
@@ -32,6 +32,7 @@ export const PERSONAL_ITEMS: SettingsNavItem[] = [
 
 export const PROJECT_ITEMS: SettingsNavItem[] = [
   { label: "API Keys", segment: "api-keys", icon: KeyRound },
+  { label: "Executors", segment: "executors", icon: ServerCog },
   { label: "Members", segment: "members", icon: Users },
 ];
 

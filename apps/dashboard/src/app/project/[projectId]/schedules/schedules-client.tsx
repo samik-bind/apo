@@ -19,6 +19,7 @@ import CreateScheduleDialog from "./CreateScheduleDialog";
 import { useProjectId } from "@/lib/project-router";
 import { useClientNow } from "@/hooks/use-client-now";
 import { ScheduleListAutoRefresh } from "@/components/agent-task-execution/schedule-list-auto-refresh";
+import type { ExecutorPoolSummary } from "@/lib/executor-api";
 
 interface AgentTaskSchedulesClientProps {
   tasks: AgentTaskSummary[];
@@ -27,6 +28,7 @@ interface AgentTaskSchedulesClientProps {
   taskRoot: string | null;
   error: string | null;
   taskSource: ProjectTaskSource | null;
+  executorPools: ExecutorPoolSummary[];
 }
 
 export function AgentTaskSchedulesClient({
@@ -36,6 +38,7 @@ export function AgentTaskSchedulesClient({
   taskRoot,
   error: serverError,
   taskSource,
+  executorPools,
 }: AgentTaskSchedulesClientProps) {
   const projectId = useProjectId();
   const {
@@ -97,7 +100,7 @@ export function AgentTaskSchedulesClient({
       </div>
 
       {actionError && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive mb-6">
+        <div className="border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive mb-6">
           {actionError}
           <button type="button" onClick={clearError} className="ml-3 text-destructive/60 hover:text-destructive">
             dismiss
@@ -111,7 +114,7 @@ export function AgentTaskSchedulesClient({
           { label: "Active", value: stats.enabled, icon: <CheckCircle2 size={14} className="text-success" /> },
           { label: "Paused", value: stats.disabled, icon: <XCircle size={14} className="text-muted-foreground" /> },
         ].map((stat) => (
-          <div key={stat.label} className="rounded-xl border border-border/60 bg-card/75 px-4 py-3 flex items-center gap-3">
+          <div key={stat.label} className="border border-border/60 bg-card/75 px-4 py-3 flex items-center gap-3">
             {stat.icon}
             <div>
               <div className="text-[18px] font-semibold font-mono">{stat.value}</div>
@@ -126,13 +129,13 @@ export function AgentTaskSchedulesClient({
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by name..." className="pl-8" />
         </div>
-        <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-card/75 p-1">
+        <div className="flex items-center gap-1 border border-border/60 bg-card/75 p-1">
           {(["all", "enabled", "disabled"] as Filter[]).map((f) => (
             <button
               key={f}
               type="button"
               onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-all ${
+              className={`px-3 py-1.5 text-xs font-medium capitalize transition-all ${
                 filter === f ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -163,7 +166,17 @@ export function AgentTaskSchedulesClient({
       ) : (
         <div className="space-y-3">
           {filtered.map((schedule) => (
-            <ScheduleCard key={schedule.id} schedule={schedule} clientNow={clientNow} onToggle={handleToggleEnabled} onDelete={handleDelete} onTrigger={handleTrigger} />
+            <ScheduleCard
+              key={schedule.id}
+              schedule={schedule}
+              executorPoolName={
+                executorPools.find((pool) => pool.id === schedule.executor_pool_id)?.name ?? null
+              }
+              clientNow={clientNow}
+              onToggle={handleToggleEnabled}
+              onDelete={handleDelete}
+              onTrigger={handleTrigger}
+            />
           ))}
         </div>
       )}
@@ -173,6 +186,7 @@ export function AgentTaskSchedulesClient({
           tasks={tasks}
           initialTaskIds={initialTaskIds}
           taskRoot={taskRoot}
+          executorPools={executorPools}
           onClose={() => setShowCreate(false)}
           onCreated={(newSchedule) => {
             addSchedule(newSchedule);

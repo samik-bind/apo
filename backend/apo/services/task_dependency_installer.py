@@ -83,7 +83,12 @@ def is_install_disabled() -> bool:
     )
 
 
-def install_task_dependencies(workspace_dir: Path) -> None:
+def install_task_dependencies(
+    workspace_dir: Path,
+    *,
+    env: dict[str, str] | None = None,
+    task_user: str | None = None,
+) -> None:
     """Install dependencies for a task workspace, cached by lockfile hash.
 
     Raises :class:`TaskDependencyInstallError` if any install fails, so
@@ -105,7 +110,7 @@ def install_task_dependencies(workspace_dir: Path) -> None:
         # within their own tree.
         logger.info(
             "Task dependency install skipped for %s — detected workspace is "
-            "the backend root, not a task workspace",
+            + "the backend root, not a task workspace",
             workspace_dir,
         )
         return
@@ -131,7 +136,12 @@ def install_task_dependencies(workspace_dir: Path) -> None:
     marker.parent.mkdir(parents=True, exist_ok=True)
 
     for plan in plans:
-        _run_install_plan(plan, workspace_dir)
+        _run_install_plan(
+            plan,
+            workspace_dir,
+            env=env,
+            task_user=task_user,
+        )
 
     # Touch the marker last so a partial install never looks complete.
     _ = marker.write_text("ok\n", encoding="utf-8")
@@ -153,7 +163,7 @@ def _is_backend_root(workspace_dir: Path) -> bool:
     candidate = workspace_dir.resolve()
     backend_root = Path(__file__).resolve().parents[2]
     try:
-        candidate.relative_to(backend_root)
+        _ = candidate.relative_to(backend_root)
     except ValueError:
         return False
     # Only treat it as the backend root if it contains the apo package.
@@ -251,7 +261,13 @@ def _detect_python_plan(workspace_dir: Path) -> list[_InstallPlan]:
 # ---------------------------------------------------------------------------
 
 
-def _run_install_plan(plan: _InstallPlan, workspace_dir: Path) -> None:
+def _run_install_plan(
+    plan: _InstallPlan,
+    workspace_dir: Path,
+    *,
+    env: dict[str, str] | None,
+    task_user: str | None,
+) -> None:
     timeout = _install_timeout_seconds()
     manager = plan.command[0]
     if shutil.which(manager) is None:
@@ -265,14 +281,30 @@ def _run_install_plan(plan: _InstallPlan, workspace_dir: Path) -> None:
         " ".join(plan.command),
     )
     try:
-        completed = subprocess.run(
-            plan.command,
-            cwd=str(workspace_dir),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
+        identity = _task_identity(task_user)
+        if identity is None:
+            completed = subprocess.run(
+                plan.command,
+                cwd=str(workspace_dir),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                env=env,
+            )
+        else:
+            user_id, group_id = identity
+            completed = subprocess.run(
+                plan.command,
+                cwd=str(workspace_dir),
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                env=env,
+                user=user_id,
+                group=group_id,
+            )
     except subprocess.TimeoutExpired as error:
         raise TaskDependencyInstallError(
             f"Task dependency install timed out after {timeout}s (command: {' '.join(plan.command)}, workspace: {workspace_dir})."
@@ -285,6 +317,20 @@ def _run_install_plan(plan: _InstallPlan, workspace_dir: Path) -> None:
         raise TaskDependencyInstallError(
             f"Task dependency install failed (command: {' '.join(plan.command)}, workspace: {workspace_dir}, exit code: {completed.returncode}). Output:\n{excerpt}"
         )
+
+
+def _task_identity(task_user: str | None) -> tuple[int, int] | None:
+    if task_user is None:
+        return None
+    import pwd
+
+    try:
+        account = pwd.getpwnam(task_user)
+    except KeyError as exc:
+        raise TaskDependencyInstallError(
+            f"Configured Task user does not exist: {task_user!r}"
+        ) from exc
+    return account.pw_uid, account.pw_gid
 
 
 def _install_timeout_seconds() -> int:

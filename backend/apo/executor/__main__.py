@@ -23,7 +23,7 @@ def main() -> int:
     client = ExecutorProtocolClient(control_plane_url=config.control_plane_url)
     driver: ExecutionDriver
     if config.driver == "subprocess":
-        driver = SubprocessExecutionDriver()
+        driver = SubprocessExecutionDriver(task_user=config.task_user)
     else:
         raise ConfigError(f"unsupported APO_EXECUTOR_DRIVER: {config.driver!r}")
     agent = BundledExecutorAgent(config, client=client, driver=driver)

@@ -18,13 +18,21 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import StreamingResponse
 from jose import JWTError
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 
+from apo.auth.rate_limit import LoginRateLimiter
 from apo.db import get_session
-from apo.models.db import ExecutorDB, TaskExecutionAttemptDB
-from apo.models.execution import ExecutorCapabilities
+from apo.models.db import (
+    AgentTaskBatchRunDB,
+    AgentTaskRunDB,
+    ExecutorDB,
+    TaskExecutionAttemptDB,
+    TaskRevisionDB,
+)
+from apo.models.execution import EXECUTOR_PROTOCOL_VERSION, ExecutorCapabilities
 from apo.services.execution_finalization import (
     AttemptFailureBody,
     AttemptResultBody,
@@ -41,15 +49,18 @@ from apo.services.execution_leases import (
     start_attempt,
 )
 from apo.services.executor_auth import (
+    EnrollmentError,
     create_attempt_jwt,
     decode_attempt_jwt,
     exchange_enrollment_token,
     resolve_executor_by_credential,
 )
+from apo.services.artifact_stores.registry import get_store
 
 router = APIRouter(prefix="/v1/executor-protocol/v1", tags=["executor-protocol"])
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = EXECUTOR_PROTOCOL_VERSION
 _LEASE_JWT_TTL_SECONDS = 2 * 60 * 60  # covers max task timeout + finalization grace
+_enrollment_rate_limiter = LoginRateLimiter(max_attempts=20, window_seconds=60)
 
 
 class EnrollRequest(BaseModel):
@@ -67,22 +78,36 @@ class EnrollResponse(BaseModel):
 
 class ClaimsRequest(BaseModel):
     available_slots: int = 1
-    accepted_driver_kinds: list[str] = []
+    accepted_driver_kinds: list[str] = Field(default_factory=list)
 
 
 class ClaimAttemptResponse(BaseModel):
     attempt_id: str
     task_run_id: str
     batch_run_id: str
+    task_id: str
+    task_path: str
+    environment: str
+    timeout_seconds: int
     project: str
     lease_generation: int
     lease_expires_at: datetime
     attempt_jwt: str
+    task_revision_id: str
+    content_sha256: str
+    bundle_sha256: str
+    bundle_size_bytes: int
+    bundle_url: str
+    trace_endpoint: str
+    trace_required: bool = True
+    result_max_bytes: int = 10 * 1024 * 1024
+    diagnostic_tail_bytes: int = 64 * 1024
+    run_metadata: dict[str, object] | None = None
 
 
 class StartRequest(BaseModel):
     driver_kind: str
-    runtime: dict[str, str] = {}
+    runtime: dict[str, str] = Field(default_factory=dict)
 
 
 class AttemptHeartbeatRequest(BaseModel):
@@ -166,23 +191,73 @@ def require_attempt_lease(
 @router.post("/enroll", response_model=EnrollResponse)
 async def enroll(
     body: EnrollRequest,
+    request: Request,
     response: Response,
     session: Session = Depends(get_session),
 ) -> EnrollResponse:
     """Exchange a one-time enrollment token for a persistent Executor credential."""
     response.headers["X-Apo-Executor-Protocol"] = str(PROTOCOL_VERSION)
+    _enforce_enrollment_rate_limit(request)
     try:
         executor, raw_credential, hb, lease_ttl = exchange_enrollment_token(
             session, raw_token=body.token, name=body.name, capabilities=body.capabilities,
         )
-    except Exception:
-        raise HTTPException(status.HTTP_410_GONE, "enrollment token invalid or expired")
+    except EnrollmentError as exc:
+        if exc.kind == "token_used":
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={"kind": exc.kind, "message": "enrollment token was already used"},
+            )
+        if exc.kind == "protocol_mismatch":
+            raise HTTPException(
+                status.HTTP_426_UPGRADE_REQUIRED,
+                detail={
+                    "kind": exc.kind,
+                    "message": "upgrade the Executor to protocol version 1",
+                    "supported_protocol": PROTOCOL_VERSION,
+                },
+                headers={"X-Apo-Executor-Protocol": str(PROTOCOL_VERSION)},
+            )
+        if exc.kind == "capability_invalid":
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "kind": exc.kind,
+                    "message": str(exc),
+                },
+            )
+        raise HTTPException(
+            status.HTTP_410_GONE,
+            detail={
+                "kind": exc.kind,
+                "message": (
+                    "enrollment token expired"
+                    if exc.kind == "token_expired"
+                    else "enrollment token is invalid"
+                ),
+            },
+        )
     return EnrollResponse(
         executor_id=executor.id,
         credential=raw_credential,
         heartbeat_interval_seconds=hb,
         lease_ttl_seconds=lease_ttl,
     )
+
+
+def _enforce_enrollment_rate_limit(request: Request) -> None:
+    client_ip = request.client.host if request.client is not None else "unknown"
+    if not _enrollment_rate_limiter.is_allowed(client_ip):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "too many enrollment attempts",
+            headers={
+                "Retry-After": str(
+                    _enrollment_rate_limiter.get_retry_after(client_ip)
+                )
+            },
+        )
+    _enrollment_rate_limiter.record_attempt(client_ip)
 
 
 @router.post("/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
@@ -200,6 +275,7 @@ async def executor_heartbeat(
 @router.post("/claims", response_model=ClaimAttemptResponse | None)
 async def claims(
     body: ClaimsRequest,
+    request: Request,
     response: Response,
     executor: ExecutorDB = Depends(require_executor),
     session: Session = Depends(get_session),
@@ -217,31 +293,88 @@ async def claims(
         lease_generation=claimed.lease.lease_generation,
         expires_in_seconds=_LEASE_JWT_TTL_SECONDS,
     )
+    task_run = session.get(AgentTaskRunDB, claimed.attempt.task_run_id)
+    batch = session.get(AgentTaskBatchRunDB, claimed.attempt.batch_run_id)
+    revision = session.get(TaskRevisionDB, claimed.attempt.task_revision_id)
+    if (
+        task_run is None
+        or batch is None
+        or revision is None
+        or revision.materialization != "bundled"
+        or revision.bundle_sha256 is None
+        or revision.bundle_size_bytes is None
+        or revision.bundle_storage_key is None
+    ):
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "claimed attempt has no runnable bundled revision",
+        )
     response.headers["X-Apo-Executor-Protocol"] = str(PROTOCOL_VERSION)
     return ClaimAttemptResponse(
         attempt_id=claimed.attempt.id,
         task_run_id=claimed.attempt.task_run_id,
         batch_run_id=claimed.attempt.batch_run_id,
+        task_id=task_run.task_id,
+        task_path=task_run.task_path,
+        environment=batch.environment,
+        timeout_seconds=600,
         project=claimed.attempt.project,
         lease_generation=claimed.lease.lease_generation,
         lease_expires_at=claimed.attempt.lease_expires_at or datetime.now(timezone.utc),
         attempt_jwt=jwt,
+        task_revision_id=revision.id,
+        content_sha256=revision.content_sha256,
+        bundle_sha256=revision.bundle_sha256,
+        bundle_size_bytes=revision.bundle_size_bytes,
+        bundle_url=(
+            f"/v1/executor-protocol/v1/attempts/{claimed.attempt.id}/bundle"
+        ),
+        trace_endpoint=str(request.base_url).rstrip("/"),
+        run_metadata=batch.run_metadata,
     )
 
 
 @router.get("/attempts/{attempt_id}/bundle")
 async def download_bundle(
     attempt_id: str,
-    response: Response,
     lease: CurrentAttemptLease = Depends(require_attempt_lease),
-) -> Response:
-    response.headers["X-Apo-Executor-Protocol"] = str(PROTOCOL_VERSION)
+    session: Session = Depends(get_session),
+) -> StreamingResponse:
     if lease.attempt_id != attempt_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "attempt token not valid for this attempt")
-    # SPEC-144 serves the verified Bundle bytes through this scoped endpoint. For
-    # SPEC-143 the endpoint exists, is generation-fenced, and returns 503 until a
-    # Bundled Executor is proven.
-    raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "bundle download not yet available")
+    attempt = session.get(TaskExecutionAttemptDB, attempt_id)
+    if attempt is None or attempt.status not in ("leased", "running"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"kind": "lease_stale"},
+        )
+    revision = session.get(TaskRevisionDB, attempt.task_revision_id)
+    if (
+        revision is None
+        or revision.materialization != "bundled"
+        or revision.bundle_storage_key is None
+        or revision.bundle_storage_backend is None
+        or revision.bundle_sha256 is None
+        or revision.bundle_size_bytes is None
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "bundle not found")
+    store = get_store(revision.bundle_storage_backend)
+    stat_result = await store.stat(revision.bundle_storage_key)
+    if stat_result is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "bundle object is unavailable",
+        )
+    return StreamingResponse(
+        store.open(revision.bundle_storage_key),
+        media_type="application/gzip",
+        headers={
+            "X-Apo-Executor-Protocol": str(PROTOCOL_VERSION),
+            "Content-Length": str(revision.bundle_size_bytes),
+            "X-Apo-Bundle-Sha256": revision.bundle_sha256,
+            "X-Apo-Content-Sha256": revision.content_sha256,
+        },
+    )
 
 
 @router.post("/attempts/{attempt_id}/start")

@@ -6,8 +6,12 @@ from sqlalchemy.sql.elements import ColumnElement
 _TColumn = TypeVar("_TColumn")
 
 
-def _as_column(value: object) -> ColumnElement[_TColumn]:
+def as_column(value: object) -> ColumnElement[_TColumn]:
     return cast(ColumnElement[_TColumn], value)
+
+
+# Backward-compatible alias for existing call sites.
+_as_column = as_column
 
 
 def _ensure_utc_datetime(dt: datetime) -> datetime:

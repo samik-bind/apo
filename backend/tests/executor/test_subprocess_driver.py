@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false
+# pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportUnusedParameter=false
 
 """SPEC-144: SubprocessExecutionDriver — timeout, cancel, bounded output, result file."""
 
@@ -12,11 +12,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from apo.executor.bounded_output import BoundedOutput
-from apo.executor.drivers.subprocess import (
-    CANCELLATION_GRACE_SECONDS,
-    SubprocessExecutionDriver,
-)
+from apo.executor.drivers.subprocess import SubprocessExecutionDriver
 
 
 def _write_script(path: Path, body: str) -> str:
@@ -239,3 +235,35 @@ async def test_process_group_child_is_reaped_on_cancel(tmp_path: Path) -> None:
         result_path=result_path, timeout_seconds=30,
     )
     assert res.cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_child_receives_only_explicit_environment(tmp_path: Path) -> None:
+    result_path = tmp_path / "result.json"
+    runner = _write_script(tmp_path / "runner.py", f"""
+        import json, os, pathlib
+        pathlib.Path({str(result_path)!r}).write_text(json.dumps({{
+            "pass": True,
+            "secret": os.environ.get("EXECUTOR_ONLY_SECRET"),
+            "allowed": os.environ.get("ALLOWED_PROVIDER_KEY"),
+        }}))
+    """)
+    os.environ["EXECUTOR_ONLY_SECRET"] = "must-not-leak"
+    try:
+        result = await SubprocessExecutionDriver().execute(
+            workspace=tmp_path,
+            heartbeat=_ok_heartbeat,
+            cancel_event=asyncio.Event(),
+            runner_argv=[sys.executable, runner],
+            task_env={"ALLOWED_PROVIDER_KEY": "visible"},
+            result_path=result_path,
+            timeout_seconds=30,
+        )
+    finally:
+        os.environ.pop("EXECUTOR_ONLY_SECRET", None)
+
+    assert result.task_result == {
+        "pass": True,
+        "secret": None,
+        "allowed": "visible",
+    }

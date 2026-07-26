@@ -13,6 +13,7 @@ import { TriggerInline } from "@/components/trigger-badge";
 import { TaskRunListHeader, TaskRunRow } from "@/components/task-run-list";
 import { BatchRunAutoRefresh } from "@/components/agent-task-execution/batch-run-auto-refresh";
 import { OutcomeSummary, FailuresByType, conclusionStyle } from "@/components/run-outcome";
+import { ExecutionAttemptPanel } from "@/components/agent-task-execution/execution-attempt-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +88,7 @@ export default async function BatchRunDetailPage({
   if (error) {
     return (
       <div className="mx-auto max-w-6xl px-6 py-10">
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
+        <div className="border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
           <p className="font-medium">Error</p>
           <p>{error}</p>
         </div>
@@ -179,6 +180,10 @@ export default async function BatchRunDetailPage({
           <FailuresByType
             breakdown={batchRun.failure_breakdown}
             totalTasks={batchRun.total_tasks}
+          />
+          <ExecutionAttemptPanel
+            attempts={batchRun.attempts}
+            poolName={batchRun.executor_pool_name}
           />
         </div>
       </div>

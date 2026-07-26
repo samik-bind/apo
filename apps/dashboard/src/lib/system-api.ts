@@ -22,7 +22,7 @@ export interface RuntimeConfig {
   public_url: string;
   database: DatabaseDescriptor;
   task_source_cache_dir: string;
-  task_execution_mode: "local_subprocess";
+  task_execution_mode: "executor_pools";
   scheduler_enabled: boolean;
   deployment_profile: DeploymentProfile;
   supported_topology: "single-node";

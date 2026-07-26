@@ -10,6 +10,8 @@ availability endpoint.
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
@@ -31,7 +33,7 @@ async def readiness_check() -> JSONResponse:
     Returns 503 when any operator-relevant prerequisite fails so the
     probe is actually meaningful, not just a liveness signal.
     """
-    report = run_readiness_checks()
+    report = await asyncio.to_thread(run_readiness_checks)
     payload = report.model_dump()
     status_code = 200 if report.ok else 503
     return JSONResponse(status_code=status_code, content=payload)
