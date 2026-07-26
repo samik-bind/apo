@@ -10,6 +10,7 @@ credential is never written by the Control Plane.
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +29,8 @@ from apo.services.executor_auth import (
     generate_enrollment_token,
     resolve_enrollment_token,
 )
+
+logger = logging.getLogger(__name__)
 
 BUNDLED_POOL_NAME = "Bundled Executor"
 BUNDLED_POOL_SLUG = "bundled"
@@ -122,11 +125,14 @@ def bootstrap_bundled_executor(
         )
     )
     if _active_installation_executor(session) is not None:
-        path.unlink(missing_ok=True)
+        # An installation executor is already enrolled — the on-disk token file
+        # is only a bootstrap convenience, not authoritative. Best-effort delete
+        # so a root-owned leftover (or a read-only fs) can't block startup.
+        _try_unlink(path)
         return
     if _has_live_bootstrap_token(session, path):
         return
-    path.unlink(missing_ok=True)
+    _try_unlink(path)
     raw_token, row = generate_enrollment_token(
         session,
         scope_kind="installation",
@@ -135,11 +141,22 @@ def bootstrap_bundled_executor(
     )
     try:
         _atomic_write_secret(path, raw_token)
-    except OSError:
+    except OSError as exc:
+        # The token file is a bootstrap convenience for the bundled executor
+        # (the enrollment row in the DB is authoritative). A write failure —
+        # e.g. a read-only or permission-restricted volume — must not prevent
+        # the backend from starting. Revoke the row and continue; the executor
+        # simply won't auto-enroll until the path is writable.
         row.revoked_at = datetime.now(timezone.utc)
         session.add(row)
         session.commit()
-        raise
+        logger.warning(
+            "Could not write bundled-executor bootstrap token to %s (%s); "
+            "the backend will start but the bundled executor cannot enroll "
+            "until the path is writable by this process.",
+            path,
+            exc,
+        )
 
 
 def _set_default_if_missing(
@@ -210,7 +227,11 @@ def _has_live_bootstrap_token(session: Session, path: Path) -> bool:
 
 def _atomic_write_secret(path: Path, value: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    path.parent.chmod(0o700)
+    # chmod is defense-in-depth (restrict the secret dir to the owner). Some
+    # container storage drivers reject chmod for non-root even on owned files
+    # (EPERM); a permissions hardening must not prevent startup, so log and
+    # continue — the file is still written atomically with 0o600 at create.
+    _try_chmod(path.parent, 0o700)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     descriptor = os.open(
         temporary,
@@ -223,10 +244,37 @@ def _atomic_write_secret(path: Path, value: str) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
-        path.chmod(0o600)
+        _try_chmod(path, 0o600)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
+
+
+def _try_chmod(path: Path, mode: int) -> None:
+    """Best-effort chmod: warn (not raise) on filesystems that reject it."""
+    try:
+        path.chmod(mode)
+    except OSError as exc:
+        logger.warning(
+            "Could not chmod %s to 0o%o (%s); the file is still written. "
+            "This is expected on some container storage drivers.",
+            path,
+            mode,
+            exc,
+        )
+
+
+def _try_unlink(path: Path) -> None:
+    """Best-effort unlink: the enrollment DB row is authoritative, not the file."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "Could not remove bootstrap token file %s (%s); continuing. "
+            "The enrollment state is tracked in the database.",
+            path,
+            exc,
+        )
 
 
 __all__ = [

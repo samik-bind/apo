@@ -64,6 +64,9 @@ services:
       - FRONTEND_URL=${APO_PUBLIC_URL:-${NEXTAUTH_URL:-http://localhost:3000}}
       # Alpha topology (SPEC-124): scheduler runs in the single backend process.
       - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-true}
+      # SPEC-148 dev: the bundled executor enrolls + claims work; give slow
+      # model calls lease headroom (default 90s is too tight for cheap models).
+      - APO_ATTEMPT_LEASE_SECONDS=${APO_ATTEMPT_LEASE_SECONDS:-600}
       - TASK_SOURCE_CACHE_DIR=/var/lib/apo/task-sources
       # Optional first-user bootstrap (idempotent — only runs when no users
       # exist). Normal onboarding is account creation + project invite.
@@ -116,6 +119,7 @@ services:
       - APO_EXECUTOR_NAME=${APO_EXECUTOR_NAME:-bundled-1}
       - APO_EXECUTOR_MAX_CONCURRENCY=${APO_EXECUTOR_MAX_CONCURRENCY:-1}
       - APO_EXECUTOR_DRIVER=subprocess
+      - APO_ATTEMPT_LEASE_SECONDS=${APO_ATTEMPT_LEASE_SECONDS:-600}
       - APO_EXECUTOR_TASK_USER=appuser
       - APO_TASK_ENV_ALLOWLIST=${APO_TASK_ENV_ALLOWLIST:-OPENROUTER_API_KEY,OPENROUTER_BASE_URL,AGENT_TASK_OPENROUTER_MODEL}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}

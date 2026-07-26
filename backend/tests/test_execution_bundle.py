@@ -313,4 +313,4 @@ def test_default_limits_match_spec_constants() -> None:
     assert d.max_compressed_bytes == 128 * 1024 * 1024
     assert d.max_path_segment_bytes == 256
     assert d.max_path_bytes == 4_096
-    assert d.max_manifest_summary_bytes == 4_096
+    assert d.max_manifest_summary_bytes == 256 * 1024

@@ -42,7 +42,7 @@ DEMO_AUTHORING_ENABLED_ENV = "DEMO_AUTHORING_ENABLED"
 
 # Resolved at import in services.paths (a leaf module) so inventory/sync can
 # reach the demo root without importing this orchestration module.
-from .paths import DEMO_TASK_ROOT  # noqa: E402
+from .paths import demo_task_root  # noqa: E402
 
 
 DEMO_SCHEDULE_IDS = [
@@ -257,7 +257,7 @@ def seed_demo_workspace(force: bool = False) -> str | None:
                 pool_id=pool.id,
                 selection_type="all",
                 task_paths=None,
-                task_root=DEMO_TASK_ROOT,
+                task_root=demo_task_root(),
                 grep=None,
                 environment="demo",
                 run_metadata={
@@ -278,7 +278,7 @@ def seed_demo_workspace(force: bool = False) -> str | None:
                 project=DEMO_PROJECT_ID,
                 name="Daily validation (all tasks)",
                 selection_type="all",
-                task_root=DEMO_TASK_ROOT,
+                task_root=demo_task_root(),
                 environment="demo",
                 cadence_type="daily",
                 timezone="UTC",
@@ -306,7 +306,7 @@ def seed_demo_workspace(force: bool = False) -> str | None:
                 project=DEMO_PROJECT_ID,
                 name="Weekly regression (all tasks)",
                 selection_type="all",
-                task_root=DEMO_TASK_ROOT,
+                task_root=demo_task_root(),
                 environment="demo",
                 cadence_type="weekly",
                 timezone="UTC",
@@ -331,7 +331,7 @@ def seed_demo_workspace(force: bool = False) -> str | None:
                 project=DEMO_PROJECT_ID,
                 name="Monthly smoke test (all tasks)",
                 selection_type="all",
-                task_root=DEMO_TASK_ROOT,
+                task_root=demo_task_root(),
                 environment="demo",
                 cadence_type="monthly",
                 timezone="UTC",
@@ -386,7 +386,7 @@ def ensure_demo_schedule(session: Session) -> None:
             project=DEMO_PROJECT_ID,
             name=name,
             selection_type="all",
-            task_root=DEMO_TASK_ROOT,
+            task_root=demo_task_root(),
             environment="demo",
             cadence_type=cadence,
             timezone="UTC",

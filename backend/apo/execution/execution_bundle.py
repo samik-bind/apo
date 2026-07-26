@@ -57,7 +57,11 @@ class BundleLimits:
     max_compressed_bytes: int = 128 * 1024 * 1024
     max_path_segment_bytes: int = 256
     max_path_bytes: int = 4_096
-    max_manifest_summary_bytes: int = 4_096
+    # The manifest summary is metadata only (path + size + sha per file). 4 KiB
+    # rejected ordinary task trees (~40 files); bound it at 256 KiB so real
+    # trees pass while still preventing unbounded transport. Capped by
+    # max_file_count above.
+    max_manifest_summary_bytes: int = 256 * 1024
 
 
 DEFAULT_BUNDLE_LIMITS = BundleLimits()

@@ -106,7 +106,16 @@ def _body_digest(payload: object) -> str:
     import json
 
     return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+        json.dumps(
+            payload,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            # SPEC-148: the result body can carry an ``AgentTaskRunConfiguration``
+            # (an SQLModel). json can't serialize it directly, so fall back to its
+            # dict form — this digest is only for completion-id idempotency.
+            default=lambda o: o.model_dump() if hasattr(o, "model_dump") else str(o),
+        ).encode()
     ).hexdigest()
 
 
