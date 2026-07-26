@@ -11,7 +11,7 @@ import {
   pollLangfuseTrace,
   resolveConnectorConfig,
 } from "../lib/trace-sources/langfuse-client.ts";
-import { convertLangfuseTraceToOtlp } from "../lib/trace-sources/langfuse-otlp.ts";
+import { convertLangfuseTraceToOtlp, resolveTargetTraceId } from "../lib/trace-sources/langfuse-otlp.ts";
 import {
   ApoAuthError,
   ApoVisibilityTimeoutError,
@@ -50,6 +50,11 @@ type WaitResolution =
   | { kind: "ok"; seconds: number }
   | { kind: "error"; message: string };
 
+type TraceIdResolution =
+  | { kind: "none" }
+  | { kind: "ok"; value: string }
+  | { kind: "error"; message: string };
+
 export async function run(argv: string[], deps: LangfuseRunDeps = {}): Promise<number> {
   const { positional, flags } = parseArgs(argv);
   const config = resolveConfig(flags);
@@ -65,6 +70,12 @@ export async function run(argv: string[], deps: LangfuseRunDeps = {}): Promise<n
   const wait = resolveWaitFlag(flags["wait"]);
   if (wait.kind === "error") {
     console.error(wait.message);
+    return EXIT_FAILURE;
+  }
+
+  const targetTraceId = resolveTraceIdFlag(flags["trace-id"]);
+  if (targetTraceId.kind === "error") {
+    console.error(targetTraceId.message);
     return EXIT_FAILURE;
   }
 
@@ -94,7 +105,10 @@ export async function run(argv: string[], deps: LangfuseRunDeps = {}): Promise<n
 
   let converted;
   try {
-    converted = convertLangfuseTraceToOtlp(graph);
+    converted = convertLangfuseTraceToOtlp(
+      graph,
+      targetTraceId.kind === "ok" ? { targetTraceId: targetTraceId.value } : {},
+    );
   } catch (error) {
     console.error(`Failed to convert Langfuse trace ${sourceTraceId}: ${(error as Error).message}`);
     return EXIT_FAILURE;
@@ -261,6 +275,24 @@ function resolveWaitFlag(raw: string | boolean | undefined): WaitResolution {
     };
   }
   return { kind: "ok", seconds: n };
+}
+
+// Resolve --trace-id: when set, spans are emitted under this apo trace id
+// instead of the namespaced hash, merging imported spans into an existing run
+// trace (issue #36 — propagated-traceparent case).
+function resolveTraceIdFlag(raw: string | boolean | undefined): TraceIdResolution {
+  if (raw === undefined || raw === false) return { kind: "none" };
+  if (raw === true) {
+    return {
+      kind: "error",
+      message: "--trace-id requires a 32-hex W3C trace id value (e.g. --trace-id ba304669483e53622109e9a6c8905143)",
+    };
+  }
+  try {
+    return { kind: "ok", value: resolveTargetTraceId("", "", raw) };
+  } catch (error) {
+    return { kind: "error", message: (error as Error).message };
+  }
 }
 
 function formatEmptyTraceError(

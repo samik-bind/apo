@@ -73,9 +73,18 @@ export interface ConvertedLangfuseTrace {
   otlpRequests: readonly OtlpExportTraceServiceRequest[];
 }
 
+// Options for convertLangfuseTraceToOtlp. When `targetTraceId` is set, the
+// converted spans are emitted under that trace id instead of the namespaced
+// hash — used to merge imported spans into an existing run trace when apo's
+// traceparent was propagated into the source system (issue #36).
+export interface ConvertLangfuseOptions {
+  targetTraceId?: string;
+}
+
 const MAX_SPANS_PER_REQUEST = 500;
 const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
 const SPAN_KIND_INTERNAL = 0;
+const W3C_TRACE_ID_PATTERN = /^[0-9a-f]{32}$/;
 
 const SUPPORTED_OBSERVATION_TYPES = new Set([
   "AGENT",
@@ -98,11 +107,50 @@ export function mapApoSpanId(sourceHost: string, observationId: string): string 
   return finalizeHex(digest.slice(0, 16));
 }
 
+// Resolve the apo trace id for a converted graph. When the caller supplies a
+// targetTraceId (e.g. to merge imported spans into an existing run trace whose
+// traceparent was propagated into Langfuse — issue #36), validate and reuse it
+// verbatim. Otherwise derive the stable namespaced hash.
+export function resolveTargetTraceId(
+  sourceHost: string,
+  sourceTraceId: string,
+  targetTraceId: string | undefined,
+): string {
+  if (targetTraceId === undefined) {
+    return mapApoTraceId(sourceHost, sourceTraceId);
+  }
+  if (!W3C_TRACE_ID_PATTERN.test(targetTraceId)) {
+    throw new Error(
+      `Invalid --trace-id: must be 32 lowercase hex chars (W3C trace id); got ${redactHex(targetTraceId)}`,
+    );
+  }
+  if (/^0+$/.test(targetTraceId)) {
+    throw new Error(
+      "Invalid --trace-id: the all-zero trace id is reserved",
+    );
+  }
+  return targetTraceId;
+}
+
+function resolveTraceId(
+  graph: LangfuseTraceGraph,
+  targetTraceId: string | undefined,
+): string {
+  return resolveTargetTraceId(graph.sourceHost, graph.sourceTraceId, targetTraceId);
+}
+
+function redactHex(value: string): string {
+  // Never echo a value that could be a live trace id in full.
+  if (value.length > 16) return value.slice(0, 8) + "...(redacted)";
+  return value;
+}
+
 export function convertLangfuseTraceToOtlp(
   graph: LangfuseTraceGraph,
+  options: ConvertLangfuseOptions = {},
 ): ConvertedLangfuseTrace {
   const validated = validateAndSortGraph(graph);
-  const traceId = mapApoTraceId(graph.sourceHost, graph.sourceTraceId);
+  const traceId = resolveTraceId(graph, options.targetTraceId);
 
   const presentIds = new Set(validated.map((o) => o.id));
   const spans: OtlpSpan[] = validated.map((observation) =>

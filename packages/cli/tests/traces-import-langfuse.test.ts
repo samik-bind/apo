@@ -233,6 +233,91 @@ describe("apo traces import langfuse — happy path (scene 1)", () => {
   });
 });
 
+describe("apo traces import langfuse — --trace-id target (issue #36)", () => {
+  it("emits spans under the caller-supplied trace id (merge into a run trace)", async () => {
+    const { run } = await import("../src/commands/traces-import-langfuse.ts");
+    const TARGET = "ba304669483e53622109e9a6c8905143";
+    const { calls } = captureFetch({
+      listPages: [{ body: langfusePage([basicRow()], null) }],
+      details: { "obs-1": detailRow({ id: "obs-1" }) },
+      otlp: {
+        status: 200,
+        body: {},
+        headers: { "X-Otlp-Accepted": "1", "X-Otlp-Rejected": "0", "X-Otlp-Batch-Id": "batch-1" },
+      },
+      visibility: [{ status: 200, body: { run: { id: "trace-1" }, calls: [], metrics: [] } }],
+    });
+
+    const out = captureStdout();
+    const code = await run([
+      SOURCE_TRACE_ID,
+      "--backend",
+      "http://apo.test",
+      "--api-key",
+      "apo-key-test",
+      "--trace-id",
+      TARGET,
+      "--json",
+    ]);
+    out.restore();
+
+    expect(code).toBe(0);
+    const parsed = JSON.parse(out.lines.join("\n"));
+    expect(parsed.traceId).toBe(TARGET);
+
+    // The OTLP POST body carries the target trace id on every span.
+    const otlpCall = calls.find((c) => c.url.includes("/api/public/otel/v1/traces"));
+    expect(otlpCall).toBeDefined();
+    const body = JSON.parse((otlpCall!.init as RequestInit).body as string);
+    const spans = body.resourceSpans?.[0]?.scopeSpans?.[0]?.spans ?? [];
+    expect(spans.length).toBeGreaterThan(0);
+    for (const span of spans) {
+      expect(span.traceId).toBe(TARGET);
+    }
+  });
+
+  it("exits 2 before any network I/O when --trace-id is not a valid W3C trace id", async () => {
+    const { run } = await import("../src/commands/traces-import-langfuse.ts");
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    const err = captureStderr();
+    const code = await run([
+      SOURCE_TRACE_ID,
+      "--backend",
+      "http://apo.test",
+      "--api-key",
+      "apo-key-test",
+      "--trace-id",
+      "not-a-valid-trace-id",
+    ]);
+    err.restore();
+
+    expect(code).toBe(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(err.lines.join("\n")).toMatch(/--trace-id|trace.?id/i);
+  });
+
+  it("exits 2 when --trace-id is given without a value", async () => {
+    const { run } = await import("../src/commands/traces-import-langfuse.ts");
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    const err = captureStderr();
+    const code = await run([
+      SOURCE_TRACE_ID,
+      "--backend",
+      "http://apo.test",
+      "--api-key",
+      "apo-key-test",
+      "--trace-id",
+    ]);
+    err.restore();
+
+    expect(code).toBe(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(err.lines.join("\n")).toMatch(/--trace-id/i);
+  });
+});
+
 describe("apo traces import langfuse — partial rejection (scene 3)", () => {
   it("exits 2 and prints accepted/rejected counts + batch id; never claims success", async () => {
     const { run } = await import("../src/commands/traces-import-langfuse.ts");

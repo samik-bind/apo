@@ -521,3 +521,69 @@ describe("langfuse-otlp chunking", () => {
     expect(() => convertLangfuseTraceToOtlp(graph(observations))).toThrow(/chunk/i);
   });
 });
+
+// ============================================================================
+// Target trace id reuse (issue #36)
+// ============================================================================
+// When apo propagates its traceparent into a remote agent runtime (e.g. AWS
+// Bedrock AgentCore), that runtime exports OTel to Langfuse under apo's own
+// trace id. The default behavior hashes the source id into a fresh apo trace
+// id, orphaning the imported spans from their task run. A caller-supplied
+// targetTraceId lets the import merge into the existing run trace instead.
+
+describe("langfuse-otlp target trace id (issue #36)", () => {
+  const TARGET = "ba304669483e53622109e9a6c8905143";
+
+  it("uses the target trace id instead of the namespaced hash", () => {
+    const g = graph([obs({ id: "obs-1" }), obs({ id: "obs-2", parentObservationId: "obs-1" })]);
+    const hashed = convertLangfuseTraceToOtlp(g).traceId;
+
+    const result = convertLangfuseTraceToOtlp(g, { targetTraceId: TARGET });
+
+    expect(result.traceId).toBe(TARGET);
+    expect(result.traceId).not.toBe(hashed);
+    for (const span of allSpans(result)) {
+      expect((span as { traceId?: string }).traceId).toBe(TARGET);
+    }
+  });
+
+  it("falls back to the namespaced hash when no target trace id is given", () => {
+    const g = graph([obs({ id: "obs-1" })]);
+    const result = convertLangfuseTraceToOtlp(g);
+    expect(result.traceId).toBe(mapApoTraceId(HOST, TRACE_ID));
+  });
+
+  it("keeps span ids stable regardless of the trace id (no collision with the hash path)", () => {
+    const g = graph([obs({ id: "obs-1" }), obs({ id: "obs-2", parentObservationId: "obs-1" })]);
+    const hashedSpans = allSpans(convertLangfuseTraceToOtlp(g));
+    const targetSpans = allSpans(convertLangfuseTraceToOtlp(g, { targetTraceId: TARGET }));
+
+    // Span ids are derived from the observation id + host, NOT the trace id, so
+    // they stay identical — re-importing into a different trace id never
+    // reshuffles parent/child span linkage.
+    expect(targetSpans.map((s) => (s as { spanId: string }).spanId)).toEqual(
+      hashedSpans.map((s) => (s as { spanId: string }).spanId),
+    );
+  });
+
+  it("still records the source trace id in provenance when merging", () => {
+    const result = convertLangfuseTraceToOtlp(graph([obs({ id: "obs-1" })]), {
+      targetTraceId: TARGET,
+    });
+    const span = allSpans(result)[0] as { attributes?: Array<{ key: string; value: unknown }> };
+    const attrs = spanAttrs(span);
+    expect(attrValue(attrs.get("apo.trace.source.trace_id"))).toBe(TRACE_ID);
+  });
+
+  it("rejects a target trace id that is not 32 lowercase hex chars", () => {
+    const g = graph([obs({ id: "obs-1" })]);
+    for (const bad of ["not-hex", "ABCDEF00", "g" + "0".repeat(31), "0".repeat(32), "1".repeat(31)]) {
+      expect(() => convertLangfuseTraceToOtlp(g, { targetTraceId: bad })).toThrow(/trace.?id/i);
+    }
+  });
+
+  it("rejects a target trace id that is all zeros (reserved)", () => {
+    const g = graph([obs({ id: "obs-1" })]);
+    expect(() => convertLangfuseTraceToOtlp(g, { targetTraceId: "0".repeat(32) })).toThrow(/zero|invalid/i);
+  });
+});
