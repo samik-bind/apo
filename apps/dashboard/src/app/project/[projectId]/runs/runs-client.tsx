@@ -312,7 +312,7 @@ export function RunsClient({
               <TableRow className="border-border hover:bg-transparent">
                 <TableHead style={{ width: COL.chevron }} />
                 <TableHead>Run</TableHead>
-                <TableHead style={{ width: COL.source }}>Source</TableHead>
+                <TableHead style={{ width: COL.source }} className="hidden xl:table-cell">Source</TableHead>
                 <TableHead style={{ width: COL.execution }}>
                   <span className="inline-flex items-center gap-1">
                     Execution
@@ -576,16 +576,18 @@ function RunsRow({
         <TableCell>
           <div className="min-w-0">
             <div className="flex items-center gap-2.5">
-              <span className={cn("h-2 w-2 shrink-0 rounded-full", s.dot)} aria-hidden />
+              <span
+                className={cn("h-2 w-2 shrink-0 rounded-full", s.dot)}
+                role="img"
+                aria-label={s.label}
+                title={s.label}
+              />
               <Link
                 href={`/project/${projectId}/runs/${batch.id}`}
                 className="truncate text-[14px] font-medium text-foreground hover:text-primary"
               >
                 {batchName}
               </Link>
-              <span className={cn("shrink-0 text-[11px] font-medium uppercase tracking-wide", s.text)}>
-                {s.label}
-              </span>
             </div>
             <div className="mt-1 flex items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
               <span className="shrink-0 font-mono text-muted-foreground/60">{batch.id.slice(0, 8)}</span>
@@ -612,7 +614,7 @@ function RunsRow({
           </div>
         </TableCell>
 
-        <TableCell>
+        <TableCell className="hidden xl:table-cell">
           <div className="flex items-center gap-2">
             <span className="grid h-6 w-6 shrink-0 place-items-center rounded border border-border bg-card">
               <SourceIcon className="h-3 w-3 text-muted-foreground" />
@@ -808,7 +810,7 @@ function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTaskRunSumm
       {/* Source column is intentionally empty for child rows: the task name is
           already in the Run column, and the trigger source is the parent
           batch's (shown on the parent row). Nothing unique to add here. */}
-      <TableCell aria-hidden />
+      <TableCell aria-hidden className="hidden xl:table-cell" />
 
       {/* SPEC-148: exact child configuration (not the batch aggregate). */}
       <TableCell>
