@@ -59,6 +59,28 @@ check("used-read-and-search-tools", async (t) => {
     expect(extractCheckBlock(aliasedSource, { id: "used-read-and-search-tools" })?.startLine).toBe(10);
   });
 
+  it("extracts a concise-body arrow check without swallowing the next one", () => {
+    const conciseSource = `test("E3: spacedout expanded spacing", (_t, { deliverables }) =>
+  expect(has(deliverables, /\\[spacedout\\]\\{[^}]*char-spacing="\\d+"/i)).toBe(true));
+test("E4: shadedrun shaded, not black", (_t, { deliverables }) => {
+  expect(has(deliverables, /\\[shadedrun\\]/)).toBe(true);
+});
+`;
+    expect(extractCheckBlock(conciseSource, { id: "E3: spacedout expanded spacing" })).toEqual({
+      code: `test("E3: spacedout expanded spacing", (_t, { deliverables }) =>
+  expect(has(deliverables, /\\[spacedout\\]\\{[^}]*char-spacing="\\d+"/i)).toBe(true));`,
+      startLine: 1,
+      endLine: 2,
+    });
+    expect(extractCheckBlock(conciseSource, { id: "E4: shadedrun shaded, not black" })?.startLine).toBe(3);
+  });
+
+  it("extracts a trailing concise-body check (no braced check follows)", () => {
+    const conciseSource = `test("last", (_t, { deliverables }) => expect(deliverables.a).toBe(1));
+`;
+    expect(extractCheckBlock(conciseSource, { id: "last" })?.endLine).toBe(1);
+  });
+
   it("anchors from a failure line within an aliased check", () => {
     const aliasedSource = `const check = test<T>;
 check("quality", async (t) => {
