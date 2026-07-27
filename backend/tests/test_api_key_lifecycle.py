@@ -21,6 +21,7 @@ Test cases:
 16. Rotation of nonexistent key returns 404
 """
 
+import json
 import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -90,27 +91,36 @@ class TestCreateWithScopeAndExpiry:
         assert resp.status_code == 200
         assert resp.json()["expires_at"] is not None
 
-    def test_create_with_full_scope_default(
+    def test_create_with_omitted_scope_defaults_to_ingest(
         self, client: TestClient, session: Session, make_authed_client: Any
     ) -> None:
+        """SPEC-149: omitting ``scope`` yields an ``ingest`` credential. The
+        previous ``full`` default was unsafe for the producer issuance use
+        case — most new keys exist to submit telemetry."""
         authed = _setup_and_get_authed_client(client, session, make_authed_client)
         resp = authed.post(
             "/v1/api-keys",
             json={"name": "Default Key", "project": TEST_PROJECT_ID},
         )
         assert resp.status_code == 200
-        assert resp.json()["scope"] == "full"
+        assert resp.json()["scope"] == "ingest"
 
     def test_create_invalid_scope_returns_422(
         self, client: TestClient, session: Session, make_authed_client: Any
     ) -> None:
+        """SPEC-149: ``scope`` is typed as ``Literal["full", "ingest"]`` so
+        Pydantic rejects unknown values at request-body parse time. The
+        exact error shape is Pydantic's structured ``detail`` list; we assert
+        on the status code plus a stable substring inside the loc/msg."""
         authed = _setup_and_get_authed_client(client, session, make_authed_client)
         resp = authed.post(
             "/v1/api-keys",
             json={"name": "Bad Scope", "project": TEST_PROJECT_ID, "scope": "admin"},
         )
         assert resp.status_code == 422
-        assert "Invalid scope" in resp.json()["detail"]
+        body = resp.json()
+        detail_text = json.dumps(body["detail"])
+        assert "full" in detail_text and "ingest" in detail_text
 
     def test_create_past_expiry_returns_422(
         self, client: TestClient, session: Session, make_authed_client: Any

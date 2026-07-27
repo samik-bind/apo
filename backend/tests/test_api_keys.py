@@ -29,7 +29,6 @@ from sqlmodel import Session, select
 
 from apo.auth.api_key_auth import (
     validate_basic_auth,
-    validate_bearer_public_key,
 )
 from apo.models.db import ApiKeyDB, ProjectDB, UserDB
 from apo.routes.api_keys import validate_api_key
@@ -219,10 +218,42 @@ class TestValidateApiKey:
         assert result.name == "Validate Me"
         assert result.project == "example-service"
 
-        # Public-key Bearer validation
-        result_pk = validate_bearer_public_key(public_key, session)
-        assert result_pk is not None
-        assert result_pk.id == result.id
+    def test_omitted_scope_defaults_to_ingest(
+        self, client: TestClient, session: Session, make_authed_client: Any
+    ) -> None:
+        """SPEC-149 Acceptance Test #13: creating a key without an explicit
+        ``scope`` produces an ``ingest`` credential (response + DB row)."""
+        authed = _setup_and_get_authed_client(client, session, make_authed_client)
+        resp = authed.post(
+            "/v1/api-keys",
+            json={"name": "Default Scope", "project": "example-service"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["scope"] == "ingest"
+        db_key = session.exec(select(ApiKeyDB)).first()
+        assert db_key is not None
+        assert db_key.scope == "ingest"
+
+    def test_explicit_full_scope_remains_available(
+        self, client: TestClient, session: Session, make_authed_client: Any
+    ) -> None:
+        """SPEC-149 Acceptance Test #14: an explicit ``scope: "full"`` still
+        creates a full key usable for management endpoints."""
+        authed = _setup_and_get_authed_client(client, session, make_authed_client)
+        create_resp = authed.post(
+            "/v1/api-keys",
+            json={
+                "name": "Explicit Full",
+                "project": "example-service",
+                "scope": "full",
+            },
+        )
+        assert create_resp.status_code == 200
+        assert create_resp.json()["scope"] == "full"
+        db_key = session.exec(select(ApiKeyDB)).first()
+        assert db_key is not None
+        assert db_key.scope == "full"
 
     def test_validate_basic_rejects_wrong_secret(
         self, client: TestClient, session: Session, make_authed_client: Any

@@ -907,9 +907,16 @@ class UpdateAgentTaskScheduleRequest(SQLModel):
 
 
 class ApiKeyCreate(SQLModel):
+    """Body of ``POST /v1/api-keys``.
+
+    SPEC-149: ``scope`` defaults to ``ingest`` (the least privilege required
+    for telemetry submission). Requesting ``full`` remains an explicit
+    administrative choice for CLI and management clients.
+    """
+
     name: str = "Default"
     project: str = "example-service"
-    scope: str = "full"
+    scope: Literal["full", "ingest"] = "ingest"
     expires_at: str | None = None
 
 

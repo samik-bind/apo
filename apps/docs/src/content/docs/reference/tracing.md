@@ -130,14 +130,22 @@ const processor = createApoSpanProcessor({
 |---|---|
 | `APO_OTLP_ENDPOINT` | OTLP traces endpoint. |
 | `APO_PROJECT` | Diagnostic resource attribute only (tenancy is auth-derived). |
-| `APO_PUBLIC_KEY` | Public key (`pk-apo-…`). Pairs with `APO_SECRET_KEY` for Basic auth. |
+| `APO_PUBLIC_KEY` | Public identifier (`pk-apo-…`). Pairs with `APO_SECRET_KEY` for Basic auth. |
 | `APO_SECRET_KEY` | Secret key (`sk-apo-…`, server-side). |
-| `APO_AUTH_TOKEN` | Bearer token. Used only when the public/secret pair is absent. |
+| `APO_AUTH_TOKEN` | Bearer token. Used for short-lived task-run/attempt tokens and secret-bearing legacy keys; ignored when a Basic pair is provided. |
 
-:::caution[The "public" key is a write credential]
-Despite the name, the `pk-apo-…` public key can **write traces** into your project on its own — it does not require the secret key for ingestion. Anyone who has the public key can send forged spans that pollute your project's data.
+:::caution[Both halves required — there is no browser-safe ingest credential]
+SPEC-149: every long-lived telemetry write requires both halves of an
+API-key pair, sent as HTTP Basic (`base64("pk-apo-…:sk-apo-…")`). The
+public identifier alone is **not** a credential — a `Bearer pk-apo-…`
+request is rejected with the same generic `401` as any invalid token.
 
-Treat `pk-apo-…` keys as secrets in practice: do not commit them, do not log them, and only expose them in client-side code if you accept that anyone who reads the client can write traces to your project. The secret key (`sk-apo-…`) grants full API access and must never be exposed client-side.
+Treat both halves as secrets: do not commit them, do not log them, and
+never expose either in a browser bundle. Issue one credential per
+independently deployed producer (e.g. one AgentCore deployment, one CI
+runtime), and rotate or revoke through the dashboard when no longer
+trusted. Direct browser-to-Apo telemetry ingestion is unsupported on the
+secure Server Profile.
 :::
 
 ## Errors

@@ -144,9 +144,10 @@ export function ApiKeysSection() {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Public keys (<code className="font-mono">pk-apo-…</code>) are safe to share and grant
-        ingest-only access. Secret keys (<code className="font-mono">sk-apo-…</code>) grant full
-        access — store them server-side.
+        Public keys (<code className="font-mono">pk-apo-…</code>) are stable identifiers —
+        they do not authorize requests by themselves. Secret keys
+        (<code className="font-mono">sk-apo-…</code>) are required alongside the public key
+        and must be stored server-side.
       </p>
 
       <ApiKeyCreateDialog

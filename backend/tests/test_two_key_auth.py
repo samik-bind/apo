@@ -1,9 +1,12 @@
 # pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnusedParameter=false, reportExplicitAny=false, reportUnusedFunction=false
 
-"""Tests for the two-key API model (SPEC-092).
+"""Tests for the two-key API model (SPEC-092 + SPEC-149).
 
-Covers key pair generation, Basic auth validation, public-key Bearer validation,
-legacy Bearer backward compat, and middleware integration for all three wire formats.
+Covers key pair generation, Basic auth validation, and legacy Bearer backward
+compat. SPEC-149 removes the public-key-only Bearer authentication path: a
+``pk-apo-*`` value used alone must never authenticate (security invariant #2).
+These tests document both supported wire formats (Basic pair, legacy secret
+Bearer) and the explicit rejection of public identifiers.
 """
 
 import base64
@@ -20,7 +23,6 @@ from apo.auth.api_key_auth import (
     generate_key_pair,
     is_public_key,
     validate_basic_auth,
-    validate_bearer_public_key,
     validate_legacy_bearer,
 )
 from apo.models.db import ApiKeyDB, UserDB
@@ -137,32 +139,16 @@ class TestValidationFunctions:
         result = validate_basic_auth(public_key, "sk-apo-wrong-secret", session)
         assert result is None
 
-    def test_validate_bearer_public_key_finds_key(
-        self, session: Session
-    ) -> None:
-        public_key, _, hashed_secret_key, display = generate_key_pair()
-        session.add(
-            ApiKeyDB(
-                name="Test",
-                prefix=public_key[:8],
-                public_key=public_key,
-                hashed_secret_key=hashed_secret_key,
-                display_secret_key=display,
-                project="test",
-                created_by="user1",
-            )
-        )
-        session.commit()
+    def test_public_key_only_validator_is_removed(self) -> None:
+        """SPEC-149 Acceptance Test #1: ``validate_bearer_public_key`` and its
+        cache-key helper no longer exist in the public API. A public
+        identifier must not authorize ingestion on its own."""
+        import apo.auth.api_key_auth as auth_module
 
-        result = validate_bearer_public_key(public_key, session)
-        assert result is not None
-        assert result.public_key == public_key
+        assert not hasattr(auth_module, "validate_bearer_public_key")
+        import apo.auth.api_key_cache as cache_module
 
-    def test_validate_bearer_public_key_returns_none_for_nonexistent(
-        self, session: Session
-    ) -> None:
-        result = validate_bearer_public_key("pk-apo-nonexistent", session)
-        assert result is None
+        assert not hasattr(cache_module, "cache_key_for_bearer_public")
 
     def test_validate_legacy_bearer_finds_key(
         self, session: Session
@@ -206,9 +192,11 @@ class TestMiddlewareBasicAuth:
         make_authed_client: Any,
     ) -> None:
         authed = _setup_and_get_authed_client(client, session, make_authed_client)
+        # SPEC-149: omitting scope defaults to ingest; /v1/api-keys requires
+        # full, so the Basic pair test must mint an explicit full key.
         create_resp = authed.post(
             "/v1/api-keys",
-            json={"name": "Pair", "project": "example-service"},
+            json={"name": "Pair", "project": "example-service", "scope": "full"},
         )
         public_key = create_resp.json()["public_key"]
         secret_key = create_resp.json()["secret_key"]
@@ -229,7 +217,7 @@ class TestMiddlewareBasicAuth:
         authed = _setup_and_get_authed_client(client, session, make_authed_client)
         create_resp = authed.post(
             "/v1/api-keys",
-            json={"name": "Pair", "project": "example-service"},
+            json={"name": "Pair", "project": "example-service", "scope": "full"},
         )
         public_key = create_resp.json()["public_key"]
 
@@ -250,13 +238,19 @@ class TestMiddlewareBasicAuth:
         assert resp.status_code == 401
 
 
-class TestMiddlewarePublicKeyBearer:
-    def test_public_key_bearer_grants_ingest_scope(
+class TestMiddlewarePublicKeyBearerRejection:
+    """SPEC-149: a ``Bearer pk-apo-*`` value must fail authentication with the
+    same generic 401 as any invalid credential, before scope authorization,
+    before any DB lookup, and before any telemetry is persisted."""
+
+    def test_public_key_bearer_cannot_ingest_legacy_batch(
         self,
         client: TestClient,
         session: Session,
         make_authed_client: Any,
     ) -> None:
+        """SPEC-149 Acceptance Test #6: ``POST /api/v1/ingestion`` with a
+        Bearer public key returns 401 and persists nothing."""
         authed = _setup_and_get_authed_client(client, session, make_authed_client)
         create_resp = authed.post(
             "/v1/api-keys",
@@ -264,20 +258,28 @@ class TestMiddlewarePublicKeyBearer:
         )
         public_key = create_resp.json()["public_key"]
 
-        # Ingestion endpoint allows ingest scope
+        from apo.models.db import RunDB
+
+        runs_before = session.exec(select(RunDB)).all()
+
         resp = client.post(
             "/api/v1/ingestion",
             headers={"Authorization": f"Bearer {public_key}"},
             json={"batch": []},
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 401
+        # No ingestion side effect.
+        assert session.exec(select(RunDB)).all() == runs_before
 
-    def test_public_key_bearer_blocked_from_key_management(
+    def test_public_key_bearer_cannot_reach_key_management(
         self,
         client: TestClient,
         session: Session,
         make_authed_client: Any,
     ) -> None:
+        """A Bearer public key is rejected at authentication (401), not at
+        scope authorization (403). The response is the same generic 401 as an
+        unknown credential."""
         authed = _setup_and_get_authed_client(client, session, make_authed_client)
         create_resp = authed.post(
             "/v1/api-keys",
@@ -285,12 +287,11 @@ class TestMiddlewarePublicKeyBearer:
         )
         public_key = create_resp.json()["public_key"]
 
-        # Key management requires "full" scope; public-key Bearer forces "ingest"
         resp = client.get(
             "/v1/api-keys",
             headers={"Authorization": f"Bearer {public_key}"},
         )
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
     def test_public_key_bearer_nonexistent_returns_401(
         self, client: TestClient
@@ -300,6 +301,69 @@ class TestMiddlewarePublicKeyBearer:
             headers={"Authorization": "Bearer pk-apo-nonexistent-uuid"},
         )
         assert resp.status_code == 401
+
+    def test_public_key_bearer_response_matches_unknown_credential(
+        self,
+        client: TestClient,
+        session: Session,
+        make_authed_client: Any,
+    ) -> None:
+        """The 401 body for a known-but-public identifier is identical to the
+        body for an unknown credential (security invariant #7: no
+        credential-state enumeration)."""
+        authed = _setup_and_get_authed_client(client, session, make_authed_client)
+        create_resp = authed.post(
+            "/v1/api-keys",
+            json={"name": "Pair", "project": "example-service", "scope": "full"},
+        )
+        public_key = create_resp.json()["public_key"]
+
+        known_resp = client.get(
+            "/v1/api-keys",
+            headers={"Authorization": f"Bearer {public_key}"},
+        )
+        unknown_resp = client.get(
+            "/v1/api-keys",
+            headers={"Authorization": "Bearer pk-apo-does-not-exist"},
+        )
+        assert known_resp.status_code == 401
+        assert unknown_resp.status_code == 401
+        assert known_resp.json() == unknown_resp.json()
+
+    def test_public_key_bearer_cannot_ingest_otlp_traces(
+        self,
+        client: TestClient,
+        session: Session,
+        make_authed_client: Any,
+    ) -> None:
+        """SPEC-149 Acceptance Test #7: ``POST /api/public/otel/v1/traces``
+        with a Bearer public key returns 401 and persists no inbox batch or
+        canonical span."""
+        authed = _setup_and_get_authed_client(client, session, make_authed_client)
+        create_resp = authed.post(
+            "/v1/api-keys",
+            json={"name": "Pair", "project": "example-service", "scope": "full"},
+        )
+        public_key = create_resp.json()["public_key"]
+
+        from apo.models.db import OtlpIngestBatchDB, OtlpSpanDB
+
+        batches_before = session.exec(select(OtlpIngestBatchDB)).all()
+        spans_before = session.exec(select(OtlpSpanDB)).all()
+
+        # Minimal OTLP/JSON payload (a single no-op resourceSpans block).
+        resp = client.post(
+            "/api/public/otel/v1/traces",
+            headers={
+                "Authorization": f"Bearer {public_key}",
+                "Content-Type": "application/json",
+            },
+            json={"resourceSpans": []},
+        )
+        assert resp.status_code == 401
+        # No ingestion side effect on either store.
+        assert session.exec(select(OtlpIngestBatchDB)).all() == batches_before
+        assert session.exec(select(OtlpSpanDB)).all() == spans_before
 
 
 class TestMiddlewareLegacyBearer:
@@ -382,3 +446,104 @@ class TestRotationUpgradesLegacyKey:
         # Old legacy key should no longer validate
         old_result = validate_legacy_bearer(old_legacy_key, session)
         assert old_result is None
+
+
+# ---------------------------------------------------------------------------
+# SPEC-149 Acceptance Tests #11 and #12: revoke/rotate invalidate the Basic
+# positive cache immediately (before the DB mutation commits). The old
+# credential must fail on its next request, not after the positive TTL.
+# ---------------------------------------------------------------------------
+
+
+class TestCacheInvalidationOnRevoke:
+    def test_revoke_invalidates_basic_cache(
+        self,
+        client: TestClient,
+        session: Session,
+        make_authed_client: Any,
+    ) -> None:
+        authed = _setup_and_get_authed_client(client, session, make_authed_client)
+        # SPEC-149: default scope is ingest; /v1/api-keys requires full, so
+        # the Basic pair test mints an explicit full key.
+        create_resp = authed.post(
+            "/v1/api-keys",
+            json={"name": "To Revoke", "project": "example-service", "scope": "full"},
+        )
+        assert create_resp.status_code == 200
+        public_key = create_resp.json()["public_key"]
+        secret_key = create_resp.json()["secret_key"]
+        key_id = create_resp.json()["id"]
+
+        # Prime the positive Basic cache by authenticating once.
+        credentials = base64.b64encode(
+            f"{public_key}:{secret_key}".encode()
+        ).decode()
+        authed_resp = client.get(
+            "/v1/api-keys",
+            headers={"Authorization": f"Basic {credentials}"},
+        )
+        assert authed_resp.status_code == 200
+
+        # Revoke via API.
+        revoke_resp = authed.delete(f"/v1/api-keys/{key_id}")
+        assert revoke_resp.status_code == 200
+
+        # The next request with the old pair must fail immediately —
+        # the positive cache entry must not survive revoke.
+        immediate_resp = client.get(
+            "/v1/api-keys",
+            headers={"Authorization": f"Basic {credentials}"},
+        )
+        assert immediate_resp.status_code == 401
+
+
+class TestCacheInvalidationOnRotate:
+    def test_rotate_invalidates_basic_cache_for_old_pair(
+        self,
+        client: TestClient,
+        session: Session,
+        make_authed_client: Any,
+    ) -> None:
+        authed = _setup_and_get_authed_client(client, session, make_authed_client)
+        create_resp = authed.post(
+            "/v1/api-keys",
+            json={"name": "To Rotate", "project": "example-service", "scope": "full"},
+        )
+        assert create_resp.status_code == 200
+        old_public_key = create_resp.json()["public_key"]
+        old_secret_key = create_resp.json()["secret_key"]
+        key_id = create_resp.json()["id"]
+
+        # Prime the positive Basic cache for the OLD pair.
+        old_credentials = base64.b64encode(
+            f"{old_public_key}:{old_secret_key}".encode()
+        ).decode()
+        prime_resp = client.get(
+            "/v1/api-keys",
+            headers={"Authorization": f"Basic {old_credentials}"},
+        )
+        assert prime_resp.status_code == 200
+
+        # Rotate via API.
+        rotate_resp = authed.post(f"/v1/api-keys/{key_id}/rotate")
+        assert rotate_resp.status_code == 200
+        new_public_key = rotate_resp.json()["public_key"]
+        new_secret_key = rotate_resp.json()["secret_key"]
+        assert new_public_key != old_public_key
+
+        # The OLD pair must fail immediately — no positive cache bypass.
+        old_repeat = client.get(
+            "/v1/api-keys",
+            headers={"Authorization": f"Basic {old_credentials}"},
+        )
+        assert old_repeat.status_code == 401
+
+        # The NEW pair must succeed immediately.
+        new_credentials = base64.b64encode(
+            f"{new_public_key}:{new_secret_key}".encode()
+        ).decode()
+        new_repeat = client.get(
+            "/v1/api-keys",
+            headers={"Authorization": f"Basic {new_credentials}"},
+        )
+        assert new_repeat.status_code == 200

@@ -24,14 +24,12 @@ from sqlmodel import Session, select
 from apo.auth.api_key_auth import (
     generate_key_pair,
     validate_basic_auth,
-    validate_bearer_public_key,
     validate_legacy_bearer,
 )
 from apo.auth.api_key_cache import (
     ApiKeyCache,
     api_key_cache,
     cache_key_for_basic,
-    cache_key_for_bearer_public,
     cache_key_for_legacy,
 )
 from apo.auth.middleware import _is_expired
@@ -289,9 +287,6 @@ class TestCacheKeyDerivation:
             != cache_key_for_basic("pk-apo-2", "hash-a")
         )
 
-    def test_bearer_public_cache_key_uses_only_public_key(self) -> None:
-        assert cache_key_for_bearer_public("pk-apo-1") == "bearer_pub:pk-apo-1"
-
     def test_legacy_cache_key_uses_token_hash(self) -> None:
         assert cache_key_for_legacy("abc123") == "legacy:abc123"
 
@@ -332,39 +327,19 @@ class TestValidationCachingBasicExpiry:
 
 
 class TestValidationCachingBearerPublic:
-    def test_positive_cache_hit_skips_db(self, session: Session) -> None:
-        public_key, _, hashed_secret_key, display = generate_key_pair()
-        session.add(
-            ApiKeyDB(
-                name="Test",
-                prefix=public_key[:8],
-                public_key=public_key,
-                hashed_secret_key=hashed_secret_key,
-                display_secret_key=display,
-                project="test",
-                created_by="user1",
-            )
-        )
-        session.commit()
+    """SPEC-149 removed the ``validate_bearer_public_key`` path. These tests
+    pin the removal: a public identifier alone must not consult the cache,
+    must not populate the cache, and must not return a cached credential."""
 
-        with patch.object(session, "exec", wraps=session.exec) as spy:
-            result1 = validate_bearer_public_key(public_key, session)
-            assert result1 is not None
-            assert spy.call_count == 1
+    def test_validate_bearer_public_key_is_removed(self) -> None:
+        import apo.auth.api_key_auth as auth_module
 
-            result2 = validate_bearer_public_key(public_key, session)
-            assert result2 is not None
-            assert spy.call_count == 1  # Cache hit
+        assert not hasattr(auth_module, "validate_bearer_public_key")
 
-    def test_negative_cache_hit_skips_db(self, session: Session) -> None:
-        with patch.object(session, "exec", wraps=session.exec) as spy:
-            result1 = validate_bearer_public_key("pk-apo-missing", session)
-            assert result1 is None
-            assert spy.call_count == 1
+    def test_cache_key_for_bearer_public_is_removed(self) -> None:
+        import apo.auth.api_key_cache as cache_module
 
-            result2 = validate_bearer_public_key("pk-apo-missing", session)
-            assert result2 is None
-            assert spy.call_count == 1  # Negative cache hit
+        assert not hasattr(cache_module, "cache_key_for_bearer_public")
 
 
 class TestValidationCachingLegacy:
@@ -407,14 +382,14 @@ class TestNewKeyAfterNegativeCache:
         """A key created after a negative cache entry is found once the negative TTL expires."""
         # Use a cache with a short negative TTL (1s)
         local_cache = ApiKeyCache(ttl_seconds=300, negative_ttl_seconds=1)
-        public_key, _, hashed_secret_key, display = generate_key_pair()
+        public_key, secret_key, hashed_secret_key, display = generate_key_pair()
 
-        # Patch the module-level singleton so validate_bearer_public_key uses our cache
+        # Patch the module-level singleton so validate_basic_auth uses our cache
         with patch(
             "apo.auth.api_key_auth.api_key_cache", local_cache
         ):
             # First lookup — key does not exist yet → negative cached
-            result1 = validate_bearer_public_key(public_key, session)
+            result1 = validate_basic_auth(public_key, secret_key, session)
             assert result1 is None
 
             # Now create the key in the DB
@@ -432,12 +407,12 @@ class TestNewKeyAfterNegativeCache:
             session.commit()
 
             # Immediate re-lookup still returns None (negative cache hit)
-            result2 = validate_bearer_public_key(public_key, session)
+            result2 = validate_basic_auth(public_key, secret_key, session)
             assert result2 is None
 
             # Wait for negative TTL to expire, then lookup finds the key
             time.sleep(1.1)
-            result3 = validate_bearer_public_key(public_key, session)
+            result3 = validate_basic_auth(public_key, secret_key, session)
             assert result3 is not None
             assert result3.public_key == public_key
 
@@ -448,7 +423,7 @@ class TestCacheDisabledSkipsCache:
     ) -> None:
         """When API_KEY_CACHE_ENABLED=false, every validation hits the DB."""
         monkeypatch.setenv("API_KEY_CACHE_ENABLED", "false")
-        public_key, _, hashed_secret_key, display = generate_key_pair()
+        public_key, secret_key, hashed_secret_key, display = generate_key_pair()
         session.add(
             ApiKeyDB(
                 name="Test",
@@ -463,9 +438,9 @@ class TestCacheDisabledSkipsCache:
         session.commit()
 
         with patch.object(session, "exec", wraps=session.exec) as spy:
-            validate_bearer_public_key(public_key, session)
+            validate_basic_auth(public_key, secret_key, session)
             assert spy.call_count == 1
-            validate_bearer_public_key(public_key, session)
+            validate_basic_auth(public_key, secret_key, session)
             assert spy.call_count == 2  # Not cached — second DB hit
 
 
@@ -553,80 +528,10 @@ class TestExpiryStillApplies:
 # ---------------------------------------------------------------------------
 
 
-class TestCacheInvalidationOnRevoke:
-    def test_revoke_invalidates_bearer_pub_cache(
-        self,
-        client: TestClient,
-        session: Session,
-        make_authed_client: Any,
-    ) -> None:
-        authed = _setup_and_get_authed_client(client, session, make_authed_client)
-        create_resp = authed.post(
-            "/v1/api-keys",
-            json={"name": "To Revoke", "project": TEST_PROJECT_ID},
-        )
-        assert create_resp.status_code == 200
-        public_key = create_resp.json()["public_key"]
-        key_id = create_resp.json()["id"]
-
-        # Populate the cache via direct validation
-        result_before = validate_bearer_public_key(public_key, session)
-        assert result_before is not None
-        # Confirm cache is populated
-        assert (
-            api_key_cache.get(cache_key_for_bearer_public(public_key))
-            is result_before
-        )
-
-        # Revoke via API
-        revoke_resp = authed.delete(f"/v1/api-keys/{key_id}")
-        assert revoke_resp.status_code == 200
-
-        # Cache entry should be invalidated
-        assert api_key_cache.get(cache_key_for_bearer_public(public_key)) == "MISS"
-
-        # Direct validation now hits DB and returns None (key is gone)
-        result_after = validate_bearer_public_key(public_key, session)
-        assert result_after is None
-
-
-class TestCacheInvalidationOnRotate:
-    def test_rotate_invalidates_old_bearer_pub_cache(
-        self,
-        client: TestClient,
-        session: Session,
-        make_authed_client: Any,
-    ) -> None:
-        authed = _setup_and_get_authed_client(client, session, make_authed_client)
-        create_resp = authed.post(
-            "/v1/api-keys",
-            json={"name": "To Rotate", "project": TEST_PROJECT_ID},
-        )
-        assert create_resp.status_code == 200
-        old_public_key = create_resp.json()["public_key"]
-        key_id = create_resp.json()["id"]
-
-        # Populate the cache for the OLD public key
-        result_before = validate_bearer_public_key(old_public_key, session)
-        assert result_before is not None
-        assert (
-            api_key_cache.get(cache_key_for_bearer_public(old_public_key))
-            is result_before
-        )
-
-        # Rotate via API
-        rotate_resp = authed.post(f"/v1/api-keys/{key_id}/rotate")
-        assert rotate_resp.status_code == 200
-        new_public_key = rotate_resp.json()["public_key"]
-        assert new_public_key != old_public_key
-
-        # Cache entry for the OLD public key should be invalidated
-        assert api_key_cache.get(cache_key_for_bearer_public(old_public_key)) == "MISS"
-
-        # Direct validation of the OLD public key now returns None
-        result_after = validate_bearer_public_key(old_public_key, session)
-        assert result_after is None
-
-        # The NEW public key works (and gets cached on first lookup)
-        result_new = validate_bearer_public_key(new_public_key, session)
-        assert result_new is not None
+# ---------------------------------------------------------------------------
+# Cache invalidation on revoke/rotate via the real middleware lives in
+# ``test_two_key_auth.py::TestCacheInvalidation`` — those tests require the
+# real AuthMiddleware (forced AUTH_SECRET + patched engine) that this module
+# does not enable by default. The unit-level coverage above exercises the
+# cache primitives directly without going through HTTP auth.
+# ---------------------------------------------------------------------------

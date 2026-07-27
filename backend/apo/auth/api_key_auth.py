@@ -1,9 +1,14 @@
-"""Two-key API authentication helpers (SPEC-092).
+"""Two-key API authentication helpers (SPEC-092 + SPEC-149).
 
-Provides validation functions for the three wire formats:
-    - Basic auth (public_key:secret_key) — full access
-    - Bearer public key (pk-apo-xxx) — ingest-only scope
-    - Legacy Bearer (sk-xxx) — backward-compatible full access
+Provides validation functions for the supported wire formats:
+    - Basic auth (public_key:secret_key) — grants the key's stored scope
+    - Legacy Bearer (sk-xxx) — backward-compatible, full scope from key record
+
+SPEC-149 removed the public-key-only Bearer authentication path. A
+``pk-apo-*`` value used alone is no longer secret material and must not
+authenticate; the middleware rejects it before any DB lookup. The
+``is_public_key`` helper is retained so the rejection is explicit and
+self-documenting.
 
 Also provides ``generate_key_pair`` for creating new pk-apo/sk-apo pairs.
 
@@ -23,7 +28,6 @@ from ..models.db import ApiKeyDB
 from .api_key_cache import (
     api_key_cache,
     cache_key_for_basic,
-    cache_key_for_bearer_public,
     cache_key_for_legacy,
 )
 
@@ -70,7 +74,13 @@ def generate_key_pair() -> tuple[str, str, str, str]:
 
 
 def is_public_key(token: str) -> bool:
-    """Check if a bearer token is a public key (pk-apo- prefix)."""
+    """Check whether a bearer token has the public-key prefix (``pk-apo-``).
+
+    SPEC-149: this helper exists for the middleware to *reject* public
+    identifiers explicitly. A ``True`` return never authorizes
+    authentication — it identifies a value that must be refused before any
+    DB lookup, ``last_used_at`` update, or auth-state population.
+    """
     return token.startswith(_PUBLIC_KEY_PREFIX)
 
 
@@ -94,32 +104,6 @@ def validate_basic_auth(
         ApiKeyDB.public_key == public_key,
         ApiKeyDB.hashed_secret_key == fast_hash,
     )
-    api_key = session.exec(statement).first()
-
-    if api_key is not None:
-        api_key_cache.set_positive(cache_key, api_key)
-    else:
-        api_key_cache.set_negative(cache_key)
-
-    return api_key
-
-
-def validate_bearer_public_key(
-    public_key: str, session: Session
-) -> ApiKeyDB | None:
-    """Validate a public-key-only Bearer token.
-
-    Looks up by public_key only — no secret needed.
-    Grants ingest-only scope regardless of the key's stored scope.
-    Results are cached (positive and negative) to skip the DB on subsequent calls.
-    """
-    cache_key = cache_key_for_bearer_public(public_key)
-
-    cached = api_key_cache.get(cache_key)
-    if cached != "MISS":
-        return cached
-
-    statement = select(ApiKeyDB).where(ApiKeyDB.public_key == public_key)
     api_key = session.exec(statement).first()
 
     if api_key is not None:

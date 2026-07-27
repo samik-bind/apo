@@ -9,9 +9,16 @@ export interface EnvConfig {
   endpoint: string;
   /** Project name for optimization tracking */
   project: string;
-  /** Public key for two-key auth (safe to expose in browser mode) */
+  /**
+   * Public identifier for the two-key model. SPEC-149: this is the
+   * ``pk-apo-*`` value, used as the Basic-auth username alongside
+   * ``secretKey``. It is NOT a usable credential on its own — the SDK
+   * never reads ``NEXT_PUBLIC_APO_PUBLIC_KEY`` because publishing a public
+   * identifier in a browser bundle creates a misleading direct-browser
+   * integration. Server-only.
+   */
   publicKey?: string;
-  /** Secret key for two-key auth (server-only) */
+  /** Secret key for two-key auth (server-only). */
   secretKey?: string;
   /** Legacy single-key auth token */
   apiKey?: string;
@@ -36,8 +43,11 @@ export interface EnvConfig {
  * - Falls back to `default-project`
  *
  * For `publicKey`:
- * - `NEXT_PUBLIC_APO_PUBLIC_KEY` (browser-safe public key)
- * - `APO_PUBLIC_KEY` (server-side public key)
+ * - `APO_PUBLIC_KEY` (server-side public identifier; paired with
+ *   `APO_SECRET_KEY` to form HTTP Basic credentials). SPEC-149 removed
+ *   support for `NEXT_PUBLIC_APO_PUBLIC_KEY`: the public identifier alone
+ *   does not authorize ingestion, so publishing it as a browser-safe env
+ *   var is actively misleading.
  *
  * For `secretKey`:
  * - `APO_SECRET_KEY` (server-side only)
@@ -67,9 +77,7 @@ export function readConfig(): EnvConfig {
     process.env.NEXT_PUBLIC_APO_PROJECT ??
     "default-project";
 
-  const publicKey =
-    process.env.NEXT_PUBLIC_APO_PUBLIC_KEY ??
-    process.env.APO_PUBLIC_KEY;
+  const publicKey = process.env.APO_PUBLIC_KEY;
 
   const secretKey = process.env.APO_SECRET_KEY;
   const apiKey = process.env.APO_API_KEY;

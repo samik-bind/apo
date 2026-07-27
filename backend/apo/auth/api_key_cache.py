@@ -25,11 +25,6 @@ def cache_key_for_basic(public_key: str, secret_hash: str) -> str:
     return f"basic:{public_key}:{secret_hash}"
 
 
-def cache_key_for_bearer_public(public_key: str) -> str:
-    """Build a cache key for public-key Bearer auth."""
-    return f"bearer_pub:{public_key}"
-
-
 def cache_key_for_legacy(token_hash: str) -> str:
     """Build a cache key for legacy single-key Bearer auth."""
     return f"legacy:{token_hash}"

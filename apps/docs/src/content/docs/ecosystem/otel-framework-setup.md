@@ -153,12 +153,14 @@ the Python bootstrap uses:
 | Env var | Used for |
 |---|---|
 | `APO_OTLP_ENDPOINT` | OTLP traces endpoint (defaults to `http://localhost:8000/api/public/otel/v1/traces`) |
-| `APO_PUBLIC_KEY` + `APO_SECRET_KEY` | Basic auth (`Authorization: Basic base64(pk:sk)`) |
-| `APO_AUTH_TOKEN` | Bearer auth (used only when the key pair is absent) |
+| `APO_PUBLIC_KEY` + `APO_SECRET_KEY` | Basic auth (`Authorization: Basic base64(pk:sk)`). Both halves are required; the public identifier alone is rejected. |
+| `APO_AUTH_TOKEN` | Bearer auth for short-lived task-run/attempt tokens, or secret-bearing legacy keys. Used only when the key pair is absent. |
 | `APO_PROJECT` | Diagnostic resource attribute |
 
 So the recipes all collapse to `configureApoTelemetry({ takeOwnership: true })`
-once those vars are set.
+once those vars are set. SPEC-149 note: there is no `NEXT_PUBLIC_APO_PUBLIC_KEY`
+variant — telemetry submission requires both halves of an API-key pair, so
+the SDK never reads a browser-public value.
 
 ### Vercel AI SDK
 

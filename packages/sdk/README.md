@@ -44,7 +44,7 @@ special tsconfig.
 |-------------|-----------------------------|--------------------------------------|----------|
 | `endpoint`  | `APO_BACKEND_URL`           | `NEXT_PUBLIC_APO_BACKEND_URL`        | yes      |
 | `project`   | `APO_PROJECT`               | `NEXT_PUBLIC_APO_PROJECT`            | yes      |
-| `publicKey` | `APO_PUBLIC_KEY`            | `NEXT_PUBLIC_APO_PUBLIC_KEY`         | two-key  |
+| `publicKey` | `APO_PUBLIC_KEY`            | — *(server-side only — see below)*   | two-key  |
 | `secretKey` | `APO_SECRET_KEY`            | —                                    | two-key  |
 | `apiKey`    | `APO_API_KEY`               | —                                    | legacy   |
 
@@ -52,6 +52,14 @@ The Next.js (`NEXT_PUBLIC_*`) variants are read first, then the plain server
 variants. `apiKey` is the legacy single-key format (`sk-…`); prefer the
 two-key model (`publicKey` + `secretKey`, generated as `pk-apo-…` / `sk-apo-…`
 in the dashboard).
+
+SPEC-149: there is no browser-safe variant of `APO_PUBLIC_KEY`. The public
+identifier alone does not authorize ingestion, and exposing it in a
+browser bundle creates a misleading direct-browser integration.
+`NEXT_PUBLIC_APO_PUBLIC_KEY` is intentionally not read. Telemetry
+submission always requires both halves of an API-key pair sent as HTTP
+Basic (`base64("pk-apo-…:sk-apo-…")`); the SDK never synthesizes partial
+Basic credentials from only one half.
 
 ```ts
 import { readConfig, type EnvConfig } from "@apo/sdk";

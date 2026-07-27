@@ -117,16 +117,22 @@ These variables are read **only** by the CLI for the [`traces import langfuse`](
 
 ## SDK (`@apo/sdk`)
 
-The tracing SDK reads these (or their `NEXT_PUBLIC_` variants for browser use):
+The tracing SDK reads these environment variables:
 
 | Variable | Purpose |
 |---|---|
 | `APO_BACKEND_URL` | Backend URL. Also `NEXT_PUBLIC_APO_BACKEND_URL`. |
 | `APO_PROJECT` | Project id. Also `NEXT_PUBLIC_APO_PROJECT`. |
-| `APO_PUBLIC_KEY` | Public key for browser-side tracing. Also `NEXT_PUBLIC_APO_PUBLIC_KEY`. |
-| `APO_SECRET_KEY` | Secret key for server-side tracing. |
-| `APO_API_KEY` | API key (alternative auth). |
-| `APO_AUTH_TOKEN` | Auth token (alternative auth). |
+| `APO_PUBLIC_KEY` | Public identifier (`pk-apo-…`) for HTTP Basic auth. Server-side only — pair with `APO_SECRET_KEY`. |
+| `APO_SECRET_KEY` | Secret key (`sk-apo-…`) for HTTP Basic auth. Server-side only. |
+| `APO_API_KEY` | Legacy single-key auth (alternative auth). |
+| `APO_AUTH_TOKEN` | Bearer token for short-lived task-run/attempt tokens, or secret-bearing legacy keys. |
+
+SPEC-149: `NEXT_PUBLIC_APO_PUBLIC_KEY` is intentionally **not** read. The
+public identifier does not authorize ingestion by itself, and publishing
+it in a browser bundle creates a misleading direct-browser integration.
+Telemetry submission requires both halves of an API-key pair encoded as
+HTTP Basic. There is no supported browser-public ingestion credential.
 
 ## Task runner (Executor subprocess)
 

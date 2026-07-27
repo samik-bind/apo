@@ -26,7 +26,6 @@ from . import AUTH_SECRET, decode_nextauth_token
 from .api_key_auth import (
     is_public_key,
     validate_basic_auth,
-    validate_bearer_public_key,
     validate_legacy_bearer,
 )
 from .api_key_tracker import api_key_usage_tracker
@@ -174,7 +173,13 @@ def _authenticate(request: Request) -> AuthContext | None:
     if basic_credentials:
         return _authenticate_basic(basic_credentials[0], basic_credentials[1])
 
-    # 3. Bearer auth (public-key ingest, legacy single-key, or service token)
+    # 3. Bearer auth (legacy single-key, service token, or attempt token).
+    # SPEC-149: a Bearer value beginning with ``pk-apo-`` is a public
+    # identifier, not secret material. It is rejected here — before any DB
+    # lookup, before ``last_used_at`` updates, and before auth-state
+    # population — so that the response is indistinguishable from any other
+    # invalid credential. The same generic 401 covers unknown identifiers,
+    # expired keys, and revoked keys.
     bearer = _get_bearer_token(request)
     if bearer:
         return _authenticate_bearer(bearer)
@@ -359,23 +364,13 @@ def _authenticate_bearer(token: str) -> AuthContext | None:
                 "auth_method": "attempt_token",
             }
 
-        # Public-key Bearer (pk-apo- prefix): ingest-only scope, forced by auth method
+        # SPEC-149 security invariant #2: a public identifier (``pk-apo-*``)
+        # is not a credential. Reject it before the legacy secret-token
+        # lookup so it does not query by ``public_key``, record
+        # ``last_used_at``, or populate authentication state. Returning
+        # ``None`` here yields the same generic 401 as an unknown credential.
         if is_public_key(token):
-            api_key = validate_bearer_public_key(token, session)
-            if api_key is None:
-                return None
-
-            if _is_expired(api_key.expires_at):
-                return None
-
-            api_key_usage_tracker.record_use(api_key.id, engine)
-
-            return {
-                "project": api_key.project,
-                "user_id": api_key.created_by,
-                "auth_method": "api_key",
-                "api_key_scope": "ingest",
-            }
+            return None
 
         # Legacy single-key Bearer (sk-xxx): full scope from key record
         api_key = validate_legacy_bearer(token, session)

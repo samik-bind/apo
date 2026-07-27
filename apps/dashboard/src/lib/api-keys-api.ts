@@ -49,10 +49,17 @@ export interface ApiKeyRotateResponse {
   message: string;
 }
 
+/**
+ * Create a new API key pair.
+ *
+ * SPEC-149: defaults to ``ingest`` (least privilege) — the common
+ * telemetry-producer use case. Pass ``"full"`` explicitly for CLI and
+ * management credentials.
+ */
 export const createApiKey = (
   name: string,
   project: string,
-  scope: ApiKeyScope = "full",
+  scope: ApiKeyScope = "ingest",
   expiresAt?: string,
 ): Promise<ApiKeyCreateResponse> =>
   apiClient("/v1/api-keys", {

@@ -14,20 +14,30 @@ This guide covers the technical standards and coding patterns used in the codeba
 
 ### SDK Auth Env Vars
 
-The SDK now supports the two-key auth model directly from environment variables.
+The SDK supports the two-key auth model directly from environment variables.
 
-- Preferred server-side setup:
+- Server-side setup (telemetry producers, CLI, management clients):
   - `APO_PUBLIC_KEY=pk-apo-...`
   - `APO_SECRET_KEY=sk-apo-...`
-- Preferred browser/public-ingest setup:
-  - `NEXT_PUBLIC_APO_PUBLIC_KEY=pk-apo-...`
 - Legacy backward-compatible setup:
   - `APO_API_KEY=sk-...`
+- Short-lived Bearer tokens (task-run / attempt tokens, secret-bearing
+  legacy keys):
+  - `APO_AUTH_TOKEN=...`
 
 Important:
 
-- `sk-apo-...` is a secret half of the new key pair, not a legacy Bearer token by itself.
-- If you only set a `sk-apo-...` value without the matching public key, backend writes will 401.
+- The two halves are sent together as HTTP Basic
+  (`base64("pk-apo-…:sk-apo-…")`). SPEC-149 removed
+  `NEXT_PUBLIC_APO_PUBLIC_KEY` and the public-key-only Bearer path: a
+  `pk-apo-…` value alone is not a credential and is rejected with the same
+  generic `401` as any unknown token. There is no supported browser-public
+  ingestion credential.
+- New dashboard-minted keys default to the least-privileged `ingest` scope.
+  Requesting `full` is an explicit administrative choice.
+- Revocation and rotation invalidate the positive Basic-auth cache entry
+  before the DB mutation commits, so the old credential fails on its next
+  request rather than riding the cache TTL.
 
 ### Core Schema Overview
 

@@ -35,7 +35,10 @@ export function ApiKeyCreateDialog({
 }: ApiKeyCreateDialogProps) {
   const [name, setName] = useState("")
   const [project, setProject] = useState(defaultProject)
-  const [scope, setScope] = useState<ApiKeyScope>("full")
+  // SPEC-149: default to the least-privileged scope. Telemetry producer
+  // issuance is the common case; full management access is an explicit
+  // administrative choice.
+  const [scope, setScope] = useState<ApiKeyScope>("ingest")
   const [expiresAt, setExpiresAt] = useState("")
   const [creating, setCreating] = useState(false)
 
@@ -43,7 +46,7 @@ export function ApiKeyCreateDialog({
     if (next) {
       setName("")
       setProject(defaultProject)
-      setScope("full")
+      setScope("ingest")
       setExpiresAt("")
     }
     onOpenChange(next)
@@ -109,8 +112,8 @@ export function ApiKeyCreateDialog({
               onChange={(e) => setScope(e.target.value as ApiKeyScope)}
               className="h-8 w-full min-w-0 rounded-none border border-input bg-input/30 px-2.5 py-1 text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50"
             >
-              <option value="full">Full (ingest + manage)</option>
-              <option value="ingest">Ingest only</option>
+              <option value="ingest">Ingest only — recommended for telemetry producers</option>
+              <option value="full">Full access — CLI and management</option>
             </select>
           </div>
           <div className="flex flex-col gap-1.5 sm:col-span-2">

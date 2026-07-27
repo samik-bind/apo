@@ -17,7 +17,7 @@ from ..auth import verify_password
 from ..auth.api_key_auth import generate_key_pair
 from ..auth.api_key_cache import (
     api_key_cache,
-    cache_key_for_bearer_public,
+    cache_key_for_basic,
     cache_key_for_legacy,
 )
 from ..auth.deps import require_api_key_scope
@@ -122,15 +122,18 @@ def _validate_scope(scope: str) -> str:
 def _invalidate_cache_for_key(api_key: ApiKeyDB) -> None:
     """Invalidate cache entries keyed off the current DB record.
 
-    Call BEFORE deleting or mutating the record. The Basic-auth cache entry
-    (``basic:{pk}:{sk_hash}``) cannot be reconstructed without the plaintext
-    secret, so it is left to expire naturally (max 5 min). The Bearer public
-    and legacy entries are always invalidated.
+    SPEC-149: call BEFORE deleting or mutating the record. The exact Basic
+    entry is reconstructed from the stored public identifier and the stored
+    hashed secret — both available without plaintext — so revocation and
+    rotation take effect immediately rather than riding the positive TTL.
+    Legacy Bearer entries are invalidated when ``hashed_key`` is present.
     """
+    if api_key.public_key and api_key.hashed_secret_key:
+        api_key_cache.invalidate(
+            cache_key_for_basic(api_key.public_key, api_key.hashed_secret_key)
+        )
     if api_key.hashed_key:
         api_key_cache.invalidate(cache_key_for_legacy(api_key.hashed_key))
-    if api_key.public_key:
-        api_key_cache.invalidate(cache_key_for_bearer_public(api_key.public_key))
 
 
 @router.post("/api-keys", response_model=ApiKeyCreateResponse)

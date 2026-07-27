@@ -64,7 +64,7 @@ export function ApiKeyRevealDialog({
 
         <div className="space-y-3">
           {payload?.publicKey && (
-            <KeyCopyField label="Public key" value={payload.publicKey} hint="Safe to share. Grants ingest-only access on its own." />
+            <KeyCopyField label="Public key" value={payload.publicKey} hint="Identifier; does not authorize requests by itself." />
           )}
           {secret && (
             <KeyCopyField
@@ -73,7 +73,7 @@ export function ApiKeyRevealDialog({
               maskedValue={maskedSecret}
               revealed={showSecret}
               onToggleReveal={() => setShowSecret((s) => !s)}
-              hint="Server-side only. Grants full access when paired with the public key."
+              hint="Required with the public key. Copy now; it cannot be shown again."
             />
           )}
         </div>

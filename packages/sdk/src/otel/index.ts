@@ -183,9 +183,12 @@ const DEFAULT_APO_OTLP_ENDPOINT = "http://localhost:8000/api/public/otel/v1/trac
  * Build the `Authorization` header for apo's OTLP endpoint.
  *
  * - If `publicKey` + `secretKey` are given (or read from `APO_PUBLIC_KEY` /
- *   `APO_SECRET_KEY`), returns HTTP Basic: `Basic base64(pk:sk)`.
+ *   `APO_SECRET_KEY`), returns HTTP Basic: `Basic base64(pk:sk)`. SPEC-149:
+ *   both halves are required — a public identifier alone is not a
+ *   credential, so partial Basic is never synthesized.
  * - Else if `authToken` is given (or read from `APO_AUTH_TOKEN`), returns
- *   `Bearer <token>`.
+ *   `Bearer <token>`. (Covers short-lived task-run/attempt tokens and
+ *   secret-bearing legacy API keys.)
  * - Else returns an empty object (unauthenticated).
  *
  * Mirrors Python's `_build_auth_headers` in apo-otel-python.

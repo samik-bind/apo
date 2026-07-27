@@ -56,13 +56,15 @@ function formatAssertionMessage(assertion: CheckAssertionResult): string {
 /**
  * Decide whether an assertion earns a gutter marker.
  *
- * All assertions get a marker — passes (green) and failures (red). Showing
- * passes lets users click a green marker to see the actual values (e.g.
- * "received: 6" for maxToolCalls), the same way they click red markers to
- * see why something failed.
+ * Failures always get a red marker. Among passes, only LLM judge verdicts
+ * earn a green marker — a passing ``t.check()`` / ``t.calledTool()`` is
+ * baseline OK and should not clutter the gutter; a check with many passing
+ * code assertions would otherwise drown out the meaningful signal (judge
+ * verdicts and failures).
  */
-function shouldShowMarker(_assertion: CheckAssertionResult): boolean {
-  return true;
+function shouldShowMarker(assertion: CheckAssertionResult): boolean {
+  if (!assertion.pass) return true;
+  return assertion.evaluator_type === "llm";
 }
 
 /**

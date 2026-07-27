@@ -101,25 +101,33 @@ describe("readConfig", () => {
   });
 
   describe("authentication configuration", () => {
-    it("should read public, secret, and legacy API keys from environment", () => {
+    it("should read public (server-only) and secret keys from environment", () => {
+      // SPEC-149: only APO_PUBLIC_KEY is read — NEXT_PUBLIC_APO_PUBLIC_KEY
+      // is intentionally ignored because the public identifier does not
+      // authorize ingestion by itself and must never be embedded in a
+      // browser bundle as a credential.
       process.env.NEXT_PUBLIC_APO_PUBLIC_KEY = "pk-apo-public-browser";
+      process.env.APO_PUBLIC_KEY = "pk-apo-server-public";
       process.env.APO_SECRET_KEY = "sk-apo-secret-server";
       process.env.APO_API_KEY = "sk-legacy-key";
 
       const config = readConfig();
 
-      expect(config.publicKey).toBe("pk-apo-public-browser");
+      expect(config.publicKey).toBe("pk-apo-server-public");
       expect(config.secretKey).toBe("sk-apo-secret-server");
       expect(config.apiKey).toBe("sk-legacy-key");
     });
 
-    it("should fall back to server public key when NEXT_PUBLIC public key is not set", () => {
-      delete process.env.NEXT_PUBLIC_APO_PUBLIC_KEY;
-      process.env.APO_PUBLIC_KEY = "pk-apo-server-public";
+    it("SPEC-149: ignores NEXT_PUBLIC_APO_PUBLIC_KEY entirely", () => {
+      // A browser-bundled public identifier is not a usable credential and
+      // publishing one creates a misleading direct-browser integration. The
+      // SDK must never surface it.
+      delete process.env.APO_PUBLIC_KEY;
+      process.env.NEXT_PUBLIC_APO_PUBLIC_KEY = "pk-apo-public-browser";
 
       const config = readConfig();
 
-      expect(config.publicKey).toBe("pk-apo-server-public");
+      expect(config.publicKey).toBeUndefined();
     });
   });
 
