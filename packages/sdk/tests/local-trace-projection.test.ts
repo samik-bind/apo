@@ -45,6 +45,40 @@ describe("LocalTraceProjectionRecorder", () => {
     });
   });
 
+  it("records step output via summarize (issue #45)", async () => {
+    const recorder = createLocalTraceProjectionRecorder();
+    const captured = await recorder.capture(
+      { project: "p", flow_name: "test-flow" },
+      async (trace) => {
+        const result = await trace.step(
+          { step_name: "task.turn", summarize: (r) => ({ response: (r as { response: unknown }).response }) },
+          async () => ({ response: "The agent answered: 42" }),
+        );
+        return result;
+      },
+    );
+    const turn = captured.snapshot.observations.find((o) => o.name === "task.turn");
+    expect(turn).toBeDefined();
+    expect(turn!.output).toEqual({ response: "The agent answered: 42" });
+  });
+
+  it("step without summarize has undefined output", async () => {
+    const recorder = createLocalTraceProjectionRecorder();
+    const captured = await recorder.capture(
+      { project: "p", flow_name: "test-flow" },
+      async (trace) => {
+        await trace.step(
+          { step_name: "task.turn" },
+          async () => ({ response: "ignored" }),
+        );
+        return "done";
+      },
+    );
+    const turn = captured.snapshot.observations.find((o) => o.name === "task.turn");
+    expect(turn).toBeDefined();
+    expect(turn!.output).toBeUndefined();
+  });
+
   it("records an erroring tool span with status error", async () => {
     const recorder = createLocalTraceProjectionRecorder();
     const captured = await recorder.capture(

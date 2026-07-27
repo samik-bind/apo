@@ -305,6 +305,7 @@ async function executeLoadedTask(
 
     if (turnFn) {
       const turnTranscript: TurnRecord[] = [];
+      let lastTurnResponse: unknown;
       // Precedence: explicit run override → task config → default 10.
       const maxTurns = options?.maxTurnsOverride ?? task.maxTurns ?? 10;
 
@@ -316,6 +317,7 @@ async function executeLoadedTask(
           {
             step_name: "task.turn",
             metadata: { turnNumber: turnNum },
+            summarize: (r) => ({ response: (r as { response: unknown }).response }),
           },
           async (spanId) => {
             if (!session) throw new Error("Session not created");
@@ -338,6 +340,12 @@ async function executeLoadedTask(
           agentResponse: result.response,
         });
         options?.onTurn?.(turnNum, userTurn, result.response);
+        lastTurnResponse = result.response;
+      }
+      // Issue #45: roll the final turn's response up to the run root so the
+      // trace header / run list shows what the agent answered at a glance.
+      if (lastTurnResponse !== undefined) {
+        rawTrace.endRoot({ output: { response: lastTurnResponse } });
       }
     }
 
@@ -549,12 +557,13 @@ async function captureExecution(
 
         if (turnFn) {
           const turnTranscript: TurnRecord[] = [];
+          let lastTurnResponse: unknown;
           const maxTurns = options?.maxTurnsOverride ?? task.maxTurns ?? 10;
           for (let turnNum = 1; turnNum <= maxTurns; turnNum++) {
             const userTurn = await turnFn({ files: taskFiles, transcript: turnTranscript });
             if (userTurn === null || userTurn === undefined) break;
             const result = await trace.step(
-              { step_name: "task.turn", metadata: { turnNumber: turnNum } },
+              { step_name: "task.turn", metadata: { turnNumber: turnNum }, summarize: (r) => ({ response: (r as { response: unknown }).response }) },
               async (spanId) => {
                 if (!session) throw new Error("Session not created");
                 return session.sendUserTurn(userTurn, { trace, turnNumber: turnNum, parentSpanId: spanId });
@@ -563,6 +572,11 @@ async function captureExecution(
             turnTranscript.push({ turnNumber: turnNum, input: userTurn, output: result.response });
             transcriptTurns.push({ turnNumber: turnNum, userAction: userTurn, agentResponse: result.response });
             options?.onTurn?.(turnNum, userTurn, result.response);
+            lastTurnResponse = result.response;
+          }
+          // Issue #45: roll the final turn's response up to the run root.
+          if (lastTurnResponse !== undefined) {
+            rawTrace.endRoot({ output: { response: lastTurnResponse } });
           }
         }
 

@@ -615,4 +615,40 @@ describe("langfuse-otlp target trace id (issue #36)", () => {
     const g = graph([obs({ id: "obs-1" })]);
     expect(() => convertLangfuseTraceToOtlp(g, { targetTraceId: "0".repeat(32) })).toThrow(/zero|invalid/i);
   });
+
+  it("keeps parent link to a target-trace span in merge mode (issue #44)", () => {
+    // The agent's root observation carries parentObservationId = apo's
+    // propagated span id (task.turn). That parent isn't in the imported
+    // set — it lives in the target trace. In merge mode the link must
+    // survive so the imported subtree nests under task.turn, not the root.
+    const externalParent = "a1b2c3d4e5f6a7b8"; // valid 16-hex span id
+    const g = graph([
+      obs({ id: "agent-root", parentObservationId: externalParent }),
+      obs({ id: "agent-gen", parentObservationId: "agent-root" }),
+    ]);
+    const result = convertLangfuseTraceToOtlp(g, { targetTraceId: TARGET });
+    const spans = allSpans(result) as Array<{
+      spanId?: string;
+      parentSpanId?: string;
+      attributes?: Array<{ key: string; value: unknown }>;
+    }>;
+
+    const agentRoot = spans.find((s) => spanAttrs(s).get("apo.trace.source.observation_id") && attrValue(spanAttrs(s).get("apo.trace.source.observation_id")) === "agent-root")!;
+    const agentGen = spans.find((s) => spanAttrs(s).get("apo.trace.source.observation_id") && attrValue(spanAttrs(s).get("apo.trace.source.observation_id")) === "agent-gen")!;
+
+    // agent-root links to the external parent (raw id, not hashed).
+    expect(agentRoot.parentSpanId).toBe(externalParent);
+    // agent-gen links to agent-root (hashed, as before — same imported set).
+    expect(agentGen.parentSpanId).toBe(agentRoot.spanId);
+  });
+
+  it("reparents to root when parent is absent and NOT in merge mode", () => {
+    // Without --trace-id, a missing parent is an orphan — reparent to root.
+    const g = graph([
+      obs({ id: "orphan", parentObservationId: "ghost-parent" }),
+    ]);
+    const result = convertLangfuseTraceToOtlp(g);
+    const span = allSpans(result)[0] as { parentSpanId?: string };
+    expect(span.parentSpanId).toBeUndefined();
+  });
 });

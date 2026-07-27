@@ -153,8 +153,9 @@ export function convertLangfuseTraceToOtlp(
   const traceId = resolveTraceId(graph, options.targetTraceId);
 
   const presentIds = new Set(validated.map((o) => o.id));
+  const mergeMode = options.targetTraceId !== undefined;
   const spans: OtlpSpan[] = validated.map((observation) =>
-    buildSpan(observation, graph, traceId, presentIds),
+    buildSpan(observation, graph, traceId, presentIds, mergeMode),
   );
 
   const requests = chunkSpans(spans);
@@ -166,6 +167,7 @@ function buildSpan(
   graph: LangfuseTraceGraph,
   traceId: string,
   presentIds: Set<string>,
+  mergeMode: boolean,
 ): OtlpSpan {
   const spanId = mapApoSpanId(graph.sourceHost, observation.id);
   const attributes: OtlpAttribute[] = [];
@@ -205,6 +207,11 @@ function buildSpan(
   }
   if (parentId && presentIds.has(parentId)) {
     span.parentSpanId = mapApoSpanId(graph.sourceHost, parentId);
+  } else if (parentId && mergeMode) {
+    // Merge mode (--trace-id): the parent lives in the target trace, not
+    // the imported set. Keep the raw link so the imported subtree nests
+    // under its real parent instead of being flattened to the root (issue #44).
+    span.parentSpanId = parentId;
   }
   return span;
 }
