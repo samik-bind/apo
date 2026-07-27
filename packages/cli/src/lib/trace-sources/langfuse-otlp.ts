@@ -306,7 +306,7 @@ function appendUsage(
   usageDetails: Readonly<Record<string, number>> | null | undefined,
 ): void {
   if (!usageDetails) return;
-  const input = pickUsage(usageDetails, ["input", "prompt"]);
+  const input = resolveInputTokens(usageDetails);
   const output = pickUsage(usageDetails, ["output", "completion"]);
   if (input !== undefined) {
     attributes.push(intAttr("gen_ai.usage.input_tokens", input));
@@ -314,6 +314,24 @@ function appendUsage(
   if (output !== undefined) {
     attributes.push(intAttr("gen_ai.usage.output_tokens", output));
   }
+}
+
+// Anthropic prompt caching splits input tokens across multiple buckets:
+// `input` is just the uncached remainder; `input_cache_read` and
+// `input_cache_creation` hold the cached portion. Sum them to get the
+// real total (issue #43). Without this, a 38k-token cached prompt
+// reports as ~3 tokens — cost and token counts become self-contradictory.
+function resolveInputTokens(
+  usageDetails: Readonly<Record<string, number>>,
+): number | undefined {
+  const base = pickUsage(usageDetails, ["input", "prompt"]);
+  if (base === undefined) return undefined;
+  let total = base;
+  for (const k of ["input_cache_read", "input_cache_creation"] as const) {
+    const v = usageDetails[k];
+    if (typeof v === "number") total += v;
+  }
+  return total;
 }
 
 function appendCost(

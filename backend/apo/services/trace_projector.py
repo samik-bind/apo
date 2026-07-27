@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlmodel import Session, col, select
 
@@ -28,6 +28,7 @@ from ..models.db import (
     RunDB,
     RunMetricDB,
 )
+from ..models.schemas import JsonValue
 from ..models.trace_ingestion import TraceIngestionContext
 from .otel_normalization import NormalizedSpan, normalize_span
 from .projection_lookup import (
@@ -435,18 +436,16 @@ def _is_truthy(value: object) -> bool:
     return False
 
 
-def _raw_attr(span: OtlpSpanDB, key: str) -> dict[str, Any] | None:
-    """Read a free-form dict attribute (e.g. legacy ``input``/``output``).
+def _raw_attr(span: OtlpSpanDB, key: str) -> JsonValue | None:
+    """Read a free-form attribute (e.g. legacy ``input``/``output``).
 
-    The normalizer only understands ``gen_ai.*`` convention attributes. Legacy
-    adapter spans carry raw ``input``/``output`` dicts that need to pass through
-    to the projection when the normalizer has no mapping for them.
+    Returns the raw value regardless of JSON type — dict, list, str, number,
+    bool. Issue #42: previously dict-only, which silently discarded string
+    prompts and list-shaped outputs (e.g. Anthropic reasoning blocks),
+    producing empty ``{}`` I/O on imported generations.
     """
     attrs = span.attributes or {}
-    value = attrs.get(key)
-    if isinstance(value, dict):
-        return value
-    return None
+    return cast(JsonValue | None, attrs.get(key))
 
 
 def _apply_cost(session: Session, call: LoggedCallDB, span: OtlpSpanDB) -> None:

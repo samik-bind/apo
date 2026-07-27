@@ -224,3 +224,42 @@ class TestLangfuseConnectorProjectsFixture:
                 select(LoggedCallDB).where(LoggedCallDB.run_id == expected_trace_id)
             ).all()
             assert len(calls) == 3, "re-import must not duplicate calls"
+
+    def test_non_dict_input_output_preserved(self):
+        """Issue #42: string prompts and list-shaped outputs must not be
+        silently discarded to {} by the dict-only _raw_attr guard."""
+        fixture = _load_otlp_fixture()
+        resource_spans = fixture["resourceSpans"]
+        for rs in resource_spans:  # type: ignore[union-attr]
+            for ss in rs["scopeSpans"]:  # type: ignore[index]
+                for span in ss["spans"]:  # type: ignore[index]
+                    if "gpt-4o" in span["name"]:  # type: ignore[index]
+                        attrs = span["attributes"]  # type: ignore[index]
+                        # Replace dict I/O with non-dict: string input, list output.
+                        for attr in attrs:
+                            if attr["key"] == "apo.observation.input":
+                                attr["value"] = {"stringValue": "<date>Today's date is 27/07/2026</date><user-info>test</user-info>"}
+                            elif attr["key"] == "apo.observation.output":
+                                attr["value"] = {"arrayValue": {"values": [
+                                    {"kvlistValue": {"values": [
+                                        {"key": "type", "value": {"stringValue": "reasoning"}},
+                                        {"key": "text", "value": {"stringValue": "The user is asking about pricing."}},
+                                    ]}},
+                                ]}}
+                        # Also remove gen_ai input/output messages so the
+                        # normalizer falls through to the raw fallback.
+                        span["attributes"] = [a for a in attrs if a["key"] not in ("gen_ai.input.messages", "gen_ai.output.messages")]  # type: ignore[index]
+        _project_directly(fixture)
+
+        expected_trace_id = fixture["expectedTraceId"]
+        with Session(engine) as session:
+            calls = session.exec(
+                select(LoggedCallDB).where(LoggedCallDB.run_id == expected_trace_id)
+            ).all()
+            gen = next(c for c in calls if c.model == "gpt-4o")
+            # String input must survive — not be discarded to {}.
+            assert isinstance(gen.input, str), f"expected str, got {type(gen.input)}: {gen.input!r}"
+            assert "Today's date" in gen.input
+            # List output must survive — not be discarded to {}.
+            assert isinstance(gen.output, list), f"expected list, got {type(gen.output)}: {gen.output!r}"
+            assert gen.output[0]["type"] == "reasoning"

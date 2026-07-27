@@ -255,6 +255,35 @@ describe("langfuse-otlp semantic mapping", () => {
     expect(attrValue(errAttrs.get("apo.observation.level"))).toBe("ERROR");
   });
 
+  it("sums input_cache_read + input_cache_creation into input tokens (issue #43)", () => {
+    const observations = [
+      obs({
+        id: "root",
+        type: "TRACE",
+        traceName: "cached",
+      }),
+      obs({
+        id: "gen",
+        type: "GENERATION",
+        parentObservationId: "root",
+        name: "chat claude",
+        providedModelName: "claude-sonnet-4-6",
+        usageDetails: { input: 3, output: 36, input_cache_read: 31953, input_cache_creation: 6318, total: 38310 },
+        totalCost: "0.056379",
+      }),
+    ];
+    const result = convertLangfuseTraceToOtlp(graph(observations));
+    const spans = allSpans(result) as Array<{ attributes?: Array<{ key: string; value: unknown }> }>;
+    const gen = spans.find((s) => {
+      const a = spanAttrs(s);
+      return attrValue(a.get("apo.trace.source.observation_id")) === "gen";
+    })!;
+    const genAttrs = spanAttrs(gen);
+    // 3 + 31953 + 6318 = 38274 — the real input token count including cache.
+    expect(attrValue(genAttrs.get("gen_ai.usage.input_tokens"))).toBe(38274);
+    expect(attrValue(genAttrs.get("gen_ai.usage.output_tokens"))).toBe(36);
+  });
+
   it("maps EVENT and unknown types to generic SPAN, retaining the original type", () => {
     const observations = [
       obs({ id: "evt", type: "EVENT" }),
