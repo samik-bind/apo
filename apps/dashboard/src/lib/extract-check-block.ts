@@ -24,6 +24,17 @@ export interface CheckBlock {
 
 const BASE_OPENER_NAMES = ["test", "defineCheck"];
 
+/**
+ * Code characters after which a `/` opens a regex literal rather than being a
+ * division operator (`(`, `,`, `=`, `>` as in `=>`, `!`, `&`, `|`, `?`, `:`,
+ * `{`, `;`, `[`, and the arithmetic operators). After an identifier, digit,
+ * `)` or `]` — i.e. a value — it is division.
+ */
+const REGEX_PRECEDERS = new Set([
+  "(", ",", "=", ">", "<", "!", "&", "|", "?", ":", "{", "}", ";", "[", "+",
+  "-", "*", "%", "^", "~", "/",
+]);
+
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -112,10 +123,28 @@ function findOpener(
  * From the opener line, find the matching close by counting braces, ignoring
  * braces inside string/template literals and comments. Returns the line index
  * of the closing `}` (the block usually ends `});` on that line).
+ *
+ * A concise-body arrow check — `test("id", (t, { deliverables }) => expr);` —
+ * never opens a body brace, so it ends where the registration call's own
+ * parens close.
  */
 function findBlockEnd(lines: string[], startIdx: number): number {
-  type State = "code" | "sq" | "dq" | "tpl" | "lineComment" | "blockComment";
+  type State =
+    | "code"
+    | "sq"
+    | "dq"
+    | "tpl"
+    | "lineComment"
+    | "blockComment"
+    | "regex";
   let state: State = "code";
+  // Last non-space code character seen, used to tell a regex literal from a
+  // division: `/` after an operator/opener starts a regex, after a value
+  // divides. Checks are regex-heavy (`expect(has(d, /\[x\]\{[^}]*a="b"/i))`),
+  // and an unrecognized regex hands its braces and quotes to the scanner —
+  // which then mismatches the block or runs to EOF.
+  let prev = "";
+  let inCharClass = false;
   // Track parenthesis depth so braces inside the check's argument list —
   // e.g. the `(t, { deliverables })` destructure — are NOT mistaken for the
   // body. The body-open `{` is the first `{` at the call's own paren level
@@ -152,6 +181,13 @@ function findBlockEnd(lines: string[], startIdx: number): number {
         else if (c === "`") state = "code";
         continue;
       }
+      if (state === "regex") {
+        if (c === "\\") j++;
+        else if (c === "[") inCharClass = true;
+        else if (c === "]") inCharClass = false;
+        else if (c === "/" && !inCharClass) state = "code";
+        continue;
+      }
       // state === "code"
       if (c === "/" && next === "/") break; // rest of line is comment
       if (c === "/" && next === "*") {
@@ -159,6 +195,12 @@ function findBlockEnd(lines: string[], startIdx: number): number {
         j++;
         continue;
       }
+      if (c === "/" && (prev === "" || REGEX_PRECEDERS.has(prev))) {
+        state = "regex";
+        inCharClass = false;
+        continue;
+      }
+      if (c !== " " && c !== "\t") prev = c;
       if (c === "'" || c === '"' || c === "`") {
         state = c === "'" ? "sq" : c === '"' ? "dq" : "tpl";
         continue;
@@ -169,6 +211,10 @@ function findBlockEnd(lines: string[], startIdx: number): number {
       }
       if (c === ")") {
         parenDepth--;
+        // Concise body: the call closed without ever opening a body brace, so
+        // this line is the end of the check. Without this the scan runs on and
+        // swallows the NEXT braced check (or hits EOF and drops the block).
+        if (parenDepth === 0 && !seenOpen) return i;
         continue;
       }
       if (c === "{") {
