@@ -495,7 +495,7 @@ async function runLocallyRecorded(config: Config, task: ResolvedTask): Promise<n
 
   loadEnvFiles(task.taskDir);
 
-  const { runTaskDir } = await import("@apo/sdk/agent-task");
+  const { runTaskDir, AgentTaskRunError } = await import("@apo/sdk/agent-task");
   let summary: LocalRunSummary;
   try {
     console.log(dim(`Running task locally from ${task.taskDir} (run ${externalRun.id})...`));
@@ -506,10 +506,15 @@ async function runLocallyRecorded(config: Config, task: ResolvedTask): Promise<n
     // Report the failure so the dashboard row reflects reality, not a hang.
     // `errored: true` tells the backend the executor threw before producing
     // a verdict — it finalizes as status: error, not failed (Issue #13).
+    // Issue #40: forward the resolved run_configuration when the SDK branded
+    // the error — model/effort is most valuable on the row that failed.
+    const runConfiguration =
+      error instanceof AgentTaskRunError ? error.runConfiguration : undefined;
     await reportResultSafely(config, externalRun.id, {
       pass_result: false,
       errored: true,
       error_message: message,
+      ...(runConfiguration ? { run_configuration: runConfiguration } : {}),
     });
     return 2;
   }

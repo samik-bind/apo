@@ -20,6 +20,18 @@ vi.mock("@apo/sdk/agent-task", () => ({
     jsonDeliverables: deliverables,
     artifactUploads: [],
   })),
+  // Issue #40: the CLI destructures AgentTaskRunError from this module.
+  AgentTaskRunError: class AgentTaskRunError extends Error {
+    runConfiguration?: { model: string; effort?: string };
+    constructor(
+      message: string,
+      options?: { runConfiguration?: { model: string; effort?: string } },
+    ) {
+      super(message);
+      this.name = "AgentTaskRunError";
+      this.runConfiguration = options?.runConfiguration;
+    }
+  },
 }));
 
 const { run } = await import("../src/commands/task-run.ts");
