@@ -40,15 +40,9 @@ import { formatBatchExecution, formatRunExecution, formatRunExecutionFull } from
 
 import { useProjectId } from "@/lib/project-router";
 import { useClientNow } from "@/hooks/use-client-now";
-import {
-  conclusionStyle,
-  deriveConclusion,
-  type Conclusion,
-} from "@/components/run-outcome";
+import { conclusionStyle } from "@/components/run-outcome";
 import { useUrlParam, useUrlParamSet } from "@/hooks/use-url-state";
 import { RunsModelFilter, type ModelOption } from "./runs-model-filter";
-
-type ConclusionFilter = "all" | "running" | "passed" | "failed";
 
 /**
  * Column widths — fixed, not flexible. Mirrors the traces table's approach:
@@ -66,13 +60,6 @@ const COL = {
   duration: 110,
   created: 150,
 } as const;
-
-/** Coarse bucket for the filter tabs: "problems" groups failed + errored. */
-function filterBucket(c: Conclusion): ConclusionFilter {
-  if (c === "running" || c === "queued") return "running";
-  if (c === "passed") return "passed";
-  return "failed";
-}
 
 function formatDate(value: string | null): string {
   if (!value) return "\u2014";
@@ -142,14 +129,9 @@ export function RunsClient({
   taskSource: ProjectTaskSource | null;
 }) {
   const projectId = useProjectId();
-  // Filter state lives in the URL (?q=, ?filter=) so a shared link lands the
+  // Filter state lives in the URL (?q=) so a shared link lands the
   // reader on the same filtered view.
   const [query, setQuery] = useUrlParam("q");
-  const [filterParam, setFilter] = useUrlParam("filter", "all");
-  const filter: ConclusionFilter =
-    filterParam === "running" || filterParam === "passed" || filterParam === "failed"
-      ? filterParam
-      : "all";
   const clientNow = useClientNow();
   const sourceUnconfigured = taskSource === null && batchRuns.length === 0;
 
@@ -176,26 +158,6 @@ export function RunsClient({
     [selectedBatches],
   );
 
-  const conclusions = useMemo(
-    () =>
-      batchRuns.map((b) =>
-        deriveConclusion({
-          status: b.status,
-          passed: b.passed_tasks,
-          failed: b.failed_tasks,
-          errored: b.errored_tasks,
-          total: b.total_tasks,
-        }),
-      ),
-    [batchRuns],
-  );
-
-  const counts = useMemo(() => {
-    const c: Record<ConclusionFilter, number> = { all: batchRuns.length, running: 0, passed: 0, failed: 0 };
-    for (const con of conclusions) c[filterBucket(con)]++;
-    return c;
-  }, [batchRuns.length, conclusions]);
-
   // SPEC-148: model facet. Options come from every batch's configuration
   // summary so selecting one value never removes the others from the list.
   // Selection is URL-backed (?model=a,b) → shareable, back/forward-restored.
@@ -215,8 +177,7 @@ export function RunsClient({
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
     const modelSelected = selectedModels.size > 0;
-    return batchRuns.filter((b, i) => {
-      if (filter !== "all" && filterBucket(conclusions[i]) !== filter) return false;
+    return batchRuns.filter((b) => {
       // SPEC-148: model facet — a batch matches if any of its reported
       // configurations uses a selected model (OR within the model dimension).
       if (modelSelected) {
@@ -241,7 +202,7 @@ export function RunsClient({
         configText.includes(q)
       );
     });
-  }, [query, filter, batchRuns, conclusions, selectedModels]);
+  }, [query, batchRuns, selectedModels]);
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -264,24 +225,6 @@ export function RunsClient({
               placeholder="Filter by ID, selection, source, actor, or task name..."
               className="h-8 border-border bg-card pl-8 text-[13px] placeholder:text-muted-foreground/50 focus-visible:ring-1"
             />
-          </div>
-          <div className="flex items-center gap-1 rounded-md border border-border bg-card p-0.5">
-            {(["all", "running", "passed", "failed"] as ConclusionFilter[]).map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setFilter(k)}
-                className={cn(
-                  "inline-flex h-6 items-center gap-1.5 rounded px-2 text-[12px] font-medium capitalize transition-colors",
-                  filter === k ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {k}
-                <span className={cn("font-mono text-[10px] tabular-nums", filter === k ? "text-background/60" : "text-muted-foreground/60")}>
-                  {counts[k] ?? 0}
-                </span>
-              </button>
-            ))}
           </div>
           <div className="ml-auto flex items-center gap-3 text-[12px] text-muted-foreground">
             <span>

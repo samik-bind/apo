@@ -15,6 +15,13 @@
  *
  * Messages are already normalized to OpenAI shape by the backend
  * (`normalize_genai_message` in `otel_normalization/_shared.py`).
+ *
+ * **Imported traces fallback (issue #47):** traces imported via
+ * `traces import langfuse` carry provider-native content blocks (e.g.
+ * Anthropic `[{type:"text", text:…}]`) under `input`/`output`, not OpenAI
+ * `messages` arrays. When the primary path finds no messages, the fallback
+ * walks the ordered call sequence and reconstructs the conversation by
+ * extracting text from each call's raw I/O.
  */
 
 import type { LoggedCall, TraceDetail } from "@/components/trace-detail/contexts";
@@ -45,7 +52,7 @@ export interface ConversationView {
  * Reconstruct the conversation view from a trace's generation calls.
  *
  * Returns `{ messages: [] }` when there is no trace, no generation calls, or
- * the last generation carries no messages — callers render an empty state.
+ * the calls carry no extractable content — callers render an empty state.
  */
 export function deriveConversationFromTrace(
   trace: TraceDetail | null,
@@ -57,13 +64,138 @@ export function deriveConversationFromTrace(
     .sort(compareCallOrder);
   if (generations.length === 0) return EMPTY;
 
+  // Primary path: the last generation's accumulated messages array (SDK-native
+  // traces where the backend normalizes gen_ai.*.messages to OpenAI shape).
   const last = generations[generations.length - 1];
   const inputMessages = readMessages(last.input);
   const outputMessages = readMessages(last.output);
   const combined = [...inputMessages, ...outputMessages];
-  if (combined.length === 0) return EMPTY;
+  if (combined.length > 0) {
+    return { messages: dedupe(combined) };
+  }
 
-  return { messages: dedupe(combined) };
+  // Fallback (issue #47): imported traces carry provider-native content blocks,
+  // not messages arrays. Walk the ordered call sequence and reconstruct the
+  // conversation from raw I/O.
+  const reconstructed = reconstructFromRawCalls(
+    [...trace.calls].sort(compareCallOrder),
+  );
+  if (reconstructed.length === 0) return EMPTY;
+  return { messages: reconstructed };
+}
+
+// ---------------------------------------------------------------------------
+// Fallback: reconstruct from raw provider-native I/O (issue #47)
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk the ordered call sequence and build chat messages from raw input/output.
+ *
+ * Each GENERATION contributes an assistant message (from its output) and
+ * optionally a user/tool-context message (from its input). Each TOOL call
+ * contributes a tool-call + tool-result pair. Provider content blocks like
+ * `[{type:"text", text:"…"}]` are flattened to text.
+ */
+function reconstructFromRawCalls(calls: LoggedCall[]): ChatMessage[] {
+  const messages: ChatMessage[] = [];
+  for (const call of calls) {
+    if (isGeneration(call)) {
+      const inputText = extractText(call.input);
+      if (inputText) {
+        messages.push({ role: "user", content: inputText });
+      }
+      const outputText = extractText(call.output);
+      if (outputText) {
+        messages.push({ role: "assistant", content: outputText });
+      }
+    } else if (isToolCall(call)) {
+      if (call.tool_name) {
+        messages.push({
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              type: "function",
+              function: {
+                name: call.tool_name,
+                arguments: JSON.stringify(call.tool_parameters ?? {}),
+              },
+            },
+          ],
+        });
+      }
+      const resultText = extractText(call.tool_result ?? call.output);
+      if (resultText) {
+        messages.push({ role: "tool", content: resultText });
+      }
+    }
+  }
+  return dedupe(messages);
+}
+
+/**
+ * Extract a human-readable text string from a raw I/O value.
+ *
+ * Handles the shapes imported traces carry:
+ * - String prompts → returned as-is
+ * - Provider content-block arrays `[{type:"text", text:"…"}]` → joined text
+ * - Dicts with `tool_results` → each result's `preview`/`text` joined
+ * - Already-normalized `{messages: […]}` → skipped (primary path handles these)
+ * - Other dicts → compact JSON
+ */
+function extractText(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((block) => extractTextFromBlock(block))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    // Skip — the primary messages-array path handles this.
+    if (Array.isArray(obj.messages)) return "";
+    // Langfuse/Anthropic tool_results wrapper.
+    if (Array.isArray(obj.tool_results)) {
+      return obj.tool_results
+        .map((r) => extractTextFromBlock(r))
+        .filter(Boolean)
+        .join("\n")
+        .trim();
+    }
+    // Generic dict → compact JSON so content is never silently dropped.
+    const json = JSON.stringify(value, null, 2);
+    return json === "{}" ? "" : json;
+  }
+  return "";
+}
+
+/** Extract text from a single provider content block. */
+function extractTextFromBlock(block: unknown): string {
+  if (block == null) return "";
+  if (typeof block === "string") return block;
+  if (typeof block === "number" || typeof block === "boolean") return String(block);
+  if (typeof block === "object" && block !== null) {
+    const obj = block as Record<string, unknown>;
+    // Anthropic / Bedrock: {type:"text"|"reasoning", text:"…"}
+    if (typeof obj.text === "string") return obj.text;
+    // Generic content field
+    if (typeof obj.content === "string") return obj.content;
+    // Tool result preview
+    if (typeof obj.preview === "string") return obj.preview;
+    // Nested input/output dicts
+    if (typeof obj.input === "string") return obj.input;
+    if (typeof obj.output === "string") return obj.output;
+  }
+  return "";
+}
+
+function isToolCall(call: LoggedCall): boolean {
+  if (call.observation_type === "TOOL") return true;
+  return getSemanticType(call) === "TOOL";
 }
 
 function isGeneration(call: LoggedCall): boolean {
