@@ -31,6 +31,7 @@ type LangfuseImportResult = {
   spansRejected: number;
   otlpBatchIds: string[];
   projected: boolean;
+  notices: string[];
 };
 
 const VISIBILITY_DEADLINE_MS = 15_000;
@@ -92,8 +93,11 @@ export async function run(argv: string[], deps: LangfuseRunDeps = {}): Promise<n
   if (connector === null) return EXIT_FAILURE;
 
   let graph: LangfuseTraceGraph;
+  let sourceNotices: string[];
   try {
-    graph = await fetchSourceTrace(sourceTraceId, connector, wait, deps);
+    const fetched = await fetchSourceTrace(sourceTraceId, connector, wait, deps);
+    graph = fetched.graph;
+    sourceNotices = fetched.notices;
   } catch (error) {
     if (error instanceof LangfuseEmptyTraceError) {
       console.error(formatEmptyTraceError(error, wait, connector.host));
@@ -185,7 +189,12 @@ export async function run(argv: string[], deps: LangfuseRunDeps = {}): Promise<n
     spansRejected: rejected,
     otlpBatchIds: batchIds,
     projected,
+    notices: sourceNotices,
   };
+
+  for (const notice of sourceNotices) {
+    console.error(`Warning: ${notice}`);
+  }
 
   if (config.json) {
     console.log(JSON.stringify(result, null, 2));

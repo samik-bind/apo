@@ -26,6 +26,20 @@ vi.mock("@apo/sdk/agent-task", () => ({
     jsonDeliverables: deliverables,
     artifactUploads: [],
   })),
+  // Issue #40: the SDK brands errors that carry a resolved run_configuration.
+  // The mock mirrors the class so `instanceof` in the CLI matches the errors
+  // thrown in these tests.
+  AgentTaskRunError: class AgentTaskRunError extends Error {
+    runConfiguration?: { model: string; effort?: string };
+    constructor(
+      message: string,
+      options?: { runConfiguration?: { model: string; effort?: string }; cause?: unknown },
+    ) {
+      super(message);
+      this.name = "AgentTaskRunError";
+      this.runConfiguration = options?.runConfiguration;
+    }
+  },
 }));
 
 // Import after mocks.
@@ -619,5 +633,93 @@ describe("task run --local", () => {
     expect(out).toContain("FAIL silent-task");
     expect(out).toContain("No tests were registered");
     expect(out).toContain("test()");
+  });
+
+  // Issue #40: a run that throws after startSession reported a valid
+  // run_configuration must still forward model/effort to the backend on the
+  // error report — otherwise the failed row loses its label exactly when the
+  // model identity matters most.
+  it("forwards run_configuration in the error report when the run throws (issue #40)", async () => {
+    const sdk = await import("@apo/sdk/agent-task");
+    const runError = new sdk.AgentTaskRunError("DOWNSTREAM_INFRA_ERROR", {
+      runConfiguration: { model: "claude-opus-4-6", effort: "medium" },
+    });
+    vi.mocked(sdk.runTaskDir).mockRejectedValueOnce(runError);
+
+    const taskDir = join(testDir, "errored-task");
+    writeTaskFile(
+      taskDir,
+      `import { task } from "@apo/sdk/agent-task";\ntask("errored-task", { adapter: "a" });`,
+    );
+
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(new Response("ok", { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "batch-err",
+            project: "example-service",
+            status: "running",
+            task_runs: [
+              {
+                id: "run-err",
+                task_id: "errored-task",
+                task_path: "errored-task",
+                status: "running",
+                started_at: "2026-07-20T10:00:00Z",
+                trace_token: "tok-err",
+              },
+            ],
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "run-err",
+            batch_run_id: "batch-err",
+            task_id: "errored-task",
+            task_path: "errored-task",
+            adapter_name: null,
+            status: "error",
+            pass_result: false,
+            started_at: "2026-07-20T10:00:00Z",
+            completed_at: "2026-07-20T10:00:05Z",
+            trace_run_id: null,
+            error_message: "DOWNSTREAM_INFRA_ERROR",
+            total_cost: null,
+            total_tokens: null,
+            run_configuration: { model: "claude-opus-4-6", effort: "medium" },
+            trigger: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    const code = await run([
+      "errored-task",
+      "--local",
+      "--dir",
+      testDir,
+      "--backend",
+      "http://backend.test",
+      "--project",
+      "example-service",
+    ]);
+
+    expect(code).toBe(2);
+
+    // The error report body MUST carry run_configuration even though the run
+    // errored — this is the regression guard for issue #40.
+    const reportBody = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+    expect(reportBody.pass_result).toBe(false);
+    expect(reportBody.errored).toBe(true);
+    expect(reportBody.error_message).toBe("DOWNSTREAM_INFRA_ERROR");
+    expect(reportBody.run_configuration).toEqual({
+      model: "claude-opus-4-6",
+      effort: "medium",
+    });
   });
 });

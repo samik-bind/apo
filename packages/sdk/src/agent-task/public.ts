@@ -93,7 +93,7 @@ export type {
   TaskTranscript,
   TaskTranscriptTurn,
 } from "./run/types.ts";
-export { runTask, type RunTaskOptions } from "./run/runTask.ts";
+export { runTask, AgentTaskRunError, type RunTaskOptions } from "./run/runTask.ts";
 export {
   parseAgentTaskCliArgs,
   runAgentTaskCli,

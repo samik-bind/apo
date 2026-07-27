@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 from sqlmodel import Session, col, select
 
 from ..models.db import (
+    AgentTaskRunDB,
     LoggedCallDB,
     OtlpSpanDB,
     RunDB,
@@ -116,6 +117,13 @@ class TraceProjector:
         # When the root span completes the run, compute aggregate metrics.
         if is_root and span.end_time and not was_complete:
             _compute_run_aggregates(session, span.trace_id, span.project_id)
+
+        # Issue #41: re-aggregate the linked Task Run's cost/tokens whenever a
+        # span lands for a trace linked to a Task Run. The task runner's single
+        # finalize-time aggregation runs against whatever calls existed then;
+        # imported traces (e.g. ``traces import langfuse``) deliver costed spans
+        # after finalize, so the totals would otherwise stay null forever.
+        _refresh_task_run_total(session, span.trace_id, span.project_id)
 
         session.flush()
 
@@ -529,6 +537,33 @@ def _compute_run_aggregates(session: Session, trace_id: str, project: str) -> No
             if gen:
                 run.primary_model = gen.model
         session.add(run)
+
+
+def _refresh_task_run_total(session: Session, trace_id: str, project: str) -> None:
+    """Re-aggregate the linked Task Run's cost/tokens after a span is projected.
+
+    The task runner calls :meth:`NativeTraceBackend.aggregate_costs` exactly
+    once, at finalize. That relies on the trace already being in the database
+    (the native SDK's zero-config contract). Imported traces break that
+    assumption: costed spans land *after* finalize, so the single aggregation
+    runs against an incomplete call set and writes ``total_cost = None`` — which
+    then never recomputes (Issue #41).
+
+    This closes the gap by re-running the aggregation whenever a span is
+    projected for a trace whose ``RunDB.task_run_id`` is set. It covers every
+    projection path (OTLP receiver, legacy adapter, queue replay) because they
+    all funnel through :meth:`TraceProjector.project`. No-op when the trace is
+    not linked to a Task Run.
+    """
+    run = select_run(session, trace_id, project)
+    if run is None or not run.task_run_id:
+        return
+    task_run = session.get(AgentTaskRunDB, run.task_run_id)
+    if task_run is None:
+        return
+    from .trace_backend import get_trace_backend
+
+    get_trace_backend(project).aggregate_costs(session, task_run, project)
 
 
 def _broadcast_projection(

@@ -20,7 +20,13 @@ from datetime import datetime, timezone
 import pytest
 from sqlmodel import Session, select, text
 from apo.db import engine, init_db
-from apo.models.db import OtlpSpanDB, RunDB, LoggedCallDB
+from apo.models.db import (
+    AgentTaskBatchRunDB,
+    AgentTaskRunDB,
+    OtlpSpanDB,
+    RunDB,
+    LoggedCallDB,
+)
 from apo.services.trace_projector import TraceProjector
 
 
@@ -34,6 +40,8 @@ def setup_database():
         session.execute(text("DELETE FROM runs"))
         session.execute(text("DELETE FROM otlp_spans"))
         session.execute(text("DELETE FROM otlp_ingest_batches"))
+        session.execute(text("DELETE FROM agent_task_runs"))
+        session.execute(text("DELETE FROM agent_task_batch_runs"))
         session.commit()
 
 
@@ -307,3 +315,133 @@ class TestTraceProjectorChildBeforeRoot:
                 )
             )
             assert len(calls) == 2
+
+
+class TestTraceProjectorTaskRunCostRefresh:
+    """Issue #41: projecting costed spans into a trace linked to a finalized
+    Task Run must refresh the run's total_cost/total_tokens.
+
+    The task runner aggregates cost exactly once, at finalize. For imported
+    traces (e.g. ``traces import langfuse``), costed spans land AFTER finalize,
+    so the projector must re-aggregate when it upserts calls for a trace whose
+    ``RunDB.task_run_id`` is set.
+    """
+
+    @staticmethod
+    def _seed_finalized_task_run(
+        *, task_run_id: str, trace_id: str, project: str = "test-project"
+    ) -> None:
+        """Seed a finalized Task Run linked to a trace, with total_cost=None."""
+        with Session(engine) as session:
+            batch = AgentTaskBatchRunDB(
+                id=f"batch-{task_run_id}",
+                project=project,
+                selection_type="manual",
+                status="completed",
+            )
+            run = AgentTaskRunDB(
+                id=task_run_id,
+                batch_run_id=batch.id,
+                task_id="t",
+                task_path="p",
+                status="passed",
+                trace_run_id=trace_id,
+                total_cost=None,
+                total_tokens=None,
+            )
+            trace = RunDB(
+                id=trace_id,
+                project=project,
+                environment="default",
+                task_run_id=task_run_id,
+                call_count=0,
+            )
+            session.add(batch)
+            session.add(run)
+            session.add(trace)
+            session.commit()
+
+    def test_costed_child_span_refreshes_task_run_total(self):
+        """A costed child span projected after finalize updates total_cost.
+
+        This is the exact issue #41 scenario: the run was finalized before any
+        costed ``agent-llm-call`` observations existed, so the finalize-time
+        aggregation wrote None. Projecting the costed call later must refresh.
+        """
+        self._seed_finalized_task_run(
+            task_run_id="run-cost-1", trace_id="trace-cost-1"
+        )
+        root = _make_canonical_span(
+            trace_id="trace-cost-1",
+            span_id="root-cost-1",
+            attributes={"apo.observation.type": "AGENT"},
+        )
+        costed_call = _make_canonical_span(
+            trace_id="trace-cost-1",
+            span_id="call-cost-1",
+            parent_span_id="root-cost-1",
+            name="agent-llm-call",
+            attributes={"apo.observation.cost.amount": 0.2568},
+        )
+
+        projector = TraceProjector()
+        with Session(engine) as session:
+            projector.project(root, session)
+            projector.project(costed_call, session)
+            session.commit()
+
+        with Session(engine) as session:
+            task_run = session.get(AgentTaskRunDB, "run-cost-1")
+            assert task_run is not None
+            assert task_run.total_cost is not None
+            # 0.2568 USD → 256800 micro-USD (SPEC-136 storage unit)
+            assert task_run.total_cost == 256800.0
+
+    def test_multiple_costed_spans_accumulate(self):
+        """Two costed calls projected in sequence accumulate into the total."""
+        self._seed_finalized_task_run(
+            task_run_id="run-cost-2", trace_id="trace-cost-2"
+        )
+        root = _make_canonical_span(
+            trace_id="trace-cost-2",
+            span_id="root-cost-2",
+            attributes={"apo.observation.type": "AGENT"},
+        )
+        call_a = _make_canonical_span(
+            trace_id="trace-cost-2",
+            span_id="call-2a",
+            parent_span_id="root-cost-2",
+            attributes={"apo.observation.cost.amount": 0.2000},
+        )
+        call_b = _make_canonical_span(
+            trace_id="trace-cost-2",
+            span_id="call-2b",
+            parent_span_id="root-cost-2",
+            attributes={"apo.observation.cost.amount": 0.0500},
+        )
+
+        projector = TraceProjector()
+        with Session(engine) as session:
+            projector.project(root, session)
+            projector.project(call_a, session)
+            projector.project(call_b, session)
+            session.commit()
+
+        with Session(engine) as session:
+            task_run = session.get(AgentTaskRunDB, "run-cost-2")
+            assert task_run is not None
+            # 0.2000 + 0.0500 = 0.2500 USD → 250000 micro-USD
+            assert task_run.total_cost == 250000.0
+
+    def test_unlinked_trace_does_not_crash(self):
+        """A trace with no task_run_id must project without raising."""
+        span = _make_canonical_span(
+            trace_id="trace-unlinked-41",
+            span_id="span-unlinked-41",
+            attributes={"apo.observation.cost.amount": 0.01},
+        )
+        projector = TraceProjector()
+        with Session(engine) as session:
+            projector.project(span, session)
+            session.commit()
+        # No assertion beyond not raising — unlinked traces are the common case.

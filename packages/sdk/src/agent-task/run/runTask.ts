@@ -31,6 +31,44 @@ import { createNoopAgentTaskTraceContext } from "../tracing.ts";
 import type { LoadedTask } from "../task/loadTask.ts";
 import { withApoRun } from "../integrations/run-context.ts";
 
+/**
+ * Error thrown when a Task Run fails after the adapter's Run Configuration
+ * has been resolved. Carries the resolved {@link AgentTaskRunConfiguration} so
+ * callers (e.g. the CLI error-report path) can forward model/effort to the
+ * backend even when the run never produced a summary (issue #40).
+ *
+ * The original failure is preserved on `cause`. Only errors thrown after
+ * `startSession` reported a *valid* configuration are wrapped — a
+ * configuration-validation failure propagates unwrapped (there is nothing to
+ * attach).
+ */
+export class AgentTaskRunError extends Error {
+  readonly runConfiguration?: AgentTaskRunConfiguration;
+  constructor(
+    message: string,
+    options: { runConfiguration?: AgentTaskRunConfiguration; cause?: unknown },
+  ) {
+    super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
+    this.name = "AgentTaskRunError";
+    this.runConfiguration = options.runConfiguration;
+  }
+}
+
+/**
+ * Wrap an error with the resolved Run Configuration so it survives the throw
+ * out of the run. Returns the original error unchanged when there is no
+ * configuration to attach (old adapter) or when it is already branded.
+ */
+function withRunConfiguration(
+  error: unknown,
+  runConfiguration: AgentTaskRunConfiguration | undefined,
+): unknown {
+  if (!runConfiguration) return error;
+  if (error instanceof AgentTaskRunError) return error;
+  const message = error instanceof Error ? error.message : String(error);
+  return new AgentTaskRunError(message, { runConfiguration, cause: error });
+}
+
 export type RunTaskOptions = {
   maxTurnsOverride?: number;
   tracing?: AgentTaskTraceOptions;
@@ -246,6 +284,10 @@ async function executeLoadedTask(
     // reported configuration is an adapter contract error and fails the run.
     const runConfiguration = normalizeRunConfiguration(session.runConfiguration);
 
+    // Issue #40: anything that throws past this point (a Task Turn, deliverable
+    // collection, checks) must carry the resolved configuration out so callers
+    // can still report model/effort on an errored run.
+    try {
     // Legacy two-file tasks register turn() from checks.ts. Single-file tasks
     // already registered it while loadTask imported the .eval.ts file.
     if (!inlineChecks && checksPath) {
@@ -394,6 +436,9 @@ async function executeLoadedTask(
       transcript: { turns: transcriptTurns },
       runConfiguration,
     };
+    } catch (error) {
+      throw withRunConfiguration(error, runConfiguration);
+    }
   } finally {
     if (adapter.cleanup) {
       try {
@@ -486,6 +531,9 @@ async function captureExecution(
         // Task Turn. An invalid configuration fails the run inside the trace body.
         const runConfiguration = normalizeRunConfiguration(session.runConfiguration);
 
+        // Issue #40: carry the resolved configuration out on any downstream
+        // failure so the errored run keeps its model/effort label.
+        try {
         if (!inlineChecks && checksPath) {
           resetTaskTurn();
           resetFlowChecks();
@@ -534,6 +582,9 @@ async function captureExecution(
           runConfiguration,
           snapshot,
         };
+        } catch (error) {
+          throw withRunConfiguration(error, runConfiguration);
+        }
       } finally {
         if (adapter.cleanup) {
           try {

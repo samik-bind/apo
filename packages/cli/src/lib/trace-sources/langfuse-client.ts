@@ -30,8 +30,30 @@ export interface LangfusePollTiming {
 
 export interface LangfusePollOptions extends LangfusePollTiming {
   totalDeadlineMs: number;
+  /**
+   * How many consecutive polls must agree on the observation count before the
+   * trace is considered fully ingested (issue #39). Langfuse ingests child
+   * observations asynchronously after the root span, so "at least one
+   * observation" is not enough — the count must stop growing.
+   */
+  stabilityThreshold?: number;
+  /**
+   * Interval between stability polls (ms), used once the trace first appears.
+   * Shorter than the existence-phase backoff so convergence is detected fast.
+   */
+  stabilityIntervalMs?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Result of a poll-backed fetch. `notices` carries non-fatal warnings the
+ * caller should surface (e.g., the trace hadn't fully stabilized when --wait
+ * expired, so the import may be partial).
+ */
+export interface LangfuseFetchResult {
+  graph: LangfuseTraceGraph;
+  notices: string[];
 }
 
 // Injectable clock/sleep for detail hydration backoff (issue #28). Defaults to
@@ -46,6 +68,14 @@ export const DEFAULT_LANGFUSE_POLL_TIMING: LangfusePollTiming = {
   maxIntervalMs: 15_000,
   backoffFactor: 1.5,
 };
+
+// Stability defaults (issue #39): after the first observation appears, poll the
+// count until it holds steady for this many consecutive polls at this interval.
+// Langfuse Cloud ingests child observations within a few seconds of the root,
+// so 2 polls × 2s (~4s of stable count) is enough to catch the tail on typical
+// traces without adding noticeable latency.
+export const DEFAULT_STABILITY_POLLS = 2;
+export const DEFAULT_STABILITY_INTERVAL_MS = 2_000;
 
 export const DEFAULT_MAX_OBSERVATIONS = 10_000;
 const MIN_MAX_OBSERVATIONS = 1;
@@ -175,37 +205,112 @@ export async function pollLangfuseTrace(
   sourceTraceId: string,
   config: LangfuseConnectorConfig,
   options: LangfusePollOptions,
-): Promise<LangfuseTraceGraph> {
+): Promise<LangfuseFetchResult> {
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? defaultSleep;
   const deadline = now() + options.totalDeadlineMs;
+  const stabilityThreshold = options.stabilityThreshold ?? DEFAULT_STABILITY_POLLS;
+  const stabilityIntervalMs = options.stabilityIntervalMs ?? DEFAULT_STABILITY_INTERVAL_MS;
   let interval = options.initialIntervalMs;
   let attempts = 0;
+  let lastCount = -1;
+  let stablePolls = 0;
 
   for (;;) {
     attempts += 1;
-    try {
-      return await fetchLangfuseTrace(sourceTraceId, config, {
+    const count = await countTraceObservations(sourceTraceId, config);
+
+    if (count > 0) {
+      if (count === lastCount) {
+        stablePolls += 1;
+      } else {
+        stablePolls = 0;
+        lastCount = count;
+      }
+    } else {
+      // Trace not visible yet — reset stability tracking.
+      stablePolls = 0;
+      lastCount = -1;
+    }
+
+    // Convergence: the observation count held steady across enough polls.
+    // Langfuse ingests child observations asynchronously after the root, so a
+    // stable count means ingestion has caught up and the full graph is
+    // available (issue #39 — previously we snapshotted on first observation).
+    if (count > 0 && stablePolls >= stabilityThreshold) {
+      const graph = await fetchLangfuseTrace(sourceTraceId, config, {
         now: options.now,
         sleep: options.sleep,
       });
-    } catch (error) {
-      if (!(error instanceof LangfuseEmptyTraceError)) throw error;
+      return { graph, notices: [] };
     }
 
     const remaining = deadline - now();
     if (remaining <= 0) {
-      throw new LangfuseEmptyTraceError(
-        sourceTraceId,
-        `Langfuse returned no observations for source trace ${sourceTraceId}` +
-          ` after waiting ${Math.round(options.totalDeadlineMs / 1000)}s` +
-          ` across ${attempts} attempt${attempts === 1 ? "" : "s"}.` +
-          ` Ingestion may still be pending; safe to retry.`,
+      if (count === 0) {
+        throw new LangfuseEmptyTraceError(
+          sourceTraceId,
+          `Langfuse returned no observations for source trace ${sourceTraceId}` +
+            ` after waiting ${Math.round(options.totalDeadlineMs / 1000)}s` +
+            ` across ${attempts} attempt${attempts === 1 ? "" : "s"}.` +
+            ` Ingestion may still be pending; safe to retry.`,
+        );
+      }
+      // The trace existed but never stabilized within the deadline. Import what
+      // we have (best effort) and warn — re-running later will fill in any
+      // spans that arrived after the snapshot (issue #39). Import is
+      // idempotent: span ids are deterministic hashes, so no duplicates.
+      const graph = await fetchLangfuseTrace(sourceTraceId, config, {
+        now: options.now,
+        sleep: options.sleep,
+      });
+      return {
+        graph,
+        notices: [
+          `Source trace ${sourceTraceId} had ${count} observation(s) but the count` +
+            ` was still growing when --wait expired; imported spans may be incomplete.` +
+            ` Re-run to repair (import is idempotent — stable span ids, no duplicates).`,
+        ],
+      };
+    }
+
+    // During the existence phase, use exponential backoff. During the stability
+    // phase, poll at a fixed (shorter) interval so convergence is detected fast.
+    const sleepFor =
+      count > 0
+        ? Math.min(stabilityIntervalMs, remaining)
+        : Math.min(interval, options.maxIntervalMs, remaining);
+    await sleep(sleepFor);
+    if (count === 0) {
+      interval = Math.min(interval * options.backoffFactor, options.maxIntervalMs);
+    }
+  }
+}
+
+/**
+ * Paginates the v2 observations LIST and returns the total count, without
+ * keeping the rows or hydrating details. Used by the poll loop to detect when
+ * the observation count has converged (issue #39) — cheap list-only checks
+ * avoid the expensive per-observation detail fan-out until stability is confirmed.
+ */
+async function countTraceObservations(
+  sourceTraceId: string,
+  config: LangfuseConnectorConfig,
+): Promise<number> {
+  let count = 0;
+  let cursor: string | null = null;
+  do {
+    const page = await fetchObservationPage(sourceTraceId, cursor, config);
+    const next = count + page.data.length;
+    if (next > config.maxObservations) {
+      throw new Error(
+        `Langfuse trace ${sourceTraceId} exceeded --max-observations ceiling (${config.maxObservations}); aborting before any apo write`,
       );
     }
-    await sleep(Math.min(interval, options.maxIntervalMs, remaining));
-    interval = Math.min(interval * options.backoffFactor, options.maxIntervalMs);
-  }
+    count = next;
+    cursor = page.meta.cursor ?? null;
+  } while (cursor !== null);
+  return count;
 }
 
 function defaultSleep(ms: number): Promise<void> {

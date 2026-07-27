@@ -6,7 +6,7 @@ import {
   rmSync,
   writeFileSync,
 } from "fs";
-import { runTask } from "../src/agent-task/run/runTask";
+import { runTask, AgentTaskRunError } from "../src/agent-task/run/runTask";
 import { normalizeRunConfiguration } from "../src/agent-task/run/run-configuration";
 import type { AgentTaskRunConfiguration } from "../src/agent-task/public";
 
@@ -178,6 +178,57 @@ describe("runTask run configuration capture", () => {
     await expect(runTask(taskDir)).rejects.not.toThrow(
       /SEND_USER_TURN_WAS_CALLED/,
     );
+  });
+
+  it("attaches the resolved configuration to errors thrown after session open (issue #40)", async () => {
+    setupTaskDir({
+      runConfiguration: { model: "claude-opus-4-6", effort: "medium" },
+      sendUserTurnMarker: "DOWNSTREAM_INFRA_ERROR",
+    });
+
+    const error = await runTask(taskDir).catch((e) => e);
+
+    // The downstream failure is wrapped so its resolved configuration survives.
+    expect(error).toBeInstanceOf(AgentTaskRunError);
+    expect((error as AgentTaskRunError).runConfiguration).toEqual({
+      model: "claude-opus-4-6",
+      effort: "medium",
+    });
+    // The original failure message is preserved.
+    expect((error as Error).message).toBe("DOWNSTREAM_INFRA_ERROR");
+  });
+
+  it("attaches the resolved configuration to errors thrown in the tracing path (issue #40)", async () => {
+    setupTaskDir({
+      runConfiguration: { model: "claude-opus-4-6", effort: "medium" },
+      sendUserTurnMarker: "DOWNSTREAM_INFRA_ERROR",
+    });
+
+    const error = await runTask(taskDir, {
+      tracing: {
+        client: {
+          traceRun: async (_params, fn) =>
+            fn({
+              runId: "trace-run-1",
+              rootSpanId: "root-span-1",
+              async step(_options, stepFn) {
+                return stepFn("span-1");
+              },
+              recordEvent() {
+                return "event-1";
+              },
+              endRoot() {},
+            }),
+        },
+        project: "sdk-tests",
+      },
+    }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(AgentTaskRunError);
+    expect((error as AgentTaskRunError).runConfiguration).toEqual({
+      model: "claude-opus-4-6",
+      effort: "medium",
+    });
   });
 
   function setupTaskDir(options: {
