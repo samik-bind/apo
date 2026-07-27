@@ -44,13 +44,16 @@ import { withApoRun } from "../integrations/run-context.ts";
  */
 export class AgentTaskRunError extends Error {
   readonly runConfiguration?: AgentTaskRunConfiguration;
+  /** The original error that caused the run to fail (preserved for diagnostics). */
+  readonly cause?: unknown;
   constructor(
     message: string,
     options: { runConfiguration?: AgentTaskRunConfiguration; cause?: unknown },
   ) {
-    super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
+    super(message);
     this.name = "AgentTaskRunError";
     this.runConfiguration = options.runConfiguration;
+    this.cause = options.cause;
   }
 }
 
