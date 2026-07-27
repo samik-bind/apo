@@ -958,10 +958,32 @@ describe("fetchLangfuseTrace detail hydration rate-limit backoff (issue #28)", (
     expect(detailCalls).toHaveLength(DETAIL_MAX_RETRIES + 1);
   });
 
-  it("still fails immediately on non-rate-limit detail errors (does not retry 404)", async () => {
+  it("retries 404 on observation detail with backoff until the endpoint is ready (issue #37)", async () => {
+    // Langfuse ingestion is eventually consistent: an observation appears in
+    // the LIST before its detail GET is available. The first detail request
+    // 404s, the second succeeds — the import must not crash on the 404.
     const { detailCalls } = scriptedDetailFetch(
       [{ body: page([bareListRow({ id: "obs-1" })], { cursor: null }) }],
-      { "obs-1": [{ status: 404, body: {} }] },
+      { "obs-1": [{ status: 404, body: {} }, { status: 200, body: detailBody({ id: "obs-1" }) }] },
+    );
+
+    const graph = await fetchLangfuseTrace(TRACE_ID, basicConfig(), {
+      now: () => 1_000_000,
+      sleep: async () => {},
+    });
+
+    expect(graph.observations.map((o) => o.id)).toEqual(["obs-1"]);
+    // 404 then success = 2 detail calls.
+    expect(detailCalls).toHaveLength(2);
+  });
+
+  it("fails after max retries when the detail endpoint persistently returns 404", async () => {
+    const scripts: Record<string, ScriptedResp[]> = {
+      "obs-1": Array.from({ length: DETAIL_MAX_RETRIES + 1 }, () => ({ status: 404, body: {} })),
+    };
+    scriptedDetailFetch(
+      [{ body: page([bareListRow({ id: "obs-1" })], { cursor: null }) }],
+      scripts,
     );
 
     await expect(
@@ -969,10 +991,7 @@ describe("fetchLangfuseTrace detail hydration rate-limit backoff (issue #28)", (
         now: () => 1_000_000,
         sleep: async () => {},
       }),
-    ).rejects.toThrow(/404|deleted/i);
-
-    // 404 is not retryable; exactly one attempt.
-    expect(detailCalls).toHaveLength(1);
+    ).rejects.toThrow(/still.*404|ingestion lag/i);
   });
 
   it("throttles detail requests globally (observable inter-request spacing)", async () => {

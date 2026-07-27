@@ -113,6 +113,19 @@ class LangfuseDetailRateLimitedError extends Error {
     this.retryAfterMs = retryAfterMs;
   }
 }
+
+// A 404 on an observation whose detail endpoint lags behind the LIST (issue #37).
+// Langfuse ingestion is eventually consistent across its own endpoints: an
+// observation can appear in the v2 LIST before its detail GET is available.
+// This is transient — retry with backoff, same as a rate limit.
+class LangfuseDetailNotReadyError extends Error {
+  constructor(observationId: string, sourceTraceId: string) {
+    super(
+      `Langfuse returned 404 for observation ${observationId} (source trace ${sourceTraceId}); the detail endpoint lags the list — retrying`,
+    );
+    this.name = "LangfuseDetailNotReadyError";
+  }
+}
 const FIELD_GROUPS = [
   "core",
   "basic",
@@ -543,6 +556,21 @@ async function fetchDetailWithRetry(
     try {
       return await fetchObservationDetail(row.id, row.traceId, config, now);
     } catch (error) {
+      // 404: detail endpoint lags the LIST (issue #37). The observation
+      // exists (we saw it in the list) — retry with backoff until it
+      // becomes available. Cheaper to retry than to fail the whole import.
+      if (error instanceof LangfuseDetailNotReadyError) {
+        if (attempt >= DETAIL_MAX_RETRIES) {
+          throw new Error(
+            `Langfuse detail endpoint still returned 404 for observation ${row.id} (source trace ${row.traceId}) after ${attempt + 1} attempts. Ingestion lag is unusually long; safe to retry.`,
+          );
+        }
+        const waitMs = Math.min(backoffMs, DETAIL_MAX_BACKOFF_MS);
+        await sleep(waitMs);
+        attempt += 1;
+        backoffMs = Math.min(backoffMs * 2, DETAIL_MAX_BACKOFF_MS);
+        continue;
+      }
       if (!(error instanceof LangfuseDetailRateLimitedError)) throw error;
       if (attempt >= DETAIL_MAX_RETRIES) {
         throw new Error(
@@ -638,9 +666,7 @@ async function fetchObservationDetail(
   }
 
   if (response.status === 404) {
-    throw new Error(
-      `Langfuse returned 404 for observation ${observationId} (source trace ${sourceTraceId}); it may have been deleted between discovery and hydration`,
-    );
+    throw new LangfuseDetailNotReadyError(observationId, sourceTraceId);
   }
   if (response.status === 401 || response.status === 403) {
     throw new Error(
