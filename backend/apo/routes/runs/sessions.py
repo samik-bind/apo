@@ -30,8 +30,13 @@ def list_sessions(
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
+    # Count the groups the page query will actually produce. COUNT(DISTINCT
+    # session_id) skips NULL, so runs with no session (reported as the "(none)"
+    # group below) went uncounted — one row of data alongside total_count=0.
     count_row = session.execute(
-        text(f"SELECT COUNT(DISTINCT r.session_id) FROM runs r {where}"),
+        text(
+            f"SELECT COUNT(*) FROM (SELECT r.session_id FROM runs r {where} GROUP BY r.session_id)"
+        ),
         params,
     ).fetchone()
     total_count = count_row[0] if count_row else 0

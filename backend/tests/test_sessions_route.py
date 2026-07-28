@@ -70,3 +70,20 @@ def test_scopes_to_the_requested_project(session: Session):
     result = list_sessions(project="p", page=0, page_size=20, session=session)
 
     assert [row.session_id for row in result.data] == ["s1"]
+
+
+def test_counts_runs_with_no_session_id(session: Session):
+    """Runs without a session are reported as the "(none)" group, so they have to
+    be counted too — COUNT(DISTINCT session_id) skipped them."""
+    now = datetime.now(timezone.utc)
+    _run(session, "r1", None, now)
+    _run(session, "r2", None, now - timedelta(minutes=1))
+    _run(session, "r3", "s1", now - timedelta(minutes=2))
+    session.commit()
+
+    result = list_sessions(project="p", page=0, page_size=20, session=session)
+
+    assert result.total_count == 2  # the "(none)" group + "s1"
+    assert result.total_pages == 1
+    assert sorted(row.session_id for row in result.data) == ["(none)", "s1"]
+    assert next(r.trace_count for r in result.data if r.session_id == "(none)") == 2
