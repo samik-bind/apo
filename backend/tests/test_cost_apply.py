@@ -17,6 +17,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from apo.models.db import LoggedCallDB
 from apo.services.pricing.apply import apply_cost_to_call
+from apo.services.pricing.compute import compute_cost
 from apo.services.pricing.loader import load_default_prices
 
 NOW = datetime(2026, 7, 23, tzinfo=timezone.utc)
@@ -119,3 +120,22 @@ class TestUnpricedModelSurfacing:
         assert call.cost_provenance == "unpriced"
         # raw_usage is still stored so a later reprice can back-fill the cost.
         assert call.raw_usage == {"input": 100, "output": 50}
+
+
+class TestGeminiFlashLitePricing:
+    def test_google_prefixed_flash_lite_is_priced(self, session: Session) -> None:
+        """The example agent's default model is google/gemini-2.5-flash-lite
+        (OpenRouter). It used to be unpriced — no flash-lite entry AND the
+        'google/' router prefix never matched the prefix-less patterns. The
+        flash-lite entry plus the prefix-stripping fallback now price it."""
+        result = compute_cost(
+            session,
+            "google/gemini-2.5-flash-lite",
+            {"input": 1_000_000, "output": 500_000},
+            project="default",
+            at_time=NOW,
+        )
+        assert result is not None
+        # input $0.10/1M * 1M = 100_000 micro-USD; output $0.40/1M * 0.5M = 200_000.
+        assert result.breakdown == {"input": 100_000, "output": 200_000}
+        assert result.total == 300_000

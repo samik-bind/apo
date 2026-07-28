@@ -60,6 +60,14 @@ def compute_cost(
     ``price_stored`` is micro-USD-per-1M tokens.
     """
     model = resolve_model_era(session, model_name, project, at_time)
+    if model is None and "/" in model_name:
+        # Routers like OpenRouter prefix the model with a provider slug
+        # (e.g. "google/gemini-2.5-flash-lite"), but the pricing table keys on
+        # the bare model name. Retry with the slug stripped so routed models
+        # resolve against the same entries as direct-API models.
+        stripped = model_name.rsplit("/", 1)[-1]
+        if stripped != model_name:
+            model = resolve_model_era(session, stripped, project, at_time)
     if model is None or model.id is None:
         return None
 

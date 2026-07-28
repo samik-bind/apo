@@ -155,6 +155,30 @@ class TestNoMatch:
         assert result is None
 
 
+class TestRouterPrefixStripping:
+    """Routers (OpenRouter, etc.) prefix the model with a provider slug
+    ('openai/gpt-4o-mini'); the pricing table keys on the bare name, so
+    compute_cost retries with the prefix stripped as a fallback."""
+
+    def test_provider_prefixed_model_resolves_like_bare(self, session: Session) -> None:
+        _flat_model(session)
+        prefixed = compute_cost(
+            session, "openai/gpt-4o-mini", {"input": 1_000_000, "output": 500_000}, "__global__", _NOW
+        )
+        bare = compute_cost(
+            session, "gpt-4o-mini", {"input": 1_000_000, "output": 500_000}, "__global__", _NOW
+        )
+        assert prefixed is not None and bare is not None
+        assert prefixed.total == bare.total == 450_000
+
+    def test_prefixed_unknown_model_still_returns_none(self, session: Session) -> None:
+        _flat_model(session)
+        result = compute_cost(
+            session, "openai/no-such-model", {"input": 100, "output": 100}, "__global__", _NOW
+        )
+        assert result is None
+
+
 class TestRounding:
     def test_round_per_dimension_and_reconcile(self, session: Session) -> None:
         """round-per-dimension to micro-USD int; total == sum(breakdown)."""
