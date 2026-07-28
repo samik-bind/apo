@@ -88,6 +88,16 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # SPEC-152: validate installation configuration before constructing
+    # anything. Release profiles fail fast on missing/weak secrets.
+    from .services.installation_secrets import (
+        load_installation_config,
+        validate_installation_secrets,
+    )
+
+    config = load_installation_config()
+    validate_installation_secrets(config)
+
     app = FastAPI(lifespan=lifespan)
 
     frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")

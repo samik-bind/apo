@@ -21,6 +21,8 @@ services:
       - BACKEND_URL=http://backend:8000
       - AUTH_SECRET=${AUTH_SECRET}
       - AUTH_TRUST_HOST=true
+      # SPEC-152: pass the deployment profile to the frontend.
+      - APO_DEPLOYMENT_PROFILE=${APO_DEPLOYMENT_PROFILE:-local}
       # Keep NEXTAUTH_URL as a fallback for existing installations; new
       # deployments use APO_PUBLIC_URL as the single public-origin setting.
       - NEXTAUTH_URL=${APO_PUBLIC_URL:-${NEXTAUTH_URL:-http://localhost:3000}}
