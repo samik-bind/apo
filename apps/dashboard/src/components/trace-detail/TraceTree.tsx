@@ -24,7 +24,7 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 import type { CumulativeMetrics } from "@/lib/cumulative-metrics";
-import { formatDuration, formatTokenBreakdown, formatTokenTotal } from "@/lib/format";
+import { formatCostMicro, formatDuration, formatTokenBreakdown, formatTokenTotal } from "@/lib/format";
 import { CommentCountIcon } from "./CommentCountIcon";
 import { getHeatmapColor } from "./trace-heatmap";
 
@@ -129,7 +129,7 @@ function highlightMatch(value: string, searchQuery: string) {
   );
 }
 
-function getRunSummary(calls: TraceObservation[]) {
+export function getRunSummary(calls: TraceObservation[]) {
   const totalDuration = calls.reduce((sum, call) => sum + (call.latency_ms ?? 0), 0);
   const totalTokens = calls.reduce((sum, call) => sum + (call.total_tokens ?? 0), 0);
   const totalCost = calls.reduce((sum, call) => sum + (call.cost ?? 0), 0);
@@ -137,7 +137,7 @@ function getRunSummary(calls: TraceObservation[]) {
   return {
     duration: totalDuration > 0 ? formatDuration(totalDuration) : null,
     tokens: totalTokens > 0 ? formatTokenTotal(totalTokens) : null,
-    cost: totalCost > 0 ? `$${totalCost.toFixed(4)}` : null,
+    cost: totalCost > 0 ? formatCostMicro(totalCost) : null,
   };
 }
 
@@ -238,7 +238,7 @@ function SpanContent({
   if (showCostTokens && showMetrics && displayCost > 0) {
     const prefix = hasDescendants ? "\u2211 " : "";
     metricParts.push({
-      text: `${prefix}$${displayCost.toFixed(4)}`,
+      text: `${prefix}${formatCostMicro(displayCost)}`,
       kind: "cost",
       title: hasDescendants ? "Aggregated cost of all child observations" : undefined,
     });

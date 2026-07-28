@@ -37,7 +37,7 @@ import {
 } from "@tanstack/react-table";
 import { DataTablePagination, ColumnResizeHandle, getPinnedColumnStyle, getPinnedColumnAttrs } from "@/components/table";
 import { usePersistentTablePreferences } from "@/hooks/use-persistent-table-preferences";
-import { usdFormat, tokenFormat } from "@/lib/format";
+import { formatCostMicro, tokenFormat } from "@/lib/format";
 import type { TraceSessionSummary } from "@/lib/traces-api";
 
 interface PaginationData {
@@ -125,7 +125,7 @@ function createSessionColumns(): ColumnDef<TraceSessionSummary>[] {
         if (!cost || cost <= 0) return <span className="text-muted-foreground/50">—</span>;
         return (
           <span className="font-mono text-xs tabular-nums text-foreground">
-            {usdFormat(cost)}
+            {formatCostMicro(cost)}
           </span>
         );
       },
