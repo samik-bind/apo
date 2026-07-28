@@ -42,13 +42,17 @@ _RETRY_AFTER_SECONDS = "2"
 
 
 def _require_service_token(request: Request) -> tuple[str, str]:
-    """Return (project, task_run_id) from the verified service token.
+    """Return (project, task_run_id) from the verified task-run token.
 
-    Raises 403 if the caller is not a service token — only task-run service
-    tokens may read projections. (Browser/cookie consumers use the existing
-    Trace APIs.)
+    Accepts both a task-run ``service_token`` and a live ``attempt_token`` —
+    both set ``service_task_run_id`` and ``project``, and the route enforces
+    ``token task_run_id == path task_run_id`` so a token can only read its own
+    projection. (Browser/cookie consumers use the existing Trace APIs.)
     """
-    if getattr(request.state, "auth_method", None) != "service_token":
+    if getattr(request.state, "auth_method", None) not in (
+        "service_token",
+        "attempt_token",
+    ):
         raise HTTPException(status_code=403, detail="Not authorized for this task run")
     project = getattr(request.state, "project", None)
     task_run_id = getattr(request.state, "service_task_run_id", None)

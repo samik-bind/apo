@@ -433,6 +433,11 @@ def _attempt_token_allows_request(request: Request) -> bool:
     method = request.method.upper()
     if method == "POST" and path == "/api/public/otel/v1/traces":
         return True
+    # SPEC-130 Track B/C: let a live attempt token read its own trace
+    # projection — the canonical read-back path the bundled executor's runner
+    # polls after flushing its trace. The route enforces sub == task_run_id.
+    if method == "GET" and _TASK_RUN_TRACE_PROJECTION_RE.match(path) is not None:
+        return True
     if (
         method == "POST"
         and _TASK_RUN_DELIVERABLES_RE.match(path) is not None
