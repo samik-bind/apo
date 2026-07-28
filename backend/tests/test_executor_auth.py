@@ -267,7 +267,12 @@ def _seed_attempt(session: Session, *, gen: int = 1) -> TaskExecutionAttemptDB:
     return att
 
 
-def test_attempt_jwt_round_trips_claims(session: Session) -> None:
+def test_attempt_jwt_round_trips_claims(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # SPEC-152 made create_attempt_jwt fail closed when AUTH_SECRET is unset
+    # (CI has none). Provide one so the round-trip can issue a token.
+    monkeypatch.setattr("apo.services.executor_auth.AUTH_SECRET", "test-secret")
     att = _seed_attempt(session, gen=3)
     token = create_attempt_jwt(
         attempt=att, lease_generation=3, expires_in_seconds=300,
