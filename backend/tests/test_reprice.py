@@ -162,6 +162,36 @@ class TestRepriceScope:
         assert s1["repriced"] == 1
         assert s2["repriced"] == 1  # recomputed to the same value
 
+    def test_reprices_unpriced_call_once_model_resolves(self, session: Session) -> None:
+        """Issue #57: an unpriced call (usage present, no era at ingest) is a
+        reprice candidate. It stays unpriced while no era resolves, and once its
+        model resolves the cost is back-filled and provenance flips to computed."""
+        call = _make_call(
+            session,
+            span_id="u1",
+            model="totally-unknown-model",
+            raw_usage={"input": 1_000_000, "output": 500_000},
+            provenance="unpriced",
+            cost=None,
+        )
+        # Still no pricing for this model.
+        s1 = reprice_calls(session)
+        session.refresh(call)
+        assert s1["repriced"] == 0
+        assert s1["skipped_no_match"] == 1
+        assert call.cost is None
+        assert call.cost_provenance == "unpriced"
+
+        # Model now resolves (e.g. pricing added): swap to a priced model.
+        call.model = "gpt-4o"
+        session.add(call)
+        session.commit()
+        s2 = reprice_calls(session)
+        session.refresh(call)
+        assert s2["repriced"] == 1
+        assert call.cost == 7_500_000  # gpt-4o: input 2.5M + output 5.0M
+        assert call.cost_provenance == "computed"
+
 
 class TestRepriceFilters:
     def test_filter_by_project(self, session: Session) -> None:

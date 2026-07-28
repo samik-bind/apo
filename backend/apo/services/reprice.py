@@ -2,8 +2,8 @@
 
 """SPEC-136 ticket 12: re-pricing service.
 
-Inline streamed-batch reprice. For each computed-provenance call with
-``raw_usage``, recompute cost against ``call.start_time`` + current tiers via
+Inline streamed-batch reprice. For each call with ``raw_usage`` that is not
+provided-cost, recompute cost against ``call.start_time`` + current tiers via
 the same ``compute_cost`` used at ingestion, overwriting ``cost`` /
 ``cost_breakdown`` / tier fields in place (unless ``dry_run``).
 
@@ -12,6 +12,10 @@ Skip rules (reported in the summary, never silently dropped):
   - computed calls with no ``raw_usage`` (pre-migration or partial): nothing to
     reprice (skipped, reported as no_usage)
   - no matching model-era at ``call.start_time``: stays unpriced (skipped)
+
+Issue #57: ``unpriced`` calls (usage present, no era resolved at ingest) are
+included in the candidate set, so adding a pricing entry later and repricing
+back-fills their cost (and flips provenance to ``computed``).
 
 After per-call reprice, affected run/session/task-run rollups are recomputed so
 aggregate totals stay coherent (the spec requires this).
@@ -67,7 +71,10 @@ def reprice_calls(
     while True:
         stmt = (
             select(LoggedCallDB)
-            .where(LoggedCallDB.cost_provenance == "computed", LoggedCallDB.row_id > cursor)
+            .where(
+                col(LoggedCallDB.cost_provenance).in_(["computed", "unpriced"]),
+                LoggedCallDB.row_id > cursor,
+            )
             .order_by(col(LoggedCallDB.row_id).asc())
             .limit(batch_size)
         )
@@ -114,6 +121,9 @@ def reprice_calls(
                     call.internal_model_id = result.model_id
                     call.matched_tier_id = result.tier_id
                     call.matched_tier_name = result.tier_name
+                    # A previously-unpriced call that now resolves becomes
+                    # computed; a computed call stays computed.
+                    call.cost_provenance = "computed"
                     session.add(call)
                     if call.run_id:
                         affected_runs.add((call.run_id, call.project))
@@ -126,8 +136,9 @@ def reprice_calls(
             session.commit()
 
     # Account for provided/pre-migration calls in scope (reported, skipped).
+    # ``unpriced`` calls are candidates above, so exclude them here.
     skip_stmt = select(LoggedCallDB).where(
-        (col(LoggedCallDB.cost_provenance) != "computed")
+        col(LoggedCallDB.cost_provenance).notin_(["computed", "unpriced"])
         | col(LoggedCallDB.cost_provenance).is_(None)
     )
     if project is not None:

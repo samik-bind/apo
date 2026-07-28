@@ -28,6 +28,12 @@ from .compute import compute_cost
 
 logger = logging.getLogger(__name__)
 
+# Once-per-process dedup for the unpriced-model warning. Without this, every
+# span of an unpriced model (often hundreds) would log a warning. Reset is not
+# needed in production (pricing data is process-global too); tests assert on
+# the persisted ``cost_provenance`` value, not the log.
+_WARNED_UNPRICED_MODELS: set[str] = set()
+
 
 def apply_cost_to_call(
     session: Session,
@@ -90,8 +96,24 @@ def apply_cost_to_call(
         return
 
     if result is None:
-        # No matching model-era: cost stays null, but raw_usage is still stored.
-        call.cost_provenance = None
+        # No matching model-era but there IS usage: surface it instead of
+        # silently costing 0 (issue #57). Mark provenance "unpriced" so it is
+        # queryable — a run's silently-zeroed observations are now
+        # ``WHERE cost_provenance = 'unpriced'`` — and warn once per model name
+        # so a missing pricing entry gets noticed instead of hiding as a null.
+        model_name = (call.model or "").strip()
+        if model_name:
+            call.cost_provenance = "unpriced"
+            if model_name not in _WARNED_UNPRICED_MODELS:
+                _WARNED_UNPRICED_MODELS.add(model_name)
+                logger.warning(
+                    "no pricing era resolved for model %r; call %s has usage "
+                    "but cost is null (cost_provenance='unpriced')",
+                    model_name,
+                    call.id,
+                )
+        else:
+            call.cost_provenance = None
         return
 
     call.cost = result.total

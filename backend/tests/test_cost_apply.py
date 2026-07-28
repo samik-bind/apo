@@ -96,3 +96,26 @@ class TestUpdateDoesNotEraseCost:
         )
         assert call.cost is None
         assert call.cost_provenance is None
+
+
+class TestUnpricedModelSurfacing:
+    def test_usage_with_unpriced_model_marked_unpriced(self, session: Session) -> None:
+        """Issue #57: a model with usage but no pricing era must be marked
+        'unpriced' (queryable: WHERE cost_provenance='unpriced'), not silently
+        left at null — the only way to notice a missing pricing entry."""
+        call = _make_call(model="some-unpriced-model")
+        session.add(call)
+        session.commit()
+        apply_cost_to_call(
+            session, call,
+            attributes={
+                "gen_ai.usage.input_tokens": 100,
+                "gen_ai.usage.output_tokens": 50,
+            },
+            project="default",
+            at_time=NOW,
+        )
+        assert call.cost is None
+        assert call.cost_provenance == "unpriced"
+        # raw_usage is still stored so a later reprice can back-fill the cost.
+        assert call.raw_usage == {"input": 100, "output": 50}
