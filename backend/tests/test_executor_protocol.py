@@ -352,3 +352,57 @@ async def test_bundle_download_streams_claimed_revision(
     assert body == payload
     assert response.headers["content-length"] == "1"
     assert response.headers["x-apo-bundle-sha256"] == "d" * 64
+
+
+def test_result_invalid_failure_is_accepted(
+    client: "object", session: Session, auth_secret: str
+) -> None:
+    """Regression: the subprocess driver reports ``result_invalid`` when the
+    Node runner exits without writing a result file. The Control Plane must
+    accept that failure kind (it used to 400 with ``bad_failure_kind`` because
+    ``result_invalid`` was missing from the valid set), and it must persist the
+    ``stderr_tail`` so the actual crash reason (e.g. an unset provider key) is
+    not silently lost.
+    """
+    user_id = _seed_owner_project(session)
+    pool = create_executor_pool(
+        session, project_id="proj-px", actor=ProjectActor("proj-px", user_id, "owner"),
+        name="Fail Pool", kind="connected",
+    )
+    raw_token, _ = executor_auth.generate_enrollment_token(
+        session, scope_kind="pool", project_id="proj-px", pool_id=pool.id,
+        created_by_user_id=user_id,
+    )
+    _seed_queued_attempt(session, pool_id=pool.id)
+
+    cred = client.post("/v1/executor-protocol/v1/enroll", json={
+        "token": raw_token, "name": "exec-fail", "capabilities": _capabilities().model_dump(),
+    }).json()["credential"]
+    exe_headers = {"Authorization": f"Bearer {cred}"}
+
+    claim = client.post("/v1/executor-protocol/v1/claims",
+                        json={"available_slots": 1, "accepted_driver_kinds": ["subprocess"]},
+                        headers=exe_headers).json()
+    att_headers = {"Authorization": f"Bearer {claim['attempt_jwt']}"}
+
+    client.post("/v1/executor-protocol/v1/attempts/apx/start",
+                json={"driver_kind": "subprocess", "runtime": {"node": "22"}}, headers=att_headers)
+
+    stderr = "AgentTaskRunError: OPENROUTER_API_KEY is not set\n    at getClient (service.ts:22)"
+    r = client.post("/v1/executor-protocol/v1/attempts/apx/failure", json={
+        "completion_id": "comp-fail-1",
+        "failure_kind": "result_invalid",
+        "exit_code": 1,
+        "stderr_tail": stderr,
+    }, headers=att_headers)
+
+    assert r.status_code == 200, r.text
+
+    att = session.get(TaskExecutionAttemptDB, "apx")
+    assert att is not None
+    assert att.status == "failed"
+    assert att.failure_kind == "result_invalid"
+    assert att.stderr_tail == stderr
+
+    run = session.get(AgentTaskRunDB, "rpx")
+    assert run is not None and run.status == "error"

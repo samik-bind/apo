@@ -43,6 +43,7 @@ _VALID_FAILURE_KINDS = frozenset(
         "bundle_invalid",
         "task_import",
         "task_runtime",
+        "result_invalid",
         "timeout",
         "oom",
         "driver",

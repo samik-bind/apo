@@ -133,6 +133,10 @@ function failurePresentation(
       "The executor could not prepare the task dependencies.",
     ],
     runtime_error: ["Runtime failed", "The task process exited with a runtime error."],
+    result_invalid: [
+      "Task produced no result",
+      "The task exited without writing a valid result file — usually a crash before completion. See the run logs for the error.",
+    ],
     timeout: ["Execution timed out", "The task exceeded its configured execution limit."],
     cancelled: ["Execution cancelled", "The attempt was cancelled before completion."],
   };

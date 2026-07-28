@@ -430,8 +430,11 @@ class BundledExecutorAgent:
                     stdout_tail=result.stdout_tail,
                     stderr_tail=result.stderr_tail,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "failed to submit cancelled failure for assignment %s: %s",
+                    assignment.attempt_id, exc,
+                )
             return
         if result.task_result is not None:
             tr = result.task_result
@@ -462,8 +465,15 @@ class BundledExecutorAgent:
                 error_message=result.error_message, exit_code=result.exit_code,
                 stdout_tail=result.stdout_tail, stderr_tail=result.stderr_tail,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            # Never lose the diagnostic: if the Control Plane rejects the
+            # failure report (e.g. an unknown failure_kind -> 400), log the
+            # stderr tail so the cause is traceable instead of vanishing.
+            logger.error(
+                "failed to submit %s failure for assignment %s (stderr tail): %s",
+                kind, assignment.attempt_id, result.stderr_tail,
+            )
+            logger.debug("failure submission error detail", exc_info=exc)
 
 
 def _opt_str(d: dict[str, object], key: str) -> str | None:
