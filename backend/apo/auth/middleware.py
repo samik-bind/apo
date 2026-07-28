@@ -332,6 +332,7 @@ def _authenticate_basic(public_key: str, secret_key: str) -> AuthContext | None:
             "user_id": api_key.created_by,
             "auth_method": "api_key",
             "api_key_scope": api_key.scope,
+            "api_key_id": api_key.id,
         }
 
 
@@ -387,6 +388,7 @@ def _authenticate_bearer(token: str) -> AuthContext | None:
             "user_id": api_key.created_by,
             "auth_method": "api_key",
             "api_key_scope": api_key.scope,
+            "api_key_id": api_key.id,
         }
 
 

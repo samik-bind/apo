@@ -103,12 +103,26 @@ def create_app() -> FastAPI:
     from .auth.middleware import AuthMiddleware
     from .middleware.request_size import RequestSizeMiddleware
     from .middleware.security_headers import SecurityHeadersMiddleware
-    from .services.telemetry_limits import load_telemetry_transport_limits
+    from .middleware.telemetry_admission import TelemetryAdmissionMiddleware
+    from .services.telemetry_admission import TelemetryAdmissionController
+    from .services.telemetry_limits import (
+        load_telemetry_admission_limits,
+        load_telemetry_transport_limits,
+    )
 
     # SPEC-150: validate transport limits at app construction (not lazily).
     transport_limits = load_telemetry_transport_limits()
 
+    # SPEC-151: validate admission limits and construct the controller.
+    admission_limits = load_telemetry_admission_limits()
+    admission_controller = TelemetryAdmissionController(admission_limits)
+    app.state.admission_controller = admission_controller
+    app.state.admission_limits = admission_limits
+
+    # Middleware execution order (outer → inner):
+    #   SecurityHeaders → Auth → TelemetryAdmission → RequestSize → CORS → router
     app.add_middleware(AuthMiddleware)
+    app.add_middleware(TelemetryAdmissionMiddleware, controller=admission_controller)
     app.add_middleware(RequestSizeMiddleware, otlp_limits=transport_limits)
     app.add_middleware(SecurityHeadersMiddleware)
 

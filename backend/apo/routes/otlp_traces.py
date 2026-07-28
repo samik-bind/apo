@@ -20,6 +20,7 @@ from sqlmodel import Session
 
 from ..auth.deps import require_api_key_scope
 from ..db import get_session
+from ..middleware.telemetry_admission import _rate_limit_response
 from ..models.db import ProjectDB
 from ..services.content_policy import normalize_trace_content_policy
 from ..services.otlp_receiver import (
@@ -27,6 +28,7 @@ from ..services.otlp_receiver import (
     OtlpReceiver,
     OtlpSizeLimitError,
 )
+from ..services.telemetry_admission import AdmissionRejection
 from ..services.telemetry_limits import load_telemetry_transport_limits
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,20 @@ async def receive_otlp_traces(
     content_type = request.headers.get("content-type", "application/json")
     encoding = request.headers.get("content-encoding")
 
+    # SPEC-151: consume bytes from the admission controller's byte budget.
+    # The hard cap (SPEC-150) already bounded the body; this charges it to
+    # the sustained per-identity + global byte rate buckets. No refund on
+    # later failure (SPEC-151 invariant #8).
+    identity = getattr(request.state, "telemetry_identity", None)
+    try:
+        controller = getattr(request.app.state, "admission_controller", None)
+    except (KeyError, AttributeError):
+        controller = None
+    if identity is not None and controller is not None:
+        byte_rejection = controller.consume_bytes(identity, len(body))
+        if byte_rejection is not None:
+            return _rate_limit_response(byte_rejection)
+
     # Normalize content type (strip charset suffix)
     if ";" in content_type:
         content_type = content_type.split(";")[0].strip()
@@ -106,6 +122,14 @@ async def receive_otlp_traces(
     # Ingest with transport limits (SPEC-150). Request-level failures raise
     # typed errors and write nothing — the route maps them to OTLP responses.
     receiver = OtlpReceiver()
+
+    # SPEC-151: consume one unit per decoded Span, before any persistence.
+    def _consume_units(count: int) -> None:
+        if identity is not None and controller is not None:
+            unit_rejection = controller.consume_units(identity, count)
+            if unit_rejection is not None:
+                raise _AdmissionUnitError(unit_rejection)
+
     try:
         result = receiver.ingest(
             payload=body,
@@ -117,11 +141,14 @@ async def receive_otlp_traces(
             context=context,
             project_immediately=False,
             limits=limits,
+            admission_consume_units=_consume_units,
         )
     except OtlpDecodeError as exc:
         return _otlp_error_response(content_type, 400, str(exc))
     except OtlpSizeLimitError as exc:
         return _otlp_error_response(content_type, 413, str(exc))
+    except _AdmissionUnitError as exc:
+        return _rate_limit_response(exc.rejection)
 
     partial = _build_partial_success(result.rejected, result.errors)
 
@@ -202,3 +229,11 @@ def _otlp_error_response(content_type: str, status_code: int, message: str) -> R
         status_code=status_code,
         media_type="application/json",
     )
+
+
+class _AdmissionUnitError(Exception):
+    """Carries an AdmissionRejection out of the receiver's unit-consumption callback."""
+
+    def __init__(self, rejection: AdmissionRejection) -> None:
+        self.rejection = rejection
+        super().__init__(str(rejection))

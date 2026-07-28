@@ -20,7 +20,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from google.protobuf.json_format import MessageToDict
 from sqlmodel import Session
@@ -244,6 +244,7 @@ class OtlpReceiver:
         context: "TraceIngestionContext | None" = None,
         project_immediately: bool = True,
         limits: TelemetryTransportLimits | None = None,
+        admission_consume_units: "Callable[[int], object] | None" = None,
     ) -> OtlpReceiverResult:
         """Decode, validate, and persist an OTLP batch.
 
@@ -281,6 +282,11 @@ class OtlpReceiver:
             raise OtlpSizeLimitError(
                 f"Span count {span_count} exceeds maximum of {max_spans}"
             )
+
+        # SPEC-151: consume one Telemetry Ingestion Unit per decoded Span
+        # before any durable write. The callback raises on rejection.
+        if admission_consume_units is not None:
+            admission_consume_units(span_count)
 
         # 3. Apply content policy to the decoded payload BEFORE serializing
         # the inbox record (SPEC-129 §1: "apply the Project content-capture
