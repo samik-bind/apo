@@ -275,7 +275,16 @@ export function findPartialFetchReason(
     return `${orphans} observations reference ${orphansByParent.size} distinct parents that are ${tail}`;
   }
   const [[parentId, childCount]] = [...orphansByParent.entries()];
-  return `${childCount} observation(s) reference parent ${parentId}, which is ${tail}`;
+  // One dangling parent shared by every orphan is also what a *legitimate*
+  // external parent looks like when the caller didn't declare one — e.g. a
+  // runtime that ran under a propagated traceparent, imported without
+  // --trace-id. Point at the escape hatch so that case is self-correcting
+  // rather than a mystery wait.
+  const hint =
+    options.externalParentSpanId === undefined
+      ? `. If ${parentId} is a span in the target trace, pass --parent-span-id ${parentId}`
+      : "";
+  return `${childCount} observation(s) reference parent ${parentId}, which is ${tail}${hint}`;
 }
 
 export async function pollLangfuseTrace(

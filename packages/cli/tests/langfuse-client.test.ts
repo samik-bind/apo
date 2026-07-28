@@ -1191,6 +1191,20 @@ describe("findPartialFetchReason", () => {
     expect(findPartialFetchReason(set, { mergeMode: false })).toMatch(/parent gone/);
   });
 
+  it("points at --parent-span-id when no anchor was declared, since the parent may be external", () => {
+    // A runtime that ran under a propagated traceparent, imported without
+    // --trace-id: the dangling link is legitimate and the operator needs to know
+    // how to say so.
+    const set = [obs("a", ANCHOR), obs("b", ANCHOR)];
+    expect(findPartialFetchReason(set, { mergeMode: false })).toMatch(
+      new RegExp(`pass --parent-span-id ${ANCHOR}`),
+    );
+    // With the anchor declared there is nothing to suggest.
+    expect(
+      findPartialFetchReason(set, { mergeMode: false, externalParentSpanId: ANCHOR }),
+    ).toBeNull();
+  });
+
   it("passes an empty set (the caller gates on count > 0 first)", () => {
     expect(findPartialFetchReason([], { mergeMode: false })).toBeNull();
   });
