@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-from starlette.types import Message
+from starlette.types import ASGIApp, Message
 
 if TYPE_CHECKING:
     from ..services.telemetry_limits import TelemetryTransportLimits
@@ -63,11 +63,11 @@ class RequestSizeMiddleware(BaseHTTPMiddleware):
 
     def __init__(
         self,
-        app: object,
+        app: ASGIApp,
         *,
         otlp_limits: TelemetryTransportLimits | None = None,
     ) -> None:
-        super().__init__(app)  # type: ignore[arg-type]
+        super().__init__(app)
         self._otlp_limits = otlp_limits
 
     async def dispatch(

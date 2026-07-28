@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# SPEC-152: Safe installation secret lifecycle — host helper.
+set -euo pipefail
+
+_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+_DEFAULT_ENV_FILE="${_REPO_ROOT}/.env"
+
+_err()  { printf '%s\n' "$*" >&2; }
+_ok()   { printf '%s\n' "$*"; }
+_die()  { _err "$*"; exit 1; }
+_die_usage() { _err "$*"; _err ""; _usage >&2; exit 2; }
+
+_usage() {
+  cat <<'EOF'
+Usage: scripts/self-host <command> [options]
+
+Commands:
+  init                Create or update the installation environment file.
+  doctor              Validate the environment file and Compose configuration.
+  up                  Start the installation (runs doctor first).
+  rotate-auth-secret  Generate a new AUTH_SECRET and recreate services.
+  help                Show this help.
+
+Options:
+  --env-file PATH             Environment file (default: .env)
+  --profile local|server      Deployment profile (default: local)
+  --public-url URL            Public origin (required for server)
+  --database sqlite|postgres  Database backend (default: sqlite)
+  --build                     Rebuild images before starting (up only)
+  --yes                       Skip confirmation (rotate-auth-secret only)
+EOF
+}
+
+_require_cmd() { command -v "$1" >/dev/null 2>&1 || _die "error: required command '$1' not found"; }
+
+_resolve_env_file() {
+  local path="$1"; [[ "$path" = /* ]] || path="${_REPO_ROOT}/${path}"
+  printf '%s' "$path"
+}
+
+_reject_non_regular() {
+  local t="$1"
+  [[ -L "$t" ]] && _die "error: refusing to operate on a symlink: $t"
+  [[ -d "$t" ]] && _die "error: refusing to operate on a directory: $t"
+  [[ -e "$t" && ! -f "$t" ]] && _die "error: refusing to operate on a non-regular file: $t"
+  return 0
+}
+
+_gen_secret() { openssl rand -hex 32; }
+
+_PARSE_KEY=""; _PARSE_VAL=""
+_parse_line() {
+  local line="$1"; _PARSE_KEY=""; _PARSE_VAL=""
+  [[ "$line" =~ ^[[:space:]]*# ]] && return 1
+  [[ -z "${line// }" ]] && return 1
+  local key="${line%%=*}"; local val="${line#*=}"
+  [[ "$key" == "$line" ]] && return 1
+  _PARSE_KEY="$(printf '%s' "$key" | tr -d '[:space:]')"; _PARSE_VAL="$val"
+  return 0
+}
+
+_select_compose_files() {
+  local env_file="$1" profile db
+  profile="$(grep -E '^APO_DEPLOYMENT_PROFILE=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  db="$(grep -E '^APO_DATABASE_PROFILE=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  profile="${profile:-local}"; db="${db:-sqlite}"
+  local files=("${_REPO_ROOT}/docker-compose.yml")
+  [[ "$db" == "postgres" ]] && files+=("${_REPO_ROOT}/docker-compose.postgres.yml")
+  [[ "$profile" == "server" ]] && files+=("${_REPO_ROOT}/docker-compose.server.yml")
+  printf '%s\n' "${files[@]}"
+}
+
+cmd_init() {
+  local env_file="$_DEFAULT_ENV_FILE" profile="local" database="sqlite" public_url=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in --env-file) env_file="$2"; shift 2 ;; --profile) profile="$2"; shift 2 ;; --public-url) public_url="$2"; shift 2 ;; --database) database="$2"; shift 2 ;; *) _die_usage "init: unknown option '$1'" ;; esac
+  done
+  case "$profile" in local|server) ;; *) _die_usage "init: --profile must be local or server" ;; esac
+  case "$database" in sqlite|postgres) ;; *) _die_usage "init: --database must be sqlite or postgres" ;; esac
+  [[ "$profile" == "server" && -z "$public_url" ]] && _die_usage "init: --public-url is required for --profile server"
+  [[ -n "$public_url" ]] && public_url="${public_url%/}"
+  [[ "$profile" == "local" && -z "$public_url" ]] && public_url="http://localhost:3000"
+  _require_cmd openssl
+  env_file="$(_resolve_env_file "$env_file")"; _reject_non_regular "$env_file"; umask 077
+
+  declare -A values=()
+  local has_profile=false has_db=false has_url=false has_auth=false has_pg=false
+  if [[ -f "$env_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if _parse_line "$line"; then
+        values["$_PARSE_KEY"]="$_PARSE_VAL"
+        case "$_PARSE_KEY" in APO_DEPLOYMENT_PROFILE) has_profile=true ;; APO_DATABASE_PROFILE) has_db=true ;; APO_PUBLIC_URL) has_url=true ;; AUTH_SECRET) has_auth=true ;; POSTGRES_PASSWORD) has_pg=true ;; esac
+      fi
+    done < "$env_file"
+  fi
+
+  local generated=()
+  if [[ -z "${values[AUTH_SECRET]:-}" ]]; then values[AUTH_SECRET]="$(_gen_secret)"; has_auth=true; generated+=("AUTH_SECRET"); fi
+  if [[ "$database" == "postgres" && -z "${values[POSTGRES_PASSWORD]:-}" ]]; then values[POSTGRES_PASSWORD]="$(_gen_secret)"; has_pg=true; generated+=("POSTGRES_PASSWORD"); fi
+  $has_profile || { values[APO_DEPLOYMENT_PROFILE]="$profile"; has_profile=true; }
+  $has_db || { values[APO_DATABASE_PROFILE]="$database"; has_db=true; }
+  $has_url || { values[APO_PUBLIC_URL]="$public_url"; has_url=true; }
+
+  local managed_keys="APO_DEPLOYMENT_PROFILE APO_DATABASE_PROFILE APO_PUBLIC_URL AUTH_SECRET"
+  [[ "$database" == "postgres" ]] && managed_keys+=" POSTGRES_PASSWORD"
+  local final=""
+  for key in $managed_keys; do final+="${key}=${values[$key]:-}"$'\n'; done
+  if [[ -f "$env_file" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if _parse_line "$line"; then
+        local skip=false
+        for key in $managed_keys; do [[ "$_PARSE_KEY" == "$key" ]] && { skip=true; break; }; done
+        $skip || final+="${line}"$'\n'
+      else final+="${line}"$'\n'; fi
+    done < "$env_file"
+  fi
+
+  local tmp_file; tmp_file="$(mktemp "${env_file%/*}/.apo-env.XXXXXX")"
+  printf '%s' "$final" > "$tmp_file"; chmod 0600 "$tmp_file"; mv "$tmp_file" "$env_file"
+  if [[ ${#generated[@]} -gt 0 ]]; then _ok "init: generated ${generated[*]}"; else _ok "init: no new values needed"; fi
+  _ok "next: scripts/self-host doctor"
+}
+
+cmd_doctor() {
+  local env_file="$_DEFAULT_ENV_FILE"
+  while [[ $# -gt 0 ]]; do case "$1" in --env-file) env_file="$2"; shift 2 ;; *) _die_usage "doctor: unknown option '$1'" ;; esac; done
+  env_file="$(_resolve_env_file "$env_file")"
+  local errors=0 warnings=0
+  [[ ! -f "$env_file" ]] && _die "error: environment file not found: $env_file"
+  [[ -L "$env_file" ]] && _die "error: environment file is a symlink: $env_file"
+  local mode; mode="$(stat -c '%a' "$env_file" 2>/dev/null || stat -f '%Lp' "$env_file" 2>/dev/null || true)"
+  [[ "$mode" != "600" ]] && { _err "error: file mode is $mode, expected 600"; errors=$((errors+1)); }
+  local owner; owner="$(stat -c '%u' "$env_file" 2>/dev/null || true)"
+  [[ "$owner" != "$(id -u)" ]] && { _err "error: file not owned by current user"; errors=$((errors+1)); }
+
+  declare -A values=()
+  while IFS= read -r line || [[ -n "$line" ]]; do _parse_line "$line" && values["$_PARSE_KEY"]="$_PARSE_VAL"; done < "$env_file"
+
+  local profile="${values[APO_DEPLOYMENT_PROFILE]:-}"
+  case "$profile" in development|local|server) ;; *) _err "error: APO_DEPLOYMENT_PROFILE invalid"; errors=$((errors+1)) ;; esac
+  local db="${values[APO_DATABASE_PROFILE]:-sqlite}"
+  case "$db" in sqlite|postgres) ;; *) _err "error: APO_DATABASE_PROFILE must be sqlite or postgres"; errors=$((errors+1)) ;; esac
+
+  if [[ "$profile" == "local" || "$profile" == "server" ]]; then
+    local secret="${values[AUTH_SECRET]:-}"; secret="$(printf '%s' "$secret" | tr -d '[:space:]')"
+    [[ -z "$secret" ]] && { _err "error: AUTH_SECRET is required"; errors=$((errors+1)); }
+    [[ ${#secret} -lt 32 ]] && { _err "error: AUTH_SECRET must be at least 32 characters"; errors=$((errors+1)); }
+    for p in change-me-in-production change-me dev-secret dev-secret-change-me secret; do [[ "${secret,,}" == "$p" ]] && { _err "error: AUTH_SECRET is a known insecure placeholder"; errors=$((errors+1)); break; }; done
+  fi
+  [[ "$db" == "postgres" ]] && [[ -z "${values[POSTGRES_PASSWORD]:-}" ]] && { _err "error: POSTGRES_PASSWORD required"; errors=$((errors+1)); }
+  [[ -n "${values[INIT_USER_PASSWORD]:-}" ]] && { _err "warning: INIT_USER_PASSWORD should be removed"; warnings=$((warnings+1)); }
+
+  if command -v docker >/dev/null 2>&1; then
+    mapfile -t cf < <(_select_compose_files "$env_file"); local ca=(); for f in "${cf[@]}"; do ca+=(-f "$f"); done
+    docker compose --env-file "$env_file" "${ca[@]}" config --quiet 2>/dev/null || { _err "error: compose config failed"; errors=$((errors+1)); }
+  fi
+
+  [[ $errors -gt 0 ]] && { _err "doctor: $errors error(s), $warnings warning(s)"; exit 1; }
+  _ok "doctor: ok ($warnings warning(s))"
+}
+
+cmd_up() {
+  local env_file="$_DEFAULT_ENV_FILE" build=false
+  while [[ $# -gt 0 ]]; do case "$1" in --env-file) env_file="$2"; shift 2 ;; --build) build=true; shift ;; *) _die_usage "up: unknown option '$1'" ;; esac; done
+  env_file="$(_resolve_env_file "$env_file")"; cmd_doctor --env-file "$env_file"; _require_cmd docker
+  mapfile -t cf < <(_select_compose_files "$env_file"); local ca=(); for f in "${cf[@]}"; do ca+=(-f "$f"); done
+  local ua=("up" "-d"); $build && ua+=("--build")
+  docker compose --env-file "$env_file" "${ca[@]}" "${ua[@]}"
+  local profile; profile="$(grep -E '^APO_DEPLOYMENT_PROFILE=' "$env_file" | head -1 | cut -d= -f2-)"
+  if [[ "$profile" == "server" ]]; then _ok "up: started. Verify: scripts/public-ingress-smoke.sh"; else _ok "up: started. Open http://localhost:3000"; fi
+}
+
+cmd_rotate() {
+  local env_file="$_DEFAULT_ENV_FILE" assume_yes=false
+  while [[ $# -gt 0 ]]; do case "$1" in --env-file) env_file="$2"; shift 2 ;; --yes) assume_yes=true; shift ;; *) _die_usage "rotate-auth-secret: unknown option '$1'" ;; esac; done
+  env_file="$(_resolve_env_file "$env_file")"; cmd_doctor --env-file "$env_file"; _require_cmd openssl
+  if ! $assume_yes; then _err "This will invalidate sessions and tokens. Type 'rotate' to confirm:"; read -r c; [[ "$c" == "rotate" ]] || _die "aborted"; fi
+  _reject_non_regular "$env_file"; umask 077
+  local rollback="${env_file}.rollback"; cp "$env_file" "$rollback"; chmod 0600 "$rollback"
+  local new_secret; new_secret="$(_gen_secret)"; local tmp_file; tmp_file="$(mktemp "${env_file%/*}/.apo-env.XXXXXX")"
+  local replaced=false
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if _parse_line "$line" && [[ "$_PARSE_KEY" == "AUTH_SECRET" ]]; then printf 'AUTH_SECRET=%s\n' "$new_secret" >> "$tmp_file"; replaced=true
+    else printf '%s\n' "$line" >> "$tmp_file"; fi
+  done < "$env_file"
+  $replaced || printf 'AUTH_SECRET=%s\n' "$new_secret" >> "$tmp_file"
+  chmod 0600 "$tmp_file"; mv "$tmp_file" "$env_file"; _ok "rotate-auth-secret: AUTH_SECRET updated"
+  mapfile -t cf < <(_select_compose_files "$env_file"); local ca=(); for f in "${cf[@]}"; do ca+=(-f "$f"); done
+  local running=false
+  if command -v docker >/dev/null 2>&1 && docker compose --env-file "$env_file" "${ca[@]}" ps --services --filter "status=running" 2>/dev/null | grep -qE '^(backend|frontend)$'; then running=true; fi
+  if $running; then
+    _ok "rotate-auth-secret: recreating frontend and backend..."
+    docker compose --env-file "$env_file" "${ca[@]}" up -d --force-recreate frontend backend
+    local deadline=$((SECONDS + 60))
+    while [[ $SECONDS -lt $deadline ]]; do curl -sf http://127.0.0.1:8000/health >/dev/null 2>&1 && { _ok "rotate-auth-secret: healthy"; rm -f "$rollback"; exit 0; }; sleep 2; done
+    _err "rotate-auth-secret: not healthy — rolling back"; mv "$rollback" "$env_file"
+    docker compose --env-file "$env_file" "${ca[@]}" up -d --force-recreate frontend backend; rm -f "$rollback"; _die "rotate-auth-secret: rolled back"
+  else rm -f "$rollback"; _ok "rotate-auth-secret: offline — takes effect at next start"; fi
+}
+
+main() {
+  [[ $# -eq 0 ]] && { _usage; exit 0; }
+  local cmd="$1"; shift
+  case "$cmd" in init) cmd_init "$@" ;; doctor) cmd_doctor "$@" ;; up) cmd_up "$@" ;; rotate-auth-secret) cmd_rotate "$@" ;; help|--help|-h) _usage; exit 0 ;; *) _die_usage "unknown command: $cmd" ;; esac
+}
+main "$@"

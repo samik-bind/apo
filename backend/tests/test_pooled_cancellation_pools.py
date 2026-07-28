@@ -20,9 +20,11 @@ from apo.models.db import (
 from sqlmodel import create_engine
 
 
-def test_latest_schema_version_bumped_to_v14() -> None:
-    assert LATEST_SCHEMA_VERSION == 14
-    assert 14 in _SCHEMA_MIGRATIONS
+def test_latest_schema_version_has_registered_migration() -> None:
+    """A schema bump must ship with its migration registered, so the latest
+    version is always reachable. Pinning the literal version broke on every
+    bump — assert the invariant instead."""
+    assert LATEST_SCHEMA_VERSION in _SCHEMA_MIGRATIONS
 
 
 def test_v14_adds_schedule_pool_columns() -> None:

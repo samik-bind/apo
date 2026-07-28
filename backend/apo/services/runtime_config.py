@@ -321,24 +321,17 @@ def _check_auth_secret(dev_mode: bool) -> ReadinessCheckResult:
             ok=True,
             detail="dev mode (AUTH_SECRET unset); auth bypassed",
         )
-    secret = (_current_auth_secret() or "").strip()
-    if not secret:
+    # SPEC-152: reuse the centralized validation helper so readiness and
+    # startup share one policy. The minimum is 32 chars.
+    from .installation_secrets import auth_secret_problem
+
+    secret = _current_auth_secret() or ""
+    problem = auth_secret_problem(secret, required=True)
+    if problem is not None:
         return ReadinessCheckResult(
             name="auth_secret",
             ok=False,
-            detail="AUTH_SECRET is required in non-dev mode",
-        )
-    if secret in _KNOWN_INSECURE_AUTH_SECRETS:
-        return ReadinessCheckResult(
-            name="auth_secret",
-            ok=False,
-            detail="AUTH_SECRET is set to a known insecure placeholder",
-        )
-    if len(secret) < 16:
-        return ReadinessCheckResult(
-            name="auth_secret",
-            ok=False,
-            detail="AUTH_SECRET is too short (need at least 16 chars)",
+            detail=problem,
         )
     return ReadinessCheckResult(name="auth_secret", ok=True)
 

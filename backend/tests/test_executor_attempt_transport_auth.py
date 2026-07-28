@@ -131,3 +131,41 @@ def test_attempt_token_allows_current_trace_and_artifact_but_stale_is_rejected(
         headers=headers,
     )
     assert stale_response.status_code == 401
+
+
+@pytest.mark.real_auth
+def test_attempt_token_can_read_own_trace_projection(
+    client: TestClient,
+    session: Session,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Regression: the bundled executor hands the runner an attempt JWT as
+    ``APO_AUTH_TOKEN``, and the runner polls its own trace-projection endpoint
+    to read back the canonical snapshot. That GET used to be allow-listed only
+    for ``service_token``, so an attempt token got 403 ("Not authorized for
+    this route") and the runner fell back to an empty local tee — every
+    trajectory check then reported "evidence unavailable". The attempt token
+    must reach the route (which scopes it to its own task run).
+    """
+    monkeypatch.setattr(auth_middleware, "engine", session.get_bind())
+    monkeypatch.setattr(executor_auth, "AUTH_SECRET", "attempt-transport-secret")
+    attempt = _seed_running_attempt(session)
+    token = executor_auth.create_attempt_jwt(
+        attempt=attempt,
+        lease_generation=1,
+        expires_in_seconds=300,
+    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Own run: auth must pass. run-auth has no claimed trace, so the route
+    # returns 409 "Task run has no trace" — the point is it is NOT 403.
+    own = client.get("/v1/agent-task-runs/run-auth/trace-projection", headers=headers)
+    assert own.status_code != 403, own.text
+    assert own.status_code == 409, own.text
+
+    # Cross-run read is still rejected: a different task_run_id in the path
+    # must not be readable with this token.
+    other = client.get(
+        "/v1/agent-task-runs/some-other-run/trace-projection", headers=headers
+    )
+    assert other.status_code == 403, other.text

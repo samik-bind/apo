@@ -117,7 +117,12 @@ def ingest_call_create_to_canonical(
         project_id=project_id,
         trace_id=trace_id,
         span_id=span_id,
-        parent_span_id=cast(str | None, body.get("parent_call_id")),
+        # An observation with no explicit parent still belongs to its trace:
+        # parent it to the synthesized root span so the projector never treats
+        # a call as a second root (which would clobber the run's flow_name and
+        # double-count run-level metrics).
+        parent_span_id=cast(str | None, body.get("parent_call_id"))
+        or _root_span_id(trace_id),
         span_name=cast(str, body.get("step_name", "")) or span_id,
         start_time=created_at or datetime.now(timezone.utc),
         end_time=None,
