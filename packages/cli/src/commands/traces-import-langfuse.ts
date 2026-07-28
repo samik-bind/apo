@@ -51,10 +51,14 @@ type WaitResolution =
   | { kind: "ok"; seconds: number }
   | { kind: "error"; message: string };
 
+type SettleResolution = WaitResolution;
+
 type TraceIdResolution =
   | { kind: "none" }
   | { kind: "ok"; value: string }
   | { kind: "error"; message: string };
+
+type ParentSpanIdResolution = TraceIdResolution;
 
 export async function run(argv: string[], deps: LangfuseRunDeps = {}): Promise<number> {
   const { positional, flags } = parseArgs(argv);
@@ -74,9 +78,21 @@ export async function run(argv: string[], deps: LangfuseRunDeps = {}): Promise<n
     return EXIT_FAILURE;
   }
 
+  const settle = resolveSettleFlag(flags["settle"]);
+  if (settle.kind === "error") {
+    console.error(settle.message);
+    return EXIT_FAILURE;
+  }
+
   const targetTraceId = resolveTraceIdFlag(flags["trace-id"]);
   if (targetTraceId.kind === "error") {
     console.error(targetTraceId.message);
+    return EXIT_FAILURE;
+  }
+
+  const parentSpanId = resolveParentSpanIdFlag(flags["parent-span-id"]);
+  if (parentSpanId.kind === "error") {
+    console.error(parentSpanId.message);
     return EXIT_FAILURE;
   }
 
@@ -95,7 +111,15 @@ export async function run(argv: string[], deps: LangfuseRunDeps = {}): Promise<n
   let graph: LangfuseTraceGraph;
   let sourceNotices: string[];
   try {
-    const fetched = await fetchSourceTrace(sourceTraceId, connector, wait, deps);
+    const fetched = await fetchSourceTrace(
+      sourceTraceId,
+      connector,
+      wait,
+      settle,
+      targetTraceId.kind === "ok",
+      parentSpanId.kind === "ok" ? parentSpanId.value : undefined,
+      deps,
+    );
     graph = fetched.graph;
     sourceNotices = fetched.notices;
   } catch (error) {
@@ -249,6 +273,9 @@ function fetchSourceTrace(
   sourceTraceId: string,
   connector: LangfuseConnectorConfig,
   wait: WaitResolution,
+  settle: SettleResolution,
+  mergeMode: boolean,
+  externalParentSpanId: string | undefined,
   deps: LangfuseRunDeps,
 ): Promise<{ graph: LangfuseTraceGraph; notices: string[] }> {
   if (wait.kind !== "ok" || wait.seconds <= 0) {
@@ -263,24 +290,43 @@ function fetchSourceTrace(
     initialIntervalMs: timing.initialIntervalMs,
     maxIntervalMs: timing.maxIntervalMs,
     backoffFactor: timing.backoffFactor,
+    // Merge mode nests the imported subtree under a span in the target trace,
+    // so its roots' parent is legitimately outside the fetched set.
+    mergeMode,
+    ...(externalParentSpanId !== undefined ? { externalParentSpanId } : {}),
+    ...(settle.kind === "ok" ? { settleMs: settle.seconds * 1000 } : {}),
     ...(deps.now ? { now: deps.now } : {}),
     ...(deps.sleep ? { sleep: deps.sleep } : {}),
   });
 }
 
 function resolveWaitFlag(raw: string | boolean | undefined): WaitResolution {
+  return resolveSecondsFlag(raw, "--wait", "--wait 60");
+}
+
+// Resolve --settle: the quiet period the observation count must hold before the
+// trace counts as ingested. Only meaningful alongside --wait.
+function resolveSettleFlag(raw: string | boolean | undefined): SettleResolution {
+  return resolveSecondsFlag(raw, "--settle", "--settle 15");
+}
+
+function resolveSecondsFlag(
+  raw: string | boolean | undefined,
+  flag: string,
+  example: string,
+): WaitResolution {
   if (raw === undefined) return { kind: "none" };
   if (raw === true) {
     return {
       kind: "error",
-      message: "--wait requires a number of seconds (e.g. --wait 60)",
+      message: `${flag} requires a number of seconds (e.g. ${example})`,
     };
   }
   const n = Number(raw);
   if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
     return {
       kind: "error",
-      message: `--wait must be a non-negative integer number of seconds; got ${raw}`,
+      message: `${flag} must be a non-negative integer number of seconds; got ${raw}`,
     };
   }
   return { kind: "ok", seconds: n };
@@ -302,6 +348,23 @@ function resolveTraceIdFlag(raw: string | boolean | undefined): TraceIdResolutio
   } catch (error) {
     return { kind: "error", message: (error as Error).message };
   }
+}
+
+// Resolve --parent-span-id: the span in the target apo trace that the imported
+// subtree hangs under. When the harness propagates apo's traceparent into the
+// agent runtime, the runtime's root observations point at this span, which is
+// outside the fetched set — declaring it lets the completeness check tell that
+// expected dangling link apart from a parent that hasn't been ingested yet.
+function resolveParentSpanIdFlag(raw: string | boolean | undefined): ParentSpanIdResolution {
+  if (raw === undefined || raw === false) return { kind: "none" };
+  if (raw === true || !/^[0-9a-f]{16}$/i.test(raw)) {
+    return {
+      kind: "error",
+      message:
+        "--parent-span-id requires a 16-hex W3C span id value (e.g. --parent-span-id 6de9bd236dec787a)",
+    };
+  }
+  return { kind: "ok", value: raw.toLowerCase() };
 }
 
 function formatEmptyTraceError(

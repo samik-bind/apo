@@ -31,17 +31,33 @@ export interface LangfusePollTiming {
 export interface LangfusePollOptions extends LangfusePollTiming {
   totalDeadlineMs: number;
   /**
-   * How many consecutive polls must agree on the observation count before the
-   * trace is considered fully ingested (issue #39). Langfuse ingests child
-   * observations asynchronously after the root span, so "at least one
-   * observation" is not enough — the count must stop growing.
+   * Wall-clock quiet period (ms) the observation count must hold before the
+   * trace is treated as ingested. Langfuse ingests asynchronously after the
+   * root span, so "at least one observation" is not enough — but neither is a
+   * count of consecutive polls (the previous rule), because a batch-flushing
+   * tracer makes the count plateau *mid-ingest*. Wall-clock is the honest unit:
+   * poll jitter can't shorten the window.
    */
-  stabilityThreshold?: number;
+  settleMs?: number;
   /**
    * Interval between stability polls (ms), used once the trace first appears.
    * Shorter than the existence-phase backoff so convergence is detected fast.
    */
   stabilityIntervalMs?: number;
+  /**
+   * The span in the target apo trace that the imported subtree hangs under
+   * (--parent-span-id). When the agent runtime runs under a propagated
+   * traceparent, its root observations legitimately point at this span, which is
+   * outside the fetched set. Supplying it is what makes {@link
+   * findPartialFetchReason} able to tell an expected external parent from a
+   * parent that simply has not been ingested.
+   */
+  externalParentSpanId?: string;
+  /**
+   * Merge mode (--trace-id). Without an `externalParentSpanId` anchor, dangling
+   * parents can't be judged in merge mode, so the structural gate stands down.
+   */
+  mergeMode?: boolean;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -70,11 +86,13 @@ export const DEFAULT_LANGFUSE_POLL_TIMING: LangfusePollTiming = {
 };
 
 // Stability defaults (issue #39): after the first observation appears, poll the
-// count until it holds steady for this many consecutive polls at this interval.
-// Langfuse Cloud ingests child observations within a few seconds of the root,
-// so 2 polls × 2s (~4s of stable count) is enough to catch the tail on typical
-// traces without adding noticeable latency.
-export const DEFAULT_STABILITY_POLLS = 2;
+// count until it stops growing. The count plateauing is a weak signal — an
+// agent runtime that flushes its tracer in batches plateaus for tens of seconds
+// mid-ingest, and Langfuse Cloud's read API trails the ingest queue on top of
+// that. A 4s window silently truncated real traces to ~55% of their spans, so
+// the quiet period is wall-clock and generous; `findPartialFetchReason` is the
+// signal that actually catches a partial fetch.
+export const DEFAULT_SETTLE_MS = 15_000;
 export const DEFAULT_STABILITY_INTERVAL_MS = 2_000;
 
 export const DEFAULT_MAX_OBSERVATIONS = 10_000;
@@ -214,6 +232,52 @@ export async function fetchLangfuseTrace(
   };
 }
 
+/**
+ * Structural evidence that a fetched set is only part of the trace, or null when
+ * it looks whole.
+ *
+ * A count plateau cannot distinguish "ingestion finished" from "ingestion paused
+ * between flush batches". The parent links can: an observation whose
+ * `parentObservationId` is absent from the fetched set either hangs under a span
+ * in the target trace (expected, merge mode) or under a span that has not been
+ * ingested yet (a partial fetch). Only the parent's *identity* separates those —
+ * counting doesn't, because several root observations legitimately share one
+ * external parent when a runtime handles more than one query under the same
+ * propagated span.
+ *
+ * So the caller declares the anchor via `externalParentSpanId`
+ * (--parent-span-id): dangling links to that span are expected, any other
+ * dangling link means its parent is still missing. Without an anchor there is
+ * nothing to compare against in merge mode, and the gate stands down.
+ */
+export function findPartialFetchReason(
+  observations: readonly LangfuseObservation[],
+  options: { externalParentSpanId?: string; mergeMode: boolean },
+): string | null {
+  const present = new Set(observations.map((o) => o.id));
+  const orphansByParent = new Map<string, number>();
+  for (const observation of observations) {
+    const parentId = observation.parentObservationId;
+    if (!parentId || present.has(parentId)) continue;
+    if (parentId === options.externalParentSpanId) continue;
+    orphansByParent.set(parentId, (orphansByParent.get(parentId) ?? 0) + 1);
+  }
+  if (orphansByParent.size === 0) return null;
+
+  // Merge mode with no declared anchor: a dangling parent is as likely to be the
+  // span we are merging under as a missing one. Undecidable — let the quiet
+  // period be the only gate rather than blocking every merge import.
+  if (options.mergeMode && options.externalParentSpanId === undefined) return null;
+
+  const tail = "not in the fetched set — those parent spans have not been ingested yet";
+  if (orphansByParent.size > 1) {
+    const orphans = [...orphansByParent.values()].reduce((a, b) => a + b, 0);
+    return `${orphans} observations reference ${orphansByParent.size} distinct parents that are ${tail}`;
+  }
+  const [[parentId, childCount]] = [...orphansByParent.entries()];
+  return `${childCount} observation(s) reference parent ${parentId}, which is ${tail}`;
+}
+
 export async function pollLangfuseTrace(
   sourceTraceId: string,
   config: LangfuseConnectorConfig,
@@ -221,41 +285,52 @@ export async function pollLangfuseTrace(
 ): Promise<LangfuseFetchResult> {
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? defaultSleep;
-  const deadline = now() + options.totalDeadlineMs;
-  const stabilityThreshold = options.stabilityThreshold ?? DEFAULT_STABILITY_POLLS;
+  const start = now();
+  const deadline = start + options.totalDeadlineMs;
+  const settleMs = options.settleMs ?? DEFAULT_SETTLE_MS;
   const stabilityIntervalMs = options.stabilityIntervalMs ?? DEFAULT_STABILITY_INTERVAL_MS;
+  const structural = {
+    mergeMode: options.mergeMode ?? false,
+    ...(options.externalParentSpanId !== undefined
+      ? { externalParentSpanId: options.externalParentSpanId }
+      : {}),
+  };
   let interval = options.initialIntervalMs;
   let attempts = 0;
   let lastCount = -1;
-  let stablePolls = 0;
+  // When the count last changed. The quiet period is measured from here.
+  let lastChangeAt = start;
+  // Set once a fetched set fails the structural check, so the deadline notice
+  // can say what was wrong rather than just "the count was still growing".
+  let lastPartialReason: string | null = null;
+
+  const fetchGraph = () =>
+    fetchLangfuseTrace(sourceTraceId, config, {
+      now: options.now,
+      sleep: options.sleep,
+    });
 
   for (;;) {
     attempts += 1;
     const count = await countTraceObservations(sourceTraceId, config);
 
-    if (count > 0) {
-      if (count === lastCount) {
-        stablePolls += 1;
-      } else {
-        stablePolls = 0;
-        lastCount = count;
-      }
-    } else {
-      // Trace not visible yet — reset stability tracking.
-      stablePolls = 0;
-      lastCount = -1;
+    if (count !== lastCount) {
+      lastCount = count;
+      lastChangeAt = now();
     }
 
-    // Convergence: the observation count held steady across enough polls.
-    // Langfuse ingests child observations asynchronously after the root, so a
-    // stable count means ingestion has caught up and the full graph is
-    // available (issue #39 — previously we snapshotted on first observation).
-    if (count > 0 && stablePolls >= stabilityThreshold) {
-      const graph = await fetchLangfuseTrace(sourceTraceId, config, {
-        now: options.now,
-        sleep: options.sleep,
-      });
-      return { graph, notices: [] };
+    // Convergence: the count held steady for the whole quiet period AND the
+    // fetched graph has no dangling parent links. The count gate is cheap
+    // (list-only) and runs first; the structural gate is what actually catches
+    // a mid-ingest plateau, and it needs the hydrated set.
+    if (count > 0 && now() - lastChangeAt >= settleMs) {
+      const graph = await fetchGraph();
+      const reason = findPartialFetchReason(graph.observations, structural);
+      if (reason === null) return { graph, notices: [] };
+      lastPartialReason = reason;
+      // Treat the partial set like a count change: restart the quiet period so
+      // we don't re-hydrate on every poll while waiting for the rest.
+      lastChangeAt = now();
     }
 
     const remaining = deadline - now();
@@ -269,26 +344,25 @@ export async function pollLangfuseTrace(
             ` Ingestion may still be pending; safe to retry.`,
         );
       }
-      // The trace existed but never stabilized within the deadline. Import what
-      // we have (best effort) and warn — re-running later will fill in any
+      // The trace existed but never looked complete within the deadline. Import
+      // what we have (best effort) and warn — re-running later fills in the
       // spans that arrived after the snapshot (issue #39). Import is
       // idempotent: span ids are deterministic hashes, so no duplicates.
-      const graph = await fetchLangfuseTrace(sourceTraceId, config, {
-        now: options.now,
-        sleep: options.sleep,
-      });
+      const graph = await fetchGraph();
+      const detail =
+        lastPartialReason ?? `the count was still growing (${count} observation(s) seen)`;
       return {
         graph,
         notices: [
-          `Source trace ${sourceTraceId} had ${count} observation(s) but the count` +
-            ` was still growing when --wait expired; imported spans may be incomplete.` +
-            ` Re-run to repair (import is idempotent — stable span ids, no duplicates).`,
+          `Source trace ${sourceTraceId} did not look fully ingested when --wait` +
+            ` expired: ${detail}. Imported spans may be incomplete —` +
+            ` re-run to repair (import is idempotent — stable span ids, no duplicates).`,
         ],
       };
     }
 
-    // During the existence phase, use exponential backoff. During the stability
-    // phase, poll at a fixed (shorter) interval so convergence is detected fast.
+    // During the existence phase, use exponential backoff. Once the trace is
+    // visible, poll at a fixed (shorter) interval so convergence is detected fast.
     const sleepFor =
       count > 0
         ? Math.min(stabilityIntervalMs, remaining)
