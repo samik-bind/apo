@@ -146,3 +146,71 @@ class TestNormalizeChecks:
         ]
         out = normalize_checks_for_storage(checks)
         assert len(json.dumps(out).encode("utf-8")) <= TOTAL_CHECKS_LIMIT
+
+
+class TestMinimalFormKeepsCheckIdentity:
+    """A verdict with no identity is unusable downstream.
+
+    The SDK emits ``id`` and ``source_file`` on every check result and never
+    ``name`` (see ``checks/flow-runner.ts``). The minimal form used to keep only
+    ``name``/``pass``, so a payload big enough to reach that pass collapsed every
+    check to a bare ``{"pass": ...}``: the dashboard lost the check labels, and
+    the check-source viewer had nothing to resolve — it fell through its
+    candidate list and reported "File not found: checks.ts", a filename with no
+    bearing on the actual failure. Seen on a real 51-check task run.
+    """
+
+    @staticmethod
+    def _producer_shaped_checks(count: int, reasoning_size: int) -> list[dict[str, object]]:
+        """Checks in the shape the SDK actually emits, sized to exceed the cap."""
+        return [
+            {
+                "id": f"C-{i:03d} — a criterion title",
+                "pass": i % 2 == 0,
+                "reasoning": "r" * reasoning_size,
+                "evaluator_type": "code",
+                "source_file": "assess-litigation-regulatory-risk.eval.ts",
+                "assertions": [{"kind": "judge", "detail": "d" * 512}],
+            }
+            for i in range(count)
+        ]
+
+    def test_id_and_source_file_survive_the_shrink(self):
+        checks = self._producer_shaped_checks(51, STRING_FIELD_LIMIT)
+        out = normalize_checks_for_storage(checks)
+
+        assert len(json.dumps(out).encode("utf-8")) <= TOTAL_CHECKS_LIMIT
+        # The shrink did engage — detail is gone.
+        assert all("reasoning" not in entry for entry in out)
+        # ...but every surviving verdict is still attributable.
+        assert out, "checks must not be dropped entirely at this size"
+        for entry in out:
+            assert entry["id"].startswith("C-")
+            assert entry["source_file"] == "assess-litigation-regulatory-risk.eval.ts"
+            assert "pass" in entry
+
+    def test_verdicts_are_preserved_in_order(self):
+        checks = self._producer_shaped_checks(51, STRING_FIELD_LIMIT)
+        out = normalize_checks_for_storage(checks)
+
+        expected = [c["id"] for c in checks][: len(out)]
+        assert [entry["id"] for entry in out] == expected
+        assert [entry["pass"] for entry in out] == [c["pass"] for c in checks][: len(out)]
+
+    def test_name_is_still_kept_when_a_producer_uses_it(self):
+        checks = [
+            {"name": f"c-{i}", "pass": True, "reasoning": "r" * STRING_FIELD_LIMIT}
+            for i in range(60)
+        ]
+        out = normalize_checks_for_storage(checks)
+
+        assert out
+        assert all(entry["name"].startswith("c-") for entry in out)
+
+    def test_small_payloads_are_untouched_by_this_path(self):
+        checks = self._producer_shaped_checks(3, 100)
+        out = normalize_checks_for_storage(checks)
+
+        # Well under the cap: full detail retained, nothing minimized.
+        assert [entry["reasoning"] for entry in out] == ["r" * 100] * 3
+        assert all("assertions" in entry for entry in out)
