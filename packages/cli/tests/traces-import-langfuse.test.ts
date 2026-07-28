@@ -479,24 +479,28 @@ describe("apo traces import langfuse --wait source polling", () => {
     });
 
     const out = captureStdout();
+    // The quiet period is wall-clock, so the fake clock advances with the sleeps.
+    let elapsed = 0;
     const code = await run(
       [
         SOURCE_TRACE_ID,
         "--wait",
         "60",
+        "--settle",
+        "4",
         "--backend",
         "http://apo.test",
         "--api-key",
         "apo-key-test",
       ],
-      { now: () => 1_000_000, sleep: async () => {} },
+      { now: () => elapsed, sleep: async (ms) => { elapsed += ms; } },
     );
     out.restore();
 
     expect(code).toBe(0);
     const lfCalls = calls.filter((c) => c.url.includes("/api/public/v2/observations"));
-    // 2 empty polls + 3 stability polls (first sighting + 2 stable) + 1 final
-    // fetchLangfuseTrace list = 6 total list calls (issue #39 stability fix).
+    // 2 empty polls + 3 polls holding at 1 observation (the 4s quiet period at a
+    // 2s interval) + 1 final fetchLangfuseTrace list = 6 total list calls.
     expect(lfCalls).toHaveLength(6);
     expect(out.lines.join("\n")).toContain(SOURCE_TRACE_ID);
   });

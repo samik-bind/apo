@@ -274,8 +274,10 @@ const commands: Record<string, CommandEntry> = {
     options: [
       ["--langfuse-host <url>", "Override LANGFUSE_HOST"],
       ["--max-observations <count>", "Safety ceiling (default 10000, range 1..50000)"],
-      ["--wait <seconds>", "Poll the source until the trace is fully ingested (waits for observation count to stabilize, not just the first span)"],
+      ["--wait <seconds>", "Poll the source until the trace looks fully ingested (quiet observation count + no dangling parent links), not just the first span"],
+      ["--settle <seconds>", "Quiet period the observation count must hold before the trace counts as ingested (default 15; only with --wait)"],
       ["--trace-id <apo-trace-id>", "Emit spans under this trace id instead of the namespaced hash (merge into an existing run trace; 32-hex W3C)"],
+      ["--parent-span-id <span-id>", "The span in the target trace the imported subtree hangs under (16-hex W3C); lets the completeness check tell an expected external parent from an un-ingested one"],
       ["--json", "Machine-readable LangfuseImportResult JSON"],
     ],
     examples: [
@@ -284,7 +286,7 @@ const commands: Record<string, CommandEntry> = {
       "apo traces import langfuse <id> --wait 120",
       "apo traces import langfuse <run-trace-id> --trace-id <run-trace-id>",
     ],
-    note: "Credentials are environment-only: LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY (required) and LANGFUSE_HOST (optional, defaults to https://cloud.langfuse.com). Keys never leave the CLI process. --wait polls until the observation count stabilizes (consecutive polls agree), not just until the first span appears — this prevents importing partial traces on fast runs where Langfuse hasn't finished async ingestion (issue #39). If the deadline expires mid-stabilization, the trace is imported best-effort with a warning; re-running is safe and idempotent (deterministic span ids, no duplicates). Exit codes: 0 = imported and visible; 75 = source trace not yet available / empty (retryable); 2 = config / Langfuse hard read error / conversion / OTLP partial rejection / projection visibility failure. Use --trace-id to merge imported spans into an existing run trace when apo's traceparent was propagated into the agent runtime. Native OTEL remains the preferred path when the agent can reach apo directly.",
+    note: "Credentials are environment-only: LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY (required) and LANGFUSE_HOST (optional, defaults to https://cloud.langfuse.com). Keys never leave the CLI process. --wait polls until the trace looks fully ingested, not just until the first span appears — this prevents importing partial traces where Langfuse hasn't finished async ingestion (issue #39). Two gates: the observation count must hold for --settle seconds of wall-clock, and the fetched set must have no dangling parent links (several spans sharing a parent that isn't in the set means that parent hasn't been ingested). A count plateau alone is not enough — a tracer that flushes in batches plateaus mid-ingest. If the deadline expires while the trace still looks partial, it is imported best-effort with a warning naming the reason; re-running is safe and idempotent (deterministic span ids, no duplicates). Exit codes: 0 = imported and visible; 75 = source trace not yet available / empty (retryable); 2 = config / Langfuse hard read error / conversion / OTLP partial rejection / projection visibility failure. Use --trace-id to merge imported spans into an existing run trace when apo's traceparent was propagated into the agent runtime, and --parent-span-id to name the span they hang under — without it the dangling-parent gate can't run in merge mode (a dangling link is then indistinguishable from the span being merged under). Native OTEL remains the preferred path when the agent can reach apo directly.",
   },
   "batch list": {
     handler: loadCommand("batch-list"),

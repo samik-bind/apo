@@ -6,6 +6,7 @@ import {
   fetchLangfuseTrace,
   LangfuseEmptyTraceError,
   type LangfuseConnectorConfig,
+  findPartialFetchReason,
   pollLangfuseTrace,
   resolveConnectorConfig,
 } from "../src/lib/trace-sources/langfuse-client.ts";
@@ -487,7 +488,7 @@ describe("pollLangfuseTrace", () => {
     withKeys();
   });
 
-  it("waits for existence then stability before fetching (issue #39)", async () => {
+  it("waits for existence then a quiet period before fetching (issue #39)", async () => {
     // The trace appears with 1 observation, then a second arrives. The poll
     // must wait for the count to stabilize, not return on the first observation.
     const { listCalls, detailCalls } = captureFetch(
@@ -502,14 +503,18 @@ describe("pollLangfuseTrace", () => {
       { a: detailBody({ id: "a" }), b: detailBody({ id: "b" }) },
     );
     const sleeps: number[] = [];
+    // The quiet period is wall-clock, so the fake clock has to advance with the
+    // sleeps — a frozen clock would never converge.
+    let elapsed = 0;
 
     const result = await pollLangfuseTrace(TRACE_ID, basicConfig(), {
       totalDeadlineMs: 120_000,
       initialIntervalMs: 2_000,
       maxIntervalMs: 15_000,
       backoffFactor: 1.5,
-      now: () => 1_000_000,
-      sleep: async (ms) => { sleeps.push(ms); },
+      settleMs: 4_000,
+      now: () => elapsed,
+      sleep: async (ms) => { sleeps.push(ms); elapsed += ms; },
     });
 
     expect(result.graph.observations.map((o) => o.id)).toEqual(["a", "b"]);
@@ -518,7 +523,8 @@ describe("pollLangfuseTrace", () => {
     expect(listCalls).toHaveLength(7);
     // Details only fetched once, during the final fetchLangfuseTrace.
     expect(detailCalls).toHaveLength(2);
-    // Existence phase uses backoff (2s, 3s), stability phase uses fixed 2s.
+    // Existence phase uses backoff (2s, 3s), quiet phase polls at a fixed 2s
+    // until 4s have passed with no change in the count.
     // (Additional sleeps after this come from detail hydration throttling.)
     expect(sleeps.slice(0, 5)).toEqual([2_000, 3_000, 2_000, 2_000, 2_000]);
   });
@@ -588,6 +594,122 @@ describe("pollLangfuseTrace", () => {
     expect(mock).toHaveBeenCalledTimes(1);
   });
 
+  // Regression: a batch-flushing tracer makes the observation count plateau
+  // mid-ingest, so a quiet count is not proof the trace is whole. A real import
+  // took 12 of 22 observations this way and under-reported the trace by 58% of
+  // its tokens with no warning. The parent links are the tell: all 12 pointed at
+  // a parent that had not been ingested.
+  it("keeps waiting when the fetched set has a shared missing parent, then returns the whole trace", async () => {
+    // Two children of "root" plateau at 2 observations; "root" arrives later.
+    const partial = { body: page([obsRow({ id: "a" }), obsRow({ id: "b" })], { cursor: null }) };
+    const whole = {
+      body: page([obsRow({ id: "root" }), obsRow({ id: "a" }), obsRow({ id: "b" })], { cursor: null }),
+    };
+    const { detailCalls } = captureFetch(
+      [partial, partial, partial, partial, whole, whole, whole, whole],
+      {
+        root: detailBody({ id: "root", parentObservationId: null }),
+        a: detailBody({ id: "a", parentObservationId: "root" }),
+        b: detailBody({ id: "b", parentObservationId: "root" }),
+      },
+    );
+    let elapsed = 0;
+
+    const result = await pollLangfuseTrace(TRACE_ID, basicConfig(), {
+      totalDeadlineMs: 120_000,
+      initialIntervalMs: 2_000,
+      maxIntervalMs: 15_000,
+      backoffFactor: 1.5,
+      settleMs: 4_000,
+      now: () => elapsed,
+      sleep: async (ms) => { elapsed += ms; },
+    });
+
+    expect(result.graph.observations.map((o) => o.id)).toEqual(["root", "a", "b"]);
+    expect(result.notices).toEqual([]);
+    // Hydrated twice: the rejected partial set (2) and the complete one (3).
+    expect(detailCalls).toHaveLength(5);
+  });
+
+  it("names the dangling parent in the notice when the deadline expires on a partial set", async () => {
+    const partial = { body: page([obsRow({ id: "a" }), obsRow({ id: "b" })], { cursor: null }) };
+    captureFetch([partial], {
+      a: detailBody({ id: "a", parentObservationId: "root" }),
+      b: detailBody({ id: "b", parentObservationId: "root" }),
+    });
+    let elapsed = 0;
+
+    const result = await pollLangfuseTrace(TRACE_ID, basicConfig(), {
+      totalDeadlineMs: 6_000,
+      initialIntervalMs: 2_000,
+      maxIntervalMs: 15_000,
+      backoffFactor: 1.5,
+      settleMs: 4_000,
+      mergeMode: true,
+      externalParentSpanId: "6de9bd236dec787a",
+      now: () => elapsed,
+      sleep: async (ms) => { elapsed += ms; },
+    });
+
+    expect(result.graph.observations.map((o) => o.id)).toEqual(["a", "b"]);
+    expect(result.notices).toHaveLength(1);
+    expect(result.notices[0]).toMatch(/reference parent root/);
+    expect(result.notices[0]).toMatch(/re-run/i);
+  });
+
+  // Two agent queries under one propagated harness span both dangle on it — a
+  // shared external parent is normal in merge mode, so only its identity can
+  // tell it apart from a dropped one.
+  it("accepts several observations dangling on the declared external parent", async () => {
+    const rows = {
+      body: page([obsRow({ id: "q1" }), obsRow({ id: "q2" }), obsRow({ id: "b" })], { cursor: null }),
+    };
+    captureFetch([rows, rows, rows, rows], {
+      q1: detailBody({ id: "q1", parentObservationId: "6de9bd236dec787a" }),
+      q2: detailBody({ id: "q2", parentObservationId: "6de9bd236dec787a" }),
+      b: detailBody({ id: "b", parentObservationId: "q1" }),
+    });
+    let elapsed = 0;
+
+    const result = await pollLangfuseTrace(TRACE_ID, basicConfig(), {
+      totalDeadlineMs: 120_000,
+      initialIntervalMs: 2_000,
+      maxIntervalMs: 15_000,
+      backoffFactor: 1.5,
+      settleMs: 4_000,
+      mergeMode: true,
+      externalParentSpanId: "6de9bd236dec787a",
+      now: () => elapsed,
+      sleep: async (ms) => { elapsed += ms; },
+    });
+
+    expect(result.graph.observations.map((o) => o.id)).toEqual(["q1", "q2", "b"]);
+    expect(result.notices).toEqual([]);
+  });
+
+  it("does not block a merge import when no external parent is declared", async () => {
+    const rows = { body: page([obsRow({ id: "a" }), obsRow({ id: "b" })], { cursor: null }) };
+    captureFetch([rows, rows, rows, rows], {
+      a: detailBody({ id: "a", parentObservationId: "unknowable" }),
+      b: detailBody({ id: "b", parentObservationId: "unknowable" }),
+    });
+    let elapsed = 0;
+
+    const result = await pollLangfuseTrace(TRACE_ID, basicConfig(), {
+      totalDeadlineMs: 120_000,
+      initialIntervalMs: 2_000,
+      maxIntervalMs: 15_000,
+      backoffFactor: 1.5,
+      settleMs: 4_000,
+      mergeMode: true,
+      now: () => elapsed,
+      sleep: async (ms) => { elapsed += ms; },
+    });
+
+    expect(result.graph.observations.map((o) => o.id)).toEqual(["a", "b"]);
+    expect(result.notices).toEqual([]);
+  });
+
   it("does not hydrate details during polling — only counts list rows", async () => {
     // Details are expensive (per-observation GETs). The poll loop must only
     // paginate the LIST to count, never hydrate, until stability is confirmed.
@@ -601,13 +723,15 @@ describe("pollLangfuseTrace", () => {
       { a: detailBody({ id: "a" }) },
     );
 
+    let elapsed = 0;
     const result = await pollLangfuseTrace(TRACE_ID, basicConfig(), {
       totalDeadlineMs: 60_000,
       initialIntervalMs: 2_000,
       maxIntervalMs: 15_000,
       backoffFactor: 1.5,
-      now: () => 1_000_000,
-      sleep: async () => {},
+      settleMs: 4_000,
+      now: () => elapsed,
+      sleep: async (ms) => { elapsed += ms; },
     });
 
     expect(detailCalls).toHaveLength(1);
@@ -1020,5 +1144,54 @@ describe("fetchLangfuseTrace detail hydration rate-limit backoff (issue #28)", (
 
     // More than one observation means at least one throttle wait occurred.
     expect(sleeps.length).toBeGreaterThan(0);
+  });
+});
+
+describe("findPartialFetchReason", () => {
+  const obs = (id: string, parentObservationId: string | null) =>
+    ({ id, type: "SPAN", startTime: "2026-07-22T10:00:00.000Z", parentObservationId }) as never;
+  const ANCHOR = "6de9bd236dec787a";
+
+  it("passes a set whose parents are all present", () => {
+    const set = [obs("root", null), obs("a", "root"), obs("b", "a")];
+    expect(findPartialFetchReason(set, { mergeMode: false })).toBeNull();
+    expect(findPartialFetchReason(set, { mergeMode: true, externalParentSpanId: ANCHOR })).toBeNull();
+  });
+
+  it("passes any number of observations dangling on the declared external parent", () => {
+    const set = [obs("q1", ANCHOR), obs("q2", ANCHOR), obs("b", "q1")];
+    expect(
+      findPartialFetchReason(set, { mergeMode: true, externalParentSpanId: ANCHOR }),
+    ).toBeNull();
+  });
+
+  it("flags a dangling parent that is not the declared external parent", () => {
+    // The real regression: the children's own parent span was never ingested.
+    const set = [obs("q1", ANCHOR), obs("a", "dropped"), obs("b", "dropped")];
+    expect(findPartialFetchReason(set, { mergeMode: true, externalParentSpanId: ANCHOR })).toMatch(
+      /2 observation\(s\) reference parent dropped/,
+    );
+  });
+
+  it("flags several distinct dangling parents", () => {
+    const set = [obs("a", "gone-1"), obs("b", "gone-2")];
+    expect(findPartialFetchReason(set, { mergeMode: true, externalParentSpanId: ANCHOR })).toMatch(
+      /2 observations reference 2 distinct parents/,
+    );
+  });
+
+  it("stands down in merge mode when no external parent is declared", () => {
+    // Undecidable: the dangling parent could be the span we are merging under.
+    const set = [obs("a", "unknowable")];
+    expect(findPartialFetchReason(set, { mergeMode: true })).toBeNull();
+  });
+
+  it("flags any dangling parent outside merge mode — a whole trace has none", () => {
+    const set = [obs("a", "gone")];
+    expect(findPartialFetchReason(set, { mergeMode: false })).toMatch(/parent gone/);
+  });
+
+  it("passes an empty set (the caller gates on count > 0 first)", () => {
+    expect(findPartialFetchReason([], { mergeMode: false })).toBeNull();
   });
 });
