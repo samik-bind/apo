@@ -226,3 +226,104 @@ def test_reprojecting_the_same_span_stays_idempotent(clean_db):
         ).all()
         assert len(rows) == 1
         assert rows[0].output == {"response": "Yes, do all of that."}
+
+
+# --- costing: normalize_usage is a separate seam from the display normalizer ---
+
+
+def test_usage_details_reach_the_costing_seam_as_canonical_keys():
+    """`apply_cost_to_call` reads usage via `normalize_usage`, not via the display
+    normalizer. Without a langfuse resolver there it saw no usage, returned early,
+    and the call got neither a cost nor the `unpriced` marker (issue #57) — a
+    GENERATION with visible tokens and an invisible pricing gap."""
+    from apo.services.usage_normalization import normalize_usage
+
+    usage = normalize_usage(
+        {
+            **SIM_USER_ATTRS,
+            "langfuse.observation.usage_details": json.dumps(
+                {
+                    "input": 2,
+                    "output": 62,
+                    "input_cache_read": 33381,
+                    "input_cache_creation": 169,
+                    "total": 33614,
+                }
+            ),
+        },
+        model_name="google/gemini-3.1-flash-lite-preview",
+    )
+
+    # `total` is a sum, not a dimension — pricing it would double-count.
+    assert usage == {
+        "input": 2,
+        "output": 62,
+        "cache_read": 33381,
+        "cache_write_5m": 169,
+    }
+
+
+def test_langfuse_usage_wins_over_provider_detection():
+    """A `google/...` model name would otherwise route to the gemini resolver,
+    which reads gen_ai.* keys the Langfuse SDK never emits."""
+    from apo.services.usage_normalization import normalize_usage
+
+    usage = normalize_usage(
+        {"langfuse.observation.usage_details": json.dumps({"input": 10, "output": 3})},
+        model_name="google/gemini-3.6-flash",
+    )
+
+    assert usage == {"input": 10, "output": 3}
+
+
+def test_unknown_buckets_are_kept_verbatim_not_discarded():
+    from apo.services.usage_normalization import normalize_usage
+
+    usage = normalize_usage(
+        {
+            "langfuse.observation.usage_details": json.dumps(
+                {"input": 5, "output": 1, "some_new_dimension": 7}
+            )
+        }
+    )
+
+    assert usage["some_new_dimension"] == 7
+
+
+def test_spans_without_usage_details_fall_through_to_the_provider_resolver():
+    from apo.services.usage_normalization import normalize_usage
+
+    usage = normalize_usage(
+        {"gen_ai.usage.input_tokens": 11, "gen_ai.usage.output_tokens": 4},
+        model_name="gpt-4.1-mini",
+    )
+
+    assert usage["input"] == 11
+    assert usage["output"] == 4
+
+
+def test_projected_langfuse_span_is_marked_unpriced_when_the_model_has_no_pricing(clean_db):
+    """The end state that matters: tokens stored, cost null, and the gap visible
+    as `cost_provenance='unpriced'` rather than as a silent zero."""
+    span = _canonical(
+        "sim-lf-0003",
+        {
+            **SIM_USER_ATTRS,
+            "langfuse.observation.model.name": "model-with-no-pricing-era",
+            "langfuse.observation.usage_details": json.dumps({"input": 400, "output": 20}),
+        },
+    )
+
+    projector = TraceProjector()
+    with Session(engine) as session:
+        projector.project(span, session)
+        session.commit()
+
+    with Session(engine) as session:
+        call = session.exec(select(LoggedCallDB).where(LoggedCallDB.id == "sim-lf-0003")).first()
+        assert call is not None
+        assert call.prompt_tokens == 400
+        assert call.cost is None
+        assert call.cost_provenance == "unpriced"
+        # raw_usage is retained so adding a pricing entry can back-fill the cost.
+        assert call.raw_usage == {"input": 400, "output": 20}
