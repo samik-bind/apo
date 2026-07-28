@@ -8,11 +8,12 @@ module. The registry dispatches in priority order and records provenance.
 
 Priority:
   1. apo override (explicit ``apo.observation.type``)
-  2. OpenInference (``openinference.span.kind``)
-  3. Claude Code (``claude_code.*`` span names)
-  4. GenAI standard (``gen_ai.*``)
-  5. Vercel AI (``ai.*``)
-  6. Generic fallback (always ``SPAN``)
+  2. Langfuse SDK (explicit ``langfuse.observation.type``)
+  3. OpenInference (``openinference.span.kind``)
+  4. Claude Code (``claude_code.*`` span names)
+  5. GenAI standard (``gen_ai.*``)
+  6. Vercel AI (``ai.*``)
+  7. Generic fallback (always ``SPAN``)
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from ._shared import (
     extract_output,
     extract_tokens,
 )
-from . import _apo, _claude, _genai, _openinference, _vercel, _generic
+from . import _apo, _claude, _genai, _langfuse, _openinference, _vercel, _generic
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,12 @@ __all__ = ["NormalizedSpan", "normalize_span", "NORMALIZER_VERSION"]
 # Claude Code runs before GenAI: claude_code.* spans also carry gen_ai.* attrs,
 # but the Claude-specific name-prefix gives more accurate typing (e.g. the
 # top-level interaction span becomes AGENT, not GENERATION).
+# Langfuse runs second: like the apo override it is an explicit declaration by
+# the app author, so it outranks the mappers that infer a type from attribute
+# shape.
 _MAPPERS = [
     (_apo, "apo-override"),
+    (_langfuse, "langfuse"),
     (_openinference, "openinference"),
     (_claude, "claude-code"),
     (_genai, "gen-ai"),

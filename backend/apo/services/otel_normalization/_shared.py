@@ -16,7 +16,7 @@ VALID_OBSERVATION_TYPES = frozenset({
 })
 
 # Bump when any mapper's logic changes. Reproject uses this to detect stale projections.
-NORMALIZER_VERSION = 3
+NORMALIZER_VERSION = 4
 
 
 @final
@@ -241,8 +241,67 @@ def extract_assistant_text(messages: list[dict[str, Any]]) -> str | None:
     return None
 
 
+# Langfuse-SDK helpers. That SDK is an OTel tracer that emits only its own
+# `langfuse.*` namespace — no gen_ai.* fallback — so its payload has to be read
+# explicitly. These run last in each extractor: when a span carries both a
+# standard convention and langfuse.*, the standard convention keeps precedence.
+
+
+def langfuse_payload(attrs: dict[str, Any], key: str) -> dict[str, Any] | None:
+    """Wrap a `langfuse.observation.input`/`.output` value as a payload dict.
+
+    Langfuse I/O is arbitrary JSON, not the message list the gen_ai conventions
+    assume — `{"systemPrompt": ..., "model": ...}` and `{"response": "..."}` are
+    both normal. A dict is already a payload; a message-shaped list is surfaced
+    as `messages` so the UI renders it as a conversation; anything else is kept
+    verbatim under a key rather than being coerced or dropped.
+    """
+    value = get_json(attrs, key)
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value if value else None
+    if isinstance(value, list):
+        if value and all(isinstance(item, dict) and "role" in item for item in value):
+            return {"messages": value}
+        return {"value": value} if value else None
+    if isinstance(value, str):
+        return {"text": value} if value else None
+    return {"value": value}
+
+
+def langfuse_usage(attrs: dict[str, Any]) -> tuple[int | float | None, int | float | None]:
+    """Read prompt/completion tokens from `langfuse.observation.usage_details`.
+
+    The buckets mirror the provider's own split, so cached input arrives as
+    `input_cache_read` / `input_cache_creation` with `input` holding only the
+    uncached remainder. They are summed into the prompt total — the same rule the
+    Langfuse trace importer applies (issue #43), so a directly-emitted span and
+    an imported one report the same number for the same call.
+    """
+    details = get_json(attrs, "langfuse.observation.usage_details")
+    if not isinstance(details, dict):
+        return None, None
+    prompt: int | float | None = None
+    for key, raw in details.items():
+        if not isinstance(key, str) or not isinstance(raw, (int, float)) or isinstance(raw, bool):
+            continue
+        if key == "input" or key.startswith("input_"):
+            prompt = (prompt or 0) + raw
+    completion = details.get("output")
+    if not isinstance(completion, (int, float)) or isinstance(completion, bool):
+        completion = None
+    return prompt, completion
+
+
 def extract_model(attrs: dict[str, Any]) -> str | None:
-    for key in ("gen_ai.request.model", "ai.model.id", "llm.model_name"):
+    for key in (
+        "gen_ai.request.model",
+        "ai.model.id",
+        "llm.model_name",
+        # Langfuse SDK spans carry no gen_ai.* attributes at all.
+        "langfuse.observation.model.name",
+    ):
         value = get_str(attrs, key)
         if value:
             return value
@@ -265,6 +324,8 @@ def extract_tokens(attrs: dict[str, Any]) -> dict[str, int | float]:
         prompt = get_int(attrs, "llm.token_count.prompt")
     if completion is None:
         completion = get_int(attrs, "llm.token_count.completion")
+    if prompt is None and completion is None:
+        prompt, completion = langfuse_usage(attrs)
     if prompt is not None:
         result["prompt"] = prompt
     if completion is not None:
@@ -288,7 +349,7 @@ def extract_input(attrs: dict[str, Any]) -> dict[str, Any] | None:
                 msgs = messages_raw if isinstance(messages_raw, list) else []
                 messages_raw = [{"role": "system", "content": system}, *msgs]
     if messages_raw is None:
-        return None
+        return langfuse_payload(attrs, "langfuse.observation.input")
     if isinstance(messages_raw, list):
         messages = [
             normalize_genai_message(m)
@@ -312,7 +373,7 @@ def extract_output(attrs: dict[str, Any]) -> dict[str, Any] | None:
             text = get_str(attrs, key)
             if text:
                 return {"text": text}
-        return None
+        return langfuse_payload(attrs, "langfuse.observation.output")
     messages = [
         normalize_genai_message(m)
         for m in messages_raw
