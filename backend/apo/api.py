@@ -103,9 +103,13 @@ def create_app() -> FastAPI:
     from .auth.middleware import AuthMiddleware
     from .middleware.request_size import RequestSizeMiddleware
     from .middleware.security_headers import SecurityHeadersMiddleware
+    from .services.telemetry_limits import load_telemetry_transport_limits
+
+    # SPEC-150: validate transport limits at app construction (not lazily).
+    transport_limits = load_telemetry_transport_limits()
 
     app.add_middleware(AuthMiddleware)
-    app.add_middleware(RequestSizeMiddleware)
+    app.add_middleware(RequestSizeMiddleware, otlp_limits=transport_limits)
     app.add_middleware(SecurityHeadersMiddleware)
 
     app.include_router(health.router)

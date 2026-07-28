@@ -22,7 +22,12 @@ from ..auth.deps import require_api_key_scope
 from ..db import get_session
 from ..models.db import ProjectDB
 from ..services.content_policy import normalize_trace_content_policy
-from ..services.otlp_receiver import OtlpReceiver
+from ..services.otlp_receiver import (
+    OtlpDecodeError,
+    OtlpReceiver,
+    OtlpSizeLimitError,
+)
+from ..services.telemetry_limits import load_telemetry_transport_limits
 
 logger = logging.getLogger(__name__)
 
@@ -72,9 +77,6 @@ async def receive_otlp_traces(
         content_type = content_type.split(";")[0].strip()
 
     # Get project from authenticated credentials (set by middleware).
-    # SPEC-129 §1: "derive project_id from the authenticated key or service
-    # token." Cookie auth and open-dev mode do NOT set request.state.project,
-    # so we reject those (403) rather than silently writing to "default".
     project_id = getattr(request.state, "project", None)
     if not isinstance(project_id, str) or not project_id:
         raise HTTPException(
@@ -83,8 +85,12 @@ async def receive_otlp_traces(
                    "Cookie-authenticated requests are not accepted on this endpoint.",
         )
 
-    # Build the authenticated ingestion context (SPEC-131 M3). project_id is
-    # always auth-derived; the service-token subject gates Task Run claims.
+    # Load transport limits (SPEC-150). The on-wire cap and deadline were
+    # already enforced by the middleware while streaming; the receiver uses
+    # the decompressed/span caps for post-decode admission.
+    limits = load_telemetry_transport_limits()
+
+    # Build the authenticated ingestion context (SPEC-131 M3).
     from ..models.trace_ingestion import TraceIngestionContext
 
     context = TraceIngestionContext.for_request_state(
@@ -97,21 +103,25 @@ async def receive_otlp_traces(
         project.trace_content_policy if project is not None else None
     )
 
-    # Ingest with async projection: persist spans + enqueue batch, then
-    # project in a background task so the OTLP response returns immediately.
-    # SPEC-129 §2: "The caller gets an OTLP acceptance response after the
-    # inbox commit; dashboard visibility is eventually consistent."
+    # Ingest with transport limits (SPEC-150). Request-level failures raise
+    # typed errors and write nothing — the route maps them to OTLP responses.
     receiver = OtlpReceiver()
-    result = receiver.ingest(
-        payload=body,
-        content_type=content_type,
-        project_id=project_id,
-        session=session,
-        encoding=encoding,
-        content_policy=content_policy,
-        context=context,
-        project_immediately=False,
-    )
+    try:
+        result = receiver.ingest(
+            payload=body,
+            content_type=content_type,
+            project_id=project_id,
+            session=session,
+            encoding=encoding,
+            content_policy=content_policy,
+            context=context,
+            project_immediately=False,
+            limits=limits,
+        )
+    except OtlpDecodeError as exc:
+        return _otlp_error_response(content_type, 400, str(exc))
+    except OtlpSizeLimitError as exc:
+        return _otlp_error_response(content_type, 413, str(exc))
 
     partial = _build_partial_success(result.rejected, result.errors)
 
@@ -166,4 +176,29 @@ async def receive_otlp_traces(
         content=json.dumps(otlp_response),
         media_type="application/json",
         headers=response.headers,
+    )
+
+
+def _otlp_error_response(content_type: str, status_code: int, message: str) -> Response:
+    """Encode a ``google.rpc.Status`` error in the request's response encoding.
+
+    SPEC-150: FastAPI OTLP failures use the matching OTLP response encoding
+    (protobuf → serialized Status, JSON → protobuf JSON representation).
+    The message is a short developer-facing string with no payload or
+    credential detail.
+    """
+    if content_type == "application/x-protobuf":
+        from google.rpc.status_pb2 import Status as RpcStatus
+
+        rpc_status = RpcStatus(code=0, message=message)
+        return Response(
+            content=rpc_status.SerializeToString(),
+            status_code=status_code,
+            media_type="application/x-protobuf",
+        )
+
+    return Response(
+        content=json.dumps({"code": 0, "message": message}),
+        status_code=status_code,
+        media_type="application/json",
     )

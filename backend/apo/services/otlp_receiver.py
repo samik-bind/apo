@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import logging
 import uuid
@@ -33,12 +34,25 @@ from .content_policy import (
 )
 
 if TYPE_CHECKING:
+    from .telemetry_limits import TelemetryTransportLimits
     from .trace_projector import TraceProjector
 
 logger = logging.getLogger(__name__)
 
 # Maximum accepted payload size (10 MB — OTLP spec recommends 10MB+)
 MAX_PAYLOAD_BYTES = 10 * 1024 * 1024
+
+
+class OtlpPayloadError(ValueError):
+    """Base for request-level OTLP decode/size failures (SPEC-150)."""
+
+
+class OtlpDecodeError(OtlpPayloadError):
+    """Malformed or unsupported payload — maps to HTTP 400."""
+
+
+class OtlpSizeLimitError(OtlpPayloadError):
+    """Payload exceeds on-wire, decompressed, or span-count cap — maps to 413."""
 
 
 class OtlpReceiverResult:
@@ -61,6 +75,8 @@ def decode_otlp_payload(
     payload: bytes,
     content_type: str,
     encoding: str | None = None,
+    *,
+    limits: TelemetryTransportLimits | None = None,
 ) -> dict[str, Any]:
     """Decode an OTLP payload into the canonical JSON dict shape.
 
@@ -69,32 +85,44 @@ def decode_otlp_payload(
       - ``application/x-protobuf``: parse as protobuf ``ExportTraceServiceRequest``
       - ``Content-Encoding: gzip``: decompress before decoding
 
-    Returns the OTLP/JSON dict (``resourceSpans`` key). Raises ``ValueError``
-    on unsupported content types or malformed payloads.
+    Returns the OTLP/JSON dict (``resourceSpans`` key). Raises
+    :class:`OtlpDecodeError` on unsupported content types or malformed
+    payloads, :class:`OtlpSizeLimitError` when the on-wire or decompressed
+    size exceeds the configured cap.
     """
-    # Check compressed size BEFORE decompression (gzip bomb protection)
-    if len(payload) > MAX_PAYLOAD_BYTES:
-        raise ValueError(f"Payload exceeds maximum size of {MAX_PAYLOAD_BYTES} bytes")
+    max_raw = limits.max_request_bytes if limits is not None else MAX_PAYLOAD_BYTES
+    max_decomp = (
+        limits.max_otlp_decompressed_bytes if limits is not None else MAX_PAYLOAD_BYTES
+    )
 
-    # Decompress if gzip-encoded, with output size limit
+    # On-wire size check (before decompression).
+    if len(payload) > max_raw:
+        raise OtlpSizeLimitError(f"Payload exceeds maximum size of {max_raw} bytes")
+
+    # Bounded gzip decompression — incremental reads into a bytearray, never
+    # repeated immutable-byte concatenation (SPEC-150 quality constraint).
     if encoding == "gzip":
         import gzip
-        import io
 
-        decompressed = gzip.GzipFile(fileobj=io.BytesIO(payload))
-        output = b""
+        decompressor = gzip.GzipFile(fileobj=io.BytesIO(payload))
+        output = bytearray()
         chunk_size = 1024 * 1024
         while True:
-            chunk = decompressed.read(chunk_size)
+            chunk = decompressor.read(chunk_size)
             if not chunk:
                 break
-            output += chunk
-            if len(output) > MAX_PAYLOAD_BYTES:
-                raise ValueError("Decompressed payload exceeds maximum size")
-        payload = output
+            output.extend(chunk)
+            if len(output) > max_decomp:
+                raise OtlpSizeLimitError(
+                    "Decompressed payload exceeds maximum size"
+                )
+        payload = bytes(output)
 
     if content_type in ("application/json", "application/json; charset=utf-8"):
-        return json.loads(payload)
+        try:
+            return json.loads(payload)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise OtlpDecodeError(f"Malformed JSON payload: {exc}") from exc
 
     if content_type == "application/x-protobuf":
         from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
@@ -102,13 +130,24 @@ def decode_otlp_payload(
         )
 
         request = ExportTraceServiceRequest()
-        request.ParseFromString(payload)
+        try:
+            request.ParseFromString(payload)
+        except Exception as exc:
+            raise OtlpDecodeError(f"Malformed protobuf payload: {exc}") from exc
         decoded = MessageToDict(request, preserving_proto_field_name=False)
-        # Normalize protobuf artifacts: base64 IDs → hex, nanosecond timestamps → ISO
         _normalize_protobuf_decoded(decoded)
         return decoded
 
-    raise ValueError(f"Unsupported content type: {content_type}")
+    raise OtlpDecodeError(f"Unsupported content type: {content_type}")
+
+
+def count_otlp_spans(decoded: dict[str, Any]) -> int:
+    """Count decoded Spans across the entire resourceSpans/scopeSpans graph."""
+    total = 0
+    for rs in decoded.get("resourceSpans", []):
+        for ss in rs.get("scopeSpans", []):
+            total += len(ss.get("spans", []))
+    return total
 
 
 def _validate_otel_ids(trace_id: Any, span_id: Any) -> None:
@@ -204,12 +243,17 @@ class OtlpReceiver:
         content_policy: str = DEFAULT_TRACE_CONTENT_POLICY,
         context: "TraceIngestionContext | None" = None,
         project_immediately: bool = True,
+        limits: TelemetryTransportLimits | None = None,
     ) -> OtlpReceiverResult:
         """Decode, validate, and persist an OTLP batch.
 
         Returns an :class:`OtlpReceiverResult` with accepted/rejected counts
         and per-span errors. Never raises on bad spans — they're reported as
         partial failures (OTLP partial-success semantics).
+
+        Request-level failures (malformed payload, size/span cap) raise
+        :class:`OtlpDecodeError` (400) or :class:`OtlpSizeLimitError` (413)
+        and write nothing — no inbox row, no canonical span (SPEC-150).
 
         When ``project_immediately`` is True (default), canonical spans are
         projected into RunDB/LoggedCallDB in the same request. When False,
@@ -225,24 +269,20 @@ class OtlpReceiver:
         """
         applied_policy = normalize_trace_content_policy(content_policy)
 
-        # 1. Decode the payload
-        try:
-            decoded = decode_otlp_payload(payload, content_type, encoding)
-        except ValueError as exc:
-            # Total failure — can't even decode
-            batch_id = self._create_failed_batch(
-                session,
-                project_id,
-                content_type,
-                payload,
-                str(exc),
-                applied_policy,
-            )
-            return OtlpReceiverResult(
-                accepted=0, rejected=1, errors=[{"error": str(exc)}], batch_id=batch_id
+        # 1. Decode the payload (typed errors, no durable write on failure).
+        decoded = decode_otlp_payload(payload, content_type, encoding, limits=limits)
+
+        # 2. Count decoded Spans across the whole graph before any persistence.
+        max_spans = (
+            limits.max_otlp_spans_per_request if limits is not None else 2048
+        )
+        span_count = count_otlp_spans(decoded)
+        if span_count > max_spans:
+            raise OtlpSizeLimitError(
+                f"Span count {span_count} exceeds maximum of {max_spans}"
             )
 
-        # 2. Apply content policy to the decoded payload BEFORE serializing
+        # 3. Apply content policy to the decoded payload BEFORE serializing
         # the inbox record (SPEC-129 §1: "apply the Project content-capture
         # and redaction policy before any durable payload write"). This
         # ensures sensitive content never reaches the inbox even in
