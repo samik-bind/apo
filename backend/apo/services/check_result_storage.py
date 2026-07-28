@@ -144,13 +144,16 @@ def _strip_previews(entry: dict[str, object]) -> dict[str, object]:
     return out
 
 
+# Fields kept when a check is reduced to its minimum. A verdict with no
+# identity is unusable downstream — the dashboard can't label the check, and the
+# check-source viewer has nothing to resolve, so it falls through its candidate
+# list and reports a 404 for a filename unrelated to the real problem. These are
+# small and bounded, so keeping them costs a few dozen bytes per check.
+_MINIMAL_FIELDS = ("id", "name", "source_file", "pass")
+
+
 def _minimal(entry: dict[str, object]) -> dict[str, object]:
-    out: dict[str, object] = {}
-    if "name" in entry:
-        out["name"] = entry["name"]
-    if "pass" in entry:
-        out["pass"] = entry["pass"]
-    return out
+    return {key: entry[key] for key in _MINIMAL_FIELDS if key in entry}
 
 
 def _dumps(value: object) -> bytes:
