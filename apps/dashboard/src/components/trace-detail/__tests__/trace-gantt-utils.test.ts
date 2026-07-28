@@ -178,22 +178,23 @@ describe("getInlineMetrics", () => {
     expect(metrics).toContain("2.5k tok");
   });
 
+  // call.cost is micro-USD (SPEC-136), so 10_000 micro-USD = $0.01.
   it("includes cost when > 0", () => {
-    const call = makeCall({ id: "1", latency_ms: 100, cost: 0.01 });
+    const call = makeCall({ id: "1", latency_ms: 100, cost: 10_000 });
     const metrics = getInlineMetrics(call);
     expect(metrics).toContain("$0.0100");
   });
 
   it("formats small costs with more precision", () => {
-    const call = makeCall({ id: "1", latency_ms: 100, cost: 0.001 });
+    const call = makeCall({ id: "1", latency_ms: 100, cost: 1_000 });
     const metrics = getInlineMetrics(call);
     expect(metrics).toContain("$0.001000");
   });
 
   it("uses cumulative metrics for parent nodes", () => {
-    const call = makeCall({ id: "1", latency_ms: 100, total_tokens: 10, cost: 0.001 });
+    const call = makeCall({ id: "1", latency_ms: 100, total_tokens: 10, cost: 1_000 });
     const cumulative = {
-      cost: 0.05,
+      cost: 50_000,
       prompt_tokens: 1000,
       completion_tokens: 500,
       total_tokens: 1500,

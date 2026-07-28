@@ -102,7 +102,7 @@ class SessionSummary(SQLModel):
     trace_count: int
     first_trace_at: str
     last_trace_at: str
-    total_cost: float = 0
+    total_cost: float = 0  # micro-USD (SPEC-136 cost unit), summed over the session's calls
     total_tokens: int = 0
 
 

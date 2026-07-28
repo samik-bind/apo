@@ -1,4 +1,4 @@
-import { formatDuration, formatTokenTotal } from "@/lib/format";
+import { formatCostMicro, formatDuration, formatTokenTotal } from "@/lib/format";
 import type { CumulativeMetrics } from "@/lib/cumulative-metrics";
 import type { LoggedCall } from "./contexts";
 import { getSemanticType } from "./trace-utils";
@@ -228,7 +228,7 @@ export function getInlineMetricsStructured(
     });
   }
   if (showCostTokens && dCost > 0) {
-    parts.push({ text: `$${dCost.toFixed(dCost < 0.01 ? 6 : 4)}`, kind: "cost" });
+    parts.push({ text: formatCostMicro(dCost), kind: "cost" });
   }
   return parts;
 }

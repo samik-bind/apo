@@ -25,30 +25,37 @@ def list_sessions(
     params: dict[str, object] = {}
 
     if project:
-        conditions.append("project = :project")
+        conditions.append("r.project = :project")
         params["project"] = project
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
     count_row = session.execute(
-        text(f"SELECT COUNT(DISTINCT session_id) FROM runs {where}"),
+        text(f"SELECT COUNT(DISTINCT r.session_id) FROM runs r {where}"),
         params,
     ).fetchone()
     total_count = count_row[0] if count_row else 0
 
+    # Cost and tokens live on logged_calls, not runs. Pre-aggregate per run in a
+    # subquery so the outer COUNT(*) still counts traces rather than calls.
     offset = page * page_size
     rows = session.execute(
         text(
-            f"SELECT session_id, "
+            "SELECT r.session_id, "
             "COUNT(*) as trace_count, "
-            "MIN(created_at) as first_trace_at, "
-            "MAX(created_at) as last_trace_at, "
-            "COALESCE(SUM(cost), 0) as total_cost, "
-            "COALESCE(SUM(total_tokens), 0) as total_tokens "
-            f"FROM runs {where} "
-            "GROUP BY session_id "
-            "ORDER BY MAX(created_at) DESC "
-            f"LIMIT :limit OFFSET :offset"
+            "MIN(r.created_at) as first_trace_at, "
+            "MAX(r.created_at) as last_trace_at, "
+            "COALESCE(SUM(c.run_cost), 0) as total_cost, "
+            "COALESCE(SUM(c.run_tokens), 0) as total_tokens "
+            "FROM runs r "
+            "LEFT JOIN ("
+            "  SELECT run_id, SUM(cost) as run_cost, SUM(total_tokens) as run_tokens"
+            "  FROM logged_calls GROUP BY run_id"
+            ") c ON c.run_id = r.id "
+            f"{where} "
+            "GROUP BY r.session_id "
+            "ORDER BY MAX(r.created_at) DESC "
+            "LIMIT :limit OFFSET :offset"
         ),
         {**params, "limit": page_size, "offset": offset},
     ).fetchall()
