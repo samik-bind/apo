@@ -24,7 +24,7 @@ assertLoopbackOnly(rendered.services.frontend, 3000);
 assertLoopbackOnly(rendered.services.backend, 8000);
 
 const caddyfile = readFileSync("deploy/self-host/Caddyfile", "utf8");
-assert(caddyfile.includes("{$APO_PUBLIC_URL}"), "Caddy must use APO_PUBLIC_URL");
+assert(caddyfile.includes("{$APO_CADDY_SITE_ADDRESS}"), "Caddy must use APO_CADDY_SITE_ADDRESS");
 assert(caddyfile.includes("reverse_proxy frontend:3000"), "Caddy must proxy only to the frontend");
 
 console.log("public ingress contract: ok");
