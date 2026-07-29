@@ -47,7 +47,6 @@ class Run(SQLModel):
     output: JsonValue | None = None
 
     bookmarked: bool = False
-    is_public: bool = False
 
     task_run_id: str | None = None
 

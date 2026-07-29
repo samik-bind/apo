@@ -15,7 +15,6 @@ from sqlmodel import Session
 from apo.models.db import LoggedCallDB, RunDB, RunMetricDB
 from apo.metrics.aggregate import calculate_and_store_aggregate_metrics
 from apo.routes.runs.navigation import get_adjacent_runs
-from apo.routes.public import get_public_trace
 from apo.services.projection_lookup import (
     select_call,
     select_run,
@@ -136,22 +135,6 @@ def test_select_run_metric_respects_project_scope(session: Session) -> None:
     found_beta = select_run_metric(session, "shared-trace", "beta", "faithfulness", "quality")
     assert found_alpha is not None
     assert found_beta is None
-
-
-def test_public_trace_resolves_only_the_scoped_project(session: Session) -> None:
-    """The public share endpoint must return the matching project's trace."""
-    run_a = _make_run("alpha")
-    run_a.is_public = True
-    run_b = _make_run("beta")
-    run_b.is_public = True
-    session.add(run_a)
-    session.add(run_b)
-    session.commit()
-
-    result_alpha = get_public_trace("shared-trace", project="alpha", session=session)
-    result_beta = get_public_trace("shared-trace", project="beta", session=session)
-    assert result_alpha["run"]["project"] == "alpha"
-    assert result_beta["run"]["project"] == "beta"
 
 
 def test_adjacent_runs_stay_within_project(session: Session) -> None:

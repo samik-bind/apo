@@ -35,7 +35,6 @@ from .routes import (
     run_events,
     webhooks,
     comments,
-    public,
     api_keys,
     auth,
     demo,
@@ -167,7 +166,6 @@ def create_app() -> FastAPI:
     app.include_router(run_events.router)
     app.include_router(webhooks.router)
     app.include_router(comments.router)
-    app.include_router(public.router)
     app.include_router(api_keys.router)
     app.include_router(auth.router)
     app.include_router(demo.router)

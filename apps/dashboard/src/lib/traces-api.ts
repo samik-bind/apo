@@ -40,7 +40,6 @@ interface TraceSummaryTransport {
   input_preview: string | null;
   output_preview: string | null;
   bookmarked: boolean;
-  is_public: boolean;
 }
 
 export interface TraceSummary {
@@ -65,7 +64,6 @@ export interface TraceSummary {
   input_preview: string | null;
   output_preview: string | null;
   bookmarked: boolean;
-  is_public: boolean;
 }
 
 export type TraceDetail = SharedTraceDetail;
@@ -175,7 +173,6 @@ function normalizeTraceSummary(
     input_preview: trace.input_preview,
     output_preview: trace.output_preview,
     bookmarked: trace.bookmarked,
-    is_public: trace.is_public,
   };
 }
 
@@ -290,28 +287,6 @@ export async function getTraceDetail(
   }
 }
 
-/**
- * Fetch a published trace without authentication. Mirrors {@link getTraceDetail}
- * but hits the unauthenticated `/public/traces/{id}` endpoint, which the
- * backend allows through its auth middleware and Next.js allows through its
- * route middleware. Returns `null` on 404 (private / missing) so the page can
- * render a friendly not-found state instead of throwing.
- */
-export async function getPublicTrace(runId: string): Promise<TraceDetail | null> {
-  try {
-    const data = await apiClient<TraceDetailTransport>(
-      `/public/traces/${runId}`,
-      NO_CACHE,
-    );
-    return normalizeTraceDetail(data);
-  } catch (error) {
-    if (isApiError(error) && error.status === 404) {
-      return null;
-    }
-    throw error;
-  }
-}
-
 export const bulkDeleteTraces = (runIds: string[]): Promise<void> =>
   apiClient("/v1/runs/bulk-delete", {
     method: "POST",
@@ -409,8 +384,3 @@ export const saveCorrection = (
     method: "PATCH",
     body: { corrected_output: correctedOutput },
   });
-
-export const toggleVisibility = (
-  runId: string,
-): Promise<{ id: string; is_public: boolean }> =>
-  apiClient(`/v1/runs/${runId}/visibility`, { method: "PATCH" });

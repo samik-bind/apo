@@ -36,7 +36,6 @@ logger = logging.getLogger(__name__)
 
 PUBLIC_PATHS: tuple[str, ...] = (
     "/health",
-    "/public",
     "/docs",
     "/openapi.json",
     "/redoc",

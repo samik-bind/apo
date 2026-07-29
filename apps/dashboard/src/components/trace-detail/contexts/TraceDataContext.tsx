@@ -33,7 +33,6 @@ export interface Trace {
   duration_ms?: number;
   call_count: number;
   bookmarked?: boolean;
-  is_public?: boolean;
   task_run_id?: string | null;
 }
 

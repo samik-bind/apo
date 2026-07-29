@@ -2,14 +2,13 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Search, ArrowLeft, Download, Settings2, ChevronLeft, ChevronRight, AlertTriangle, Globe, Lock, LinkIcon, Check, PanelLeft, Radio } from "lucide-react";
+import { Search, ArrowLeft, Download, Settings2, ChevronLeft, ChevronRight, AlertTriangle, PanelLeft, Radio } from "lucide-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useProjectId } from "@/lib/project-router";
 import { usePanelRef, type PanelSize } from "react-resizable-panels";
 import { toast } from "sonner";
 import { getCommentCounts } from "@/lib/comments-api";
-import { toggleVisibility } from "@/lib/traces-api";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -164,63 +163,6 @@ function ViewPreferencesDropdown() {
   );
 }
 
-function VisibilityToggle({
-  runId,
-  isPublic,
-  onToggle,
-}: {
-  runId: string;
-  isPublic: boolean;
-  onToggle: (isPublic: boolean) => void;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  const handleToggle = async () => {
-    try {
-      const result = await toggleVisibility(runId);
-      onToggle(result.is_public);
-    } catch {
-      toast.error("Failed to toggle visibility");
-    }
-  };
-
-  const handleCopyLink = async () => {
-    const url = `${window.location.origin}/public/traces/${runId}`;
-    await navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div className="flex items-center gap-1">
-      <Button
-        variant={isPublic ? "default" : "outline"}
-        size="sm"
-        className="h-7 gap-1 px-2 text-xs"
-        onClick={handleToggle}
-        aria-label={isPublic ? "Make trace private" : "Make trace public"}
-        type="button"
-      >
-        {isPublic ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
-        {isPublic ? "Public" : "Private"}
-      </Button>
-      {isPublic && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1 px-2 text-xs"
-          onClick={handleCopyLink}
-          aria-label="Copy public link"
-          type="button"
-        >
-          {copied ? <Check className="h-3 w-3" /> : <LinkIcon className="h-3 w-3" />}
-          {copied ? "Copied" : "Copy link"}
-        </Button>
-      )}
-    </div>
-  );
-}
-
 function TraceNavToolbar({
   run,
   isLive,
@@ -230,8 +172,6 @@ function TraceNavToolbar({
   onSearchQueryChange,
   prevId,
   nextId,
-  isPublic,
-  onVisibilityChange,
   readOnly = false,
 }: {
   run: TraceDetail;
@@ -242,8 +182,6 @@ function TraceNavToolbar({
   onSearchQueryChange: (value: string) => void;
   prevId: string | null;
   nextId: string | null;
-  isPublic: boolean;
-  onVisibilityChange: (isPublic: boolean) => void;
   readOnly?: boolean;
 }) {
   const router = useRouter();
@@ -356,13 +294,6 @@ function TraceNavToolbar({
         </span>
       )}
 
-      {!readOnly && (
-        <VisibilityToggle
-          runId={run.run.id}
-          isPublic={isPublic}
-          onToggle={onVisibilityChange}
-        />
-      )}
 
       <ViewPreferencesDropdown />
 
@@ -467,8 +398,6 @@ function TraceNavigation({
   commentCounts,
   prevId,
   nextId,
-  isPublic,
-  onVisibilityChange,
   readOnly = false,
 }: {
   run: TraceDetail;
@@ -482,8 +411,6 @@ function TraceNavigation({
   commentCounts: Record<string, number>;
   prevId: string | null;
   nextId: string | null;
-  isPublic: boolean;
-  onVisibilityChange: (isPublic: boolean) => void;
   readOnly?: boolean;
 }) {
   return (
@@ -498,8 +425,6 @@ function TraceNavigation({
           onSearchQueryChange={onSearchQueryChange}
           prevId={prevId}
           nextId={nextId}
-          isPublic={isPublic}
-          onVisibilityChange={onVisibilityChange}
           readOnly={readOnly}
         />
         <div className="px-2.5 pb-2 pt-0.5">
@@ -561,7 +486,6 @@ export function TraceWorkspace({
     mode === "page" ? (searchParams.get("q") ?? "") : "",
   );
   const lastSyncedQueryRef = useRef(searchQuery);
-  const [isPublic, setIsPublic] = useState(run.run.is_public ?? false);
   const { view, setView } = useSelection();
 
   // Live streaming: overlay SSE span events onto the server-fetched calls so
@@ -654,8 +578,6 @@ export function TraceWorkspace({
                 onSearchQueryChange={setSearchQuery}
                 prevId={prevId}
                 nextId={nextId}
-                isPublic={isPublic}
-                onVisibilityChange={setIsPublic}
                 readOnly={readOnly}
               />
             </div>
@@ -702,8 +624,6 @@ export function TraceWorkspace({
                   commentCounts={commentCounts}
                   prevId={prevId}
                   nextId={nextId}
-                  isPublic={isPublic}
-                  onVisibilityChange={setIsPublic}
                   readOnly={readOnly}
                 />
               </div>
