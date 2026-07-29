@@ -14,7 +14,7 @@ from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import asc, desc
+from sqlalchemy import asc, desc, func, or_
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, col, select
 from sqlmodel.sql.expression import SelectOfScalar
@@ -74,6 +74,20 @@ router = APIRouter(prefix="/v1", tags=["agent-tasks"])
 AGENT_TASK_BATCH_RUN_CREATED_AT_COL: ColumnElement[object] = as_column(
     cast(object, AgentTaskBatchRunDB.created_at)
 )
+
+
+class ModelFacetOption(BaseModel):
+    model: str
+    count: int
+
+
+class PaginatedBatchRunSummary(BaseModel):
+    data: list[AgentTaskBatchRunSummary]
+    total_count: int
+    page: int
+    page_size: int
+    total_pages: int
+    model_facets: list[ModelFacetOption] = []
 
 
 def _format_task_summary(task: object) -> AgentTaskSummary:

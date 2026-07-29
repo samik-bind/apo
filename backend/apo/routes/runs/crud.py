@@ -13,6 +13,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, func, or_, select
 
 from ...db import get_session
+from ...auth.deps import require_api_key_scope
 from ...db_helpers import _as_column, _ensure_utc_datetime
 from ...models import (
     RunDB,
@@ -280,6 +281,7 @@ def list_runs(
     status: str | None = Query(None, description="Comma-separated status list: success, warning, error"),
     bookmarked: bool | None = Query(None, description="Filter bookmarked traces"),
     session: Session = Depends(get_session),
+    _: None = Depends(require_api_key_scope("full")),
 ):
     statement = select(RunDB)
 
@@ -548,6 +550,7 @@ def get_run_details(
     run_id: str,
     project: str = "default",
     session: Session = Depends(get_session),
+    _: None = Depends(require_api_key_scope("full")),
 ):
     run = session.exec(
         select(RunDB).where(RunDB.id == run_id, RunDB.project == project)

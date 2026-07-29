@@ -32,13 +32,21 @@
 		reverse_proxy backend:8000
 	}
 
+	# API proxy path — backend handles its own auth (API key or session).
+	handle /backend-proxy/* {
+		encode zstd gzip
+		reverse_proxy frontend:3000
+	}
+
 	# SPEC-153: deny raw operator diagnostic aliases through public ingress.
 	@raw_diagnostics path /backend-proxy/health/ready /backend-proxy/docs /backend-proxy/openapi.json /backend-proxy/hello /api/health/ready
 	handle @raw_diagnostics {
 		respond 404
 	}
 
+	# Everything else (dashboard pages) — site-wide basic auth gate.
 	handle {
+		import /etc/caddy/auth.fragment
 		encode zstd gzip
 		reverse_proxy frontend:3000
 	}

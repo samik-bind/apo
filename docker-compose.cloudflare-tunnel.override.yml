@@ -1,4 +1,7 @@
 services:
+  caddy:
+    volumes:
+      - ./deploy/self-host/auth.fragment:/etc/caddy/auth.fragment:ro
   cloudflared:
     volumes:
       - ./deploy/self-host/cloudflared-config.yml:/etc/cloudflared/config.yml:ro
