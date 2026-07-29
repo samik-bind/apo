@@ -197,8 +197,12 @@ def _user_to_response(user: UserDB) -> UserResponse:
 
 @router.get("/has-users")
 def has_users(session: Session = Depends(get_session)) -> dict[str, bool]:
-    user = session.exec(select(UserDB)).first()
-    return {"has_users": user is not None}
+    # SPEC-153: use the shared installation-initialization service so
+    # setup_available reflects the durable singleton, not just user count.
+    from ..services.installation_initialization import get_installation_setup_status
+
+    status = get_installation_setup_status(session)
+    return {"has_users": status.has_users, "setup_available": status.setup_available}
 
 
 @router.post("/setup")

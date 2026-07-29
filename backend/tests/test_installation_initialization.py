@@ -56,19 +56,22 @@ class TestInstallationSetupStatus:
             claim_initial_user,
             get_installation_setup_status,
         )
-        from apo.models.db import InstallationStateDB
+        from apo.models.db import InstallationStateDB, UserDB
 
         claim_initial_user(
             fresh_session, email="admin@test.com", name="Admin", password="a-strong-password-123", is_instance_admin=True
         )
 
-        # Simulate a full database reset — delete the singleton.
+        # Simulate a full database reset — delete ALL data including users
+        # and the singleton, as the explicit reset flow does.
+        for u in fresh_session.exec(select(UserDB)).all():
+            fresh_session.delete(u)
         state = fresh_session.get(InstallationStateDB, "installation")
         assert state is not None
         fresh_session.delete(state)
         fresh_session.commit()
 
-        # A fresh singleton is created on next status read.
+        # A fresh database (no users, no singleton) reopens setup.
         status = get_installation_setup_status(fresh_session)
         assert status.setup_available is True
 

@@ -40,6 +40,8 @@ PUBLIC_PATHS: tuple[str, ...] = (
     "/docs",
     "/openapi.json",
     "/redoc",
+    # SPEC-153: detail-free public readiness probe.
+    "/api/public/health",
     "/auth/verify-password",
     "/auth/setup",
     "/auth/has-users",

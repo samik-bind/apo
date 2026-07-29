@@ -33,12 +33,39 @@ class InstallationAlreadyInitializedError(RuntimeError):
 
 
 def _ensure_singleton(session: Session) -> InstallationStateDB:
-    """Ensure the singleton row exists and return it."""
+    """Ensure the singleton row exists and return it.
+
+    When first created on a database that already has Users, backfills
+    ``initialized_at`` from the earliest User. Also repairs a pre-backfill
+    singleton that has ``initialized_at IS NULL`` but Users exist.
+    """
     state = session.get(InstallationStateDB, INSTALLATION_STATE_ID)
     if state is None:
-        state = InstallationStateDB(id=INSTALLATION_STATE_ID)
+        earliest = session.exec(
+            select(UserDB).order_by(col(UserDB.created_at)).limit(1)
+        ).first()
+        if earliest is not None:
+            state = InstallationStateDB(
+                id=INSTALLATION_STATE_ID,
+                initialized_at=earliest.created_at,
+                initial_user_id=earliest.id,
+            )
+        else:
+            state = InstallationStateDB(id=INSTALLATION_STATE_ID)
         session.add(state)
-        session.flush()
+        session.commit()
+        session.refresh(state)
+    elif state.initialized_at is None:
+        # Repair a pre-backfill singleton: if users exist, mark initialized.
+        earliest = session.exec(
+            select(UserDB).order_by(col(UserDB.created_at)).limit(1)
+        ).first()
+        if earliest is not None:
+            state.initialized_at = earliest.created_at
+            state.initial_user_id = earliest.id
+            session.add(state)
+            session.commit()
+            session.refresh(state)
     return state
 
 
