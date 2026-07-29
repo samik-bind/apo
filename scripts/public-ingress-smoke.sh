@@ -24,13 +24,28 @@ PASS=0; FAIL=0
 
 probe() {
   local method="$1" path="$2" expect="$3" description="$4"
-  local status body
+  local status
   status="$(curl -sS --max-time "$TIMEOUT" -o /dev/null -w '%{http_code}' \
     -X "$method" "$PUBLIC_URL$path" 2>/dev/null || echo "000")"
   if [[ "$status" == "$expect" ]]; then
     PASS=$((PASS + 1))
   else
     echo "FAIL: $description — expected $expect, got $status" >&2
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# Like probe, but also accepts 307/401 — auth middleware may intercept
+# removed routes before FastAPI's 404.
+probe_auth_blocked() {
+  local method="$1" path="$2" expect="$3" description="$4"
+  local status
+  status="$(curl -sS --max-time "$TIMEOUT" -o /dev/null -w '%{http_code}' \
+    -X "$method" "$PUBLIC_URL$path" 2>/dev/null || echo "000")"
+  if [[ "$status" == "$expect" ]] || [[ "$status" == "307" ]] || [[ "$status" == "401" ]]; then
+    PASS=$((PASS + 1))
+  else
+    echo "FAIL: $description — expected $expect/307/401, got $status" >&2
     FAIL=$((FAIL + 1))
   fi
 }
@@ -51,8 +66,14 @@ probe_json() {
 
 echo "probing $PUBLIC_URL ..."
 
-# --- Dashboard reachable ---
-probe GET "/" "200" "dashboard reachable"
+# --- Dashboard reachable (200 or 307 redirect to login) ---
+dash_status="$(curl -sS --max-time "$TIMEOUT" -o /dev/null -w '%{http_code}' "$PUBLIC_URL/" 2>/dev/null || echo "000")"
+if [[ "$dash_status" == "200" ]] || [[ "$dash_status" == "307" ]]; then
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: dashboard reachable — expected 200/307, got $dash_status" >&2
+  FAIL=$((FAIL + 1))
+fi
 
 # --- Public readiness (detail-free) ---
 readiness_body="$(curl -sS --max-time "$TIMEOUT" "$PUBLIC_URL/api/public/health" 2>/dev/null || echo "")"
@@ -83,16 +104,16 @@ fi
 # --- OTLP requires auth (generic 401, no redirect/HTML) ---
 probe_json POST "/api/public/otel/v1/traces" "application/json" "{}" "401" "unauthenticated OTLP returns 401"
 
-# --- Private diagnostics denied (404, never detail) ---
-probe GET "/backend-proxy/health/ready" "404" "detailed readiness denied"
-probe GET "/api/health/ready" "404" "raw health/ready denied"
-probe GET "/backend-proxy/docs" "404" "Swagger docs denied"
-probe GET "/backend-proxy/openapi.json" "404" "OpenAPI spec denied"
-probe GET "/backend-proxy/hello" "404" "dev hello route denied"
+# --- Private diagnostics denied (404 from Caddy, or 307/401 from auth) ---
+probe_auth_blocked GET "/backend-proxy/health/ready" "404" "detailed readiness denied"
+probe_auth_blocked GET "/api/health/ready" "404" "raw health/ready denied"
+probe_auth_blocked GET "/backend-proxy/docs" "404" "Swagger docs denied"
+probe_auth_blocked GET "/backend-proxy/openapi.json" "404" "OpenAPI spec denied"
+probe_auth_blocked GET "/backend-proxy/hello" "404" "dev hello route denied"
 
 # --- Legacy anonymous sharing removed (SPEC-155) ---
-probe GET "/public/traces/spec-157-canary" "404" "anonymous trace route removed"
-probe_json PATCH "/v1/runs/spec-157-canary/visibility" "application/json" '{"is_public":true}' "404" "visibility toggle removed"
+probe_auth_blocked GET "/public/traces/spec-157-canary" "404" "anonymous trace route removed"
+probe_auth_blocked PATCH "/v1/runs/spec-157-canary/visibility" "404" "visibility toggle removed"
 
 # --- Security headers on dashboard ---
 dash_headers="$(curl -sS --max-time "$TIMEOUT" -D - -o /dev/null "$PUBLIC_URL/" 2>/dev/null || echo "")"

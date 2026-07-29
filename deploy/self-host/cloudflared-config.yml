@@ -1,0 +1,7 @@
+tunnel: 8d056d83-a2ae-418a-bf2f-46735f1c91e0
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: test-apo.online
+    service: http://caddy:8080
+  - service: http_status:404

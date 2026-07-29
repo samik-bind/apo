@@ -34,7 +34,9 @@
 
 	# SPEC-153: deny raw operator diagnostic aliases through public ingress.
 	@raw_diagnostics path /backend-proxy/health/ready /backend-proxy/docs /backend-proxy/openapi.json /backend-proxy/hello /api/health/ready
-	respond @raw_diagnostics 404
+	handle @raw_diagnostics {
+		respond 404
+	}
 
 	handle {
 		encode zstd gzip
