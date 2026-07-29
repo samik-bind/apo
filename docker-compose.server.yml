@@ -1,11 +1,12 @@
-# Public Server Profile — automatic HTTPS through one Caddy ingress.
+# Public Server Profile — direct Caddy HTTPS on a VPS.
 #
 # Prerequisites:
 #   1. APO_PUBLIC_URL is an HTTPS origin whose DNS points to this host.
 #   2. Inbound TCP ports 80 and 443 (and optionally UDP 443) are open.
 #
-# Start with:
-#   docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+# SPEC-154: APO_CADDY_SITE_ADDRESS is the public origin; trusted proxies
+# default to a non-routable range so direct callers cannot spoof forwarding
+# headers.
 
 services:
   frontend:
@@ -28,6 +29,12 @@ services:
         max-file: "3"
     environment:
       - APO_PUBLIC_URL=${APO_PUBLIC_URL:?Set APO_PUBLIC_URL to https://your-apo-host.example}
+      # SPEC-154: direct mode — Caddy site is the public HTTPS origin.
+      - APO_CADDY_SITE_ADDRESS=${APO_PUBLIC_URL:?Set APO_PUBLIC_URL}
+      # Non-routable default so direct callers cannot forge forwarding headers.
+      - APO_TRUSTED_PROXY_RANGES=192.0.2.0/24
+      - APO_TELEMETRY_MAX_REQUEST_BYTES=${APO_TELEMETRY_MAX_REQUEST_BYTES:-10485760}
+      - APO_HTTP_READ_HEADER_TIMEOUT_SECONDS=${APO_HTTP_READ_HEADER_TIMEOUT_SECONDS:-10}
     ports:
       - "80:80"
       - "443:443"
@@ -39,6 +46,8 @@ services:
     depends_on:
       frontend:
         condition: service_started
+      backend:
+        condition: service_healthy
 
 volumes:
   caddy_data:

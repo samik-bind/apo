@@ -26,6 +26,7 @@ Options:
   --profile local|server      Deployment profile (default: local)
   --public-url URL            Public origin (required for server)
   --database sqlite|postgres  Database backend (default: sqlite)
+  --ingress caddy|cloudflare-tunnel  Server ingress mode (default: caddy; server only)
   --build                     Rebuild images before starting (up only)
   --yes                       Skip confirmation (rotate-auth-secret only)
 EOF
@@ -60,23 +61,36 @@ _parse_line() {
 }
 
 _select_compose_files() {
-  local env_file="$1" profile db
+  local env_file="$1" profile db ingress
   profile="$(grep -E '^APO_DEPLOYMENT_PROFILE=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true)"
   db="$(grep -E '^APO_DATABASE_PROFILE=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true)"
-  profile="${profile:-local}"; db="${db:-sqlite}"
+  ingress="$(grep -E '^APO_INGRESS_MODE=' "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+  profile="${profile:-local}"; db="${db:-sqlite}"; ingress="${ingress:-caddy}"
   local files=("${_REPO_ROOT}/docker-compose.yml")
   [[ "$db" == "postgres" ]] && files+=("${_REPO_ROOT}/docker-compose.postgres.yml")
-  [[ "$profile" == "server" ]] && files+=("${_REPO_ROOT}/docker-compose.server.yml")
+  if [[ "$profile" == "server" ]]; then
+    if [[ "$ingress" == "cloudflare-tunnel" ]]; then
+      files+=("${_REPO_ROOT}/docker-compose.cloudflare-tunnel.yml")
+    else
+      files+=("${_REPO_ROOT}/docker-compose.server.yml")
+    fi
+  fi
   printf '%s\n' "${files[@]}"
 }
 
 cmd_init() {
-  local env_file="$_DEFAULT_ENV_FILE" profile="local" database="sqlite" public_url=""
+  local env_file="$_DEFAULT_ENV_FILE" profile="local" database="sqlite" public_url="" ingress=""
   while [[ $# -gt 0 ]]; do
-    case "$1" in --env-file) env_file="$2"; shift 2 ;; --profile) profile="$2"; shift 2 ;; --public-url) public_url="$2"; shift 2 ;; --database) database="$2"; shift 2 ;; *) _die_usage "init: unknown option '$1'" ;; esac
+    case "$1" in --env-file) env_file="$2"; shift 2 ;; --profile) profile="$2"; shift 2 ;; --public-url) public_url="$2"; shift 2 ;; --database) database="$2"; shift 2 ;; --ingress) ingress="$2"; shift 2 ;; *) _die_usage "init: unknown option '$1'" ;; esac
   done
   case "$profile" in local|server) ;; *) _die_usage "init: --profile must be local or server" ;; esac
   case "$database" in sqlite|postgres) ;; *) _die_usage "init: --database must be sqlite or postgres" ;; esac
+  # SPEC-154: --ingress is only valid for server profile.
+  if [[ -n "$ingress" ]]; then
+    [[ "$profile" == "server" ]] || _die_usage "init: --ingress requires --profile server"
+    case "$ingress" in caddy|cloudflare-tunnel) ;; *) _die_usage "init: --ingress must be caddy or cloudflare-tunnel" ;; esac
+  fi
+  [[ "$ingress" == "cloudflare-tunnel" ]] && ingress="cloudflare-tunnel" || ingress="${ingress:-caddy}"
   [[ "$profile" == "server" && -z "$public_url" ]] && _die_usage "init: --public-url is required for --profile server"
   [[ -n "$public_url" ]] && public_url="${public_url%/}"
   [[ "$profile" == "local" && -z "$public_url" ]] && public_url="http://localhost:3000"
@@ -100,8 +114,13 @@ cmd_init() {
   $has_profile || { values[APO_DEPLOYMENT_PROFILE]="$profile"; has_profile=true; }
   $has_db || { values[APO_DATABASE_PROFILE]="$database"; has_db=true; }
   $has_url || { values[APO_PUBLIC_URL]="$public_url"; has_url=true; }
+  # SPEC-154: persist ingress mode for server profile.
+  if [[ "$profile" == "server" ]]; then
+    [[ -n "${values[APO_INGRESS_MODE]:-}" ]] || values[APO_INGRESS_MODE]="$ingress"
+  fi
 
   local managed_keys="APO_DEPLOYMENT_PROFILE APO_DATABASE_PROFILE APO_PUBLIC_URL AUTH_SECRET"
+  [[ "$profile" == "server" ]] && managed_keys+=" APO_INGRESS_MODE"
   [[ "$database" == "postgres" ]] && managed_keys+=" POSTGRES_PASSWORD"
   local final=""
   for key in $managed_keys; do final+="${key}=${values[$key]:-}"$'\n'; done
@@ -148,6 +167,17 @@ cmd_doctor() {
     for p in change-me-in-production change-me dev-secret dev-secret-change-me secret; do [[ "${secret,,}" == "$p" ]] && { _err "error: AUTH_SECRET is a known insecure placeholder"; errors=$((errors+1)); break; }; done
   fi
   [[ "$db" == "postgres" ]] && [[ -z "${values[POSTGRES_PASSWORD]:-}" ]] && { _err "error: POSTGRES_PASSWORD required"; errors=$((errors+1)); }
+
+  # SPEC-154: validate ingress mode and tunnel token.
+  local ingress="${values[APO_INGRESS_MODE]:-caddy}"
+  if [[ "$profile" == "server" ]]; then
+    case "$ingress" in caddy|cloudflare-tunnel) ;; *) _err "error: APO_INGRESS_MODE must be caddy or cloudflare-tunnel"; errors=$((errors+1)) ;; esac
+    if [[ "$ingress" == "cloudflare-tunnel" ]]; then
+      local token="${values[APO_CLOUDFLARE_TUNNEL_TOKEN]:-}"
+      [[ -z "$token" ]] && { _err "error: APO_CLOUDFLARE_TUNNEL_TOKEN is required for tunnel mode"; errors=$((errors+1)); }
+      [[ "$token" == "CHANGEME" || "$token" == "your-token-here" ]] && { _err "error: APO_CLOUDFLARE_TUNNEL_TOKEN is a placeholder"; errors=$((errors+1)); }
+    fi
+  fi
   [[ -n "${values[INIT_USER_PASSWORD]:-}" ]] && { _err "warning: INIT_USER_PASSWORD should be removed"; warnings=$((warnings+1)); }
 
   if command -v docker >/dev/null 2>&1; then

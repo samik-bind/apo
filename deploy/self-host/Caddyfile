@@ -1,19 +1,24 @@
-# Caddy obtains and renews the public TLS certificate automatically when the
-# APO_PUBLIC_URL hostname resolves to this server and ports 80/443 are open.
+# SPEC-150 + SPEC-153 + SPEC-154: one Caddyfile for both ingress modes.
 #
-# SPEC-150 + SPEC-153: canonical public OTLP and health paths route directly
-# to the private backend container. Raw operator diagnostics are denied.
-# Every other path goes to the Next.js frontend.
+# Direct mode: APO_CADDY_SITE_ADDRESS is the public HTTPS origin; Caddy
+# manages TLS. Tunnel mode: APO_CADDY_SITE_ADDRESS is :8080; Cloudflare
+# terminates public TLS and the cloudflared connector sends traffic here.
+#
+# The exact route matrix (OTLP, public health, diagnostic denials, frontend
+# fallback) is identical in both modes.
 
 {
 	servers {
 		timeouts {
 			read_header {$APO_HTTP_READ_HEADER_TIMEOUT_SECONDS:10}s
 		}
+		trusted_proxies static {$APO_TRUSTED_PROXY_RANGES:192.0.2.0/24}
+		trusted_proxies_strict
+		client_ip_headers CF-Connecting-IP X-Forwarded-For
 	}
 }
 
-{$APO_PUBLIC_URL} {
+{$APO_CADDY_SITE_ADDRESS} {
 	# SPEC-150: exact canonical OTLP handler — direct to backend.
 	handle /api/public/otel/v1/traces {
 		request_body {
@@ -28,7 +33,6 @@
 	}
 
 	# SPEC-153: deny raw operator diagnostic aliases through public ingress.
-	# These must never cross the public origin — they expose detail.
 	@raw_diagnostics path /backend-proxy/health/ready /backend-proxy/docs /backend-proxy/openapi.json /backend-proxy/hello /api/health/ready
 	respond @raw_diagnostics 404
 
