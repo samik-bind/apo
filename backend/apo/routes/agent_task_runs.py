@@ -603,48 +603,86 @@ async def create_caller_batch_run_route(
     )
 
 
-@router.get("/agent-task-batch-runs", response_model=list[AgentTaskBatchRunSummary])
+@router.get("/agent-task-batch-runs", response_model=PaginatedBatchRunSummary)
 async def list_agent_task_batch_runs(
     project: str | None = Query(default=None),
     status: str | None = Query(default=None),
-    model: list[str] | None = Query(default=None),
-    effort: list[str] | None = Query(default=None),
+    q: str | None = Query(default=None),
+    model: str | None = Query(default=None),
+    effort: str | None = Query(default=None),
+    page: int = Query(0, ge=0),
+    page_size: int = Query(20, ge=1, le=100),
     session: Session = Depends(get_session),
 ):
-    """List batch runs, optionally filtered by project, status, or configuration.
+    """List batch runs with server-side filtering and pagination.
 
-    SPEC-148 configuration filters (``model``/``effort``): both repeatable.
+    Text search (``q``) matches on id, selection_type, environment, and grep.
+    SPEC-148 configuration filters (``model``/``effort``): comma-separated.
     A batch matches only when ONE child Task Run satisfies ALL supplied
-    dimensions — never model from one child and effort from another. The
-    pair-identity is enforced by an EXISTS subquery over the same child row.
-    Matching is exact and case-sensitive.
+    dimensions. Model facets are computed from the text/status/project
+    filtered set (before model/effort filtering) so the dropdown always
+    shows what other models are available.
     """
-    query = select(AgentTaskBatchRunDB)
+    model_list = [m.strip() for m in model.split(",") if m.strip()] if model else None
+    effort_list = [e.strip() for e in effort.split(",") if e.strip()] if effort else None
+
+    base = select(AgentTaskBatchRunDB)
 
     if project:
-        query = query.where(AgentTaskBatchRunDB.project == project)
+        base = base.where(AgentTaskBatchRunDB.project == project)
     if status:
-        query = query.where(AgentTaskBatchRunDB.status == status)
-    if model or effort:
-        # A batch matches only when ONE child Task Run satisfies ALL supplied
-        # dimensions. Selecting the batch_run_id of children that match every
-        # dimension preserves pair identity — a child contributes its
-        # batch_run_id only if its own (model, effort) pair satisfies all dims,
-        # so model from one child and effort from another never combines.
+        base = base.where(AgentTaskBatchRunDB.status == status)
+    if q:
+        pattern = f"%{q}%"
+        base = base.where(or_(
+            col(AgentTaskBatchRunDB.id).ilike(pattern),
+            col(AgentTaskBatchRunDB.selection_type).ilike(pattern),
+            col(AgentTaskBatchRunDB.environment).ilike(pattern),
+            col(AgentTaskBatchRunDB.grep).ilike(pattern),
+        ))
+
+    # Model facets: distinct configured_model with batch counts, from the
+    # base query (before model/effort filter) so the dropdown is stable.
+    facet_ids = base.with_only_columns(col(AgentTaskBatchRunDB.id))
+    facet_stmt = select(
+        AgentTaskRunDB.configured_model,
+        func.count(func.distinct(AgentTaskRunDB.batch_run_id)),
+    ).where(
+        col(AgentTaskRunDB.batch_run_id).in_(facet_ids),
+        col(AgentTaskRunDB.configured_model).isnot(None),
+    ).group_by(AgentTaskRunDB.configured_model)
+    facet_rows = session.exec(facet_stmt).all()
+    model_facets = [
+        ModelFacetOption(model=m, count=c)
+        for m, c in facet_rows
+        if m
+    ]
+
+    # Apply model/effort filter for the data query.
+    query = base
+    if model_list or effort_list:
         matching = select(AgentTaskRunDB.batch_run_id)
-        if model:
+        if model_list:
             matching = matching.where(
-                col(AgentTaskRunDB.configured_model).in_(model)
+                col(AgentTaskRunDB.configured_model).in_(model_list)
             )
-        if effort:
+        if effort_list:
             matching = matching.where(
-                col(AgentTaskRunDB.configured_effort).in_(effort)
+                col(AgentTaskRunDB.configured_effort).in_(effort_list)
             )
         query = query.where(col(AgentTaskBatchRunDB.id).in_(matching))
 
+    # Total count (after all filters, before pagination).
+    count_stmt = select(func.count()).select_from(query.subquery())
+    total_count: int = session.exec(count_stmt).one()
+    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 0
+
+    # Paginate.
     query = query.order_by(desc(AGENT_TASK_BATCH_RUN_CREATED_AT_COL))
+    query = query.offset(page * page_size).limit(page_size)
     batches = session.exec(query).all()
 
+    # Cost + configuration for the page's batches only.
     batch_ids = [br.id for br in batches]
     cost_by_batch: dict[str, float] = {}
     configuration_by_batch: dict[str, AgentTaskBatchRunConfigurationSummary] = {}
@@ -656,18 +694,23 @@ async def list_agent_task_batch_runs(
             cost_by_batch[tr.batch_run_id] = cost_by_batch.get(tr.batch_run_id, 0.0) + (
                 tr.total_cost or 0.0
             )
-        # SPEC-148: derive each batch's configuration summary from the same
-        # already-loaded child rows (one query, no N+1 per batch).
         configuration_by_batch = group_batch_configuration_summaries(all_task_runs)
 
-    return [
-        to_batch_run_summary(
-            br,
-            cost_by_batch.get(br.id),
-            configuration=configuration_by_batch.get(br.id),
-        )
-        for br in batches
-    ]
+    return PaginatedBatchRunSummary(
+        data=[
+            to_batch_run_summary(
+                br,
+                cost_by_batch.get(br.id),
+                configuration=configuration_by_batch.get(br.id),
+            )
+            for br in batches
+        ],
+        total_count=total_count,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+        model_facets=model_facets,
+    )
 
 
 @router.get(

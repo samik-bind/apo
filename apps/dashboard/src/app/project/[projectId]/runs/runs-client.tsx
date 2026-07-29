@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   CalendarClock,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Clock,
   GitBranch,
@@ -19,6 +21,7 @@ import {
 import {
   type AgentTaskBatchRunSummary,
   type AgentTaskRunSummary,
+  type ModelFacetOption,
   getAgentTaskBatchRun,
 } from "@/lib/agent-task-api";
 import { type ProjectTaskSource } from "@/lib/projects-api";
@@ -41,19 +44,11 @@ import { formatBatchExecution, formatRunExecution, formatRunExecutionFull } from
 import { useProjectId } from "@/lib/project-router";
 import { useClientNow } from "@/hooks/use-client-now";
 import { conclusionStyle } from "@/components/run-outcome";
-import { useUrlParam, useUrlParamSet } from "@/hooks/use-url-state";
 import { RunsModelFilter, type ModelOption } from "./runs-model-filter";
 
-/**
- * Column widths — fixed, not flexible. Mirrors the traces table's approach:
- * with `table-fixed` (baked into our <Table> primitive) the browser honors
- * these widths as authoritative and truncates overflowing cell content instead
- * of growing the table past its container. Only the Run column holds variable
- * (long) text; everything else is bounded.
- */
 const COL = {
   chevron: 28,
-  run: "auto", // flexible remainder — the only column without a px cap
+  run: "auto",
   source: 150,
   execution: 180,
   tasks: 180,
@@ -99,7 +94,7 @@ function formatDuration(start: string | null, end: string | null): string {
 function formatTrigger(trigger: { source: string | null; actor: string | null; schedule_name?: string | null } | null): string {
   if (!trigger) return "Manual";
   if (trigger.source === "schedule") {
-    return trigger.schedule_name ? `Scheduled · ${trigger.schedule_name}` : "Scheduled";
+    return trigger.schedule_name ? `Scheduled \u00b7 ${trigger.schedule_name}` : "Scheduled";
   }
   if (trigger.source === "manual") return "Manual";
   if (trigger.source === "ci") return "CI / Pipeline";
@@ -107,106 +102,122 @@ function formatTrigger(trigger: { source: string | null; actor: string | null; s
   return trigger.source ?? "Manual";
 }
 
-function getSelectionLabel(batch: AgentTaskBatchRunSummary): string {
-  const q = batch.selection_query;
-  if (q && typeof q === "object" && "task_paths" in q) {
-    const paths = q.task_paths;
-    if (Array.isArray(paths) && paths.length > 0) {
-      return paths.length === 1 ? (paths[0] as string) : `${paths.length} tasks`;
-    }
-  }
-  if (batch.selection_type === "all") return "All tasks";
-  return batch.selection_type;
-}
-
 export function RunsClient({
   batchRuns,
   error: _error,
   taskSource,
+  totalCount,
+  page,
+  pageSize,
+  totalPages,
+  modelFacets,
 }: {
   batchRuns: AgentTaskBatchRunSummary[];
   error: string | null;
   taskSource: ProjectTaskSource | null;
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  modelFacets: ModelFacetOption[];
 }) {
   const projectId = useProjectId();
-  // Filter state lives in the URL (?q=) so a shared link lands the
-  // reader on the same filtered view.
-  const [query, setQuery] = useUrlParam("q");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const clientNow = useClientNow();
-  const sourceUnconfigured = taskSource === null && batchRuns.length === 0;
+  const sourceUnconfigured = taskSource === null && totalCount === 0;
 
-  // Compare selection: at most two batch ids, chosen here (not on the compare
-  // page) so you can see the runs and their overlap in context before deciding
-  // what to compare.
+  const updateUrl = useCallback(
+    (updates: Record<string, string | null>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) params.set(key, value);
+        else params.delete(key);
+      }
+      const qs = params.toString();
+      router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+
+  const urlQ = searchParams.get("q") ?? "";
+  const [searchInput, setSearchInput] = useState(urlQ);
+  useEffect(() => {
+    setSearchInput(urlQ);
+  }, [urlQ]);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      setSearchInput(value);
+      clearTimeout(searchTimer.current);
+      searchTimer.current = setTimeout(() => {
+        updateUrl({ q: value || null, page: null });
+      }, 350);
+    },
+    [updateUrl],
+  );
+
+  const selectedModels = useMemo(() => {
+    const raw = searchParams.get("model") ?? "";
+    return new Set(raw.split(",").filter(Boolean));
+  }, [searchParams]);
+
+  const toggleModel = useCallback(
+    (model: string) => {
+      const next = new Set(selectedModels);
+      if (next.has(model)) next.delete(model);
+      else next.add(model);
+      updateUrl({ model: Array.from(next).join(",") || null, page: null });
+    },
+    [selectedModels, updateUrl],
+  );
+  const clearModels = useCallback(() => {
+    updateUrl({ model: null, page: null });
+  }, [updateUrl]);
+
+  const modelOptions: ModelOption[] = useMemo(
+    () =>
+      modelFacets
+        .map((f) => ({ model: f.model, count: f.count }))
+        .sort((a, b) => a.model.localeCompare(b.model)),
+    [modelFacets],
+  );
+
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      updateUrl({ page: newPage === 0 ? null : String(newPage) });
+    },
+    [updateUrl],
+  );
+
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const compareIdSet = useMemo(() => new Set(compareIds), [compareIds]);
   const toggleCompare = useCallback((id: string) => {
     setCompareIds((prev) => {
       if (prev.includes(id)) return prev.filter((x) => x !== id);
-      // Cap at two; replace the older (second) slot when adding a third.
       return prev.length >= 2 ? [prev[1], id] : [...prev, id];
     });
   }, []);
   const clearCompare = useCallback(() => setCompareIds([]), []);
 
-  const selectedBatches = useMemo(
-    () => compareIds.map((id) => batchRuns.find((b) => b.id === id)).filter((b): b is AgentTaskBatchRunSummary => !!b),
+  const compareBatches = useMemo(
+    () => compareIds.map((id) => batchRuns.find((b) => b.id === id) ?? null),
     [compareIds, batchRuns],
   );
   const overlap = useMemo(
-    () => (selectedBatches.length === 2 ? computeOverlap(selectedBatches[0], selectedBatches[1]) : null),
-    [selectedBatches],
+    () =>
+      compareBatches.length === 2 && compareBatches[0] && compareBatches[1]
+        ? computeOverlap(compareBatches[0], compareBatches[1])
+        : null,
+    [compareBatches],
   );
 
-  // SPEC-148: model facet. Options come from every batch's configuration
-  // summary so selecting one value never removes the others from the list.
-  // Selection is URL-backed (?model=a,b) → shareable, back/forward-restored.
-  const [selectedModels, toggleModel, clearModels] = useUrlParamSet("model");
-  const modelOptions: ModelOption[] = useMemo(() => {
-    const c = new Map<string, number>();
-    for (const b of batchRuns) {
-      const seen = new Set<string>();
-      for (const pair of b.configuration?.configurations ?? []) seen.add(pair.model);
-      for (const m of seen) c.set(m, (c.get(m) ?? 0) + 1);
-    }
-    return Array.from(c.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([model, count]) => ({ model, count }));
-  }, [batchRuns]);
-
-  const filtered = useMemo(() => {
-    const q = query.toLowerCase().trim();
-    const modelSelected = selectedModels.size > 0;
-    return batchRuns.filter((b) => {
-      // SPEC-148: model facet — a batch matches if any of its reported
-      // configurations uses a selected model (OR within the model dimension).
-      if (modelSelected) {
-        const hasModel = (b.configuration?.configurations ?? []).some(
-          (pair) => selectedModels.has(pair.model),
-        );
-        if (!hasModel) return false;
-      }
-      if (!q) return true;
-      // SPEC-148: free-text also searches the reported model/effort pairs.
-      const configText = (b.configuration?.configurations ?? [])
-        .map((c) => `${c.model} ${c.effort ?? ""}`)
-        .join(" ")
-        .toLowerCase();
-      return (
-        b.id.includes(q) ||
-        b.selection_type.toLowerCase().includes(q) ||
-        getSelectionLabel(b).toLowerCase().includes(q) ||
-        (b.trigger?.actor?.toLowerCase().includes(q) ?? false) ||
-        (b.trigger?.source?.toLowerCase().includes(q) ?? false) ||
-        b.environment.toLowerCase().includes(q) ||
-        configText.includes(q)
-      );
-    });
-  }, [query, batchRuns, selectedModels]);
+  const showingFrom = totalCount === 0 ? 0 : page * pageSize + 1;
+  const showingTo = Math.min((page + 1) * pageSize, totalCount);
 
   return (
     <div className="flex h-full w-full flex-col">
-      {/* Toolbar — stays fixed above the scroll region. */}
       <div className="shrink-0 border-b border-border bg-background">
         <div className="flex flex-col gap-3 px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
@@ -220,32 +231,29 @@ export function RunsClient({
           <div className="relative max-w-md min-w-[240px] flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
             <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter by ID, selection, source, actor, or task name..."
+              value={searchInput}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Filter by ID, selection, environment..."
               className="h-8 border-border bg-card pl-8 text-[13px] placeholder:text-muted-foreground/50 focus-visible:ring-1"
             />
           </div>
           <div className="ml-auto flex items-center gap-3 text-[12px] text-muted-foreground">
             <span>
-              <span className="font-medium text-foreground">{filtered.length}</span> runs
+              <span className="font-medium text-foreground">{totalCount}</span> runs
             </span>
           </div>
         </div>
       </div>
 
-      {/* Scroll region — the table scrolls here while toolbar + footer stay
-          fixed. The sticky table header sticks to the top of THIS container,
-          not the page, which is what makes it behave like the traces table. */}
       <div className="flex-1 overflow-auto">
         {sourceUnconfigured ? (
           <div className="px-6 py-10">
             <ProjectTaskSourceEmptyState projectId={projectId} scope="batch-runs" />
           </div>
-        ) : filtered.length === 0 ? (
+        ) : batchRuns.length === 0 ? (
           <div className="m-6 rounded-md border border-dashed border-border bg-card/40 p-10 text-center text-[13px] text-muted-foreground">
             <History className="mx-auto mb-2 h-5 w-5 text-muted-foreground/50" />
-            {batchRuns.length === 0
+            {totalCount === 0
               ? <>No runs yet. <Link href={`/project/${projectId}/tasks`} className="text-primary underline underline-offset-4">Discover and run tasks</Link></>
               : "No runs match your filters."}
           </div>
@@ -267,13 +275,13 @@ export function RunsClient({
                     />
                   </span>
                 </TableHead>
-                <TableHead style={{ width: COL.tasks }} className="text-right">Tasks · Pass rate</TableHead>
+                <TableHead style={{ width: COL.tasks }} className="text-right">Tasks {"\u00b7"} Pass rate</TableHead>
                 <TableHead style={{ width: COL.duration }} className="text-right">Duration</TableHead>
                 <TableHead style={{ width: COL.created }} className="text-right">Created</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((b) => (
+              {batchRuns.map((b) => (
                 <RunsRow
                   key={b.id}
                   batch={b}
@@ -291,26 +299,60 @@ export function RunsClient({
       </div>
 
       <div className="flex shrink-0 items-center justify-between border-t border-border px-6 py-3 text-[12px] text-muted-foreground">
-        <span>Showing <span className="font-mono text-foreground">{filtered.length}</span> of <span className="font-mono text-foreground">{batchRuns.length}</span> runs</span>
+        <span>
+          {totalCount > 0 && (
+            <>Showing <span className="font-mono text-foreground">{showingFrom}{"\u2013"}{showingTo}</span> of </>
+          )}
+          <span className="font-mono text-foreground">{totalCount}</span> runs
+        </span>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 px-2 text-[12px] font-normal"
+              disabled={page === 0}
+              onClick={() => handlePageChange(page - 1)}
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Prev
+            </Button>
+            <span className="font-mono tabular-nums">
+              Page {page + 1} of {totalPages}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 px-2 text-[12px] font-normal"
+              disabled={page >= totalPages - 1}
+              onClick={() => handlePageChange(page + 1)}
+            >
+              Next
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* Compare bar — appears when one or two runs are selected for comparison.
-          Shows the task overlap so you can tell, before navigating, whether the
-          two runs actually share enough tasks to be worth comparing. */}
-      {selectedBatches.length > 0 && (
+      {compareIds.length > 0 && (
         <div className="sticky bottom-4 z-20 mx-auto mb-4 w-fit">
           <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 shadow-2xl shadow-black/60">
             <GitCompare className="h-4 w-4 text-muted-foreground" />
             <div className="flex items-center gap-2 text-[12px]">
-              {selectedBatches.map((b, i) => (
-                <span key={b.id} className="flex items-center gap-1.5">
-                  {i > 0 && <span className="text-muted-foreground/40">vs</span>}
-                  <span className="rounded bg-foreground/10 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
-                    {getBatchName(b)}
+              {compareIds.map((id, i) => {
+                const batch = compareBatches[i];
+                return (
+                  <span key={id} className="flex items-center gap-1.5">
+                    {i > 0 && <span className="text-muted-foreground/40">vs</span>}
+                    <span className="rounded bg-foreground/10 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                      {batch ? getBatchName(batch) : id.slice(0, 8)}
+                    </span>
                   </span>
-                </span>
-              ))}
-              {selectedBatches.length === 2 && (
+                );
+              })}
+              {compareIds.length === 2 && (
                 <span className="text-muted-foreground">
                   {overlap ? (
                     overlap.shared === 0 ? (
@@ -319,15 +361,17 @@ export function RunsClient({
                       <>
                         <span className="font-mono tabular-nums text-foreground">{overlap.shared}</span> shared
                         {overlap.onlyA > 0 && (
-                          <> · <span className="font-mono tabular-nums">{overlap.onlyA}</span> only A</>
+                          <> {"\u00b7"} <span className="font-mono tabular-nums">{overlap.onlyA}</span> only A</>
                         )}
                         {overlap.onlyB > 0 && (
-                          <> · <span className="font-mono tabular-nums">{overlap.onlyB}</span> only B</>
+                          <> {"\u00b7"} <span className="font-mono tabular-nums">{overlap.onlyB}</span> only B</>
                         )}
                       </>
                     )
                   ) : (
-                    <span className="text-muted-foreground/60">overlap unknown</span>
+                    <span className="text-muted-foreground/60">
+                      {compareBatches[0] && compareBatches[1] ? "overlap unknown" : "select both on one page"}
+                    </span>
                   )}
                 </span>
               )}
@@ -342,9 +386,9 @@ export function RunsClient({
             >
               Clear
             </Button>
-            {selectedBatches.length === 2 && overlap !== null && overlap.shared === 0 ? (
+            {compareIds.length === 2 && overlap !== null && overlap.shared === 0 ? (
               <span className="text-[12px] text-muted-foreground/70">Nothing to compare</span>
-            ) : selectedBatches.length === 2 ? (
+            ) : compareIds.length === 2 ? (
               <Button
                 type="button"
                 size="sm"
@@ -374,22 +418,15 @@ function getTaskPaths(batch: AgentTaskBatchRunSummary): string[] {
   return [];
 }
 
-/** Full task paths (un-stripped) — needed to compute overlap between two
- *  batches accurately. Falls back to the batch id when the selection has no
- *  explicit paths (e.g. "all" / "grep"), so those never falsely overlap. */
 function getFullTaskPaths(batch: AgentTaskBatchRunSummary): string[] {
   const q = batch.selection_query;
   if (q && typeof q === "object" && "task_paths" in q) {
     const paths = q.task_paths;
     if (Array.isArray(paths) && paths.length > 0) return paths as string[];
   }
-  // "all" and similar selections have no enumerable path list — represent as
-  // empty so overlap is honestly unknown, not spuriously 100%.
   return [];
 }
 
-/** Overlap between two batches by task path. Returns shared/onlyA/onlyB counts
- *  and null when at least one side has no enumerable paths (overlap unknown). */
 function computeOverlap(
   a: AgentTaskBatchRunSummary,
   b: AgentTaskBatchRunSummary,
@@ -417,16 +454,6 @@ function getSourceIcon(source: string | null): React.ComponentType<{ className?:
   return Zap;
 }
 
-/**
- * A run row, rendered as two <tr>s inside the table body:
- *   1. The main row (chevron, name, source, tasks, duration, created).
- *   2. When expanded, a child <tr> with a single <td colSpan> holding the
- *      lazy-loaded task runs.
- *
- * Using table-fixed (from <Table>) + explicit column widths means the Run
- * column — the only one without a px width — absorbs free space, and its
- * `min-w-0` + `truncate` content clips instead of pushing the table wider.
- */
 function RunsRow({
   batch,
   clientNow,
@@ -442,8 +469,6 @@ function RunsRow({
   compareSelected: boolean;
   compareDisabled: boolean;
   onToggleCompare: () => void;
-  /** SPEC-148: active model facet. When non-empty, expanded children that don't
-      match a selected model are hidden (the batch row itself is filtered upstream). */
   modelFilter: Set<string>;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -458,10 +483,6 @@ function RunsRow({
     errored: batch.errored_tasks,
     total: batch.total_tasks,
   });
-  // Pass rate is check-level (Σ passed_checks / Σ total_checks) — "how well did
-  // it do". Comparable across batch sizes and matches the child rows. The
-  // task-level fraction (passed_tasks/total_tasks) is shown beside it as the
-  // "did every task fully pass" signal. See plan: check-level leads.
   const checkTotal = Math.max(batch.total_checks, 1);
   const passRate = Math.round((batch.passed_checks / checkTotal) * 100);
   const isRunning = batch.status === "running";
@@ -473,8 +494,6 @@ function RunsRow({
   const branch = (batch.trigger as Record<string, unknown> | null)?.branch as string | null;
   const commit = (batch.trigger as Record<string, unknown> | null)?.commit_sha as string | null;
 
-  // Lazy-load child task runs the first time the row is expanded. Cached in
-  // state so re-collapsing/expanding doesn't re-fetch.
   const handleToggle = useCallback(async () => {
     const next = !expanded;
     setExpanded(next);
@@ -495,9 +514,6 @@ function RunsRow({
   return (
     <>
       <TableRow className="group cursor-default border-border/60 transition-colors hover:bg-muted/30">
-        {/* Expand chevron — only for batches with >1 task. A single-task batch
-            is just the task run; expanding would echo the same name, so it has
-            nothing to reveal. The row title links to batch detail instead. */}
         <TableCell className="px-2">
           {batch.total_tasks > 1 ? (
             <button
@@ -514,8 +530,6 @@ function RunsRow({
           ) : null}
         </TableCell>
 
-        {/* Run name + meta — the only column without a fixed width. min-w-0 +
-            truncate on the link keeps long names from pushing the table wider. */}
         <TableCell>
           <div className="min-w-0">
             <div className="flex items-center gap-2.5">
@@ -570,9 +584,6 @@ function RunsRow({
           </div>
         </TableCell>
 
-        {/* SPEC-148: Execution — the adapter-reported model · effort, or an
-            honest uniform/mixed/partial/unknown label. Visible without
-            expanding the row. Monochrome data, not a colored badge. */}
         <TableCell>
           <span className="truncate font-mono text-[12px] tabular-nums text-muted-foreground" title={formatBatchExecution(batch.configuration)}>
             {formatBatchExecution(batch.configuration)}
@@ -586,7 +597,7 @@ function RunsRow({
               showRate
                 ? (passRate >= 95 ? "text-success" : passRate >= 80 ? "text-foreground" : "text-destructive")
                 : "text-muted-foreground",
-            )}>{showRate ? `${passRate}%` : "—"}</span>
+            )}>{showRate ? `${passRate}%` : "\u2014"}</span>
             <span className="text-muted-foreground/40">·</span>
             <span className="text-muted-foreground text-[12px]">{batch.passed_tasks}/{batch.total_tasks} tasks</span>
           </div>
@@ -645,10 +656,6 @@ function RunsRow({
         </TableCell>
       </TableRow>
 
-      {/* Expanded child task runs. Rendered as real <TableRow>s that SHARE the
-          parent's column schema (not a foreign grid in a colSpan cell) so the
-          parent's pass-rate reads as the honest aggregate of its children.
-          Tinted + indented to frame the hierarchy without faking alignment. */}
       {expanded && (
         <>
           {loading && (
@@ -656,7 +663,7 @@ function RunsRow({
               <TableCell colSpan={7} className="py-6">
                 <div className="flex items-center justify-center gap-2 text-[12px] text-muted-foreground">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Loading task runs…
+                  Loading task runs{"\u2026"}
                 </div>
               </TableCell>
             </TableRow>
@@ -667,9 +674,6 @@ function RunsRow({
             </TableRow>
           )}
           {!loading && !error && taskRuns !== null && (() => {
-            // SPEC-148: when a model filter is active, hide children whose
-            // reported model isn't selected. The batch matched because SOME
-            // child has the model; expanding reveals only those that do.
             const visible = modelFilter.size > 0
               ? taskRuns.filter((tr) => {
                   const m = tr.run_configuration?.model;
@@ -697,13 +701,6 @@ function RunsRow({
   );
 }
 
-/**
- * A child task run rendered inside an expanded batch row. Mirrors the parent's
- * column layout (Run · Source · Tasks·Pass rate · Duration · Created) so the
- * family reads as one table: the batch row is the aggregate, these are its
- * parts. Visually distinguished by the muted background + left indent bar so
- * it's clear these are drill-down details, not sibling batches.
- */
 function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTaskRunSummary; projectId: string; clientNow: number | null }) {
   const status = run.status in TASK_RUN_STATUS ? (run.status as TaskRunStatus) : "pending";
   const statusConfig = TASK_RUN_STATUS[status];
@@ -713,14 +710,8 @@ function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTaskRunSumm
 
   return (
     <TableRow className="group cursor-default border-border/60 bg-white/10 transition-colors hover:bg-white/15">
-      {/* Continuous left edge — the strongest hierarchy cue. A solid border
-          running the full row height reads as "these rows are grouped",
-          unlike a per-row tint which the eye dismisses as noise. The status
-          dot in the name cell already shows pass/fail, so no marker needed here. */}
       <TableCell className="border-l-2 border-l-white/30 px-2 py-3" />
 
-      {/* Run name: task_id + status dot. Indented (pl-3) from the batch name
-          so the child visibly nests under its parent, not just via tint. */}
       <TableCell className="pl-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
@@ -750,12 +741,8 @@ function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTaskRunSumm
         </div>
       </TableCell>
 
-      {/* Source column is intentionally empty for child rows: the task name is
-          already in the Run column, and the trigger source is the parent
-          batch's (shown on the parent row). Nothing unique to add here. */}
       <TableCell aria-hidden className="hidden xl:table-cell" />
 
-      {/* SPEC-148: exact child configuration (not the batch aggregate). */}
       <TableCell>
         <span
           className="truncate font-mono text-[12px] tabular-nums text-muted-foreground"
@@ -765,7 +752,6 @@ function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTaskRunSumm
         </span>
       </TableCell>
 
-      {/* Tasks · Pass rate — checks here, same column + same visual language. */}
       <TableCell className="text-right">
         <div className="flex items-center justify-end gap-2 font-mono text-[12px] tabular-nums">
           {isInactive || run.total_checks === 0 ? (

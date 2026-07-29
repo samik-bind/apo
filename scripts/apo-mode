@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# Switch between local debugging and tunnel mode.
+#
+# Usage:
+#   scripts/apo-mode local     # debug at http://localhost:3000 (no tunnel)
+#   scripts/apo-mode tunnel    # public at https://test-apo.online
+#   scripts/apo-mode status    # show current mode
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="${REPO_ROOT}/.env"
+MODE="${1:-status}"
+
+_err() { printf '%s\n' "$*" >&2; }
+_ok()  { printf '%s\n' "$*"; }
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  _err "error: .env not found at $ENV_FILE"
+  exit 1
+fi
+
+# Read current values from .env
+get_env() { grep "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- || echo ""; }
+set_env() {
+  local key="$1" val="$2"
+  if grep -q "^${key}=" "$ENV_FILE"; then
+    sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
+  else
+    echo "${key}=${val}" >> "$ENV_FILE"
+  fi
+}
+
+# The public URL is stored when first switching to tunnel mode
+TUNNEL_URL=$(get_env "APO_TUNNEL_PUBLIC_URL")
+if [[ -z "$TUNNEL_URL" ]]; then
+  TUNNEL_URL="https://test-apo.online"
+fi
+
+COMPOSE_BASE=(-f "$REPO_ROOT/docker-compose.yml")
+COMPOSE_TUNNEL=(-f "$REPO_ROOT/docker-compose.yml" -f "$REPO_ROOT/docker-compose.cloudflare-tunnel.yml" -f "$REPO_ROOT/docker-compose.cloudflare-tunnel.override.yml")
+
+stop_all() {
+  _ok "stopping containers..."
+  # Stop tunnel containers if running
+  docker compose --env-file "$ENV_FILE" "${COMPOSE_TUNNEL[@]}" down --remove-orphans 2>/dev/null || true
+  # Stop base containers if running
+  docker compose --env-file "$ENV_FILE" "${COMPOSE_BASE[@]}" down --remove-orphans 2>/dev/null || true
+}
+
+case "$MODE" in
+  local)
+    # Save the tunnel URL before switching
+    CURRENT_URL=$(get_env "APO_PUBLIC_URL")
+    if [[ "$CURRENT_URL" == https://* ]]; then
+      set_env "APO_TUNNEL_PUBLIC_URL" "$CURRENT_URL"
+    fi
+
+    set_env "APO_DEPLOYMENT_PROFILE" "local"
+    set_env "APO_PUBLIC_URL" "http://localhost:3000"
+
+    stop_all
+    _ok "starting in LOCAL mode..."
+    docker compose --env-file "$ENV_FILE" "${COMPOSE_BASE[@]}" up -d 2>&1 | tail -5
+    _ok ""
+    _ok "✓ Local mode active"
+    _ok "  Dashboard: http://localhost:3000"
+    _ok "  Backend:   http://localhost:8000"
+    ;;
+
+  tunnel)
+    TUNNEL_URL=$(get_env "APO_TUNNEL_PUBLIC_URL")
+    if [[ -z "$TUNNEL_URL" ]]; then
+      TUNNEL_URL="https://test-apo.online"
+    fi
+
+    set_env "APO_DEPLOYMENT_PROFILE" "server"
+    set_env "APO_PUBLIC_URL" "$TUNNEL_URL"
+    set_env "APO_INGRESS_MODE" "cloudflare-tunnel"
+
+    stop_all
+    _ok "starting in TUNNEL mode..."
+    docker compose --env-file "$ENV_FILE" "${COMPOSE_TUNNEL[@]}" up -d 2>&1 | tail -5
+    sleep 8
+    _ok ""
+    _ok "✓ Tunnel mode active"
+    _ok "  Public:    $TUNNEL_URL"
+    _ok "  Dashboard: $TUNNEL_URL (username: apo)"
+    _ok "  Health:    $TUNNEL_URL/api/public/health"
+    ;;
+
+  status)
+    PROFILE=$(get_env "APO_DEPLOYMENT_PROFILE")
+    URL=$(get_env "APO_PUBLIC_URL")
+    if [[ "$PROFILE" == "server" ]]; then
+      _ok "current mode: TUNNEL ($URL)"
+    else
+      _ok "current mode: LOCAL ($URL)"
+    fi
+    _ok "containers:"
+    docker ps --format '  {{.Names}} {{.Status}}' 2>/dev/null | rg apo || _ok "  (none running)"
+    ;;
+
+  *)
+    _err "usage: scripts/apo-mode <local|tunnel|status>"
+    _err ""
+    _err "  local    debug at http://localhost:3000 (no tunnel, no auth gate)"
+    _err "  tunnel   public at your tunnel URL (with auth gate + cloudflared)"
+    _err "  status   show current mode and running containers"
+    exit 2
+    ;;
+esac

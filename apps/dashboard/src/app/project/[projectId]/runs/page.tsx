@@ -1,6 +1,7 @@
 import {
   listAgentTaskBatchRuns,
   type AgentTaskBatchRunSummary,
+  type ModelFacetOption,
 } from "@/lib/agent-task-api";
 import { getProject, type ProjectTaskSource } from "@/lib/projects-api";
 import { Suspense } from "react";
@@ -12,17 +13,38 @@ export const metadata = { title: "Runs" };
 
 export default async function RunsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ projectId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { projectId } = await params;
+  const query = await searchParams;
+
+  const page = query.page ? Math.max(0, Number(query.page)) : 0;
+  const pageSize = query.page_size ? Number(query.page_size) : 20;
+  const q = typeof query.q === "string" ? query.q : undefined;
+  const modelParam = typeof query.model === "string" ? query.model : undefined;
+  const models = modelParam ? modelParam.split(",").filter(Boolean) : undefined;
 
   let batchRuns: AgentTaskBatchRunSummary[] = [];
+  let totalCount = 0;
+  let totalPages = 0;
+  let modelFacets: ModelFacetOption[] = [];
   let error: string | null = null;
   let taskSource: ProjectTaskSource | null = null;
 
   try {
-    batchRuns = await listAgentTaskBatchRuns(projectId);
+    const paginated = await listAgentTaskBatchRuns(projectId, {
+      q,
+      model: models,
+      page,
+      page_size: pageSize,
+    });
+    batchRuns = paginated.data;
+    totalCount = paginated.total_count;
+    totalPages = paginated.total_pages;
+    modelFacets = paginated.model_facets;
     try {
       const project = await getProject(projectId);
       taskSource = project.task_source;
@@ -36,7 +58,16 @@ export default async function RunsPage({
   return (
     <main className="h-full flex flex-col">
       <Suspense>
-        <RunsClient batchRuns={batchRuns} error={error} taskSource={taskSource} />
+        <RunsClient
+          batchRuns={batchRuns}
+          error={error}
+          taskSource={taskSource}
+          totalCount={totalCount}
+          page={page}
+          pageSize={pageSize}
+          totalPages={totalPages}
+          modelFacets={modelFacets}
+        />
       </Suspense>
     </main>
   );

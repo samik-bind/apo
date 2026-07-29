@@ -71,6 +71,20 @@ export interface AgentTaskRunConfiguration {
 
 export type BatchRunConfigurationState = "uniform" | "mixed" | "partial" | "unknown";
 
+export interface ModelFacetOption {
+  model: string;
+  count: number;
+}
+
+export interface PaginatedBatchRunSummary {
+  data: AgentTaskBatchRunSummary[];
+  total_count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  model_facets: ModelFacetOption[];
+}
+
 export interface AgentTaskRunConfigurationCount extends AgentTaskRunConfiguration {
   task_runs: number;
 }
@@ -444,11 +458,26 @@ export const createAgentTaskBatchRun = (
 
 export const listAgentTaskBatchRuns = (
   project?: string,
-  status?: string,
-): Promise<AgentTaskBatchRunSummary[]> =>
+  opts?: {
+    status?: string;
+    q?: string;
+    model?: string[];
+    effort?: string[];
+    page?: number;
+    page_size?: number;
+  },
+): Promise<PaginatedBatchRunSummary> =>
   apiClient("/v1/agent-task-batch-runs", {
     ...NO_CACHE,
-    query: { project, status },
+    query: {
+      project,
+      status: opts?.status,
+      q: opts?.q,
+      model: opts?.model?.join(",") || undefined,
+      effort: opts?.effort?.join(",") || undefined,
+      page: opts?.page,
+      page_size: opts?.page_size,
+    },
   });
 
 export const getAgentTaskBatchRun = (
