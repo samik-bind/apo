@@ -94,7 +94,6 @@ const commands: Record<string, CommandEntry> = {
     options: [
       ["--email <email>", "Account email (required)"],
       ["--password <password>", "Account password (required)"],
-      ["--trace-content-policy <off|redacted|full>", "Trace content policy (default: redacted)"],
       ["--scope <full|ingest>", "API key scope (default: full)"],
       ["--backend <url>", "Backend URL (default: http://localhost:8000)"],
       ["--json", "Machine-readable JSON output"],

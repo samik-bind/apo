@@ -107,7 +107,7 @@ def _project_directly(payload: dict[str, object]) -> None:
             project_id=_PROJECT,
             session=session,
             encoding="json",
-            content_policy="full",
+            
             context=context,
             project_immediately=False,
         )

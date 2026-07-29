@@ -27,11 +27,6 @@ from sqlmodel import Session
 
 from ..models.db import OtlpIngestBatchDB, OtlpSpanDB
 from ..models.trace_ingestion import TraceIngestionContext
-from .content_policy import (
-    DEFAULT_TRACE_CONTENT_POLICY,
-    normalize_trace_content_policy,
-    sanitize_otlp_payload,
-)
 
 if TYPE_CHECKING:
     from .telemetry_limits import TelemetryTransportLimits
@@ -240,7 +235,6 @@ class OtlpReceiver:
         project_id: str,
         session: Session,
         encoding: str | None = None,
-        content_policy: str = DEFAULT_TRACE_CONTENT_POLICY,
         context: "TraceIngestionContext | None" = None,
         project_immediately: bool = True,
         limits: TelemetryTransportLimits | None = None,
@@ -256,20 +250,13 @@ class OtlpReceiver:
         :class:`OtlpDecodeError` (400) or :class:`OtlpSizeLimitError` (413)
         and write nothing — no inbox row, no canonical span (SPEC-150).
 
-        When ``project_immediately`` is True (default), canonical spans are
-        projected into RunDB/LoggedCallDB in the same request. When False,
-        spans are persisted to ``OtlpSpanDB`` only and the batch is marked
-        for async projection by the ``QueueWorker`` (SPEC-129 §2).
-
-        The ``content_policy`` (``full``, ``redacted``, ``off``) is applied
-        to span attributes BEFORE any durable write.
+        SPEC-156: all received Trace Content is stored in full. There is no
+        content-policy redaction or filtering step.
 
         ``context`` carries the authenticated ingestion identity so Task Run
         claims are subject- and project-bound (SPEC-131 Milestone 3). When
         omitted, the ingest is treated as unauthenticated and may not claim.
         """
-        applied_policy = normalize_trace_content_policy(content_policy)
-
         # 1. Decode the payload (typed errors, no durable write on failure).
         decoded = decode_otlp_payload(payload, content_type, encoding, limits=limits)
 
@@ -288,14 +275,7 @@ class OtlpReceiver:
         if admission_consume_units is not None:
             admission_consume_units(span_count)
 
-        # 3. Apply content policy to the decoded payload BEFORE serializing
-        # the inbox record (SPEC-129 §1: "apply the Project content-capture
-        # and redaction policy before any durable payload write"). This
-        # ensures sensitive content never reaches the inbox even in
-        # redacted/off mode.
-        decoded = sanitize_otlp_payload(decoded, applied_policy)
-
-        # 3. Persist the durable inbox record (before any processing)
+        # 3. Persist the durable inbox record with full decoded content.
         batch_id = str(uuid.uuid4())
         payload_str = json.dumps(decoded)
         payload_hash = hashlib.sha256(payload).hexdigest()
@@ -305,11 +285,6 @@ class OtlpReceiver:
             project_id=project_id,
             content_type=content_type,
             payload_sha256=payload_hash,
-            content_policy=applied_policy,
-            # Store the complete policy-sanitized payload. The decode step
-            # already enforced MAX_PAYLOAD_BYTES, and the column is TEXT
-            # (unbounded). Never slice the string — that would produce invalid
-            # JSON for replay (SPEC-131 M4.6).
             payload=payload_str,
             status="processing",
         )
@@ -347,7 +322,6 @@ class OtlpReceiver:
                             resource=resource,
                             resource_attrs=resource_attrs,
                             scope=scope,
-                            content_policy=applied_policy,
                         )
                         claim_id = self._claim_task_run_before_enqueue(
                             canonical, session, context
@@ -445,7 +419,6 @@ class OtlpReceiver:
         resource: dict[str, Any],
         resource_attrs: dict[str, Any],
         scope: dict[str, Any],
-        content_policy: str = DEFAULT_TRACE_CONTENT_POLICY,
     ) -> OtlpSpanDB:
         """Persist one span into ``OtlpSpanDB``, idempotently.
 
@@ -499,7 +472,7 @@ class OtlpReceiver:
             existing.events = events if events else None
             existing.links = links if links else None
             existing.raw_span = span
-            existing.content_policy = content_policy
+            existing.content_policy = "full"
             session.add(existing)
             session.flush()
             canonical = existing
@@ -523,7 +496,6 @@ class OtlpReceiver:
                 events=events if events else None,
                 links=links if links else None,
                 raw_span=span,
-                content_policy=content_policy,
             )
             session.add(canonical)
             session.flush()
@@ -690,7 +662,6 @@ class OtlpReceiver:
         content_type: str,
         payload: bytes,
         error: str,
-        content_policy: str,
     ) -> str:
         """Create a failed batch record for an undecodable payload."""
         batch_id = str(uuid.uuid4())
@@ -700,7 +671,6 @@ class OtlpReceiver:
             content_type=content_type,
             payload_sha256=hashlib.sha256(payload).hexdigest(),
             payload="",
-            content_policy=content_policy,
             status="failed",
             error_message=error[:500],
         )

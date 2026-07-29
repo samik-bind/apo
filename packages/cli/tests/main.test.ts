@@ -164,7 +164,6 @@ describe("per-command help", () => {
     expect(output).toContain("<name>");
     expect(output).toContain("--email");
     expect(output).toContain("--password");
-    expect(output).toContain("--trace-content-policy");
   });
 
   it("falls back to global help for partial command (runs --help)", async () => {

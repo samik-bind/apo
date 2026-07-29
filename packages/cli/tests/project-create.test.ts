@@ -66,7 +66,6 @@ describe("project create command", () => {
       email: "me@example.com",
       password: "secret",
       name: "my-proj",
-      trace_content_policy: "redacted",
       scope: "full",
     });
 
@@ -80,36 +79,6 @@ describe("project create command", () => {
     );
     expect(logs.join("\n")).toContain("abc123def456");
     expect(logs.join("\n")).toContain("my-proj");
-  });
-
-  it("passes --trace-content-policy through to the backend", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      mockResponse(201, {
-        id: "k",
-        name: "apo-cli",
-        prefix: "sk-",
-        project: "p",
-        created_by: "u",
-        scope: "full",
-        created_at: "2026-07-19T00:00:00Z",
-        key: "sk-x",
-      }),
-    );
-
-    await run([
-      "p",
-      "--backend",
-      "http://b",
-      "--email",
-      "a@b.c",
-      "--password",
-      "x",
-      "--trace-content-policy",
-      "full",
-    ]);
-
-    const init = vi.mocked(globalThis.fetch).mock.calls[0]![1] as RequestInit;
-    expect(JSON.parse(init.body as string).trace_content_policy).toBe("full");
   });
 
   it("exits 2 on 401 (bad credentials)", async () => {
@@ -241,29 +210,5 @@ describe("project create command", () => {
     expect(logs.join("\n")).toMatch(/password/i);
     expect(fetchMock).not.toHaveBeenCalled();
   });
-
-  it("rejects an invalid --trace-content-policy value locally", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch");
-    const logs: string[] = [];
-    const originalLog = console.log;
-    const originalErr = console.error;
-    console.log = (...args: unknown[]) => logs.push(args.join(" "));
-    console.error = (...args: unknown[]) => logs.push(args.join(" "));
-    const code = await run([
-      "p",
-      "--backend",
-      "http://b",
-      "--email",
-      "a@b.c",
-      "--password",
-      "x",
-      "--trace-content-policy",
-      "garbage",
-    ]);
-    console.log = originalLog;
-    console.error = originalErr;
-    expect(code).toBe(2);
-    expect(logs.join("\n")).toMatch(/trace-content-policy/i);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
 });
+

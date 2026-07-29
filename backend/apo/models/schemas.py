@@ -996,7 +996,6 @@ class ProjectSummary(SQLModel):
 
     id: str
     name: str
-    trace_content_policy: Literal["off", "redacted", "full"] = "full"
     created_by: str | None = None
     created_at: datetime | None = None
     current_user_role: str | None = None  # "owner" | "admin" | "member"
@@ -1007,7 +1006,6 @@ class UpdateProjectRequest(SQLModel):
     ``redacted`` for production deployments handling sensitive data."""
 
     name: str | None = None
-    trace_content_policy: Literal["off", "redacted", "full"] | None = None
 
 
 class ProjectBootstrapRequest(SQLModel):
@@ -1025,7 +1023,6 @@ class ProjectBootstrapRequest(SQLModel):
     email: str
     password: str
     name: str
-    trace_content_policy: Literal["off", "redacted", "full"] = "redacted"
     key_name: str = "apo-cli"
     scope: Literal["full", "ingest"] = "full"
 

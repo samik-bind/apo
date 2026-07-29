@@ -47,7 +47,6 @@ from ..services.agent_task_stats import (
     compute_run_stats,
     load_run_stat_fields,
 )
-from ..services.content_policy import normalize_trace_content_policy
 from ..services.project_deletion import delete_project_data
 from ..services.project_memberships import (
     DEMO_PROJECT_ID,
@@ -93,7 +92,6 @@ def create_project_for_owner(
     session: Session,
     *,
     name: str,
-    trace_content_policy: str,
     user_id: str,
 ) -> ProjectDB:
     """Insert a ``ProjectDB`` row with a random 12-hex id and grant the caller
@@ -102,7 +100,6 @@ def create_project_for_owner(
     project = ProjectDB(
         id=uuid4().hex[:12],
         name=name,
-        trace_content_policy=trace_content_policy,
         created_by=user_id,
     )
     session.add(project)
@@ -125,7 +122,6 @@ def _format_project_summary(
     return ProjectSummary(
         id=p.id,
         name=p.name,
-        trace_content_policy=normalize_trace_content_policy(p.trace_content_policy),
         created_by=p.created_by,
         created_at=p.created_at,
         current_user_role=current_user_role,
@@ -142,7 +138,6 @@ def _format_project_detail(
     return ProjectDetail(
         id=p.id,
         name=p.name,
-        trace_content_policy=normalize_trace_content_policy(p.trace_content_policy),
         created_by=p.created_by,
         created_at=p.created_at,
         current_user_role=current_user_role,
@@ -235,17 +230,13 @@ async def create_project(
     if not isinstance(name, str) or not name.strip():
         raise HTTPException(status_code=400, detail="name is required")
 
-    content_policy = body.get("trace_content_policy", "redacted")
-    if content_policy not in {"off", "redacted", "full"}:
         raise HTTPException(
             status_code=400,
-            detail="trace_content_policy must be off, redacted, or full",
         )
 
     project = create_project_for_owner(
         session,
         name=name.strip(),
-        trace_content_policy=cast(str, content_policy),
         user_id=user_id,
     )
     return _format_project_detail(
@@ -304,7 +295,6 @@ def bootstrap_project(
     project = create_project_for_owner(
         session,
         name=name,
-        trace_content_policy=body.trace_content_policy,
         user_id=user.id,
     )
 
@@ -370,8 +360,6 @@ async def update_project(
         if not name:
             raise HTTPException(status_code=400, detail="name cannot be empty")
         project.name = name
-    if body.trace_content_policy is not None:
-        project.trace_content_policy = body.trace_content_policy
     session.add(project)
     session.commit()
     session.refresh(project)

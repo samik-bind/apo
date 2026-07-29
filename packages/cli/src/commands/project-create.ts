@@ -18,9 +18,6 @@ type BootstrapResponse = {
   key: string;
 };
 
-const VALID_POLICIES = ["off", "redacted", "full"] as const;
-type TraceContentPolicy = (typeof VALID_POLICIES)[number];
-
 export async function run(argv: string[]): Promise<number> {
   const { flags, positional } = parseArgs(argv);
   const config = resolveConfig(flags);
@@ -44,17 +41,6 @@ export async function run(argv: string[]): Promise<number> {
     return 2;
   }
 
-  const policyFlag = getFlagValue(flags, "trace-content-policy") ?? "redacted";
-  if (!VALID_POLICIES.includes(policyFlag as TraceContentPolicy)) {
-    console.error(
-      red(
-        `Invalid --trace-content-policy: ${policyFlag}. Use one of: ${VALID_POLICIES.join(", ")}`,
-      ),
-    );
-    return 2;
-  }
-  const traceContentPolicy = policyFlag as TraceContentPolicy;
-
   const scope = (getFlagValue(flags, "scope") ?? "full") as "full" | "ingest";
 
   let result: BootstrapResponse;
@@ -66,7 +52,6 @@ export async function run(argv: string[]): Promise<number> {
         email,
         password,
         name,
-        trace_content_policy: traceContentPolicy,
         key_name: `apo-cli@${hostname()}`,
         scope,
       },
@@ -109,7 +94,6 @@ export async function run(argv: string[]): Promise<number> {
 
   console.log(green(`\u2713 Created project ${bold(name)} (${result.project}).`));
   console.log(dim(`  API key: ${result.prefix}\u2026 (saved to ~/.apo/credentials)`));
-  console.log(dim(`  Trace content policy: ${traceContentPolicy}`));
   console.log(dim(`  Run \`apo task list\` to verify task discovery.`));
   return 0;
 }

@@ -22,7 +22,6 @@ from ..auth.deps import require_api_key_scope
 from ..db import get_session
 from ..middleware.telemetry_admission import _rate_limit_response
 from ..models.db import ProjectDB
-from ..services.content_policy import normalize_trace_content_policy
 from ..services.otlp_receiver import (
     OtlpDecodeError,
     OtlpReceiver,
@@ -115,9 +114,6 @@ async def receive_otlp_traces(
         service_task_run_id=getattr(request.state, "service_task_run_id", None),
     )
     project = session.get(ProjectDB, project_id)
-    content_policy = normalize_trace_content_policy(
-        project.trace_content_policy if project is not None else None
-    )
 
     # Ingest with transport limits (SPEC-150). Request-level failures raise
     # typed errors and write nothing — the route maps them to OTLP responses.
@@ -137,7 +133,6 @@ async def receive_otlp_traces(
             project_id=project_id,
             session=session,
             encoding=encoding,
-            content_policy=content_policy,
             context=context,
             project_immediately=False,
             limits=limits,
