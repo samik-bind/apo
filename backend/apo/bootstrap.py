@@ -1,35 +1,41 @@
 """Idempotent first-user provisioning from INIT_USER_* environment variables.
 
-On startup, if no users exist in the database and both ``INIT_USER_EMAIL``
-and ``INIT_USER_PASSWORD`` are set, an admin user is created automatically.
-This enables headless Docker / CI deployments without manual UI setup.
+SPEC-153: uses the shared installation-initialization claim service so
+bootstrap and browser setup share the same durable singleton. Bootstrap is a
+no-op once the installation is initialized, even if all Users are later
+deleted.
 """
 
 import logging
 import os
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 
-from .auth import hash_password, validate_password_strength
-from .models.db import UserDB
+from .auth import validate_password_strength
+from .services.installation_initialization import (
+    InstallationAlreadyInitializedError,
+    claim_initial_user,
+    get_installation_setup_status,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def bootstrap_initial_user(session: Session) -> None:
-    """Create first admin user from INIT_USER_* env vars if no users exist.
+    """Create the first admin user from INIT_USER_* env vars.
 
-    Idempotent: if any user already exists, returns immediately.
-    Never raises — errors are logged and the startup continues.
+    Uses the shared atomic claim. Once the installation is initialized,
+    bootstrap is a no-op — even if zero Users exist. Never raises; errors
+    are logged and startup continues.
     """
     try:
-        existing = session.exec(select(UserDB)).first()
+        status = get_installation_setup_status(session)
     except Exception:
-        logger.exception("Failed to query users during bootstrap")
+        logger.exception("Failed to read installation state during bootstrap")
         return
 
-    if existing is not None:
-        logger.info("Initial user already exists, skipping bootstrap")
+    if not status.setup_available:
+        logger.info("Installation already initialized, skipping bootstrap")
         return
 
     email = os.environ.get("INIT_USER_EMAIL", "").strip()
@@ -51,15 +57,19 @@ def bootstrap_initial_user(session: Session) -> None:
         return
 
     try:
-        user = UserDB(
-            email=email.lower(),
+        claim_initial_user(
+            session,
+            email=email,
             name=name,
-            password_hash=hash_password(password),
-            is_admin=True,
+            password=password,
+            is_instance_admin=True,
         )
-        session.add(user)
-        session.commit()
         logger.info("Bootstrapped initial admin user: %s", email)
+    except InstallationAlreadyInitializedError:
+        logger.info("Installation was initialized concurrently, skipping bootstrap")
     except Exception:
         logger.exception("Failed to create bootstrap user")
-        session.rollback()
+        try:
+            session.rollback()
+        except Exception:
+            pass

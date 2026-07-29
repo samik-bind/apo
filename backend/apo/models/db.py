@@ -1335,3 +1335,19 @@ class OtlpSpanDB(SQLModel, table=True):
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(UTCDateTime, server_default=func.now()),
     )
+
+
+class InstallationStateDB(SQLModel, table=True):
+    """Singleton durable state for one Self-Hosted Installation (SPEC-153).
+
+    ``id`` has exactly one supported value: ``"installation"``. The singleton
+    records whether Installation Initialization has occurred, independent of
+    the current User count. Deleting all Users does not reopen setup; only an
+    explicit full database reset clears the singleton.
+    """
+
+    __tablename__: ClassVar[str] = "installation_state"
+
+    id: str = Field(primary_key=True, default="installation")
+    initialized_at: datetime | None = Field(default=None)
+    initial_user_id: str | None = Field(default=None)

@@ -1,6 +1,39 @@
 # Caddy obtains and renews the public TLS certificate automatically when the
 # APO_PUBLIC_URL hostname resolves to this server and ports 80/443 are open.
+#
+# SPEC-150 + SPEC-153: canonical public OTLP and health paths route directly
+# to the private backend container. Raw operator diagnostics are denied.
+# Every other path goes to the Next.js frontend.
+
+{
+	servers {
+		timeouts {
+			read_header {$APO_HTTP_READ_HEADER_TIMEOUT_SECONDS:10}s
+		}
+	}
+}
+
 {$APO_PUBLIC_URL} {
-	encode zstd gzip
-	reverse_proxy frontend:3000
+	# SPEC-150: exact canonical OTLP handler — direct to backend.
+	handle /api/public/otel/v1/traces {
+		request_body {
+			max_size {$APO_TELEMETRY_MAX_REQUEST_BYTES:10485760}
+		}
+		reverse_proxy backend:8000
+	}
+
+	# SPEC-153: exact public health — detail-free readiness probe.
+	handle /api/public/health {
+		reverse_proxy backend:8000
+	}
+
+	# SPEC-153: deny raw operator diagnostic aliases through public ingress.
+	# These must never cross the public origin — they expose detail.
+	@raw_diagnostics path /backend-proxy/health/ready /backend-proxy/docs /backend-proxy/openapi.json /backend-proxy/hello /api/health/ready
+	respond @raw_diagnostics 404
+
+	handle {
+		encode zstd gzip
+		reverse_proxy frontend:3000
+	}
 }

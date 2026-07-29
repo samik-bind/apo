@@ -98,7 +98,11 @@ def create_app() -> FastAPI:
     config = load_installation_config()
     validate_installation_secrets(config)
 
-    app = FastAPI(lifespan=lifespan)
+    # SPEC-153: disable framework docs in the Server Profile.
+    if config.deployment_profile == "server":
+        app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    else:
+        app = FastAPI(lifespan=lifespan)
 
     frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
@@ -128,6 +132,10 @@ def create_app() -> FastAPI:
     admission_controller = TelemetryAdmissionController(admission_limits)
     app.state.admission_controller = admission_controller
     app.state.admission_limits = admission_limits
+
+    # SPEC-153: public readiness probe on app.state.
+    from .services.public_readiness import PublicReadinessProbe
+    app.state.public_readiness_probe = PublicReadinessProbe()
 
     # Middleware execution order (outer → inner):
     #   SecurityHeaders → Auth → TelemetryAdmission → RequestSize → CORS → router

@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 
@@ -25,3 +25,23 @@ async def health_check():
             content={"status": "unhealthy"},
         )
     return {"status": "ok"}
+
+
+@router.get("/api/public/health")
+async def public_readiness(request: Request):
+    """SPEC-153: detail-free public readiness status.
+
+    Returns only ``{"status":"ready"}`` (200) or ``{"status":"not_ready"}``
+    (503). Never includes check names, paths, or exception detail.
+    """
+    from ..services.public_readiness import PublicReadinessProbe
+
+    probe = getattr(request.app.state, "public_readiness_probe", None)
+    if probe is None:
+        probe = PublicReadinessProbe()
+    ready = await probe.is_ready()
+    return JSONResponse(
+        content={"status": "ready" if ready else "not_ready"},
+        status_code=200 if ready else 503,
+        headers={"Cache-Control": "no-store"},
+    )
