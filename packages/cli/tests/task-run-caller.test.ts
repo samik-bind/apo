@@ -100,7 +100,8 @@ describe("SPEC-145 task run --executor caller dispatch", () => {
         return mockResp({
           batch_run_id: "b1", task_run_id: "r1", attempt_id: "a1", lease_generation: 1,
           lease_expires_at: "2026-01-01T00:00:00Z", attempt_jwt: "jwt-1",
-          trace_endpoint: "http://backend.test/", trace_project: "proj-test",
+          // What a proxied server reports about itself: its own loopback default.
+          trace_endpoint: "http://127.0.0.1:8000", trace_project: "proj-test",
         }, 201);
       }
       if (url.includes("/attempts/a1/start")) return mockResp({ status: "running" });
@@ -119,7 +120,10 @@ describe("SPEC-145 task run --executor caller dispatch", () => {
     expect(_captured.env?.AGENT_TASK_PROJECT).toBe("proj-test");
     // A dead name must not come back and look like it is doing something.
     expect(_captured.env?.AGENT_TASK_TRACE_PROJECT).toBeUndefined();
-    // Trailing slash trimmed so the SDK's appended OTLP path stays clean.
+    // The configured, known-reachable backend — NOT the server's self-report. A
+    // server behind a reverse proxy defaults to loopback, and trusting it sends the
+    // harness's spans to the developer's own machine, leaving a trace that holds
+    // only the runtime's spans under a parent that never arrives.
     expect(_captured.env?.AGENT_TASK_TRACE_ENDPOINT).toBe("http://backend.test");
     expect(_captured.env?.AGENT_TASK_RUN_ID).toBe("r1");
     expect(_captured.env?.AGENT_TASK_TRACE_REQUIRED).toBe("true");

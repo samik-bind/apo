@@ -384,7 +384,16 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   ));
 
   // 3. Thread only Task-scoped values to the child SDK (Attempt JWT, not API key).
-  process.env.AGENT_TASK_TRACE_ENDPOINT = created.traceEndpoint.replace(/\/$/, "");
+  // Use the backend URL this CLI is configured with, not the one the server
+  // reports. `created.traceEndpoint` comes from the server's own APO_BACKEND_URL,
+  // which a server behind a reverse proxy cannot know — it defaults to
+  // http://127.0.0.1:8000, so the child SDK posts its spans at the developer's
+  // own machine and the trace silently arrives with only the runtime's spans in
+  // it. We just completed authenticated requests against config.backendUrl, so it
+  // is known-reachable; the sibling dispatch path below already uses it. A
+  // deployment that wants telemetry on a different ingress configures it here,
+  // client-side, rather than relying on the server to guess its own address.
+  process.env.AGENT_TASK_TRACE_ENDPOINT = config.backendUrl.replace(/\/$/, "");
   // AGENT_TASK_PROJECT is the name the SDK reads (task-runtime.ts gates tracing on
   // endpoint && AGENT_TASK_PROJECT). This used to set AGENT_TASK_TRACE_PROJECT,
   // which nothing reads, so caller execution fell through to noop tracing: no
