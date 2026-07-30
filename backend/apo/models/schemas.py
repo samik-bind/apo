@@ -1049,6 +1049,7 @@ class ProjectDetail(ProjectSummary):
     """Project payload that also carries its task catalog, if published."""
 
     permissions: "ProjectPermissionSummary | None" = None
+    task_source: "ProjectTaskSource | None" = None
     task_catalog: "TaskCatalog | None" = None
 
 
