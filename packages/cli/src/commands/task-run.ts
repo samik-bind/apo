@@ -146,6 +146,11 @@ export async function run(argv: string[]): Promise<number> {
     }
   }
 
+  // SPEC-159: --no-record forces local-unrecorded regardless of dispatch mode.
+  if (noRecord) {
+    return runLocally(config, resolved.taskDir);
+  }
+
   // Legacy dispatch for --local / --remote / task / project-default / unrecorded.
   const decision = resolveExecutionMode({
     flagLocal,

@@ -106,9 +106,13 @@ def sync_task_source(session: Session, source: ProjectTaskSourceDB) -> SyncResul
         return _sync_filesystem_source(session, source)
     if source.source_type == "git":
         return _sync_git_source(session, source)
+    if source.source_type == "published":
+        # SPEC-159: published catalogs own their inventory directly;
+        # no server-side sync needed.
+        return source
     message = (
         f"Unknown source type: {source.source_type!r}. "
-        "Expected one of: git, filesystem, demo."
+        "Expected one of: git, filesystem, demo, published."
     )
     mark_error(session, source, message)
     raise SyncError(message)
@@ -182,9 +186,15 @@ def resolve_task_source_root(
         snapshot_dir = _ensure_git_snapshot(repo_dir, repo_url, commit_sha)
         return _apply_source_subpath(snapshot_dir, source.subpath, repo_url, git_ref)
 
+    if source.source_type == "published":
+        raise SyncError(
+            "Published task catalogs contain metadata only. "
+            "Tasks must be run from their source environment using caller execution."
+        )
+
     raise SyncError(
         f"Unknown source type: {source.source_type!r}. "
-        + "Expected one of: git, filesystem, demo."
+        + "Expected one of: git, filesystem, demo, published."
     )
 
 
