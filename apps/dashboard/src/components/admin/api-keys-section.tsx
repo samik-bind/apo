@@ -33,8 +33,9 @@ export function ApiKeysSection() {
   }, [])
 
   // Derive the effective project: fall back to the first project when the
-  // user hasn't explicitly picked one.
-  const effectiveProject = selectedProject ?? projects[0]?.id
+  // user hasn't explicitly picked one. Issue #73: use ``||`` not ``??`` —
+  // ``selectedProject`` starts as "" (not nullish), so ``??`` never fell back.
+  const effectiveProject = selectedProject || projects[0]?.id
 
   const fetchKeys = useCallback(async () => {
     if (!effectiveProject) return
@@ -154,7 +155,8 @@ export function ApiKeysSection() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         onCreated={handleCreated}
-        defaultProject={effectiveProject || "example-service"}
+        projects={projects}
+        defaultProject={effectiveProject}
       />
 
       <ApiKeyRevealDialog
