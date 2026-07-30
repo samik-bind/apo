@@ -3,13 +3,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Captured at runTaskDir time: the env the CLI threads to the child SDK is the
+// caller path's actual contract with it, so it has to be asserted, not assumed.
+const _captured: { env?: NodeJS.ProcessEnv } = {};
+
 // Partially mock the SDK: keep the real manifest canonicalizer (used by the
 // caller attestation) but stub runTaskDir so the test needs no importable task.
 vi.mock("@apo/sdk/agent-task", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@apo/sdk/agent-task")>();
   return {
     ...actual,
-    runTaskDir: async () => ({ taskId: "t", pass: true, checks: [], adapterName: null, traceRunId: null, deliverables: {} }),
+    runTaskDir: async () => {
+      _captured.env = { ...process.env };
+      return { taskId: "t", pass: true, checks: [], adapterName: null, traceRunId: null, deliverables: {} };
+    },
   };
 });
 
@@ -46,6 +53,7 @@ describe("SPEC-145 task run --executor caller dispatch", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     rmSync(testDir, { recursive: true, force: true });
+    _captured.env = undefined;
   });
 
   it("--executor caller + reachable posts to the caller create route and submits result", async () => {
@@ -76,6 +84,46 @@ describe("SPEC-145 task run --executor caller dispatch", () => {
     expect(calls.some((u) => u.includes("/executor-protocol/v1/attempts/a1/start"))).toBe(true);
     expect(calls.some((u) => u.includes("/executor-protocol/v1/attempts/a1/result"))).toBe(true);
     expect(code).toBe(0);
+  });
+
+  // Regression: this path set AGENT_TASK_TRACE_PROJECT, which nothing reads. The
+  // SDK gates tracing on AGENT_TASK_PROJECT, so caller runs silently fell back to
+  // noop tracing — no trace recorded, and a runtime that nests under a propagated
+  // traceparent opened its own unlinked root because no span was ever active. The
+  // equivalent local-path assertions existed; this path had none, which is how the
+  // two drifted apart.
+  it("threads the trace env the SDK actually reads", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/health")) return new Response("ok", { status: 200 });
+      if (url.includes("/agent-task-batch-runs/caller")) {
+        return mockResp({
+          batch_run_id: "b1", task_run_id: "r1", attempt_id: "a1", lease_generation: 1,
+          lease_expires_at: "2026-01-01T00:00:00Z", attempt_jwt: "jwt-1",
+          trace_endpoint: "http://backend.test/", trace_project: "proj-test",
+        }, 201);
+      }
+      if (url.includes("/attempts/a1/start")) return mockResp({ status: "running" });
+      if (url.includes("/attempts/a1/heartbeat")) return mockResp({ cancel_requested: false });
+      if (url.includes("/attempts/a1/result")) return mockResp({ status: "succeeded" });
+      return mockResp({}, 404);
+    });
+
+    const code = await run([
+      taskId, "--dir", testDir, "--backend", "http://backend.test",
+      "--project", "proj-test", "--api-key", "sk-apo-test", "--executor", "caller",
+    ]);
+
+    expect(code).toBe(0);
+    // The name the SDK reads (task-runtime.ts gates on endpoint && this).
+    expect(_captured.env?.AGENT_TASK_PROJECT).toBe("proj-test");
+    // A dead name must not come back and look like it is doing something.
+    expect(_captured.env?.AGENT_TASK_TRACE_PROJECT).toBeUndefined();
+    // Trailing slash trimmed so the SDK's appended OTLP path stays clean.
+    expect(_captured.env?.AGENT_TASK_TRACE_ENDPOINT).toBe("http://backend.test");
+    expect(_captured.env?.AGENT_TASK_RUN_ID).toBe("r1");
+    expect(_captured.env?.AGENT_TASK_TRACE_REQUIRED).toBe("true");
+    expect(_captured.env?.APO_AUTH_TOKEN).toBe("jwt-1");
   });
 
   it("--executor caller + unreachable backend exits 2 without recording", async () => {
