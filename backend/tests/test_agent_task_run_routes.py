@@ -91,7 +91,7 @@ def test_batch_list_projects_configuration_summary(
 
     response = client.get("/v1/agent-task-batch-runs", params={"project": "p"})
     assert response.status_code == 200
-    by_id = {b["id"]: b for b in response.json()}
+    by_id = {b["id"]: b for b in response.json()["data"]}
 
     uniform = by_id["batch-uniform"]["configuration"]
     assert uniform["state"] == "uniform"
@@ -255,7 +255,7 @@ def test_batch_run_list_filter_matches_only_when_one_child_satisfies_all_dimensi
         params={"project": "proj-filter", "model": "terra", "effort": "high"},
     )
     assert resp.status_code == 200
-    ids = {b["id"] for b in resp.json()}
+    ids = {b["id"] for b in resp.json()["data"]}
     # b-split has terra (s1) and high (s2) but no single child with terra+high.
     assert ids == {"b-real"}
 

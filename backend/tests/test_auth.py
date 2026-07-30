@@ -70,7 +70,9 @@ class TestHasUsers:
     def test_no_users(self, client: TestClient) -> None:
         resp = client.get("/auth/has-users")
         assert resp.status_code == 200
-        assert resp.json() == {"has_users": False}
+        # SPEC-153: the response also carries setup_available; assert has_users
+        # specifically rather than exact-equality on the whole payload.
+        assert resp.json()["has_users"] is False
 
     def test_with_users(self, client: TestClient) -> None:
         client.post(
@@ -79,7 +81,7 @@ class TestHasUsers:
         )
         resp = client.get("/auth/has-users")
         assert resp.status_code == 200
-        assert resp.json() == {"has_users": True}
+        assert resp.json()["has_users"] is True
 
 
 class TestSetup:

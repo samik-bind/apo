@@ -51,7 +51,10 @@ class TestSecurityHeaders:
 
     def test_headers_on_404_response(self, client: TestClient) -> None:
         """Security headers should be present on 404 responses."""
-        resp = client.get("/public/nonexistent")
+        # /auth/has-users is a public prefix, so this sub-path passes auth but
+        # has no registered route -> genuine 404 (the locked-down /public/*
+        # surface now 401s anonymous unknown paths instead).
+        resp = client.get("/auth/has-users/nonexistent")
         assert resp.status_code == 404
         assert resp.headers.get("x-content-type-options") == "nosniff"
         assert resp.headers.get("x-frame-options") == "DENY"

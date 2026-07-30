@@ -218,7 +218,11 @@ class TestBootstrapErrorHandling:
         ):
             bootstrap_initial_user(session)
 
+        # SPEC-153: bootstrap reads installation state first; a commit failure
+        # surfaces there and is swallowed (logged) rather than reaching the
+        # user-creation step. Either way it must not raise.
         assert any(
-            "Failed to create bootstrap user" in r.message
+            "Failed to read installation state" in r.message
+            or "Failed to create bootstrap user" in r.message
             for r in caplog.records
         )
