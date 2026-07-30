@@ -440,7 +440,7 @@ def list_runs(
         for r in runs
         if not calls_by_run.get(r.id) and r.call_count > 0 and metrics_by_run.get(r.id)
     ]
-    levels_by_run: dict[str, list[tuple[str | None, str]]] = {}
+    levels_by_run: dict[str, list[tuple[str, str]]] = {}
     if runs_needing_levels:
         levels_query = select(LoggedCallDB.level, LoggedCallDB.id, LoggedCallDB.run_id).where(
             LOGGED_CALL_RUN_ID_COL.in_(runs_needing_levels)
@@ -448,9 +448,10 @@ def list_runs(
         if project is not None:
             levels_query = levels_query.where(LOGGED_CALL_PROJECT_COL == project)
         level_rows = session.exec(levels_query).all()
-        for lvl, cid, rid in level_rows:
+        for row in level_rows:
+            rid = row[2]
             if rid is not None:
-                levels_by_run.setdefault(rid, []).append((lvl, cid))
+                levels_by_run.setdefault(rid, []).append((row[0], row[1]))
 
     preview_by_run = _fetch_io_previews(session, run_ids, project)
 
@@ -473,10 +474,10 @@ def list_runs(
                 elif c.level == "WARNING":
                     warning_count += 1
         elif run.call_count > 0:
-            for lvl, _ in levels_by_run.get(run.id, []):
-                if lvl == "ERROR":
+            for row in levels_by_run.get(run.id, []):
+                if row[0] == "ERROR":
                     error_count += 1
-                elif lvl == "WARNING":
+                elif row[0] == "WARNING":
                     warning_count += 1
 
         status = "error" if error_count > 0 else "warning" if warning_count > 0 else "success"
