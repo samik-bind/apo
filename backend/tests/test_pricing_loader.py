@@ -13,6 +13,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from apo.models.pricing import ModelRowDB, PriceDB, PricingTierDB
 from apo.models.usage_keys import UsageKey
+from apo.services.pricing.compute import compute_cost
 from apo.services.pricing.loader import DEFAULTS_PATH, load_default_prices
 
 NOW = datetime(2026, 7, 22, tzinfo=timezone.utc)
@@ -232,6 +233,35 @@ class TestBundledFile:
             for p in session.exec(select(PriceDB).where(PriceDB.tier_id == large.id)).all()
         }
         assert large_prices["input"] == 2_500_000  # $2.50/MTok -> 2_500_000 micro
+
+
+class TestBundledCurrentModels:
+    """Issue #76: bundled defaults must price current-generation models that
+    were arriving with ``cost_provenance='unpriced'``. Each must resolve to a
+    non-zero cost on typical per-dimension usage."""
+
+    def test_prices_current_anthropic_models(self, session: Session) -> None:
+        load_default_prices(session)
+        usage = {"input": 1_000_000, "cache_read": 1_000_000, "output": 1_000_000}
+        for name in ("claude-opus-5", "claude-opus-4-6"):
+            cost = compute_cost(session, name, usage, "__global__", NOW)
+            assert cost is not None, f"{name} should be priced, not unpriced"
+            assert cost.total > 0, f"{name} should produce a non-zero cost"
+
+    def test_prices_current_gemini_models_bare_and_prefixed(self, session: Session) -> None:
+        load_default_prices(session)
+        usage = {"input": 1_000_000, "output": 1_000_000}
+        # The bare names AND the OpenRouter-prefixed (google/...) forms must
+        # both resolve (issue #57 follow-up: prefix is stripped at compute time).
+        for name in (
+            "gemini-3.1-flash-lite-preview",
+            "google/gemini-3.1-flash-lite-preview",
+            "gemini-3.6-flash",
+            "google/gemini-3.6-flash",
+        ):
+            cost = compute_cost(session, name, usage, "__global__", NOW)
+            assert cost is not None, f"{name} should be priced, not unpriced"
+            assert cost.total > 0, f"{name} should produce a non-zero cost"
 
 
 class TestMultipleErasPerPattern:

@@ -54,6 +54,54 @@
       ]
     },
     {
+      "_doc": "Issue #76: current-generation Opus was arriving unpriced. Pattern allows a date suffix (e.g. claude-opus-4-6-20260701). Anthropic has kept Opus per-dimension pricing stable across the 4.5/4.6/5 generations; reuse the 4.5 rates until Google/Anthropic publish otherwise.",
+      "match_pattern": "(?i)^claude-opus-4-6.*$",
+      "provider": "anthropic",
+      "display_name": "Claude Opus 4.6",
+      "start_date": null,
+      "updated_at": "2026-07-30T00:00:00Z",
+      "last_reviewed": "2026-07",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 15.00,
+            "cache_read": 1.50,
+            "cache_write_5m": 18.75,
+            "cache_write_1h": 30.00,
+            "output": 75.00
+          }
+        }
+      ]
+    },
+    {
+      "_doc": "Issue #76: current-generation Opus was arriving unpriced. Pattern allows a date suffix.",
+      "match_pattern": "(?i)^claude-opus-5.*$",
+      "provider": "anthropic",
+      "display_name": "Claude Opus 5",
+      "start_date": null,
+      "updated_at": "2026-07-30T00:00:00Z",
+      "last_reviewed": "2026-07",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 15.00,
+            "cache_read": 1.50,
+            "cache_write_5m": 18.75,
+            "cache_write_1h": 30.00,
+            "output": 75.00
+          }
+        }
+      ]
+    },
+    {
       "_doc": "Cache-tiered model (golden shape #3, ticket 13 §5): exercises the cache_read / cache_write_5m / cache_write_1h distinct priced dimensions.",
       "match_pattern": "(?i)^claude-3[.-]5-sonnet.*$",
       "provider": "anthropic",
@@ -345,6 +393,50 @@
             "input": 0.10,
             "cache_read": 0.025,
             "output": 0.40
+          }
+        }
+      ]
+    },
+    {
+      "_doc": "Issue #76: Gemini 3.x flash-lite was arriving unpriced (also OpenRouter-prefixed as google/...). Flash-lite tier mirrors the 2.5-flash-lite rates; compute_cost strips the google/ slug before matching.",
+      "match_pattern": "(?i)^gemini-3\\.1-flash-lite.*$",
+      "provider": "gemini",
+      "display_name": "Gemini 3.1 Flash-Lite",
+      "start_date": null,
+      "updated_at": "2026-07-30T00:00:00Z",
+      "last_reviewed": "2026-07",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 0.10,
+            "cache_read": 0.025,
+            "output": 0.40
+          }
+        }
+      ]
+    },
+    {
+      "_doc": "Issue #76: Gemini 3.6 flash was arriving unpriced (also OpenRouter-prefixed as google/...). Flash tier mirrors the 2.5-flash rates.",
+      "match_pattern": "(?i)^gemini-3\\.6-flash.*$",
+      "provider": "gemini",
+      "display_name": "Gemini 3.6 Flash",
+      "start_date": null,
+      "updated_at": "2026-07-30T00:00:00Z",
+      "last_reviewed": "2026-07",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 0.075,
+            "cache_read": 0.01875,
+            "output": 0.30
           }
         }
       ]
