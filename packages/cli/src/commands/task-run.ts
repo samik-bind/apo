@@ -385,7 +385,13 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
 
   // 3. Thread only Task-scoped values to the child SDK (Attempt JWT, not API key).
   process.env.AGENT_TASK_TRACE_ENDPOINT = created.traceEndpoint.replace(/\/$/, "");
-  process.env.AGENT_TASK_TRACE_PROJECT = created.traceProject;
+  // AGENT_TASK_PROJECT is the name the SDK reads (task-runtime.ts gates tracing on
+  // endpoint && AGENT_TASK_PROJECT). This used to set AGENT_TASK_TRACE_PROJECT,
+  // which nothing reads, so caller execution fell through to noop tracing: no
+  // trace was recorded, and — because no OTel span was ever active — a runtime
+  // that nests under a propagated traceparent opened its own unlinked root
+  // instead. Silent, despite AGENT_TASK_TRACE_REQUIRED below.
+  process.env.AGENT_TASK_PROJECT = created.traceProject;
   process.env.AGENT_TASK_RUN_ID = created.taskRunId;
   process.env.AGENT_TASK_TRACE_REQUIRED = "true";
   process.env.APO_AUTH_TOKEN = created.lease.token;
