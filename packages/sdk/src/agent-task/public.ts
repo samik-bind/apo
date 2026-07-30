@@ -35,6 +35,7 @@ export { defineAdapter } from "./adapter/defineAdapter.ts";
 // single way to assert values via `t.check(value, matcher)`.
 export {
   defineCheck as test,
+  describe,
   resetFlowChecks,
   filePaths,
 } from "./checks/flow-runner.ts";
@@ -57,6 +58,8 @@ export {
 export type {
   CheckContext,
   TestRegistration,
+  CheckGroup,
+  DescribeRegistration,
 } from "./checks/flow-runner.ts";
 export {
   includes,

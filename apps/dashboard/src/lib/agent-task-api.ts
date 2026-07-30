@@ -171,6 +171,10 @@ export interface CheckResult {
   source_file?: string;
   /** Individual soft assertions recorded inside this check. */
   assertions?: CheckAssertionResult[];
+  /** SPEC-160: id of the describe() group this check was declared inside. */
+  group_id?: string;
+  /** SPEC-160: display name of the enclosing describe() group. */
+  group_name?: string;
 }
 
 export interface AgentTaskRunDetail extends AgentTaskRunSummary {

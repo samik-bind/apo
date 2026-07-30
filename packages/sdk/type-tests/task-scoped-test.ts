@@ -39,7 +39,17 @@ scope.test("report-title", (_t, { deliverables }) => {
   void deliverables.stats;
 });
 
-// @ts-expect-error A task scope exposes only test registration.
+// describe() groups checks but does not change deliverable typing: a test
+// inside describe still sees the task-scoped deliverables (SPEC-160).
+scope.describe("rules", () => {
+  scope.test("rule-0", (_t, { deliverables }) => {
+    deliverables.report.title.toUpperCase();
+    // @ts-expect-error stats was not selected by this task.
+    void deliverables.stats;
+  });
+});
+
+// @ts-expect-error A task scope exposes only test + describe registration.
 void scope.judge;
 
 task("invalid-task", {

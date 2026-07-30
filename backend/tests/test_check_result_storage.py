@@ -214,3 +214,75 @@ class TestMinimalFormKeepsCheckIdentity:
         # Well under the cap: full detail retained, nothing minimized.
         assert [entry["reasoning"] for entry in out] == ["r" * 100] * 3
         assert all("assertions" in entry for entry in out)
+
+
+class TestCheckGroupsSurviveStorage:
+    """SPEC-160: ``group_id``/``group_name`` on checks must survive the bounded
+    storage pipeline. A large run is exactly the case that needs grouping
+    (dozens of generated checks under one describe), so the group identity
+    must be retained even when the minimal-form shrink strips detail.
+    """
+
+    @staticmethod
+    def _grouped_checks(count: int, reasoning_size: int) -> list[dict[str, object]]:
+        """Checks carrying a describe() group, sized to exceed the cap."""
+        return [
+            {
+                "id": f"R-{i:03d}",
+                "pass": i % 2 == 0,
+                "reasoning": "r" * reasoning_size,
+                "evaluator_type": "code",
+                "source_file": "bind-template.eval.ts",
+                "group_id": "rules",
+                "group_name": "Rules — each comment becomes an anchored rule",
+            }
+            for i in range(count)
+        ]
+
+    def test_group_fields_pass_through_small_payloads(self):
+        checks = self._grouped_checks(3, 100)
+        out = normalize_checks_for_storage(checks)
+        assert len(out) == 3
+        for entry in out:
+            assert entry["group_id"] == "rules"
+            assert entry["group_name"].startswith("Rules —")
+
+    def test_group_identity_survives_the_minimal_form_shrink(self):
+        checks = self._grouped_checks(51, STRING_FIELD_LIMIT)
+        out = normalize_checks_for_storage(checks)
+
+        assert len(json.dumps(out).encode("utf-8")) <= TOTAL_CHECKS_LIMIT
+        # The shrink engaged — detail is gone.
+        assert all("reasoning" not in entry for entry in out)
+        assert out, "checks must not be dropped entirely at this size"
+        # ...but every surviving verdict keeps its group identity, so the
+        # dashboard can still nest these checks under "rules" after truncation.
+        for entry in out:
+            assert entry["group_id"] == "rules"
+            assert entry["group_name"].startswith("Rules —")
+
+    def test_ungrouped_checks_have_no_group_fields_after_shrink(self):
+        # Mixed: some grouped, some not. The minimal form keeps group_id only
+        # where the producer emitted it; it must not invent a group for bare
+        # checks.
+        grouped = self._grouped_checks(30, STRING_FIELD_LIMIT)
+        bare = [
+            {
+                "id": f"bare-{i}",
+                "pass": True,
+                "reasoning": "r" * STRING_FIELD_LIMIT,
+                "source_file": "bind-template.eval.ts",
+            }
+            for i in range(30)
+        ]
+        out = normalize_checks_for_storage(grouped + bare)
+
+        assert len(json.dumps(out).encode("utf-8")) <= TOTAL_CHECKS_LIMIT
+        grouped_entries = [e for e in out if "group_id" in e]
+        bare_entries = [e for e in out if "group_id" not in e]
+        assert grouped_entries, "grouped checks should retain group_id"
+        assert bare_entries, "bare checks should have no group_id"
+        for entry in grouped_entries:
+            assert entry["group_id"] == "rules"
+        for entry in bare_entries:
+            assert "group_id" not in entry

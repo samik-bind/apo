@@ -948,8 +948,14 @@ class ProjectTaskSourceDB(SQLModel, table=True):
 
     id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:16])
     project: str = Field(foreign_key="projects.id", index=True, unique=True)
-    source_type: str = Field(index=True)  # "git" | "filesystem" | "demo"
-    display_name: str
+    source_type: str = Field(index=True)  # "git" | "filesystem" | "demo" | "published"
+    display_name: str = ""
+
+    # SPEC-159: Task Catalog columns
+    catalog_digest: str | None = None
+    task_count: int | None = None
+    published_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
+    published_by_user_id: str | None = None
 
     repository_url: str | None = None
     git_ref: str | None = None

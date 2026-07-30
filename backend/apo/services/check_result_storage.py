@@ -149,7 +149,10 @@ def _strip_previews(entry: dict[str, object]) -> dict[str, object]:
 # check-source viewer has nothing to resolve, so it falls through its candidate
 # list and reports a 404 for a filename unrelated to the real problem. These are
 # small and bounded, so keeping them costs a few dozen bytes per check.
-_MINIMAL_FIELDS = ("id", "name", "source_file", "pass")
+# SPEC-160: ``group_id``/``group_name`` are kept so a large run (exactly the
+# case that needs grouping — dozens of generated checks under one describe)
+# still nests correctly after the minimal-form shrink.
+_MINIMAL_FIELDS = ("id", "name", "group_id", "group_name", "source_file", "pass")
 
 
 def _minimal(entry: dict[str, object]) -> dict[str, object]:

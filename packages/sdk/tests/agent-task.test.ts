@@ -302,8 +302,9 @@ describe("task", () => {
       deliverables: ["report"],
     });
 
-    expect(Object.keys(scope)).toEqual(["test"]);
+    expect(Object.keys(scope).sort()).toEqual(["describe", "test"]);
     expect(typeof scope.test).toBe("function");
+    expect(typeof scope.describe).toBe("function");
     resetTaskRegistry();
   });
 });

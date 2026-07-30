@@ -1046,15 +1046,40 @@ class ProjectTaskSource(SQLModel):
 
 
 class ProjectDetail(ProjectSummary):
-    """Project payload that also carries its task source, if configured.
-
-    ``task_source`` is ``None`` for fresh projects that have not yet been
-    wired up to a Git/filesystem/demo source. Project-scoped dashboard
-    pages branch on this to decide between setup UI and normal data.
-    """
+    """Project payload that also carries its task catalog, if published."""
 
     permissions: "ProjectPermissionSummary | None" = None
-    task_source: ProjectTaskSource | None = None
+    task_catalog: "TaskCatalog | None" = None
+
+
+# ============================================================================
+# Task Catalog (SPEC-159)
+# ============================================================================
+
+
+class PublishedTask(SQLModel):
+    task_id: str
+    display_name: str
+    task_path: str
+    folder_path: str = ""
+    adapter_name: str
+    has_checks: bool = False
+    has_user_simulator: bool = False
+    tags: list[str] = []
+
+
+class PublishTaskCatalogRequest(SQLModel):
+    schema_version: Literal[1] = 1
+    tasks: list[PublishedTask]
+
+
+class TaskCatalog(SQLModel):
+    project: str
+    schema_version: Literal[1] = 1
+    task_count: int
+    catalog_digest: str
+    published_at: datetime
+    execution_mode: Literal["caller", "bundled_demo"] = "caller"
 
 
 class ProjectPermissionSummary(SQLModel):

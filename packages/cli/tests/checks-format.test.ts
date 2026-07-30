@@ -290,6 +290,51 @@ describe("formatChecks", () => {
       expect(out).toContain("+ Received: 2");
     });
   });
+
+  describe("describe() groups", () => {
+    it("nests grouped checks under a roll-up header", () => {
+      const checks: CheckResult[] = [
+        { id: "R-0", pass: true, reasoning: "ok", group_id: "rules", group_name: "Rules" },
+        { id: "R-1", pass: false, reasoning: "bad", group_id: "rules", group_name: "Rules" },
+      ];
+      const out = stripAnsi(formatChecks(checks));
+
+      // Header carries the group name and a 1/2 tally.
+      expect(out).toContain("▾ Rules · 1/2");
+      // Both checks render under it.
+      expect(out).toContain("PASS R-0");
+      expect(out).toContain("FAIL R-1");
+    });
+
+    it("renders an all-passing group with a green tally", () => {
+      const checks: CheckResult[] = [
+        { id: "S-0", pass: true, reasoning: "", group_id: "safety", group_name: "Safety" },
+        { id: "S-1", pass: true, reasoning: "", group_id: "safety", group_name: "Safety" },
+      ];
+      const out = stripAnsi(formatChecks(checks));
+      expect(out).toContain("▾ Safety · 2/2");
+    });
+
+    it("leaves bare checks untouched and interleaves them with groups", () => {
+      const checks: CheckResult[] = [
+        { id: "bare", pass: true, reasoning: "ok" },
+        { id: "R-0", pass: true, reasoning: "", group_id: "rules", group_name: "Rules" },
+      ];
+      const out = stripAnsi(formatChecks(checks));
+      expect(out).toContain("PASS bare");
+      expect(out).toContain("▾ Rules · 1/1");
+      // Bare check appears before the group header (declaration order).
+      expect(out.indexOf("PASS bare")).toBeLessThan(out.indexOf("▾ Rules"));
+    });
+
+    it("defaults the group label to the id when no name is present", () => {
+      const checks: CheckResult[] = [
+        { id: "R-0", pass: true, reasoning: "", group_id: "rules" },
+      ];
+      const out = stripAnsi(formatChecks(checks));
+      expect(out).toContain("▾ rules · 1/1");
+    });
+  });
 });
 
 describe("NO_CHECKS_REGISTERED_MESSAGE", () => {

@@ -56,13 +56,39 @@ export type TestRegistration<TDeliverables = Record<string, unknown>> = (
   fn: CheckFn<TDeliverables>,
 ) => void;
 
-type RegisteredCheck = { id: string; fn: CheckFn };
+/**
+ * A registered `describe()` group — single-level, organizational only. See
+ * {@link describe}.
+ */
+export type CheckGroup = {
+  /** Stable, unique group id (kebab-case). Grouping key + React key. */
+  id: string;
+  /** Human-readable label shown in the dashboard. Defaults to the id. */
+  name: string;
+};
+
+/** Signature of the `describe` registration primitive. */
+export type DescribeRegistration = {
+  (id: string, fn: () => void): void;
+  (id: string, name: string, fn: () => void): void;
+};
+
+type RegisteredCheck = { id: string; fn: CheckFn; group_id?: string; group_name?: string };
 
 const REGISTRY_KEY = Symbol.for("@apo/sdk/agent-task/check-registry");
 const registryStore = globalThis as typeof globalThis & {
   [key: symbol]: unknown;
 };
 const registry = (registryStore[REGISTRY_KEY] ??= []) as RegisteredCheck[];
+
+// ── describe() group registry ────────────────────────────────────────────
+// Same Symbol.for globalThis pattern as the check registry so registrations
+// survive module re-imports. `currentGroupId` is the slot describe() pushes
+// while its callback runs; defineCheck reads it to stamp member checks.
+const GROUP_REGISTRY_KEY = Symbol.for("@apo/sdk/agent-task/group-registry");
+const groupRegistry = (registryStore[GROUP_REGISTRY_KEY] ??= []) as CheckGroup[];
+let currentGroupId: string | null = null;
+let currentGroupName: string | null = null;
 
 /** Register a check. The `fn` receives the assertion surface `t` and the output.
  *
@@ -81,11 +107,68 @@ export function defineCheck(id: string, fn: CheckFn): void {
   if (registry.some((c) => c.id === id)) {
     throw new Error(`Duplicate check id '${id}'`);
   }
-  registry.push({ id, fn });
+  registry.push({
+    id,
+    fn,
+    ...(currentGroupId ? { group_id: currentGroupId } : {}),
+    ...(currentGroupName ? { group_name: currentGroupName } : {}),
+  });
 }
 
 export function resetFlowChecks(): void {
   registry.length = 0;
+  groupRegistry.length = 0;
+  currentGroupId = null;
+  currentGroupName = null;
+}
+
+/**
+ * Register a single-level group of checks (SPEC-160). Runs `fn` synchronously;
+ * any `test()`/`defineCheck()` call inside it is stamped with the group's id
+ * and display name, so the dashboard can nest those checks under a collapsible
+ * header with a roll-up verdict.
+ *
+ * Groups are **organizational only** — they do not change execution order,
+ * concurrency, or the task verdict. Nesting is prohibited: calling `describe`
+ * inside a `describe` callback throws. Use sibling groups under one task
+ * instead.
+ *
+ * The `id` is stable (survives display-name edits); `name` is the human label
+ * shown in the dashboard and defaults to `id` when omitted.
+ *
+ * ```ts
+ * const { test, describe } = task("bind", { adapter, deliverables });
+ * describe("rules", "Rules — each comment becomes a rule", () => {
+ *   RULE_GOLD.forEach((g) => test(`R-${g.id} — …`, async (t, { deliverables }) => { … }));
+ * });
+ * ```
+ */
+export function describe(id: string, fn: () => void): void;
+export function describe(id: string, name: string, fn: () => void): void;
+export function describe(
+  id: string,
+  nameOrFn: string | (() => void),
+  fn?: () => void,
+): void {
+  const name = typeof nameOrFn === "string" ? nameOrFn : id;
+  const body = typeof nameOrFn === "string" ? fn! : nameOrFn;
+  if (currentGroupId !== null) {
+    throw new Error(
+      `describe("${id}") cannot nest inside describe("${currentGroupId}"); groups are single-level only.`,
+    );
+  }
+  if (groupRegistry.some((g) => g.id === id)) {
+    throw new Error(`Duplicate describe id '${id}'`);
+  }
+  groupRegistry.push({ id, name });
+  currentGroupId = id;
+  currentGroupName = name;
+  try {
+    body();
+  } finally {
+    currentGroupId = null;
+    currentGroupName = null;
+  }
 }
 
 /**
@@ -155,6 +238,8 @@ export async function runTraceChecks(args: {
         ...(rec.all.length > 0
           ? { assertions: rec.all.map((a) => ({ ...a })) }
           : {}),
+        ...(check.group_id ? { group_id: check.group_id } : {}),
+        ...(check.group_name ? { group_name: check.group_name } : {}),
         // SPEC-130 Track D: stamp the snapshot source so consumers can detect
         // the deprecated legacy-flow compatibility path (source="legacy-flow").
         ...(args.snapshot.source !== "canonical"

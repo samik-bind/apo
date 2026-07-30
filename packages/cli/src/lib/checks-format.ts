@@ -39,7 +39,53 @@ export const NO_CHECKS_REGISTERED_MESSAGE =
  * which fetches the content once instead of re-dumping it per check (#22).
  */
 export function formatChecks(checks: CheckResult[], verbose = false): string {
-  return checks.map((c) => formatCheck(c, verbose)).join("\n");
+  // SPEC-160: nest checks declared inside a describe() under a roll-up header.
+  // Bare checks (no group_id) render as before, so old output is unchanged.
+  const segments = groupChecks(checks);
+  const lines: string[] = [];
+  for (const segment of segments) {
+    if (segment.kind === "check") {
+      lines.push(formatCheck(segment.check, verbose));
+      continue;
+    }
+    const passed = segment.checks.filter((c) => c.pass === true).length;
+    const total = segment.checks.length;
+    const verdict = passed === total ? green(`${passed}/${total}`) : `${red(String(passed))}/${total}`;
+    lines.push(`  ${dim("▾")} ${segment.groupName} ${dim(`· ${verdict}`)}`);
+    for (const check of segment.checks) {
+      lines.push(formatCheck(check, verbose));
+    }
+  }
+  return lines.join("\n");
+}
+
+type CheckSegment =
+  | { kind: "check"; check: CheckResult }
+  | { kind: "group"; groupName: string; checks: CheckResult[] };
+
+/** Partition checks into bare + grouped segments in declaration order. */
+function groupChecks(checks: CheckResult[]): CheckSegment[] {
+  const segments: CheckSegment[] = [];
+  const index = new Map<string, number>();
+  for (const check of checks) {
+    const groupId = check.group_id;
+    if (!groupId) {
+      segments.push({ kind: "check", check });
+      continue;
+    }
+    const existing = index.get(groupId);
+    if (existing !== undefined) {
+      (segments[existing] as Extract<CheckSegment, { kind: "group" }>).checks.push(check);
+    } else {
+      index.set(groupId, segments.length);
+      segments.push({
+        kind: "group",
+        groupName: check.group_name ?? groupId,
+        checks: [check],
+      });
+    }
+  }
+  return segments;
 }
 
 function formatCheck(check: CheckResult, verbose: boolean): string {

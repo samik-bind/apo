@@ -6,6 +6,8 @@ import type {
 } from "../adapter/types.ts";
 import {
   defineCheck,
+  describe,
+  type DescribeRegistration,
   type TestRegistration,
 } from "../checks/flow-runner.ts";
 import type { TaskConfig, TaskDefinition } from "./types.ts";
@@ -57,6 +59,12 @@ export function defineTask<
 
 export type TaskScope<TDeliverables> = {
   test: TestRegistration<TDeliverables>;
+  /**
+   * Register a single-level group of checks (SPEC-160). See
+   * {@link describe} in `checks/flow-runner.ts`. Returned from `task()` so the
+   * `test` inside the callback stays task-scoped (typed deliverables).
+   */
+  describe: DescribeRegistration;
 };
 
 /**
@@ -127,6 +135,7 @@ export function task<
     test: defineCheck as TestRegistration<
       SelectedDeliverables<TCollected, TSelected>
     >,
+    describe: describe as DescribeRegistration,
   };
 }
 

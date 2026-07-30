@@ -150,6 +150,18 @@ export type EvaluationItemResult = {
    * projection-first results (the default).
    */
   source?: "canonical" | "local" | "legacy-flow";
+  /**
+   * SPEC-160: the id of the `describe()` group this check was declared
+   * inside. Absent for checks declared at the top level (no enclosing
+   * describe) and for old results. The dashboard groups checks by this field.
+   */
+  group_id?: string;
+  /**
+   * SPEC-160: the display name of the enclosing `describe()` group.
+   * Defaults to the group id when the group was declared without a name.
+   * Absent when {@link group_id} is absent.
+   */
+  group_name?: string;
 };
 
 export type TaskEvaluationResult = {

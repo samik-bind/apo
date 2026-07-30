@@ -101,6 +101,39 @@ export async function apiPost<T>(
   return (await response.json()) as T;
 }
 
+export async function apiPut<T>(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  config?: Config,
+): Promise<T> {
+  const url = resolveApiUrl(baseUrl, path);
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...authHeaders(config) },
+      body: JSON.stringify(body),
+      signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Request timed out after ${DEFAULT_TIMEOUT_MS / 1000}s — is the backend running at ${baseUrl}?`);
+    }
+    throw new Error(`Cannot connect to backend at ${baseUrl}`);
+  }
+
+  if (response.status === 401) {
+    throw new AuthError(authRequiredMessage());
+  }
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Backend error ${response.status}: ${text}`);
+  }
+
+  return (await response.json()) as T;
+}
+
 export async function apiPatch<T>(
   baseUrl: string,
   path: string,

@@ -148,6 +148,23 @@ const commands: Record<string, CommandEntry> = {
     ],
     note: "Uses backend (with --project) or scans --dir locally.",
   },
+  "task publish": {
+    handler: loadCommand("task-publish"),
+    help: "Publish task metadata to the Apo Task Catalog",
+    options: [
+      ["--dir <path>", "Task root directory (default: from config)"],
+      ["--project <id>", "Project to publish to (default: active project)"],
+      ["--dry-run", "Print the publication document without sending"],
+      ["--allow-empty", "Required to publish zero tasks (clears catalog)"],
+      ["--json", "Machine-readable output"],
+    ],
+    examples: [
+      "apo task publish",
+      "apo task publish --dry-run --json",
+      "apo task publish --dir ./tasks --project acme",
+    ],
+    note: "Scans local tasks and publishes bounded metadata only — no source files, prompts, or credentials leave your machine.",
+  },
   "task show": {
     handler: loadCommand("task-show"),
     help: "Show task details",

@@ -665,3 +665,41 @@ async def reset_project_data(
         keep_api_keys=True,
     )
     return {"ok": True, "deleted": deleted_counts}
+
+
+# ============================================================================
+# Task Catalog (SPEC-159)
+# ============================================================================
+
+
+@router.get("/{project_id}/task-catalog")
+def get_task_catalog(
+    project_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """Return the project's task catalog status, or null if unpublished."""
+    from ..services.task_catalog import get_catalog_status
+
+    return get_catalog_status(session, project_id)
+
+
+@router.put("/{project_id}/task-catalog")
+async def publish_task_catalog(
+    project_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """Replace the project's task catalog with a new publication."""
+    from ..services.task_catalog import publish_catalog, validate_catalog_request
+
+    body = await request.json()
+    tasks = body.get("tasks", [])
+
+    try:
+        normalized = validate_catalog_request(tasks)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    user_id = getattr(request.state, "user_id", None)
+    return publish_catalog(session, project_id, normalized, user_id=user_id)

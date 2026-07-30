@@ -152,6 +152,24 @@ def _enforce_single_task_trace(conn: Connection) -> None:
     )
 
 
+def _migrate_task_catalog_columns():
+    """SPEC-159: add Task Catalog columns to project_task_sources if absent."""
+    with engine.connect() as conn:
+        for col, coltype in [
+            ("catalog_digest", "TEXT"),
+            ("task_count", "INTEGER"),
+            ("published_at", "DATETIME"),
+            ("published_by_user_id", "TEXT"),
+        ]:
+            try:
+                conn.exec_driver_sql(
+                    f"ALTER TABLE project_task_sources ADD COLUMN {col} {coltype}"
+                )
+            except Exception:
+                pass  # Column already exists
+        conn.commit()
+
+
 def init_db():
     """
     Initialize database by creating all tables.
@@ -167,6 +185,7 @@ def init_db():
 
     SQLModel.metadata.create_all(engine)
     _run_migrations()
+    _migrate_task_catalog_columns()
     # SPEC-136 ticket 07: the bundled JSON is the sole source of truth for
     # __global__ pricing. Replaces the old seed_default_models call.
     from .services.pricing.loader import load_default_prices
