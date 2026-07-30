@@ -22,6 +22,11 @@ assertPublishedPort(rendered.services.caddy, 443, "tcp");
 assertPublishedPort(rendered.services.caddy, 443, "udp");
 assertLoopbackOnly(rendered.services.frontend, 3000);
 assertLoopbackOnly(rendered.services.backend, 8000);
+assertBindMount(
+  rendered.services.caddy,
+  "/etc/caddy/auth.fragment",
+  "deploy/self-host/auth.fragment",
+);
 
 const caddyfile = readFileSync("deploy/self-host/Caddyfile", "utf8");
 assert(caddyfile.includes("{$APO_CADDY_SITE_ADDRESS}"), "Caddy must use APO_CADDY_SITE_ADDRESS");
@@ -44,6 +49,17 @@ function assertLoopbackOnly(service, port) {
   const entries = service.ports?.filter((entry) => Number(entry.published) === port) ?? [];
   assert(entries.length === 1, `${service.name ?? "service"} must publish ${port} exactly once`);
   assert(entries[0].host_ip === "127.0.0.1", `${port} must bind only to 127.0.0.1`);
+}
+
+function assertBindMount(service, target, sourceSuffix) {
+  const found = service.volumes?.some(
+    (entry) =>
+      entry.type === "bind" &&
+      entry.target === target &&
+      entry.source.endsWith(sourceSuffix) &&
+      entry.read_only === true,
+  );
+  assert(found, `Caddy must mount ${sourceSuffix} read-only at ${target}`);
 }
 
 function assert(condition, message) {

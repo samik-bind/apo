@@ -41,6 +41,7 @@ services:
       - "443:443/udp"
     volumes:
       - ./deploy/self-host/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/self-host/auth.fragment:/etc/caddy/auth.fragment:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
