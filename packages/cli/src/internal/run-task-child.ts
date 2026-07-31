@@ -15,6 +15,7 @@
  */
 
 import { runTaskDir } from "@apo/sdk/agent-task";
+import { writeSync } from "node:fs";
 
 const taskDir = process.env.APO_CHILD_TASK_DIR;
 const resultFd = Number(process.env.APO_CHILD_RESULT_FD ?? "3");
@@ -31,9 +32,6 @@ interface ChildFailure {
 function writeResult(payload: ChildSuccess | ChildFailure): void {
   try {
     const line = JSON.stringify(payload) + "\n";
-    const { writeSync } = require("node:fs") as {
-      writeSync: (fd: number, data: string) => void;
-    };
     // fd 3 is inherited from the parent as a writable pipe; if it is missing
     // the parent will time out and report a runtime failure rather than trust stdout.
     writeSync(resultFd, line);
