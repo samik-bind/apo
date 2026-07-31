@@ -34,7 +34,7 @@ from apo.models.db import (
     ExecutorPoolDB,
     TaskExecutionAttemptDB,
 )
-from apo.models.execution import EXECUTOR_PROTOCOL_VERSION, ExecutorCapabilities
+from apo.models.execution import EXECUTOR_PROTOCOL_VERSION, SUPPORTED_EXECUTOR_PROTOCOL_VERSIONS, ExecutorCapabilities
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +206,7 @@ def _validate_enrollment_request(
             "capability_invalid",
             "executor name must be between 1 and 255 characters",
         )
-    if capabilities.protocol_version != EXECUTOR_PROTOCOL_VERSION:
+    if capabilities.protocol_version not in SUPPORTED_EXECUTOR_PROTOCOL_VERSIONS:
         raise EnrollmentError(
             "protocol_mismatch",
             "executor protocol version is not supported",

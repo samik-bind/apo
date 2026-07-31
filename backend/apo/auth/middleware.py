@@ -64,6 +64,9 @@ PUBLIC_PATHS: tuple[str, ...] = (
     # each handler via Depends. Keeping it out of the user/api-key auth path
     # isolates the protocol's own credential model.
     "/v1/executor-protocol/v1",
+    # SPEC-161: protocol v2 (source-owned connected executors) uses the same
+    # self-authenticating model with its own enrollment token and executor credential.
+    "/v1/executor-protocol/v2",
 )
 
 _COOKIE_NAMES = ("authjs.session-token", "__Secure-authjs.session-token")

@@ -108,6 +108,7 @@ __all__ = [
 # ============================================================================
 
 EXECUTOR_PROTOCOL_VERSION = 1
+SUPPORTED_EXECUTOR_PROTOCOL_VERSIONS = {1, 2}
 
 ExecutorPoolKind = Literal["bundled", "connected", "managed"]
 AttemptStatus = Literal[
