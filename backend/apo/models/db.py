@@ -398,6 +398,7 @@ class AgentTaskBatchRunDB(SQLModel, table=True):
     task_root: str | None = None
     grep: str | None = None
     environment: str = "default"
+    requested_by_user_id: str | None = Field(default=None, foreign_key="users.id", index=True)
     run_metadata: dict[str, object] | None = Field(
         default=None, sa_column=Column("run_metadata", JSON)
     )
@@ -1041,7 +1042,7 @@ class TaskRevisionDB(SQLModel, table=True):
     id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:16])
     project: str = Field(foreign_key="projects.id", index=True)
     batch_run_id: str = Field(
-        foreign_key="agent_task_batch_runs.id", index=True, unique=True
+        foreign_key="agent_task_batch_runs.id", index=True  # SPEC-161: uniqueness removed
     )
     materialization: str  # "attested" | "bundled"
     source_type: str
@@ -1090,6 +1091,7 @@ class ExecutorPoolDB(SQLModel, table=True):
     queue_ttl_seconds: int = 86_400
     required_driver_kind: str = "subprocess"
     created_by_user_id: str | None = Field(default=None, foreign_key="users.id")
+    system_managed: bool = Field(default=False, index=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(UTCDateTime, server_default=func.now()),
@@ -1122,6 +1124,7 @@ class ExecutorDB(SQLModel, table=True):
     credential_hash: str = Field(unique=True, index=True)
     protocol_version: int
     executor_version: str
+    enrolled_by_user_id: str | None = Field(default=None, foreign_key="users.id", index=True)
     driver_kinds_json: list[str] | None = Field(default=None, sa_column=Column(JSON))
     capabilities_json: dict[str, object] | None = Field(
         default=None, sa_column=Column(JSON)
@@ -1185,9 +1188,15 @@ class TaskExecutionAttemptDB(SQLModel, table=True):
     project: str = Field(foreign_key="projects.id", index=True)
     batch_run_id: str = Field(foreign_key="agent_task_batch_runs.id", index=True)
     task_run_id: str = Field(foreign_key="agent_task_runs.id", index=True)
-    task_revision_id: str = Field(foreign_key="task_revisions.id", index=True)
+    task_revision_id: str | None = Field(
+        default=None, foreign_key="task_revisions.id", index=True
+    )
     sequence_index: int
     target_kind: str = Field(index=True)  # caller | pool
+    assignment_kind: str = Field(default="bundled", index=True)  # SPEC-161: caller | bundled | source_owned
+    target_user_id: str | None = Field(
+        default=None, foreign_key="users.id", index=True
+    )
     executor_pool_id: str | None = Field(
         default=None, foreign_key="executor_pools.id", index=True
     )

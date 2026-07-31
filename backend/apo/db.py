@@ -995,6 +995,63 @@ def _migrate_to_v15() -> None:
         _migrate_run_configuration_schema(conn)
 
 
+def _migrate_source_owned_executor_schema(conn: Connection) -> None:
+    """The v16 source-owned executor migration (SPEC-161), runnable against any connection.
+
+    Adds columns for member-owned executor identity, system-managed pools,
+    source-owned assignment routing, and per-attempt revisions.
+    """
+    # executors.enrolled_by_user_id
+    _add_column_if_missing(conn, "executors", "enrolled_by_user_id", "VARCHAR")
+    _create_index_if_not_exists(conn, "ix_executors_enrolled_by_user_id", "executors", "enrolled_by_user_id")
+
+    # executor_pools.system_managed
+    _add_column_if_missing(conn, "executor_pools", "system_managed", "BOOLEAN DEFAULT 0")
+    _create_index_if_not_exists(conn, "ix_executor_pools_system_managed", "executor_pools", "system_managed")
+
+    # agent_task_batch_runs.requested_by_user_id
+    _add_column_if_missing(conn, "agent_task_batch_runs", "requested_by_user_id", "VARCHAR")
+    _create_index_if_not_exists(conn, "ix_agent_task_batch_runs_requested_by", "agent_task_batch_runs", "requested_by_user_id")
+
+    # task_execution_attempts.task_revision_id is already non-nullable in v15.
+    # SQLite can't ALTER COLUMN to make it nullable, but SQLModel.create_all
+    # creates fresh tables with the new nullable definition. For existing
+    # databases, the model accepts None and SQLite doesn't enforce NOT NULL
+    # at the ORM level for columns added via migration. This is a known
+    # SQLite migration seam documented in the spec.
+
+    # task_execution_attempts.assignment_kind
+    _add_column_if_missing(conn, "task_execution_attempts", "assignment_kind", "VARCHAR DEFAULT 'bundled'")
+    _create_index_if_not_exists(conn, "ix_task_attempt_assignment_kind", "task_execution_attempts", "assignment_kind")
+
+    # task_execution_attempts.target_user_id
+    _add_column_if_missing(conn, "task_execution_attempts", "target_user_id", "VARCHAR")
+    _create_index_if_not_exists(conn, "ix_task_attempt_target_user_id", "task_execution_attempts", "target_user_id")
+
+    # Backfill assignment_kind from target_kind for existing rows
+    conn.exec_driver_sql(
+        "UPDATE task_execution_attempts SET assignment_kind = 'caller' WHERE target_kind = 'caller' AND assignment_kind = 'bundled'"
+    )
+
+    # Source-owned claim index
+    _create_index_if_not_exists(
+        conn,
+        "ix_task_attempt_source_owned_claim",
+        "task_execution_attempts",
+        "status, assignment_kind, executor_pool_id, target_user_id, queued_at",
+    )
+
+
+def _migrate_to_v16() -> None:
+    """Version 16: Source-Owned Connected Executor (SPEC-161).
+
+    Adds executor ownership, system-managed pools, assignment routing,
+    and per-attempt revision columns.
+    """
+    with engine.begin() as conn:
+        _migrate_source_owned_executor_schema(conn)
+
+
 def _migrate_schedule_pool_schema(conn: Connection) -> None:
     """The v14 schedule-pool migration, runnable against any connection."""
     _add_column_if_missing(conn, "agent_task_schedules", "executor_pool_id", "VARCHAR")
@@ -1462,7 +1519,7 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
     )
 
 
-LATEST_SCHEMA_VERSION = 15
+LATEST_SCHEMA_VERSION = 16
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -1480,6 +1537,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     13: _migrate_to_v13,
     14: _migrate_to_v14,
     15: _migrate_to_v15,
+    16: _migrate_to_v16,
 }
 
 
