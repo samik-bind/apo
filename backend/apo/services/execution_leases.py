@@ -32,6 +32,7 @@ from apo.db_helpers import _as_column
 from apo.models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
+    AgentTaskScheduleDB,
     ExecutorDB,
     TaskExecutionAttemptDB,
 )
@@ -308,6 +309,9 @@ def start_attempt(
     session.add(attempt)
     session.add(task_run)
     session.add(batch)
+    # SPEC-163: the first /start promotes a pending Schedule Occurrence to
+    # delivered — from here its outcome belongs to the Batch, not availability.
+    _mark_schedule_occurrence_delivered(session, attempt)
     session.commit()
     session.refresh(attempt)
     from apo.services.run_events import emit_task_run_event
@@ -483,6 +487,9 @@ def _finalize_logical_run(
     from apo.services.run_events import emit_batch_run_event, emit_task_run_event
 
     update_batch_run_status(session, batch)
+    # SPEC-163: resolve the pending Schedule Occurrence when the Batch reaches
+    # a terminal state through recovery/cancellation.
+    _resolve_schedule_occurrence_if_terminal(session, batch)
     emit_task_run_event(attempt.project, task_run)
     if batch.status in ("completed", "error"):
         task_runs = list(
@@ -493,6 +500,79 @@ def _finalize_logical_run(
             ).all()
         )
         emit_batch_run_event(attempt.project, batch, task_runs)
+
+
+def _mark_schedule_occurrence_delivered(
+    session: Session, attempt: TaskExecutionAttemptDB
+) -> None:
+    """SPEC-163: promote a pending Schedule Occurrence to delivered on /start."""
+    from apo.services.schedule_occurrences import mark_occurrence_delivered_on_start
+
+    mark_occurrence_delivered_on_start(
+        session, batch_run_id=attempt.batch_run_id, now=_now()
+    )
+
+
+def _resolve_schedule_occurrence_if_terminal(
+    session: Session, batch: AgentTaskBatchRunDB
+) -> None:
+    """SPEC-163 hook shared by finalization and recovery."""
+    if batch.status not in ("completed", "error", "cancelled"):
+        return
+    from apo.services.schedule_occurrences import resolve_occurrence_on_terminal_batch
+
+    resolve_occurrence_on_terminal_batch(session, batch=batch, now=_now())
+
+
+def cancel_active_batch_on_pause(
+    session: Session,
+    *,
+    schedule: AgentTaskScheduleDB,
+    now: datetime,
+) -> bool:
+    """SPEC-163 pause/delete: cancel the active Batch iff no Task code started.
+
+    Returns True when the Batch was cancelled (pre-start). If any Attempt
+    started, the whole Batch is left intact to finish; only the active pointer
+    is cleared once normal finalization makes it terminal. Lives here (not in
+    ``schedule_occurrences``) to avoid a circular import with ``request_cancellation``.
+    """
+    if schedule.active_batch_run_id is None:
+        return False
+    batch = session.get(AgentTaskBatchRunDB, schedule.active_batch_run_id)
+    if batch is None:
+        schedule.active_batch_run_id = None
+        session.add(schedule)
+        return False
+    if _attempt_started_for_batch(session, batch.id):
+        return False
+
+    from apo.services.schedule_occurrences import mark_occurrence_cancelled_for_batch
+
+    # Mark the Occurrence cancelled + clear the pointer BEFORE requesting
+    # cancellation so the shared finalization hook sees a non-pending Occurrence.
+    mark_occurrence_cancelled_for_batch(session, batch_run_id=batch.id, now=now)
+    schedule.active_batch_run_id = None
+    session.add(schedule)
+    session.flush()
+    attempts = session.exec(
+        select(TaskExecutionAttemptDB).where(
+            TaskExecutionAttemptDB.batch_run_id == batch.id
+        )
+    ).all()
+    for attempt in attempts:
+        request_cancellation(session, attempt_id=attempt.id)
+    return True
+
+
+def _attempt_started_for_batch(session: Session, batch_run_id: str) -> bool:
+    row = session.exec(
+        select(TaskExecutionAttemptDB.id).where(
+            TaskExecutionAttemptDB.batch_run_id == batch_run_id,
+            _as_column(TaskExecutionAttemptDB.started_at).is_not(None),
+        ).limit(1)
+    ).first()
+    return row is not None
 
 
 __all__ = [
@@ -511,6 +591,7 @@ __all__ = [
     "SUCCEEDED",
     "TERMINAL_STATUSES",
     "claim_next_attempt",
+    "cancel_active_batch_on_pause",
     "fail_attempt",
     "heartbeat_attempt",
     "recover_expired_attempts",

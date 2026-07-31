@@ -825,6 +825,36 @@ class ScheduleLastBatchSummary(SQLModel):
     failure_breakdown: list[FailureBreakdownItem] = Field(default_factory=list)
 
 
+#: SPEC-163: typed catalog selection stored on a source-owned Schedule's
+#: ``selection_query``. ``kind`` discriminates exact IDs, a folder, or all.
+ScheduleOccurrenceStatus = Literal["pending", "delivered", "missed", "cancelled"]
+OccurrenceMissedReason = Literal[
+    "previous_occurrence_active",
+    "executor_unavailable",
+    "catalog_changed",
+    "selection_empty",
+]
+
+
+class ScheduleExecutionOwnerSummary(SQLModel):
+    """The fixed User whose Connected Executors run a source-owned Schedule."""
+
+    id: str
+    name: str
+
+
+class ScheduleOccurrenceSummary(SQLModel):
+    """One due Schedule time: owns a Batch or is recorded as missed."""
+
+    id: str
+    kind: Literal["scheduled", "manual"]
+    scheduled_for: datetime
+    status: ScheduleOccurrenceStatus
+    batch_run_id: str | None = None
+    missed_reason: OccurrenceMissedReason | None = None
+    resolved_at: datetime | None = None
+
+
 class AgentTaskScheduleSummary(SQLModel):
     id: str
     project: str
@@ -853,6 +883,13 @@ class AgentTaskScheduleSummary(SQLModel):
     updated_at: datetime
     last_batch: ScheduleLastBatchSummary | None = None
     consecutive_failures: int = 0
+    # SPEC-163: source-owned scheduled delivery projection.
+    execution_kind: Literal["source_owned", "bundled"] = "bundled"
+    execution_owner: ScheduleExecutionOwnerSummary | None = None
+    connected_environment_state: str | None = None
+    active_batch_run_id: str | None = None
+    latest_occurrence: ScheduleOccurrenceSummary | None = None
+    missed_occurrences: int = 0
 
 
 class AgentTaskScheduleDetail(AgentTaskScheduleSummary):
@@ -873,9 +910,14 @@ class AdaptiveTaskStateSummary(SQLModel):
 
 
 class CreateAgentTaskScheduleRequest(SQLModel):
+    model_config = {"extra": "forbid"}
     project: str
     name: str
     selection_type: str = "tasks"
+    # SPEC-163: typed catalog selection for source-owned schedules. When
+    # present, the authenticated admin becomes the fixed Execution Owner and
+    # the Schedule is ``source_owned`` (no Pool/path/root/grep accepted).
+    selection: dict[str, object] | None = None
     task_paths: list[str] = Field(default_factory=list)
     task_root: str | None = None
     grep: str | None = None
@@ -892,6 +934,15 @@ class CreateAgentTaskScheduleRequest(SQLModel):
     run_metadata: dict[str, object] | None = None
     executor_pool_id: str | None = None
     queue_ttl_seconds: int = 86_400
+
+
+class TriggerScheduleResponse(SQLModel):
+    """SPEC-163 Run Now result: the active Batch (existing or newly created)."""
+
+    batch_run_id: str | None
+    occurrence_id: str | None
+    created: bool
+    schedule: AgentTaskScheduleSummary
 
 
 class UpdateAgentTaskScheduleRequest(SQLModel):

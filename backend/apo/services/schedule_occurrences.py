@@ -174,6 +174,22 @@ def resolve_occurrence_on_terminal_batch(
         occurrence.status = "delivered"
     occurrence.resolved_at = now
     session.add(occurrence)
+    session.flush()
+
+
+def mark_occurrence_cancelled_for_batch(
+    session: Session,
+    *,
+    batch_run_id: str,
+    now: datetime,
+) -> None:
+    """Mark a pending Occurrence cancelled (used by pause/delete in execution_leases)."""
+    occurrence = _occurrence_for_batch(session, batch_run_id)
+    if occurrence is not None and occurrence.status == "pending":
+        occurrence.status = "cancelled"
+        occurrence.resolved_at = now
+        session.add(occurrence)
+        session.flush()
 
 
 def mark_occurrence_delivered_on_start(
@@ -189,6 +205,7 @@ def mark_occurrence_delivered_on_start(
     occurrence.status = "delivered"
     occurrence.resolved_at = now
     session.add(occurrence)
+    session.flush()
 
 
 def schedule_connected_environment_state(
@@ -504,6 +521,7 @@ __all__ = [
     "OccurrenceDeliveryResult",
     "SCHEDULE_QUEUE_DEADLINE_SECONDS",
     "deliver_due_occurrence",
+    "mark_occurrence_cancelled_for_batch",
     "mark_occurrence_delivered_on_start",
     "owner_is_project_member",
     "resolve_occurrence_on_terminal_batch",

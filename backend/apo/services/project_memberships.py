@@ -17,7 +17,7 @@ from typing import Final
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from ..models.db import ProjectDB, ProjectMembershipDB, UserDB
+from ..models.db import AgentTaskScheduleDB, ProjectDB, ProjectMembershipDB, UserDB
 from ..models.schemas import (
     ProjectMemberSummary,
     ProjectPermissionSummary,
@@ -510,9 +510,34 @@ def remove_member(
             detail="Cannot remove the last owner of a project",
         )
 
+    # SPEC-163: a User leaving the Project can no longer run their schedules'
+    # source-owned work, so pause theirs rather than silently retargeting it.
+    _pause_source_owned_schedules_for_user(session, project_id=project_id, user_id=user_id)
+
     session.delete(membership)
     session.commit()
     _ = actor_id
+
+
+def _pause_source_owned_schedules_for_user(
+    session: Session, *, project_id: str, user_id: str
+) -> None:
+    """SPEC-163: hard-pause source-owned schedules whose owner left the Project."""
+    schedules = session.exec(
+        select(AgentTaskScheduleDB).where(
+            AgentTaskScheduleDB.project == project_id,
+            AgentTaskScheduleDB.execution_kind == "source_owned",
+            AgentTaskScheduleDB.execution_owner_user_id == user_id,
+        )
+    ).all()
+    if not schedules:
+        return
+    for schedule in schedules:
+        schedule.enabled = False
+        schedule.disabled_reason = "execution_owner_unavailable"
+        schedule.next_run_at = None
+        session.add(schedule)
+    session.flush()
 
 
 # ---------------------------------------------------------------------------

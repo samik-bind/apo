@@ -5,7 +5,7 @@ Agent task schedule API endpoints.
 # pyright: reportCallInDefaultInitializer=false
 
 from datetime import datetime, timezone
-from typing import cast
+from typing import Literal, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -21,6 +21,9 @@ from ..models import (
     AgentTaskScheduleDetail,
     AgentTaskScheduleSummary,
     CreateAgentTaskScheduleRequest,
+    ScheduleExecutionOwnerSummary,
+    ScheduleOccurrenceSummary,
+    TriggerScheduleResponse,
     UpdateAgentTaskScheduleRequest,
 )
 from ..models.schemas import ScheduleLastBatchSummary
@@ -124,6 +127,84 @@ def _format_schedule(
         updated_at=schedule.updated_at,
         last_batch=last_batch,
         consecutive_failures=consecutive_failures,
+        execution_kind=cast("Literal['source_owned', 'bundled']", schedule.execution_kind),
+        execution_owner=_execution_owner_summary(session, schedule),
+        connected_environment_state=_connected_environment_state(session, schedule),
+        active_batch_run_id=schedule.active_batch_run_id,
+        latest_occurrence=_latest_occurrence(session, schedule),
+        missed_occurrences=_missed_occurrence_count(session, schedule),
+    )
+
+
+def _execution_owner_summary(
+    session: Session | None, schedule: AgentTaskScheduleDB
+) -> ScheduleExecutionOwnerSummary | None:
+    if not schedule.execution_owner_user_id or session is None:
+        return None
+    from apo.models.db import UserDB
+
+    user = session.get(UserDB, schedule.execution_owner_user_id)
+    if user is None:
+        return None
+    return ScheduleExecutionOwnerSummary(id=user.id, name=user.name)
+
+
+def _connected_environment_state(
+    session: Session | None, schedule: AgentTaskScheduleDB
+) -> str | None:
+    if schedule.execution_kind != "source_owned" or session is None:
+        return None
+    if not schedule.execution_owner_user_id:
+        return None
+    from apo.services.schedule_occurrences import schedule_connected_environment_state
+
+    state = schedule_connected_environment_state(session, schedule=schedule)
+    return str(state) if state is not None else None
+
+
+def _latest_occurrence(
+    session: Session | None, schedule: AgentTaskScheduleDB
+) -> ScheduleOccurrenceSummary | None:
+    if session is None:
+        return None
+    from apo.models.db import AgentTaskScheduleOccurrenceDB
+
+    occ = session.exec(
+        select(AgentTaskScheduleOccurrenceDB)
+        .where(AgentTaskScheduleOccurrenceDB.schedule_id == schedule.id)
+        .order_by(desc(as_column(cast(object, AgentTaskScheduleOccurrenceDB.scheduled_for))))
+        .limit(1)
+    ).first()
+    if occ is None:
+        return None
+    return ScheduleOccurrenceSummary(
+        id=occ.id,
+        kind=cast("Literal['scheduled', 'manual']", occ.kind),
+        scheduled_for=occ.scheduled_for,
+        status=cast("Literal['pending', 'delivered', 'missed', 'cancelled']", occ.status),
+        batch_run_id=occ.batch_run_id,
+        missed_reason=cast(
+            "Literal['previous_occurrence_active', 'executor_unavailable', 'catalog_changed', 'selection_empty'] | None",
+            occ.missed_reason,
+        ),
+        resolved_at=occ.resolved_at,
+    )
+
+
+def _missed_occurrence_count(
+    session: Session | None, schedule: AgentTaskScheduleDB
+) -> int:
+    if session is None:
+        return 0
+    from apo.models.db import AgentTaskScheduleOccurrenceDB
+
+    return len(
+        session.exec(
+            select(AgentTaskScheduleOccurrenceDB).where(
+                AgentTaskScheduleOccurrenceDB.schedule_id == schedule.id,
+                AgentTaskScheduleOccurrenceDB.status == "missed",
+            )
+        ).all()
     )
 
 
@@ -203,9 +284,18 @@ async def create_agent_task_schedule(
 ):
     require_project_not_demo(request.project)
     # SPEC-122: schedule creation requires project admin role.
-    _ = enforce_project_role_from_request(
+    membership = enforce_project_role_from_request(
         http_request, session, request.project, minimum_role="admin"
     )
+
+    # SPEC-163: a typed catalog ``selection`` creates a source-owned Schedule
+    # bound to the authenticated admin as fixed Execution Owner. Legacy
+    # bundled schedules keep the Pool/path path when ``selection`` is absent.
+    if request.selection is not None:
+        return _create_source_owned_schedule(
+            session, request=request, http_request=http_request, membership=membership
+        )
+
     try:
         validate_schedule_fields(
             selection_type=request.selection_type,
@@ -316,6 +406,123 @@ def _schedule_source_ref(source: object) -> str | None:
     return None
 
 
+def _create_source_owned_schedule(
+    session: Session,
+    *,
+    request: CreateAgentTaskScheduleRequest,
+    http_request: Request,
+    membership: object,
+) -> AgentTaskScheduleDetail:
+    """SPEC-163: persist a source-owned Schedule owned by the authed admin.
+
+    The request may not carry an execution owner, Pool, Executor, task root,
+    path, or grep. Selection is a typed catalog selector validated at dispatch.
+    """
+    if request.task_paths or request.task_root or request.grep or request.executor_pool_id:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "kind": "schedule_selection_invalid",
+                "msg": "source-owned schedules accept a catalog selection only",
+            },
+        )
+    selection = _validate_selection(cast(dict[str, object], request.selection))
+    acting_user_id = cast(str | None, getattr(http_request.state, "user_id", None))
+    owner_id = cast("str | None", getattr(membership, "user_id", None))
+    if not acting_user_id or not owner_id or str(acting_user_id) != str(owner_id):
+        raise HTTPException(
+            status_code=401,
+            detail="source-owned schedules require an authenticated project admin",
+        )
+    try:
+        validate_schedule_fields(
+            selection_type="tasks",
+            cadence_type=request.cadence_type,
+            timezone_name=request.timezone,
+            hour=request.hour,
+            minute=request.minute,
+            day_of_week=request.day_of_week,
+            day_of_month=request.day_of_month,
+            min_interval_days=request.min_interval_days,
+            max_interval_days=request.max_interval_days,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    now = datetime.now(timezone.utc)
+    schedule = AgentTaskScheduleDB(
+        id=uuid4().hex[:16],
+        project=request.project,
+        name=request.name,
+        selection_type="tasks",
+        selection_query=selection,
+        environment=request.environment,
+        cadence_type=request.cadence_type,
+        timezone=request.timezone,
+        hour=request.hour,
+        minute=request.minute,
+        day_of_week=request.day_of_week,
+        day_of_month=request.day_of_month,
+        min_interval_days=request.min_interval_days,
+        max_interval_days=request.max_interval_days,
+        enabled=request.enabled,
+        execution_kind="source_owned",
+        execution_owner_user_id=str(owner_id),
+        run_metadata=request.run_metadata,
+        next_run_at=compute_next_run_at(
+            cadence_type=request.cadence_type,
+            timezone_name=request.timezone,
+            hour=request.hour,
+            minute=request.minute,
+            day_of_week=request.day_of_week,
+            day_of_month=request.day_of_month,
+            from_time=now,
+            min_interval_days=request.min_interval_days,
+        )
+        if request.enabled
+        else None,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(schedule)
+    session.commit()
+    session.refresh(schedule)
+    return _format_schedule_detail(schedule, session)
+
+
+def _validate_selection(raw: dict[str, object]) -> dict[str, object]:
+    """Validate and normalize a typed catalog selection dict."""
+    kind = raw.get("kind")
+    if kind == "tasks":
+        raw_ids = raw.get("task_ids")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise HTTPException(
+                status_code=422,
+                detail={"kind": "schedule_selection_invalid", "msg": "task_ids required"},
+            )
+        ids = [x for x in cast(list[object], raw_ids) if isinstance(x, str)]
+        if not ids or len(ids) != len(raw_ids) or len(set(ids)) != len(ids):
+            raise HTTPException(
+                status_code=422,
+                detail={"kind": "schedule_selection_invalid", "msg": "duplicate/empty task_ids"},
+            )
+        return {"kind": "tasks", "task_ids": ids}
+    if kind == "folder":
+        folder_id = raw.get("folder_id")
+        if not isinstance(folder_id, str) or not folder_id:
+            raise HTTPException(
+                status_code=422,
+                detail={"kind": "schedule_selection_invalid", "msg": "folder_id required"},
+            )
+        return {"kind": "folder", "folder_id": folder_id}
+    if kind == "all":
+        return {"kind": "all"}
+    raise HTTPException(
+        status_code=422,
+        detail={"kind": "schedule_selection_invalid", "msg": "unknown selection kind"},
+    )
+
+
 @router.patch("/agent-task-schedules/{schedule_id}", response_model=AgentTaskScheduleDetail)
 async def update_agent_task_schedule(
     schedule_id: str,
@@ -362,6 +569,14 @@ async def update_agent_task_schedule(
     if request.max_interval_days is not None:
         schedule.max_interval_days = request.max_interval_days
     if request.enabled is not None:
+        # SPEC-163: pausing a source-owned Schedule cancels its never-started
+        # active Batch; started work is left intact to finish.
+        if schedule.execution_kind == "source_owned" and not request.enabled and schedule.enabled:
+            from apo.services.execution_leases import cancel_active_batch_on_pause
+
+            _cancelled_on_pause = cancel_active_batch_on_pause(
+                session, schedule=schedule, now=datetime.now(timezone.utc)
+            )
         schedule.enabled = request.enabled
     if request.run_metadata is not None:
         schedule.run_metadata = request.run_metadata
@@ -449,6 +664,12 @@ async def trigger_schedule(
         http_request, session, schedule.project, minimum_role="admin"
     )
 
+    # SPEC-163: source-owned Run Now delivers a manual Occurrence (or returns
+    # the active Batch) without shifting the cadence. Legacy bundled keeps
+    # the pooled create-and-trigger path.
+    if schedule.execution_kind == "source_owned":
+        return _trigger_source_owned_schedule(session, schedule=schedule)
+
     now = datetime.now(timezone.utc)
 
     task_paths = None
@@ -522,6 +743,128 @@ async def trigger_schedule(
         "ok": True,
         "batch_run_id": batch.id,
         "schedule": _format_schedule(schedule, session),
+    }
+
+
+def _trigger_source_owned_schedule(
+    session: Session, *, schedule: AgentTaskScheduleDB
+) -> TriggerScheduleResponse:
+    """SPEC-163 Run Now: return active work or create one manual Occurrence.
+
+    Idempotent: if a non-terminal Batch already exists, return it with
+    ``created=False``. Otherwise deliver a manual Occurrence targeted to the
+    fixed Execution Owner. The cadence is never shifted by Run Now.
+    """
+    from apo.models.db import AgentTaskScheduleOccurrenceDB
+    from apo.services.schedule_occurrences import deliver_due_occurrence
+
+    # Hard-disabled states must be repaired before Run Now.
+    if schedule.disabled_reason in (
+        "execution_owner_unavailable",
+        "catalog_changed",
+        "selection_empty",
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={"kind": schedule.disabled_reason, "msg": "schedule is hard-paused"},
+        )
+
+    active_batch_id = schedule.active_batch_run_id
+    if active_batch_id:
+        active = session.get(AgentTaskBatchRunDB, active_batch_id)
+        if active is not None and active.status not in ("completed", "error", "cancelled"):
+            occ = session.exec(
+                select(AgentTaskScheduleOccurrenceDB).where(
+                    AgentTaskScheduleOccurrenceDB.batch_run_id == active_batch_id
+                )
+            ).first()
+            return TriggerScheduleResponse(
+                batch_run_id=active.id,
+                occurrence_id=occ.id if occ is not None else None,
+                created=False,
+                schedule=_format_schedule(schedule, session),
+            )
+
+    now = datetime.now(timezone.utc)
+    # Run Now uses the current time as the manual Occurrence's scheduled_for.
+    schedule.next_run_at = now
+    session.add(schedule)
+    session.flush()
+    result = deliver_due_occurrence(session, schedule=schedule, now=now, kind="manual")
+    # Run Now must not shift the normal cadence: restore next_run_at.
+    schedule.next_run_at = _cadence_next_run(schedule, from_time=now)
+    schedule.last_triggered_at = now
+    if result.batch_run_id:
+        schedule.last_batch_run_id = result.batch_run_id
+    session.add(schedule)
+    session.commit()
+    session.refresh(schedule)
+    return TriggerScheduleResponse(
+        batch_run_id=result.batch_run_id,
+        occurrence_id=result.occurrence_id,
+        created=result.created,
+        schedule=_format_schedule(schedule, session),
+    )
+
+
+def _cadence_next_run(schedule: AgentTaskScheduleDB, *, from_time: datetime) -> datetime | None:
+    if not schedule.enabled:
+        return None
+    return compute_next_run_at(
+        cadence_type=schedule.cadence_type,
+        timezone_name=schedule.timezone,
+        hour=schedule.hour,
+        minute=schedule.minute,
+        day_of_week=schedule.day_of_week,
+        day_of_month=schedule.day_of_month,
+        from_time=from_time,
+        min_interval_days=schedule.min_interval_days,
+    )
+
+
+@router.get(
+    "/agent-task-schedules/{schedule_id}/occurrences",
+    response_model=dict,
+)
+async def list_schedule_occurrences(
+    schedule_id: str,
+    http_request: Request,
+    session: Session = Depends(get_session),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """SPEC-163: bounded newest-first Occurrence history (Project members)."""
+    from apo.models.db import AgentTaskScheduleOccurrenceDB
+
+    schedule = session.get(AgentTaskScheduleDB, schedule_id)
+    if schedule is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    _ = enforce_project_role_from_request(
+        http_request, session, schedule.project, minimum_role="member"
+    )
+    rows = session.exec(
+        select(AgentTaskScheduleOccurrenceDB)
+        .where(AgentTaskScheduleOccurrenceDB.schedule_id == schedule_id)
+        .order_by(desc(as_column(cast(object, AgentTaskScheduleOccurrenceDB.scheduled_for))))
+        .limit(limit)
+    ).all()
+    return {
+        "occurrences": [
+            ScheduleOccurrenceSummary(
+                id=row.id,
+                kind=cast("Literal['scheduled', 'manual']", row.kind),
+                scheduled_for=row.scheduled_for,
+                status=cast(
+                    "Literal['pending', 'delivered', 'missed', 'cancelled']", row.status
+                ),
+                batch_run_id=row.batch_run_id,
+                missed_reason=cast(
+                    "Literal['previous_occurrence_active', 'executor_unavailable', 'catalog_changed', 'selection_empty'] | None",
+                    row.missed_reason,
+                ),
+                resolved_at=row.resolved_at,
+            ).model_dump(mode="json")
+            for row in rows
+        ]
     }
 
 

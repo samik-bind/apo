@@ -273,6 +273,23 @@ def _finalize_task_run(
     task_run.completed_at = datetime.now(timezone.utc)
     session.add(task_run)
     update_batch_run_status(session, batch)
+    # SPEC-163: when the Batch just became terminal, resolve its pending
+    # Schedule Occurrence (delivered vs missed) and clear the active pointer.
+    _resolve_schedule_occurrence_if_terminal(session, batch)
+
+
+def _resolve_schedule_occurrence_if_terminal(
+    session: Session, batch: AgentTaskBatchRunDB
+) -> None:
+    """SPEC-163 hook: clear the Schedule active pointer and resolve the linked
+    pending Occurrence once the Batch reaches a terminal state."""
+    if batch.status not in ("completed", "error", "cancelled"):
+        return
+    from apo.services.schedule_occurrences import resolve_occurrence_on_terminal_batch
+
+    resolve_occurrence_on_terminal_batch(
+        session, batch=batch, now=datetime.now(timezone.utc)
+    )
 
 
 def _emit_finalization_events(

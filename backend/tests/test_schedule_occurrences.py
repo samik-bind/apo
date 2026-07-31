@@ -330,6 +330,184 @@ class TestExactSelectionPause:
         assert schedule.disabled_reason == "catalog_changed"
 
 
+class TestTerminalBatchResolution:
+    """Acceptance tests 7 (queue-expiry missed), 8 (partial delivered)."""
+
+    def _deliver_active_batch(self, session, owner_id: str, schedule_id: str = "sched-term"):
+        from apo.services.schedule_occurrences import deliver_due_occurrence
+
+        schedule = _make_schedule(
+            session, owner_id=owner_id,
+            selection=_exact(["support/refund", "support/cancel"]),
+            id_override=schedule_id,
+        )
+        result = deliver_due_occurrence(session, schedule=schedule, now=_now())
+        assert result.created is True
+        batch = session.get(AgentTaskBatchRunDB, result.batch_run_id)
+        return schedule, batch
+
+    def test_unstarted_batch_expiring_marks_occurrence_missed(self, session, owner_and_schedule):
+        from apo.services.schedule_occurrences import resolve_occurrence_on_terminal_batch
+
+        owner, _ = owner_and_schedule
+        schedule, batch = self._deliver_active_batch(session, owner.id)
+        # Simulate queue expiry: every Attempt fails executor_unavailable, no start.
+        attempts = session.exec(
+            select(TaskExecutionAttemptDB).where(TaskExecutionAttemptDB.batch_run_id == batch.id)
+        ).all()
+        for a in attempts:
+            a.status = "failed"
+            a.failure_kind = "executor_unavailable"
+            a.started_at = None
+            a.completed_at = _now()
+            session.add(a)
+        batch.status = "error"
+        session.add(batch)
+        session.commit()
+
+        resolve_occurrence_on_terminal_batch(session, batch=batch, now=_now())
+
+        occ = session.exec(
+            select(AgentTaskScheduleOccurrenceDB).where(
+                AgentTaskScheduleOccurrenceDB.batch_run_id == batch.id
+            )
+        ).first()
+        assert occ is not None
+        assert occ.status == "missed"
+        assert occ.missed_reason == "executor_unavailable"
+        session.refresh(schedule)
+        assert schedule.active_batch_run_id is None
+
+    def test_started_batch_is_delivered_even_if_later_expires(self, session, owner_and_schedule):
+        from apo.services.schedule_occurrences import resolve_occurrence_on_terminal_batch
+
+        owner, _ = owner_and_schedule
+        schedule, batch = self._deliver_active_batch(session, owner.id, schedule_id="sched-del")
+        # First Task started; the second never did and expired.
+        attempts = sorted(
+            session.exec(
+                select(TaskExecutionAttemptDB).where(
+                    TaskExecutionAttemptDB.batch_run_id == batch.id
+                )
+            ).all(),
+            key=lambda a: a.sequence_index,
+        )
+        attempts[0].started_at = _now() - timedelta(hours=1)
+        attempts[0].status = "succeeded"
+        attempts[1].status = "failed"
+        attempts[1].failure_kind = "executor_unavailable"
+        attempts[1].started_at = None
+        batch.status = "completed"
+        session.add(batch)
+        for a in attempts:
+            session.add(a)
+        session.commit()
+
+        resolve_occurrence_on_terminal_batch(session, batch=batch, now=_now())
+
+        occ = session.exec(
+            select(AgentTaskScheduleOccurrenceDB).where(
+                AgentTaskScheduleOccurrenceDB.batch_run_id == batch.id
+            )
+        ).first()
+        assert occ is not None
+        assert occ.status == "delivered"
+        assert occ.missed_reason is None
+        session.refresh(schedule)
+        assert schedule.active_batch_run_id is None
+
+    def test_mark_delivered_on_start_promotes_pending_occurrence(self, session, owner_and_schedule):
+        from apo.services.schedule_occurrences import (
+            deliver_due_occurrence,
+            mark_occurrence_delivered_on_start,
+        )
+
+        owner, _ = owner_and_schedule
+        schedule = _make_schedule(
+            session, owner_id=owner.id, selection=_exact(["support/refund"]),
+            id_override="sched-start",
+        )
+        result = deliver_due_occurrence(session, schedule=schedule, now=_now())
+        occ = session.exec(
+            select(AgentTaskScheduleOccurrenceDB).where(
+                AgentTaskScheduleOccurrenceDB.id == result.occurrence_id
+            )
+        ).first()
+        assert occ is not None and occ.status == "pending"
+
+        mark_occurrence_delivered_on_start(session, batch_run_id=result.batch_run_id, now=_now())
+
+        session.refresh(occ)
+        assert occ.status == "delivered"
+
+
+class TestPauseSemantics:
+    """Acceptance tests 13 (cancel pre-start) and 14 (leave started)."""
+
+    def _deliver(self, session, owner_id, schedule_id):
+        from apo.services.schedule_occurrences import deliver_due_occurrence
+
+        schedule = _make_schedule(
+            session, owner_id=owner_id,
+            selection=_exact(["support/refund", "support/cancel"]),
+            id_override=schedule_id,
+        )
+        result = deliver_due_occurrence(session, schedule=schedule, now=_now())
+        return schedule, result.batch_run_id
+
+    def test_pause_cancels_never_started_active_batch(self, session, owner_and_schedule):
+        from apo.services.execution_leases import cancel_active_batch_on_pause
+
+        owner, _ = owner_and_schedule
+        schedule, batch_id = self._deliver(session, owner.id, "sched-pause-pre")
+
+        cancelled = cancel_active_batch_on_pause(
+            session, schedule=schedule, now=_now()
+        )
+
+        assert cancelled is True
+        session.refresh(schedule)
+        assert schedule.active_batch_run_id is None
+        attempts = session.exec(
+            select(TaskExecutionAttemptDB).where(TaskExecutionAttemptDB.batch_run_id == batch_id)
+        ).all()
+        assert all(a.status == "cancelled" for a in attempts)
+        occ = session.exec(
+            select(AgentTaskScheduleOccurrenceDB).where(
+                AgentTaskScheduleOccurrenceDB.batch_run_id == batch_id
+            )
+        ).first()
+        assert occ is not None and occ.status == "cancelled"
+
+    def test_pause_leaves_started_batch_intact(self, session, owner_and_schedule):
+        from apo.services.execution_leases import cancel_active_batch_on_pause
+
+        owner, _ = owner_and_schedule
+        schedule, batch_id = self._deliver(session, owner.id, "sched-pause-post")
+        # Simulate the first Attempt having started.
+        attempts = sorted(
+            session.exec(
+                select(TaskExecutionAttemptDB).where(TaskExecutionAttemptDB.batch_run_id == batch_id)
+            ).all(),
+            key=lambda a: a.sequence_index,
+        )
+        attempts[0].started_at = _now()
+        session.add(attempts[0])
+        session.commit()
+
+        cancelled = cancel_active_batch_on_pause(
+            session, schedule=schedule, now=_now()
+        )
+
+        assert cancelled is False
+        session.refresh(schedule)
+        # Active pointer stays so normal finalization can clear it later.
+        assert schedule.active_batch_run_id == batch_id
+        # No attempt was cancelled.
+        session.refresh(attempts[0])
+        assert attempts[0].cancel_requested_at is None
+
+
 # --- helpers ----------------------------------------------------------------
 
 

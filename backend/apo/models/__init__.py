@@ -61,7 +61,11 @@ from ..models.schemas import (  # noqa: F401
     AgentTaskScheduleDetail,
     ScheduleLastBatchSummary,
     CreateAgentTaskScheduleRequest,
+    UpdateAgentTaskScheduleRequest,
     AdaptiveTaskStateSummary,
+    ScheduleExecutionOwnerSummary,
+    ScheduleOccurrenceSummary,
+    TriggerScheduleResponse,
 )
 
 # Re-export database models
@@ -136,6 +140,9 @@ __all__ = [
     "AgentTaskScheduleSummary",
     "AgentTaskScheduleDetail",
     "CreateAgentTaskScheduleRequest",
+    "ScheduleExecutionOwnerSummary",
+    "ScheduleOccurrenceSummary",
+    "TriggerScheduleResponse",
     "UpdateAgentTaskScheduleRequest",
     "AdaptiveTaskStateSummary",
     # Database models
