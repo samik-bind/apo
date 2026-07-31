@@ -411,6 +411,9 @@ def create_source_owned_batch_run(
     environment: str = "default",
     run_metadata: dict[str, object] | None = None,
     queue_ttl_seconds: int | None = None,
+    queue_deadline: datetime | None = None,
+    selection_snapshot: dict[str, object] | None = None,
+    commit: bool = True,
 ) -> AgentTaskBatchRunDB:
     """Atomically create a source-owned dashboard Batch without materializing source.
 
@@ -420,26 +423,36 @@ def create_source_owned_batch_run(
     checkout, source sync, or local path resolution occurs.
 
     Every Attempt has ``assignment_kind="source_owned"`` and
-    ``target_user_id`` equal to the authenticated User. All Attempts share
-    the Batch's fixed ``created_at + 24 hours`` queue deadline.
+    ``target_user_id`` equal to the acting User. All Attempts share one queue
+    deadline: an explicit ``queue_deadline`` (used by the scheduler so all
+    Attempts in one Occurrence share ``occurrence + 24h``), else
+    ``created_at + 24 hours``.
+
+    ``commit=False`` lets the scheduler compose Occurrence + Batch + cadence
+    advancement in one transaction without performing irreversible external
+    work; the caller owns the commit. ``selection_snapshot`` is stored on the
+    Batch's ``selection_query`` so later catalog changes cannot mutate its
+    resolved identity.
     """
     resolved = _resolve_source_owned_task_ids(session, project_id=project_id, task_ids=task_ids)
 
     pool = _ensure_source_owned_pool_for_queue(session, project_id)
 
     now = datetime.now(timezone.utc)
-    queue_ttl = (
-        queue_ttl_seconds if queue_ttl_seconds is not None else DEFAULT_QUEUE_TTL_SECONDS
-    )
-    if queue_ttl <= 0:
-        raise ValueError("queue_ttl_seconds must be positive")
-    queue_deadline = now + timedelta(seconds=queue_ttl)
+    if queue_deadline is None:
+        queue_ttl = (
+            queue_ttl_seconds if queue_ttl_seconds is not None else DEFAULT_QUEUE_TTL_SECONDS
+        )
+        if queue_ttl <= 0:
+            raise ValueError("queue_ttl_seconds must be positive")
+        queue_deadline = now + timedelta(seconds=queue_ttl)
 
     batch_id = "bch_" + secrets.token_hex(12)
     batch = AgentTaskBatchRunDB(
         id=batch_id,
         project=project_id,
         selection_type="tasks",
+        selection_query=selection_snapshot,
         task_root=None,
         grep=None,
         environment=environment,
@@ -483,8 +496,11 @@ def create_source_owned_batch_run(
             )
         )
 
-    session.commit()
-    session.refresh(batch)
+    if commit:
+        session.commit()
+        session.refresh(batch)
+    else:
+        session.flush()
     return batch
 
 

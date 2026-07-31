@@ -586,6 +586,18 @@ class AgentTaskScheduleDB(SQLModel, table=True):
     executor_pool_id: str | None = Field(default=None, foreign_key="executor_pools.id", index=True)
     queue_ttl_seconds: int = 86_400
     disabled_reason: str | None = None
+    # SPEC-163: source-owned scheduled delivery. ``execution_kind`` distinguishes
+    # native source-owned schedules from legacy bundled ones. The authenticated
+    # creator becomes the fixed Execution Owner; only their Connected Executors
+    # may claim. ``active_batch_run_id`` enforces at-most-one non-terminal Batch
+    # per Schedule. Legacy rows backfill to ``bundled`` with null owner/active.
+    execution_kind: str = Field(default="bundled", index=True)
+    execution_owner_user_id: str | None = Field(
+        default=None, foreign_key="users.id", index=True
+    )
+    active_batch_run_id: str | None = Field(
+        default=None, foreign_key="agent_task_batch_runs.id", index=True
+    )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(UTCDateTime, server_default=func.now()),
@@ -596,6 +608,44 @@ class AgentTaskScheduleDB(SQLModel, table=True):
             UTCDateTime, server_default=func.now(), onupdate=func.now()
         ),
     )
+
+
+class AgentTaskScheduleOccurrenceDB(SQLModel, table=True):
+    """SPEC-163: durable identity for one due Schedule time.
+
+    Either owns one 24-hour queued Batch or is recorded as missed. The unique
+    ``(schedule_id, kind, scheduled_for)`` identity makes dispatch idempotent
+    across duplicate polls and restarts — a retry re-reads the existing
+    Occurrence rather than creating a second Batch.
+    """
+
+    __tablename__: ClassVar[str] = "agent_task_schedule_occurrences"
+    __table_args__: ClassVar[tuple[object, ...]] = (
+        UniqueConstraint(
+            "schedule_id",
+            "kind",
+            "scheduled_for",
+            name="uq_schedule_occurrence_time",
+        ),
+        Index("ix_schedule_occurrence_status", "schedule_id", "status"),
+    )
+
+    id: str = Field(primary_key=True)
+    project: str = Field(foreign_key="projects.id", index=True)
+    schedule_id: str = Field(index=True)
+    schedule_name: str
+    kind: str = Field(index=True)  # scheduled | manual
+    scheduled_for: datetime = Field(sa_column=Column(UTCDateTime, index=True))
+    status: str = Field(index=True)  # pending | delivered | missed | cancelled
+    batch_run_id: str | None = Field(
+        default=None, foreign_key="agent_task_batch_runs.id", unique=True, index=True
+    )
+    missed_reason: str | None = None
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+    resolved_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
 
 
 class AdaptiveTaskStateDB(SQLModel, table=True):

@@ -1071,6 +1071,90 @@ def _migrate_to_v17() -> None:
         _migrate_executor_heartbeat_observations(conn)
 
 
+def _migrate_schedule_source_owned_schema(conn: Connection) -> None:
+    """The v18 source-owned scheduled delivery migration (SPEC-163).
+
+    Adds schedule execution kind/owner/active-batch columns, backfills every
+    existing row to ``bundled`` (no inferred owner), and creates the durable
+    Schedule Occurrence table. Idempotent on SQLite.
+    """
+    _add_column_if_missing(
+        conn, "agent_task_schedules", "execution_kind", "VARCHAR NOT NULL DEFAULT 'bundled'"
+    )
+    _create_index_if_not_exists(
+        conn, "ix_agent_task_schedules_execution_kind", "agent_task_schedules", "execution_kind"
+    )
+    _add_column_if_missing(conn, "agent_task_schedules", "execution_owner_user_id", "VARCHAR")
+    _create_index_if_not_exists(
+        conn,
+        "ix_agent_task_schedules_execution_owner_user_id",
+        "agent_task_schedules",
+        "execution_owner_user_id",
+    )
+    _add_column_if_missing(conn, "agent_task_schedules", "active_batch_run_id", "VARCHAR")
+    _create_index_if_not_exists(
+        conn,
+        "ix_agent_task_schedules_active_batch_run_id",
+        "agent_task_schedules",
+        "active_batch_run_id",
+    )
+
+    ts = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    conn.exec_driver_sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS agent_task_schedule_occurrences (
+            id VARCHAR PRIMARY KEY,
+            project VARCHAR NOT NULL,
+            schedule_id VARCHAR NOT NULL,
+            schedule_name VARCHAR NOT NULL,
+            kind VARCHAR NOT NULL,
+            scheduled_for {ts} NOT NULL,
+            status VARCHAR NOT NULL,
+            batch_run_id VARCHAR UNIQUE,
+            missed_reason VARCHAR,
+            created_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            resolved_at {ts}
+        )
+        """
+    )
+    _create_index_if_not_exists(
+        conn, "ix_schedule_occurrences_project", "agent_task_schedule_occurrences", "project"
+    )
+    _create_index_if_not_exists(
+        conn, "ix_schedule_occurrences_schedule_id", "agent_task_schedule_occurrences", "schedule_id"
+    )
+    _create_index_if_not_exists(
+        conn, "ix_schedule_occurrences_kind", "agent_task_schedule_occurrences", "kind"
+    )
+    _create_index_if_not_exists(
+        conn, "ix_schedule_occurrences_scheduled_for", "agent_task_schedule_occurrences", "scheduled_for"
+    )
+    _create_index_if_not_exists(
+        conn, "ix_schedule_occurrences_status", "agent_task_schedule_occurrences", "status"
+    )
+    _create_index_if_not_exists(
+        conn, "ix_schedule_occurrences_batch_run_id", "agent_task_schedule_occurrences", "batch_run_id"
+    )
+    _create_unique_index_if_not_exists(
+        conn,
+        "uq_schedule_occurrence_time",
+        "agent_task_schedule_occurrences",
+        "schedule_id, kind, scheduled_for",
+    )
+    _create_index_if_not_exists(
+        conn,
+        "ix_schedule_occurrence_status",
+        "agent_task_schedule_occurrences",
+        "schedule_id, status",
+    )
+
+
+def _migrate_to_v18() -> None:
+    """Version 18: source-owned scheduled delivery (SPEC-163)."""
+    with engine.begin() as conn:
+        _migrate_schedule_source_owned_schema(conn)
+
+
 def _migrate_schedule_pool_schema(conn: Connection) -> None:
     """The v14 schedule-pool migration, runnable against any connection."""
     _add_column_if_missing(conn, "agent_task_schedules", "executor_pool_id", "VARCHAR")
@@ -1538,7 +1622,7 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
     )
 
 
-LATEST_SCHEMA_VERSION = 17
+LATEST_SCHEMA_VERSION = 18
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -1558,6 +1642,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     15: _migrate_to_v15,
     16: _migrate_to_v16,
     17: _migrate_to_v17,
+    18: _migrate_to_v18,
 }
 
 

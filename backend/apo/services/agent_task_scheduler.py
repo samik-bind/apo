@@ -149,6 +149,17 @@ def run_due_schedules_once() -> int:
         ).all()
 
         for schedule in schedules:
+            # SPEC-163: source-owned schedules dispatch through the idempotent
+            # Occurrence delivery path; legacy bundled schedules keep the
+            # pooled path until the retirement spec handles them.
+            if schedule.execution_kind == "source_owned":
+                result = _dispatch_source_owned_schedule(
+                    session, schedule=schedule, now=now
+                )
+                if result.created and result.batch_run_id:
+                    created_batch_ids.append(result.batch_run_id)
+                continue
+
             from apo.services.execution_queue import (
                 PoolResolutionError,
                 resolve_execution_pool,
@@ -363,3 +374,70 @@ def _increment_month(value: datetime) -> datetime:
     if value.month == 12:
         return value.replace(year=value.year + 1, month=1, day=1)
     return value.replace(month=value.month + 1, day=1)
+
+
+def _dispatch_source_owned_schedule(
+    session: Session,
+    *,
+    schedule: AgentTaskScheduleDB,
+    now: datetime,
+):
+    """SPEC-163: deliver one Occurrence for a due source-owned Schedule.
+
+    Returns the ``OccurrenceDeliveryResult`` so the caller can count created
+    Batches. The Occurrence+Batch+pointer+cadence advance share one
+    transaction owned by ``run_due_schedules_once``'s final commit, so a crash
+    between delivery and advancement rolls back cleanly (the unique Occurrence
+    identity makes any retry a delivery retry, not a duplicate).
+    """
+    from apo.services.schedule_occurrences import (
+        OccurrenceDeliveryResult,
+        deliver_due_occurrence,
+        owner_is_project_member,
+    )
+
+    # Crash/recovery protection: pause if the fixed owner left the Project.
+    if not owner_is_project_member(session, schedule=schedule):
+        schedule.enabled = False
+        schedule.disabled_reason = "execution_owner_unavailable"
+        schedule.next_run_at = None
+        session.add(schedule)
+        return OccurrenceDeliveryResult(
+            occurrence_id="", batch_run_id=None, created=False, missed_reason=None
+        )
+
+    result = deliver_due_occurrence(session, schedule=schedule, now=now)
+
+    # Advance directly to the next future cadence from the dispatch moment
+    # (not the nominal due time) so a catch-up after prolonged disconnection
+    # never lands on a slot that is already in the past.
+    schedule.next_run_at = _next_run_after(
+        schedule=schedule, from_time=now + timedelta(minutes=1)
+    )
+    session.add(schedule)
+    return result
+
+
+def _next_run_after(
+    *,
+    schedule: AgentTaskScheduleDB,
+    from_time: datetime,
+) -> datetime:
+    if schedule.cadence_type == "adaptive":
+        from apo.services.adaptive_scheduler import recompute_schedule_next_run
+
+        active_session = cast(Session, Session.object_session(schedule)) or Session(engine)
+        return recompute_schedule_next_run(
+            active_session,
+            schedule,
+            fallback_from_time=from_time,
+        )
+    return compute_next_run_at(
+        cadence_type=schedule.cadence_type,
+        timezone_name=schedule.timezone,
+        hour=schedule.hour,
+        minute=schedule.minute,
+        day_of_week=schedule.day_of_week,
+        day_of_month=schedule.day_of_month,
+        from_time=from_time,
+    )
