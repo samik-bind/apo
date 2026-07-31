@@ -1130,6 +1130,11 @@ class ExecutorDB(SQLModel, table=True):
         default=None, sa_column=Column(JSON)
     )
     max_concurrency: int = 1
+    # SPEC-162: latest protocol-v2 heartbeat observations. Observations used
+    # for UI freshness only; persisted ``max_concurrency`` plus active leased/
+    # running Attempts remain the capacity authority.
+    reported_catalog_digest: str | None = Field(default=None, index=True)
+    reported_available_slots: int | None = None
     last_seen_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
     enrolled_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),

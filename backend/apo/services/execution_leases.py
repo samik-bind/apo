@@ -426,6 +426,33 @@ def recover_expired_attempts(session: Session, *, now: datetime) -> RecoveryCoun
     return RecoveryCounts(requeued=requeued, lost=lost, failed_unavailable=failed_unavailable)
 
 
+def fail_attempt(
+    session: Session,
+    *,
+    attempt: TaskExecutionAttemptDB,
+    failure_kind: str,
+    error_message: str,
+) -> TaskExecutionAttemptDB:
+    """Mark a non-terminal Attempt failed and align its logical Run state.
+
+    Used by SPEC-161/162 queue maintenance when an Attempt can no longer
+    make progress for a non-lease reason (e.g. its Task was removed from
+    the published catalog → ``task_not_in_catalog``). Never auto-retries.
+    """
+    if attempt.status in TERMINAL_STATUSES:
+        return attempt
+    now = _now()
+    attempt.status = FAILED
+    attempt.failure_kind = failure_kind
+    attempt.error_message = error_message
+    attempt.completed_at = now
+    session.add(attempt)
+    _finalize_logical_run(session, attempt, error_message=error_message)
+    session.commit()
+    session.refresh(attempt)
+    return attempt
+
+
 def _finalize_logical_run(
     session: Session,
     attempt: TaskExecutionAttemptDB,
@@ -484,6 +511,7 @@ __all__ = [
     "SUCCEEDED",
     "TERMINAL_STATUSES",
     "claim_next_attempt",
+    "fail_attempt",
     "heartbeat_attempt",
     "recover_expired_attempts",
     "request_cancellation",

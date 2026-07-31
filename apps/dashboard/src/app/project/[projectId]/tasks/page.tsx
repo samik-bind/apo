@@ -3,7 +3,10 @@ import {
   listProjectAgentTasks,
 } from "@/lib/agent-task-api";
 import { getProject } from "@/lib/projects-api";
-import { listExecutorPools } from "@/lib/executor-api";
+import {
+  getConnectedEnvironmentStatus,
+  type ConnectedEnvironmentState,
+} from "@/lib/executor-api";
 import { DEMO_PROJECT } from "@/lib/project-router";
 import { AgentTasksClient } from "./tasks-client";
 
@@ -24,28 +27,25 @@ export default async function AgentTasksPage({
   let tasks: Awaited<ReturnType<typeof listAgentTasks>> = [];
   let error: string | null = null;
   let taskSource = null;
-  let executorPools: Awaited<ReturnType<typeof listExecutorPools>> = [];
-  let executorPoolsError: string | null = null;
+  // SPEC-162: the aggregate Connected Environment state replaces Pool
+  // selection for the native Run path. A status-fetch failure is non-blocking
+  // — the run can still be queued.
+  let connectedState: ConnectedEnvironmentState | null = null;
+  let connectedStateError: string | null = null;
 
+  try {
+    // Fetch the project so we can branch on task source presence.
     try {
-      // Fetch the project so we can branch on task source presence.
-      // Access (403) and existence (404) are enforced by the project layout,
-      // so this only surfaces transient/network failures as inline errors.
-      try {
-        const project = await getProject(projectId);
-        taskSource = project.task_source;
-      } catch (e: unknown) {
-        error = e instanceof Error ? e.message : "Failed to load project";
-      }
+      const project = await getProject(projectId);
+      taskSource = project.task_source;
+    } catch (e: unknown) {
+      error = e instanceof Error ? e.message : "Failed to load project";
+    }
 
     // SPEC-118: non-demo projects must NOT inherit example-service tasks
     // via the legacy DEFAULT_TASK_ROOT fallback. The task list comes from
     // either the project's configured source (SPEC-119 inventory) or is
     // empty — which surfaces the setup card on the client.
-    //
-    // The demo project keeps the legacy discovery path because its source
-    // is seeded from the bundled example-service workspace and reading
-    // from inventory happens automatically once demo is seeded.
     if (!isDemo && taskSource !== null && !taskSource.inventory_stale) {
       try {
         tasks = await listProjectAgentTasks(projectId);
@@ -56,11 +56,14 @@ export default async function AgentTasksPage({
       tasks = await listAgentTasks(TASK_ROOT, undefined, projectId);
     }
 
-    try {
-      executorPools = await listExecutorPools(projectId);
-    } catch (e: unknown) {
-      executorPoolsError =
-        e instanceof Error ? e.message : "Failed to load executor pools";
+    if (!isDemo) {
+      try {
+        const status = await getConnectedEnvironmentStatus(projectId);
+        connectedState = status.state;
+      } catch (e: unknown) {
+        connectedStateError =
+          e instanceof Error ? e.message : "Failed to load connected environment status";
+      }
     }
     // else: non-demo + no source → leave tasks empty so the setup card
     // renders instead of leaking example-service tasks.
@@ -74,8 +77,8 @@ export default async function AgentTasksPage({
       error={error}
       taskSource={taskSource}
       isDemo={isDemo}
-      executorPools={executorPools}
-      executorPoolsError={executorPoolsError}
+      connectedState={connectedState}
+      connectedStateError={connectedStateError}
     />
   );
 }

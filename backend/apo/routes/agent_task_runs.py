@@ -39,6 +39,7 @@ from ..models import (
     ReportAgentTaskRunResultRequest,
     RunDB,
 )
+from ..models.db import ProjectMembershipDB
 from ..services.agent_task_configuration import configuration_from_row
 from ..services.agent_task_discovery import (
     DiscoveredAgentTask,
@@ -291,21 +292,26 @@ async def create_agent_task_batch_run(
 
     SPEC-146: every server-initiated Batch becomes durable queued Attempts.
     An explicit Pool wins; otherwise the Project default is required.
+    SPEC-162: an explicit ``source_owned`` target routes to the
+    authenticated User's Connected Executors using exact catalog Task IDs.
     """
     require_project_not_demo(body.project)
-    _ = enforce_project_role_from_request(
+    membership = enforce_project_role_from_request(
         http_request,
         session,
         body.project,
         minimum_role="member",
     )
+
+    target = body.execution_target
+    if target is not None and target.kind == "source_owned":
+        return await _create_source_owned_batch_run_route(
+            session, body=body, http_request=http_request, membership=membership
+        )
+
     task_source = get_task_source_db(session, body.project)
 
-    explicit_pool_id_raw = (
-        body.execution_target.pool_id
-        if body.execution_target is not None
-        else None
-    )
+    explicit_pool_id_raw = target.pool_id if target is not None else None
     explicit_pool_id = str(explicit_pool_id_raw) if explicit_pool_id_raw else None
     from apo.services.execution_queue import (
         PoolResolutionError,
@@ -339,6 +345,77 @@ async def create_agent_task_batch_run(
         select(AgentTaskRunDB).where(AgentTaskRunDB.batch_run_id == batch.id)
     ).all()
     return to_batch_run_detail(batch, task_runs)
+
+
+async def _create_source_owned_batch_run_route(
+    session: Session,
+    *,
+    body: CreateAgentTaskBatchRunRequest,
+    http_request: Request,
+    membership: ProjectMembershipDB,
+) -> AgentTaskBatchRunDetail:
+    """Dispatch an explicit ``source_owned`` target (SPEC-162).
+
+    The authenticated request determines ``requested_by_user_id`` and
+    ``target_user_id``; never accept either from the request body. Legacy
+    bundled selection fields (``task_paths``/``task_root``/``grep``) are
+    rejected. Exact catalog Task IDs are required and resolved against the
+    current Project Task Catalog.
+    """
+    if body.task_paths or body.task_root or body.grep:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "kind": "source_owned_selection_invalid",
+                "msg": "source-owned execution accepts task_ids only",
+            },
+        )
+
+    # Source-owned routing requires a real authenticated User; the legacy
+    # open-dev "dev" sentinel must never be persisted into User foreign keys.
+    acting_user_id = cast(str | None, getattr(http_request.state, "user_id", None))
+    if not acting_user_id or acting_user_id != membership.user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="source-owned execution requires an authenticated project member",
+        )
+
+    from apo.services.execution_queue import (
+        SourceOwnedSelectionError,
+        create_source_owned_batch_run,
+    )
+
+    try:
+        batch = create_source_owned_batch_run(
+            session,
+            project_id=body.project,
+            user_id=acting_user_id,
+            task_ids=body.task_ids,
+            environment=body.environment,
+            run_metadata=body.run_metadata,
+        )
+    except SourceOwnedSelectionError as error:
+        status_code = (
+            409
+            if error.kind in ("task_catalog_missing", "task_not_in_catalog")
+            else 422
+        )
+        raise HTTPException(
+            status_code=status_code,
+            detail={"kind": error.kind, "msg": str(error)},
+        ) from error
+
+    task_runs = session.exec(
+        select(AgentTaskRunDB).where(AgentTaskRunDB.batch_run_id == batch.id)
+    ).all()
+    from apo.models.db import TaskExecutionAttemptDB
+
+    attempts = session.exec(
+        select(TaskExecutionAttemptDB).where(
+            TaskExecutionAttemptDB.batch_run_id == batch.id
+        )
+    ).all()
+    return to_batch_run_detail(batch, task_runs, attempts=attempts)
 
 
 # ============================================================================

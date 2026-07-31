@@ -217,7 +217,7 @@ export interface AgentTaskBatchRunDetail extends AgentTaskBatchRunSummary {
   cancelled_tasks: number;
   task_runs: AgentTaskRunSummary[];
   failure_breakdown: FailureBreakdownItem[];
-  execution_target: PoolExecutionTarget | null;
+  execution_target: ExecutionTarget | null;
   executor_pool_name: string | null;
   attempts: ExecutionAttemptSummary[];
 }
@@ -227,16 +227,38 @@ export interface PoolExecutionTarget {
   pool_id: string;
 }
 
+/** SPEC-162: target for a dashboard Run through the User's Connected Executors. */
+export interface SourceOwnedExecutionTarget {
+  kind: "source_owned";
+}
+
+export type ExecutionTarget = PoolExecutionTarget | SourceOwnedExecutionTarget;
+
+/** SPEC-162: aggregate state of one member's Connected Executors. */
+export type ConnectedEnvironmentState =
+  | "ready"
+  | "busy"
+  | "offline"
+  | "incompatible"
+  | "catalog_mismatch"
+  | "not_connected";
+
+/** Dynamic waiting reason for a queued source-owned Attempt. */
+export type AttemptWaitingReason = ConnectedEnvironmentState;
+
 export interface ExecutionAttemptSummary {
   id: string;
   task_run_id: string;
   status: string;
   phase: string | null;
+  assignment_kind: "caller" | "bundled" | "source_owned";
   executor_id: string | null;
   executor_name: string | null;
   executor_pool_id: string | null;
   driver_kind: string | null;
   queued_at: string;
+  queue_expires_at: string | null;
+  waiting_reason: AttemptWaitingReason | null;
   claimed_at: string | null;
   started_at: string | null;
   heartbeat_at: string | null;
@@ -249,11 +271,16 @@ export interface ExecutionAttemptSummary {
 export interface CreateAgentTaskBatchRunRequest {
   project: string;
   selection_type: string;
+  /** SPEC-162: exact catalog Task IDs for source-owned execution. */
+  task_ids?: string[];
+  /** Legacy bundled path: filesystem-relative selection. */
   task_paths?: string[];
   task_root?: string | null;
   grep?: string | null;
   environment?: string;
-  execution_target: PoolExecutionTarget;
+  /** Explicit target wins. ``source_owned`` routes to the authenticated
+   * User's Connected Executors; ``pool`` keeps the legacy bundled path. */
+  execution_target: ExecutionTarget;
   run_metadata?: {
     trigger?: Partial<AgentTaskRunTrigger> | null;
     [key: string]: unknown;
@@ -580,4 +607,14 @@ export const getAdaptiveStates = (
   apiClient(
     `/v1/agent-task-schedules/${encodeURIComponent(scheduleId)}/adaptive-states`,
     NO_CACHE,
+  );
+
+/** SPEC-162: idempotently cancel a Batch's Attempts. Reused by source-owned
+ * and legacy Pool Runs. Returns the number of Attempts touched. */
+export const cancelAgentTaskBatchRun = (
+  batchRunId: string,
+): Promise<{ ok: true; cancelled: number }> =>
+  apiClient(
+    `/v1/agent-task-batch-runs/${encodeURIComponent(batchRunId)}/cancel`,
+    { method: "POST", body: {} },
   );

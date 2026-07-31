@@ -179,8 +179,10 @@ __all__ = [
     "CallerClaimResult",
     "CallerExecutionError",
     "PoolResolutionError",
+    "SourceOwnedSelectionError",
     "create_caller_batch_run",
     "create_pooled_batch_run",
+    "create_source_owned_batch_run",
     "resolve_execution_pool",
 ]
 
@@ -378,3 +380,168 @@ def _inventory_paths(
             + ", ".join(missing)
         )
     return paths
+
+
+# ============================================================================
+# SPEC-162: source-owned dashboard Batch creation
+# ============================================================================
+
+
+class SourceOwnedSelectionError(ValueError):
+    """Raised on invalid source-owned Batch creation input.
+
+    Carries a ``kind`` (``task_catalog_missing`` / ``task_not_in_catalog`` /
+    ``source_owned_selection_invalid``) so the route maps to the spec's
+    409/422 contract.
+    """
+
+    kind: str
+
+    def __init__(self, kind: str, message: str) -> None:
+        super().__init__(f"[{kind}] {message}")
+        self.kind = kind
+
+
+def create_source_owned_batch_run(
+    session: Session,
+    *,
+    project_id: str,
+    user_id: str,
+    task_ids: list[str],
+    environment: str = "default",
+    run_metadata: dict[str, object] | None = None,
+    queue_ttl_seconds: int | None = None,
+) -> AgentTaskBatchRunDB:
+    """Atomically create a source-owned dashboard Batch without materializing source.
+
+    Creates one queued Batch, ordered pending Task Runs (carrying canonical
+    catalog Task IDs and safe display metadata), and ordered queued
+    source-owned Attempts in one transaction. No Revision, Bundle, repository
+    checkout, source sync, or local path resolution occurs.
+
+    Every Attempt has ``assignment_kind="source_owned"`` and
+    ``target_user_id`` equal to the authenticated User. All Attempts share
+    the Batch's fixed ``created_at + 24 hours`` queue deadline.
+    """
+    resolved = _resolve_source_owned_task_ids(session, project_id=project_id, task_ids=task_ids)
+
+    pool = _ensure_source_owned_pool_for_queue(session, project_id)
+
+    now = datetime.now(timezone.utc)
+    queue_ttl = (
+        queue_ttl_seconds if queue_ttl_seconds is not None else DEFAULT_QUEUE_TTL_SECONDS
+    )
+    if queue_ttl <= 0:
+        raise ValueError("queue_ttl_seconds must be positive")
+    queue_deadline = now + timedelta(seconds=queue_ttl)
+
+    batch_id = "bch_" + secrets.token_hex(12)
+    batch = AgentTaskBatchRunDB(
+        id=batch_id,
+        project=project_id,
+        selection_type="tasks",
+        task_root=None,
+        grep=None,
+        environment=environment,
+        requested_by_user_id=user_id,
+        run_metadata=run_metadata or {},
+        status="queued",
+        execution_target_json={"kind": "source_owned"},
+        created_at=now,
+    )
+    session.add(batch)
+    session.flush()
+
+    for index, inventory in enumerate(resolved):
+        run_id = "run_" + secrets.token_hex(12)
+        task_run = AgentTaskRunDB(
+            id=run_id,
+            batch_run_id=batch_id,
+            task_id=inventory.task_id,
+            task_path=inventory.task_path,
+            task_inventory_id=inventory.id,
+            sequence_index=index,
+            adapter_name=inventory.adapter_name,
+            status="pending",
+        )
+        session.add(task_run)
+        session.add(
+            TaskExecutionAttemptDB(
+                project=project_id,
+                batch_run_id=batch_id,
+                task_run_id=run_id,
+                task_revision_id=None,
+                sequence_index=index,
+                target_kind="pool",
+                assignment_kind="source_owned",
+                target_user_id=user_id,
+                executor_pool_id=pool.id,
+                executor_id=None,
+                status="queued",
+                queue_expires_at=queue_deadline,
+                queued_at=now,
+            )
+        )
+
+    session.commit()
+    session.refresh(batch)
+    return batch
+
+
+def _resolve_source_owned_task_ids(
+    session: Session,
+    *,
+    project_id: str,
+    task_ids: list[str],
+) -> list[ProjectTaskInventoryDB]:
+    """Validate and resolve exact catalog Task IDs against the current catalog.
+
+    Rejects empty/duplicate IDs (``source_owned_selection_invalid``), a
+    missing catalog (``task_catalog_missing``), and any absent Task ID
+    (``task_not_in_catalog``) without creating partial rows.
+    """
+    if not task_ids:
+        raise SourceOwnedSelectionError(
+            "source_owned_selection_invalid", "at least one task_id is required"
+        )
+    if len(set(task_ids)) != len(task_ids):
+        raise SourceOwnedSelectionError(
+            "source_owned_selection_invalid", "duplicate task_ids are not allowed"
+        )
+
+    source = session.exec(
+        select(ProjectTaskSourceDB).where(ProjectTaskSourceDB.project == project_id)
+    ).first()
+    if source is None or source.source_type != "published" or not source.catalog_digest:
+        raise SourceOwnedSelectionError(
+            "task_catalog_missing",
+            "project has no published task catalog",
+        )
+
+    rows = session.exec(
+        select(ProjectTaskInventoryDB).where(
+            ProjectTaskInventoryDB.project == project_id,
+            as_column(ProjectTaskInventoryDB.task_id).in_(task_ids),
+        )
+    ).all()
+    by_id = {row.task_id: row for row in rows}
+    missing = [task_id for task_id in task_ids if task_id not in by_id]
+    if missing:
+        raise SourceOwnedSelectionError(
+            "task_not_in_catalog",
+            "task ids not in the current catalog: " + ", ".join(missing),
+        )
+    return [by_id[task_id] for task_id in task_ids]
+
+
+def _ensure_source_owned_pool_for_queue(
+    session: Session, project_id: str
+) -> ExecutorPoolDB:
+    """Return the canonical source-owned Pool for the project.
+
+    Reuses SPEC-161's ``ensure_source_owned_pool`` so we never create a
+    second source-owned execution model.
+    """
+    from .source_owned_executor import ensure_source_owned_pool
+
+    return ensure_source_owned_pool(session, project_id)

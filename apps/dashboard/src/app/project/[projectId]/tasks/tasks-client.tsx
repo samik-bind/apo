@@ -35,8 +35,8 @@ import {
   syncProjectTaskSource,
 } from "@/lib/projects-api";
 
-import { ExecutorPoolSelect } from "@/components/executor-pool-select";
-import type { ExecutorPoolSummary } from "@/lib/executor-api";
+import { ConnectedEnvironmentStatusView } from "@/components/connected-environment-status";
+import type { ConnectedEnvironmentState } from "@/lib/executor-api";
 const TASK_ROOT = process.env.NEXT_PUBLIC_AGENT_TASK_ROOT ?? null;
 
 function relativePath(path: string): string {
@@ -140,8 +140,8 @@ interface AgentTasksClientProps {
   error: string | null;
   taskSource: ProjectTaskSource | null;
   isDemo: boolean;
-  executorPools: ExecutorPoolSummary[];
-  executorPoolsError: string | null;
+  connectedState: ConnectedEnvironmentState | null;
+  connectedStateError: string | null;
 }
 
 function TaskCard({
@@ -257,9 +257,7 @@ function TasksToolbar({
   onClearSelection,
   onToggleExpandAll,
   allExpanded,
-  executorPools,
-  selectedPoolId,
-  onPoolChange,
+  connectedState,
 }: {
   taskSource: ProjectTaskSource | null;
   isDemoProject: boolean;
@@ -275,22 +273,14 @@ function TasksToolbar({
   onClearSelection: () => void;
   onToggleExpandAll: () => void;
   allExpanded: boolean;
-  executorPools: ExecutorPoolSummary[];
-  selectedPoolId: string;
-  onPoolChange: (value: string) => void;
+  connectedState: ConnectedEnvironmentState | null;
 }) {
   return (
     <div className="border-b border-border">
       <div className="flex flex-col gap-3 px-6 py-5 lg:flex-row lg:items-center lg:justify-end">
         <div className="flex items-center gap-2">
-          {!isDemoProject && (
-            <ExecutorPoolSelect
-              id="task-executor-pool"
-              pools={executorPools}
-              value={selectedPoolId}
-              onValueChange={onPoolChange}
-              compact
-            />
+          {!isDemoProject && connectedState && (
+            <ConnectedEnvironmentStatusView state={connectedState} />
           )}
           {taskSource && !isDemoProject && (
             <>
@@ -320,7 +310,7 @@ function TasksToolbar({
           )}
           <Button type="button"
             size="sm"
-            disabled={selectedCount === 0 || runRunning || isDemoProject || !selectedPoolId}
+            disabled={selectedCount === 0 || runRunning || isDemoProject}
             onClick={onRun}
             title={isDemoProject ? "Demo workspace is read-only" : undefined}
             className="h-8 gap-1.5 text-[13px] font-medium disabled:opacity-40"
@@ -469,14 +459,14 @@ function SelectionActionBar({
   selectedCount,
   runRunning,
   isDemoProject,
-  poolName,
+  connectedState,
   onClear,
   onRun,
 }: {
   selectedCount: number;
   runRunning: boolean;
   isDemoProject: boolean;
-  poolName: string | null;
+  connectedState: ConnectedEnvironmentState | null;
   onClear: () => void;
   onRun: () => void;
 }) {
@@ -492,14 +482,13 @@ function SelectionActionBar({
           </span>
         </div>
         <div className="h-5 w-px bg-border" />
-        <span className="text-[12px] text-muted-foreground">
-          {poolName ? `on ${poolName}` : "Choose where this run should execute"}
-        </span>
+        <span className="text-[12px] text-muted-foreground">in your connected environment</span>
+        {connectedState && <ConnectedEnvironmentStatusView state={connectedState} />}
         <div className="h-5 w-px bg-border" />
         <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[12px] font-normal text-muted-foreground hover:text-foreground/70" onClick={onClear}>
           Clear
         </Button>
-        <Button type="button" size="sm" className="h-7 gap-1.5 px-3 text-[12px] font-medium" onClick={onRun} disabled={runRunning || isDemoProject || !poolName} title={isDemoProject ? "Demo workspace is read-only" : undefined}>
+        <Button type="button" size="sm" className="h-7 gap-1.5 px-3 text-[12px] font-medium" onClick={onRun} disabled={runRunning || isDemoProject} title={isDemoProject ? "Demo workspace is read-only" : undefined}>
           <Play className="h-3 w-3 fill-current" />
           {runRunning ? "Starting..." : "Run selection"}
         </Button>
@@ -513,21 +502,16 @@ export function AgentTasksClient({
   error,
   taskSource,
   isDemo,
-  executorPools,
-  executorPoolsError,
+  connectedState,
+  connectedStateError,
 }: AgentTasksClientProps) {
   const projectId = useProjectId();
   const router = useRouter();
-  // Prefer the prop (canonical, server-fetched) and fall back to the
-  // client hook for any sub-render that might lack it.
   const clientIsDemo = useIsDemo();
   const isDemoProject = isDemo || clientIsDemo;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [syncing, setSyncing] = useState(false);
   const [editingSource, setEditingSource] = useState(false);
-  const [selectedPoolId, setSelectedPoolId] = useState(
-    () => executorPools.find((pool) => pool.is_default && pool.enabled && !pool.archived)?.id ?? "",
-  );
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const folders = groupByFolder(tasks);
     return new Set(folders.map((f) => f.id));
@@ -612,20 +596,15 @@ export function AgentTasksClient({
 
   const handleRun = async () => {
     if (selected.size === 0 || isDemoProject) return;
-    if (!selectedPoolId) {
-      dispatchRun({ type: "ERROR", error: "Choose where this run should execute" });
-      return;
-    }
     dispatchRun({ type: "START" });
     try {
       const selectedTasks = tasks.filter((t) => selected.has(t.id));
-      const selectedPaths = selectedTasks.map((t) => t.task_path);
+      const taskIds = selectedTasks.map((t) => t.id);
       const result = await createAgentTaskBatchRun({
         project: projectId,
-        selection_type: selectedPaths.length === 1 ? "task" : "tasks",
-        task_paths: selectedPaths,
-        task_root: TASK_ROOT,
-        execution_target: { kind: "pool", pool_id: selectedPoolId },
+        selection_type: taskIds.length === 1 ? "task" : "tasks",
+        task_ids: taskIds,
+        execution_target: { kind: "source_owned" },
         run_metadata: {
           trigger: {
             source: "dashboard",
@@ -695,9 +674,7 @@ export function AgentTasksClient({
         onClearSelection={() => setSelected(new Set())}
         onToggleExpandAll={() => setExpanded(allExpanded ? new Set() : new Set(allFolderIds))}
         allExpanded={allExpanded}
-        executorPools={executorPools}
-        selectedPoolId={selectedPoolId}
-        onPoolChange={setSelectedPoolId}
+        connectedState={connectedState}
       />
 
       {/* Error alerts */}
@@ -706,14 +683,9 @@ export function AgentTasksClient({
           {error || runState.error}
         </div>
       )}
-      {!error && !runState.error && executorPoolsError && (
-        <div className="mx-6 mt-4 border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
-          Executor pools could not be loaded: {executorPoolsError}
-        </div>
-      )}
-      {!isDemoProject && !executorPoolsError && executorPools.filter((pool) => pool.enabled && !pool.archived).length === 0 && (
+      {!error && !runState.error && connectedStateError && (
         <div className="mx-6 mt-4 border border-border bg-muted/10 px-4 py-3 text-[13px] text-muted-foreground">
-          No executor pool is available. Configure a pool before starting a run.
+          Connected environment status unavailable — the run can still be queued.
         </div>
       )}
 
@@ -752,7 +724,7 @@ export function AgentTasksClient({
           selectedCount={selected.size}
           runRunning={runState.running}
           isDemoProject={isDemoProject}
-          poolName={executorPools.find((pool) => pool.id === selectedPoolId)?.name ?? null}
+          connectedState={connectedState}
           onClear={() => setSelected(new Set())}
           onRun={handleRun}
         />

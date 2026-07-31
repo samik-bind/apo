@@ -487,7 +487,7 @@ function RunsRow({
   });
   const checkTotal = Math.max(batch.total_checks, 1);
   const passRate = Math.round((batch.passed_checks / checkTotal) * 100);
-  const isRunning = batch.status === "running";
+  const isRunning = batch.status === "running" || batch.status === "queued";
   const showRate = batch.total_checks > 0 || !isRunning;
   const triggerLabel = formatTrigger(batch.trigger);
   const SourceIcon = getSourceIcon(batch.trigger?.source ?? null);

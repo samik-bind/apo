@@ -6,7 +6,11 @@ from pydantic import Field as PDField
 from sqlmodel import JSON, Field, SQLModel
 from sqlmodel._compat import SQLModelConfig
 
-from .execution import AttemptSummary, PoolExecutionTarget, TaskRevisionSummary
+from .execution import (
+    AttemptSummary,
+    ExecutionTarget,
+    TaskRevisionSummary,
+)
 
 type JsonMap = dict[str, object]
 type MessageList = list[JsonMap]
@@ -629,7 +633,7 @@ class AgentTaskBatchRunDetail(SQLModel):
     task_runs: list[AgentTaskRunSummary] = Field(default_factory=list)
     failure_breakdown: list[FailureBreakdownItem] = Field(default_factory=list)
     task_revision: TaskRevisionSummary | None = None
-    execution_target: PoolExecutionTarget | None = None
+    execution_target: ExecutionTarget | None = None
     executor_pool_name: str | None = None
     attempts: list[AttemptSummary] = Field(default_factory=list)
     # SPEC-148: derived configuration summary (uniform/mixed/partial/unknown).
@@ -641,15 +645,20 @@ class AgentTaskBatchRunDetail(SQLModel):
 
 
 class CreateAgentTaskBatchRunRequest(SQLModel):
+    model_config = {"extra": "forbid"}
     project: str
     selection_type: str
+    # SPEC-162: exact catalog Task IDs for source-owned execution.
+    task_ids: list[str] = Field(default_factory=list)
+    # Legacy bundled path: filesystem-relative selection.
     task_paths: list[str] = Field(default_factory=list)
     task_root: str | None = None
     grep: str | None = None
     environment: str = "default"
     run_metadata: dict[str, object] | None = None
-    # Explicit Pool wins; omission resolves the Project default or returns 409.
-    execution_target: PoolExecutionTarget | None = None
+    # Explicit target wins. ``source_owned`` routes to the authenticated
+    # User's Connected Executors; ``pool`` keeps the legacy bundled path.
+    execution_target: ExecutionTarget | None = None
 
 
 class AgentTaskRunExternalSummary(SQLModel):

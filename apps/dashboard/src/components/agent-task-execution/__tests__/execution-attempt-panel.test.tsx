@@ -11,11 +11,14 @@ function attempt(
     task_run_id: "task-run-1",
     status: "queued",
     phase: null,
+    assignment_kind: "bundled",
     executor_id: null,
     executor_name: null,
     executor_pool_id: "pool-1",
     driver_kind: null,
     queued_at: new Date(Date.now() - 60_000).toISOString(),
+    queue_expires_at: null,
+    waiting_reason: null,
     claimed_at: null,
     started_at: null,
     heartbeat_at: null,
@@ -27,7 +30,7 @@ function attempt(
   };
 }
 
-describe("ExecutionAttemptPanel", () => {
+describe("ExecutionAttemptPanel — legacy Pool Runs", () => {
   it("names the exact Pool while queued", () => {
     render(<ExecutionAttemptPanel attempts={[attempt({})]} poolName="Private VPC" />);
     expect(screen.getByText("Waiting for Private VPC")).toBeInTheDocument();
@@ -79,5 +82,102 @@ describe("ExecutionAttemptPanel", () => {
       <ExecutionAttemptPanel attempts={[]} poolName={null} />,
     );
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe("ExecutionAttemptPanel — source-owned Runs (SPEC-162)", () => {
+  const sourceOwnedQueueExpiry = new Date(Date.now() + 20 * 60 * 60 * 1000).toISOString();
+
+  it.each([
+    ["ready", /Your connected environment is ready/i],
+    ["busy", /Your connected environment is busy/i],
+    ["offline", /Waiting for apo connect/i],
+    ["not_connected", /Run apo connect in this Task workspace/i],
+    ["incompatible", /Update the Apo CLI, then restart apo connect/i],
+    ["catalog_mismatch", /Run apo task publish from this Task workspace/i],
+  ] as const)(
+    "queued source-owned attempt shows actionable copy for %s",
+    (_state, expected) => {
+      render(
+        <ExecutionAttemptPanel
+          attempts={[attempt({
+            assignment_kind: "source_owned",
+            status: "queued",
+            waiting_reason: _state,
+            queue_expires_at: sourceOwnedQueueExpiry,
+          })]}
+          poolName={null}
+        />,
+      );
+      expect(screen.getByText(expected)).toBeInTheDocument();
+    },
+  );
+
+  it("never renders Pool, Executor, driver, or machine for source-owned Runs", () => {
+    render(
+      <ExecutionAttemptPanel
+        attempts={[attempt({
+          assignment_kind: "source_owned",
+          status: "running",
+          executor_name: "secret-machine",
+          executor_pool_id: "internal-source-owned-pool",
+          driver_kind: "source-owned-ts",
+          phase: "running",
+          heartbeat_at: new Date().toISOString(),
+        })]}
+        poolName="Source-Owned Tasks"
+      />,
+    );
+    expect(screen.queryByText("secret-machine")).not.toBeInTheDocument();
+    expect(screen.queryByText("source-owned-ts")).not.toBeInTheDocument();
+    expect(screen.queryByText("Source-Owned Tasks")).not.toBeInTheDocument();
+    expect(screen.getByText(/Running in your connected environment/i)).toBeInTheDocument();
+  });
+
+  it("shows cancellation-pending copy, distinct from a terminal cancelled state", () => {
+    render(
+      <ExecutionAttemptPanel
+        attempts={[attempt({
+          assignment_kind: "source_owned",
+          status: "running",
+          cancel_requested_at: new Date().toISOString(),
+          heartbeat_at: new Date().toISOString(),
+        })]}
+        poolName={null}
+      />,
+    );
+    expect(screen.getByText(/Cancelling in your connected environment/i)).toBeInTheDocument();
+  });
+
+  it("explains the 24-hour executor-unavailable terminal state", () => {
+    render(
+      <ExecutionAttemptPanel
+        attempts={[attempt({
+          assignment_kind: "source_owned",
+          status: "failed",
+          failure_kind: "executor_unavailable",
+        })]}
+        poolName={null}
+      />,
+    );
+    expect(
+      screen.getByText(/No compatible Connected Executor became available within 24 hours/i),
+    ).toBeInTheDocument();
+  });
+
+  it("explains the task-removed-from-catalog terminal state", () => {
+    render(
+      <ExecutionAttemptPanel
+        attempts={[attempt({
+          assignment_kind: "source_owned",
+          status: "failed",
+          failure_kind: "task_not_in_catalog",
+        })]}
+        poolName={null}
+      />,
+    );
+    expect(
+      screen.getByText(/no longer in the published catalog/i),
+    ).toBeInTheDocument();
   });
 });

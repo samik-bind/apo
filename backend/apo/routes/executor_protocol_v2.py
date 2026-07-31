@@ -209,15 +209,23 @@ async def heartbeat_v2(
     executor: ExecutorDB = Depends(_require_executor),
     session: Session = Depends(get_session),
 ) -> dict[str, object]:
-    """Heartbeat with catalog digest eligibility check."""
+    """Heartbeat with catalog digest eligibility check.
+
+    Persists the latest protocol-v2 catalog digest and reported available
+    slots as observations (used for UI freshness). The persisted
+    ``max_concurrency`` plus active leased/running Attempts remain the
+    capacity authority — client-reported slots never grant capacity.
+    """
     response.headers["X-Apo-Executor-Protocol"] = str(PROTOCOL_VERSION)
     eligibility = check_catalog_eligibility(
         session, executor.project or "", body.catalog_digest,
     )
-    # Update last_seen
-    executor.last_seen_at = datetime.now(timezone.utc)
-    if body.available_slots > 0:
-        executor.max_concurrency = body.available_slots
+    now = datetime.now(timezone.utc)
+    executor.last_seen_at = now
+    executor.reported_catalog_digest = body.catalog_digest
+    # Reported slots are an observation bounded by configured max_concurrency.
+    bounded_slots = max(0, min(body.available_slots, max(executor.max_concurrency, 0)))
+    executor.reported_available_slots = bounded_slots
     session.add(executor)
     session.commit()
     return eligibility

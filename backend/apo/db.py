@@ -1052,6 +1052,25 @@ def _migrate_to_v16() -> None:
         _migrate_source_owned_executor_schema(conn)
 
 
+def _migrate_executor_heartbeat_observations(conn: Connection) -> None:
+    """The v17 source-owned heartbeat observations migration (SPEC-162).
+
+    Persists the latest protocol-v2 catalog digest and reported available
+    slots. Existing Executors backfill to NULL. Idempotent.
+    """
+    _add_column_if_missing(conn, "executors", "reported_catalog_digest", "VARCHAR")
+    _create_index_if_not_exists(
+        conn, "ix_executors_reported_catalog_digest", "executors", "reported_catalog_digest"
+    )
+    _add_column_if_missing(conn, "executors", "reported_available_slots", "INTEGER")
+
+
+def _migrate_to_v17() -> None:
+    """Version 17: persist source-owned heartbeat observations (SPEC-162)."""
+    with engine.begin() as conn:
+        _migrate_executor_heartbeat_observations(conn)
+
+
 def _migrate_schedule_pool_schema(conn: Connection) -> None:
     """The v14 schedule-pool migration, runnable against any connection."""
     _add_column_if_missing(conn, "agent_task_schedules", "executor_pool_id", "VARCHAR")
@@ -1519,7 +1538,7 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
     )
 
 
-LATEST_SCHEMA_VERSION = 16
+LATEST_SCHEMA_VERSION = 17
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -1538,6 +1557,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     14: _migrate_to_v14,
     15: _migrate_to_v15,
     16: _migrate_to_v16,
+    17: _migrate_to_v17,
 }
 
 

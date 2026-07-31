@@ -737,4 +737,35 @@ async def connected_executor_bootstrap(
     }
 
 
+# ---------------------------------------------------------------------------
+# SPEC-162: aggregate Connected Executor status for the dashboard
+# ---------------------------------------------------------------------------
+
+
+@router.get("/projects/{project_id}/connected-executor-status")
+async def connected_executor_status(
+    project_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """Return the acting User's aggregate Connected Environment state.
+
+    Requires Project membership; derives the User exclusively from the
+    authenticated request. Returns only ``{ "state": "..." }`` — never
+    Executor IDs, names, hostnames, OSes, Pool IDs, credentials, or
+    catalog digests. Returns ``200`` (including ``not_connected``).
+    """
+    membership = enforce_project_role_from_request(
+        request, session, project_id, minimum_role="member"
+    )
+    from ..services.connected_executor_status import (
+        compute_connected_environment_status,
+    )
+
+    status_view = compute_connected_environment_status(
+        session, project_id=project_id, user_id=membership.user_id
+    )
+    return {"state": status_view.state}
+
+
 __all__ = ["router"]

@@ -15,6 +15,7 @@ import { TaskRunListHeader, TaskRunRow } from "@/components/task-run-list";
 import { BatchRunAutoRefresh } from "@/components/agent-task-execution/batch-run-auto-refresh";
 import { OutcomeSummary, FailuresByType, conclusionStyle } from "@/components/run-outcome";
 import { ExecutionAttemptPanel } from "@/components/agent-task-execution/execution-attempt-panel";
+import { BatchRunCancelButton } from "@/components/agent-task-execution/batch-run-cancel-button";
 
 export const dynamic = "force-dynamic";
 
@@ -141,6 +142,9 @@ export default async function BatchRunDetailPage({
                 {statusConf.label}
               </span>
               <h1 className="text-[20px] font-semibold tracking-tight">Run</h1>
+              {isRunning && (
+                <BatchRunCancelButton batchRunId={batchRunId} />
+              )}
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
               <span>{batchRun.selection_type}</span>

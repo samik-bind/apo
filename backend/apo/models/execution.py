@@ -91,14 +91,19 @@ class CallerIdentity(SQLModel):
 __all__ = [
     "AttemptStatus",
     "AttemptSummary",
+    "AttemptWaitingReason",
     "CallerIdentity",
     "CallerSourceAttestation",
     "CallerTaskDescriptor",
+    "ConnectedEnvironmentState",
+    "ConnectedEnvironmentStatus",
     "ExecutionPhase",
+    "ExecutionTarget",
     "ExecutorCapabilities",
     "ExecutorPoolKind",
     "PoolExecutionTarget",
     "ProjectActor",
+    "SourceOwnedExecutionTarget",
     "TaskRevisionSummary",
 ]
 
@@ -128,6 +133,42 @@ class PoolExecutionTarget(SQLModel):
     pool_id: str
 
 
+class SourceOwnedExecutionTarget(SQLModel):
+    """Execution target for a dashboard Run through Connected Executors.
+
+    Deliberately contains no User, Pool, Executor, path, or source value.
+    The authenticated request determines ``requested_by_user_id`` and
+    ``target_user_id``; never accept either from the request body.
+    """
+
+    kind: Literal["source_owned"]
+
+
+#: Polymorphic execution-target union. ``pool`` is the legacy bundled path;
+#: ``source_owned`` routes to the authenticated User's Connected Executors.
+ExecutionTarget = PoolExecutionTarget | SourceOwnedExecutionTarget
+
+
+ConnectedEnvironmentState = Literal[
+    "ready",
+    "busy",
+    "offline",
+    "incompatible",
+    "catalog_mismatch",
+    "not_connected",
+]
+
+#: Dynamic waiting reason for a queued Attempt. Mirrors the aggregate
+#: connected-environment state for the Attempt's ``target_user_id``.
+AttemptWaitingReason = ConnectedEnvironmentState
+
+
+class ConnectedEnvironmentStatus(SQLModel):
+    """User-scoped aggregate view of one member's Connected Executors."""
+
+    state: ConnectedEnvironmentState
+
+
 class ExecutorCapabilities(SQLModel):
     """Capabilities an Executor reports at enrollment (drives claim matching)."""
 
@@ -147,11 +188,14 @@ class AttemptSummary(SQLModel):
     task_run_id: str
     status: AttemptStatus
     phase: ExecutionPhase | None = None
+    assignment_kind: Literal["caller", "bundled", "source_owned"] = "bundled"
     executor_id: str | None = None
     executor_name: str | None = None
     executor_pool_id: str | None = None
     driver_kind: str | None = None
     queued_at: datetime
+    queue_expires_at: datetime | None = None
+    waiting_reason: AttemptWaitingReason | None = None
     claimed_at: datetime | None = None
     started_at: datetime | None = None
     heartbeat_at: datetime | None = None

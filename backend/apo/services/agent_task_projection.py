@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import cast
+from typing import Literal, cast
 
 from ..models import (
     AgentTaskBatchRunConfigurationSummary,
@@ -27,8 +27,11 @@ from ..models.db import TaskExecutionAttemptDB
 from ..models.execution import (
     AttemptStatus,
     AttemptSummary,
+    AttemptWaitingReason,
     ExecutionPhase,
+    ExecutionTarget,
     PoolExecutionTarget,
+    SourceOwnedExecutionTarget,
     TaskRevisionSummary,
 )
 from .agent_task_configuration import (
@@ -195,7 +198,11 @@ def to_batch_run_detail(
     ]
     total_cost = sum(tr.total_cost or 0 for tr in task_runs)
     breakdown = build_failure_breakdown(task_runs)
-    execution_target = _pool_execution_target(br.execution_target_json)
+    execution_target = _execution_target(br.execution_target_json)
+    is_source_owned = isinstance(execution_target, SourceOwnedExecutionTarget)
+    waiting_reasons = _source_owned_waiting_reasons(
+        br.project, attempts if is_source_owned else ()
+    )
     configuration = summarize_batch_configurations(
         [
             configuration_from_row(tr.configured_model, tr.configured_effort)
@@ -203,6 +210,9 @@ def to_batch_run_detail(
         ],
         total_task_runs=len(task_runs),
     )
+    # Source-owned Runs hide the internal canonical Pool and exact machine.
+    # Legacy Pool Runs keep their resolved Pool name for historical detail.
+    pool_name = None if is_source_owned else executor_pool_name
     return AgentTaskBatchRunDetail(
         id=br.id,
         project=br.project,
@@ -231,7 +241,7 @@ def to_batch_run_detail(
         failure_breakdown=breakdown,
         task_revision=task_revision,
         execution_target=execution_target,
-        executor_pool_name=executor_pool_name,
+        executor_pool_name=pool_name,
         attempts=[
             _attempt_summary(
                 attempt,
@@ -240,6 +250,8 @@ def to_batch_run_detail(
                     if executor_names is not None and attempt.executor_id is not None
                     else None
                 ),
+                hide_internals=is_source_owned,
+                waiting_reason=waiting_reasons.get(attempt.id),
             )
             for attempt in attempts
         ],
@@ -272,32 +284,74 @@ def group_batch_configuration_summaries(
     }
 
 
-def _pool_execution_target(
+def _execution_target(
     raw: dict[str, object] | None,
-) -> PoolExecutionTarget | None:
-    if raw is None or raw.get("kind") != "pool":
+) -> ExecutionTarget | None:
+    if raw is None:
         return None
-    pool_id = raw.get("pool_id")
-    if not isinstance(pool_id, str):
+    kind = raw.get("kind")
+    if kind == "pool":
+        pool_id = raw.get("pool_id")
+        if isinstance(pool_id, str):
+            return PoolExecutionTarget(kind="pool", pool_id=pool_id)
         return None
-    return PoolExecutionTarget(kind="pool", pool_id=pool_id)
+    if kind == "source_owned":
+        return SourceOwnedExecutionTarget(kind="source_owned")
+    return None
+
+
+def _source_owned_waiting_reasons(
+    project_id: str,
+    attempts: Sequence[TaskExecutionAttemptDB],
+) -> dict[str, AttemptWaitingReason]:
+    """Compute the dynamic ``waiting_reason`` for queued source-owned Attempts.
+
+    One aggregate computation per queued Attempt's ``target_user_id`` — the
+    underlying service deduplicates across a User's Executors. Started or
+    terminal Attempts return ``None`` (their phase/failure explains them).
+    """
+    from sqlmodel import Session
+
+    from .connected_executor_status import compute_connected_environment_state
+
+    reasons: dict[str, AttemptWaitingReason] = {}
+    for attempt in attempts:
+        if attempt.status != "queued" or not attempt.target_user_id:
+            continue
+        raw_session = Session.object_session(attempt)
+        if raw_session is None:
+            continue
+        reasons[attempt.id] = compute_connected_environment_state(
+            cast(Session, raw_session),
+            project_id=project_id,
+            user_id=attempt.target_user_id,
+        )
+    return reasons
 
 
 def _attempt_summary(
     attempt: TaskExecutionAttemptDB,
     *,
     executor_name: str | None,
+    hide_internals: bool = False,
+    waiting_reason: AttemptWaitingReason | None = None,
 ) -> AttemptSummary:
     return AttemptSummary(
         id=attempt.id,
         task_run_id=attempt.task_run_id,
         status=cast(AttemptStatus, attempt.status),
         phase=cast(ExecutionPhase, attempt.phase) if attempt.phase else None,
-        executor_id=attempt.executor_id,
-        executor_name=executor_name,
-        executor_pool_id=attempt.executor_pool_id,
-        driver_kind=attempt.driver_kind,
+        assignment_kind=cast(
+            Literal["caller", "bundled", "source_owned"],
+            attempt.assignment_kind or "bundled",
+        ),
+        executor_id=None if hide_internals else attempt.executor_id,
+        executor_name=None if hide_internals else executor_name,
+        executor_pool_id=None if hide_internals else attempt.executor_pool_id,
+        driver_kind=None if hide_internals else attempt.driver_kind,
         queued_at=attempt.queued_at,
+        queue_expires_at=attempt.queue_expires_at,
+        waiting_reason=waiting_reason,
         claimed_at=attempt.claimed_at,
         started_at=attempt.started_at,
         heartbeat_at=attempt.heartbeat_at,
