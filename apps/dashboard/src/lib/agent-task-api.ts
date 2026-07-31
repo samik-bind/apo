@@ -125,6 +125,12 @@ export interface AgentTaskRunSummary {
 
 export type EvaluatorType = "llm" | "code" | "regex";
 
+/** SPEC-163: typed catalog selection stored on a source-owned Schedule. */
+export type ScheduleSelection =
+  | { kind: "tasks"; task_ids: string[] }
+  | { kind: "folder"; folder_id: string }
+  | { kind: "all" };
+
 /** Source location of a failed code check — for inline, editor-style display. */
 export interface CheckLocation {
   file: string;
@@ -350,16 +356,61 @@ export interface AgentTaskScheduleSummary {
   updated_at: string;
   last_batch: ScheduleLastBatchSummary | null;
   consecutive_failures: number;
+  // SPEC-163: source-owned scheduled delivery projection.
+  execution_kind: "source_owned" | "bundled";
+  execution_owner: ScheduleExecutionOwnerSummary | null;
+  connected_environment_state: ConnectedEnvironmentState | null;
+  active_batch_run_id: string | null;
+  latest_occurrence: ScheduleOccurrenceSummary | null;
+  missed_occurrences: number;
 }
 
 export interface AgentTaskScheduleDetail extends AgentTaskScheduleSummary {
   run_metadata: Record<string, unknown> | null;
 }
 
+/** SPEC-163: the fixed User whose Connected Executors run a source-owned Schedule. */
+export interface ScheduleExecutionOwnerSummary {
+  id: string;
+  name: string;
+}
+
+export type ScheduleOccurrenceStatus =
+  | "pending"
+  | "delivered"
+  | "missed"
+  | "cancelled";
+
+export type OccurrenceMissedReason =
+  | "previous_occurrence_active"
+  | "executor_unavailable"
+  | "catalog_changed"
+  | "selection_empty";
+
+export interface ScheduleOccurrenceSummary {
+  id: string;
+  kind: "scheduled" | "manual";
+  scheduled_for: string;
+  status: ScheduleOccurrenceStatus;
+  batch_run_id: string | null;
+  missed_reason: OccurrenceMissedReason | null;
+  resolved_at: string | null;
+}
+
+/** SPEC-163 Run Now result: the active Batch (existing or newly created). */
+export interface TriggerScheduleResponse {
+  batch_run_id: string | null;
+  occurrence_id: string | null;
+  created: boolean;
+  schedule: AgentTaskScheduleSummary;
+}
+
 export interface CreateAgentTaskScheduleRequest {
   project: string;
   name: string;
   selection_type?: string;
+  /** SPEC-163: typed catalog selection for source-owned schedules. */
+  selection?: ScheduleSelection;
   task_paths?: string[];
   task_root?: string | null;
   grep?: string | null;
@@ -373,7 +424,7 @@ export interface CreateAgentTaskScheduleRequest {
   min_interval_days?: number;
   max_interval_days?: number;
   enabled?: boolean;
-  executor_pool_id: string;
+  executor_pool_id?: string | null;
   queue_ttl_seconds?: number | null;
   run_metadata?: Record<string, unknown> | null;
 }
@@ -595,10 +646,20 @@ export const deleteAgentTaskSchedule = (
 
 export const triggerSchedule = (
   scheduleId: string,
-): Promise<{ batch_run_id: string; schedule: AgentTaskScheduleSummary }> =>
+): Promise<TriggerScheduleResponse> =>
   apiClient(
     `/v1/agent-task-schedules/${encodeURIComponent(scheduleId)}/trigger`,
     { method: "POST" },
+  );
+
+/** SPEC-163: bounded newest-first Occurrence history (membership-scoped). */
+export const listScheduleOccurrences = (
+  scheduleId: string,
+  limit = 20,
+): Promise<{ occurrences: ScheduleOccurrenceSummary[] }> =>
+  apiClient(
+    `/v1/agent-task-schedules/${encodeURIComponent(scheduleId)}/occurrences`,
+    { ...NO_CACHE, query: { limit } },
   );
 
 export const getAdaptiveStates = (

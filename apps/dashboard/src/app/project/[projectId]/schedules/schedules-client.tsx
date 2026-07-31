@@ -25,7 +25,6 @@ interface AgentTaskSchedulesClientProps {
   tasks: AgentTaskSummary[];
   schedules: import("@/lib/agent-task-api").AgentTaskScheduleSummary[];
   initialTaskIds: string[];
-  taskRoot: string | null;
   error: string | null;
   taskSource: ProjectTaskSource | null;
   executorPools: ExecutorPoolSummary[];
@@ -35,7 +34,6 @@ export function AgentTaskSchedulesClient({
   tasks,
   schedules: initialSchedules,
   initialTaskIds,
-  taskRoot,
   error: serverError,
   taskSource,
   executorPools,
@@ -187,8 +185,6 @@ export function AgentTaskSchedulesClient({
         <CreateScheduleDialog
           tasks={tasks}
           initialTaskIds={initialTaskIds}
-          taskRoot={taskRoot}
-          executorPools={executorPools}
           onClose={() => setShowCreate(false)}
           onCreated={(newSchedule) => {
             addSchedule(newSchedule);

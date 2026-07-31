@@ -18,10 +18,12 @@ import type {
   AgentTaskSummary,
 } from "@/lib/agent-task-api";
 import {
+  listScheduleOccurrences,
   triggerSchedule,
   updateAgentTaskSchedule,
 } from "@/lib/agent-task-api";
 import { Button } from "@/components/ui/button";
+import { ScheduleOccurrenceList } from "@/app/project/[projectId]/schedules/[scheduleId]/schedule-occurrence-list";
 import { ExecutorPoolSelect } from "@/components/executor-pool-select";
 import type { ExecutorPoolSummary } from "@/lib/executor-api";
 import { cn } from "@/lib/utils";
@@ -233,8 +235,41 @@ export function ScheduleDetailClient({
         ) : (
           <FixedScheduleBody schedule={schedule} clientNow={nowMs} />
         )}
+        {schedule.execution_kind === "source_owned" && (
+          <OccurrenceHistory scheduleId={schedule.id} />
+        )}
       </div>
     </div>
+  );
+}
+
+function OccurrenceHistory({ scheduleId }: { scheduleId: string }) {
+  const [occurrences, setOccurrences] = useState<
+    Awaited<ReturnType<typeof listScheduleOccurrences>>["occurrences"] | null
+  >(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listScheduleOccurrences(scheduleId)
+      .then((res) => {
+        if (!cancelled) setOccurrences(res.occurrences);
+      })
+      .catch(() => {
+        if (!cancelled) setOccurrences([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scheduleId]);
+
+  if (occurrences === null) return null;
+  return (
+    <section className="border-t border-border px-6 py-4">
+      <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wider text-muted-foreground">
+        Occurrences
+      </h2>
+      <ScheduleOccurrenceList occurrences={occurrences} />
+    </section>
   );
 }
 

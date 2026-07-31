@@ -88,7 +88,13 @@ export default function ScheduleCard({
                   <span className="text-muted-foreground/40">·</span>
                   <span className="truncate">{summarizeTasks(schedule)}</span>
                   <span className="text-muted-foreground/40">·</span>
-                  <span>{executorPoolName ?? "Pool unavailable"}</span>
+                  <span className="truncate">
+                    {schedule.execution_kind === "source_owned"
+                      ? (schedule.execution_owner
+                          ? `Runs in ${schedule.execution_owner.name}’s connected environment`
+                          : "Runs in a connected environment")
+                      : (executorPoolName ?? "Pool unavailable")}
+                  </span>
                 </div>
               </Link>
             </div>

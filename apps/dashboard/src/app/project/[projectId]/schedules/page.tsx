@@ -66,7 +66,6 @@ export default async function AgentTaskSchedulesPage({
       tasks={tasks}
       schedules={schedules}
       initialTaskIds={initialTaskIds}
-      taskRoot={TASK_ROOT}
       error={error}
       taskSource={taskSource}
       executorPools={executorPools}

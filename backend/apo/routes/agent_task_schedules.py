@@ -500,8 +500,9 @@ def _validate_selection(raw: dict[str, object]) -> dict[str, object]:
                 status_code=422,
                 detail={"kind": "schedule_selection_invalid", "msg": "task_ids required"},
             )
-        ids = [x for x in cast(list[object], raw_ids) if isinstance(x, str)]
-        if not ids or len(ids) != len(raw_ids) or len(set(ids)) != len(ids):
+        ids_list = cast(list[object], raw_ids)
+        ids = [x for x in ids_list if isinstance(x, str)]
+        if not ids or len(ids) != len(ids_list) or len(set(ids)) != len(ids):
             raise HTTPException(
                 status_code=422,
                 detail={"kind": "schedule_selection_invalid", "msg": "duplicate/empty task_ids"},

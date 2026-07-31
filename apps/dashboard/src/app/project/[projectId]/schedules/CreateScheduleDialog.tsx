@@ -18,23 +18,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { ScheduleBuilder, type ScheduleBuilderValue } from "@/components/schedule/ScheduleBuilder";
 import { TaskFolderSelect } from "@/components/task-folder-select";
-import type { ExecutorPoolSummary } from "@/lib/executor-api";
-import { ScheduleExecutionFields } from "./schedule-execution-fields";
 
 interface CreateScheduleDialogProps {
   tasks: AgentTaskSummary[];
   initialTaskIds: string[];
-  taskRoot: string | null;
-  executorPools: ExecutorPoolSummary[];
   onClose: () => void;
   onCreated: (schedule: AgentTaskScheduleSummary) => void;
 }
 
+/**
+ * SPEC-163: create a source-owned Schedule. The authenticated creator becomes
+ * the fixed Execution Owner — the dialog never offers a Pool, queue TTL, task
+ * root, path, or owner selector. It submits exact catalog Task IDs.
+ */
 export default function CreateScheduleDialog({
   tasks,
   initialTaskIds,
-  taskRoot,
-  executorPools,
   onClose,
   onCreated,
 }: CreateScheduleDialogProps) {
@@ -57,10 +56,6 @@ export default function CreateScheduleDialog({
     setScheduleValue((v) => ({ ...v, timezone: browserTz }));
   }
   const [selected, setSelected] = useState<Set<string>>(() => new Set(initialTaskIds));
-  const [executorPoolId, setExecutorPoolId] = useState(
-    () => executorPools.find((pool) => pool.is_default && pool.enabled && !pool.archived)?.id ?? "",
-  );
-  const [queueTtlSeconds, setQueueTtlSeconds] = useState(86_400);
   const [submitState, dispatchSubmit] = useReducer(
     (s: { submitting: boolean; error: string | null }, a:
       | { type: "START" }
@@ -87,23 +82,14 @@ export default function CreateScheduleDialog({
       dispatchSubmit({ type: "ERROR", error: "Schedule name is required" });
       return;
     }
-    if (!executorPoolId) {
-      dispatchSubmit({ type: "ERROR", error: "Choose where this schedule should run" });
-      setStep("schedule");
-      return;
-    }
 
     dispatchSubmit({ type: "START" });
     try {
-      const selectedPaths = tasks.flatMap((t) =>
-        selected.has(t.id) ? [t.task_path] : [],
-      );
+      const taskIds = tasks.flatMap((t) => (selected.has(t.id) ? [t.id] : []));
       const created = await createAgentTaskSchedule({
         project: projectId,
         name: name.trim(),
-        selection_type: selectedPaths.length === 1 ? "task" : "tasks",
-        task_paths: selectedPaths,
-        task_root: taskRoot,
+        selection: { kind: "tasks", task_ids: taskIds },
         cadence_type: scheduleValue.cadence_type,
         timezone: scheduleValue.timezone,
         hour: scheduleValue.hour,
@@ -113,8 +99,6 @@ export default function CreateScheduleDialog({
         min_interval_days: scheduleValue.min_interval_days,
         max_interval_days: scheduleValue.max_interval_days,
         enabled: true,
-        executor_pool_id: executorPoolId,
-        queue_ttl_seconds: queueTtlSeconds,
       });
       onCreated(created);
     } catch (e: unknown) {
@@ -128,7 +112,7 @@ export default function CreateScheduleDialog({
         <DialogHeader className="px-6 pt-6 pb-0">
           <DialogTitle>New Schedule</DialogTitle>
           <p className="text-xs text-muted-foreground mt-1">
-            Configure when your agent tasks run automatically
+            Runs in your connected environment — you are the fixed Execution Owner
           </p>
         </DialogHeader>
 
@@ -176,16 +160,7 @@ export default function CreateScheduleDialog({
             </div>
 
             {step === "schedule" && (
-              <div className="space-y-5">
-                <ScheduleBuilder value={scheduleValue} onChange={setScheduleValue} />
-                <ScheduleExecutionFields
-                  executorPools={executorPools}
-                  executorPoolId={executorPoolId}
-                  queueTtlSeconds={queueTtlSeconds}
-                  onExecutorPoolChange={setExecutorPoolId}
-                  onQueueTtlChange={setQueueTtlSeconds}
-                />
-              </div>
+              <ScheduleBuilder value={scheduleValue} onChange={setScheduleValue} />
             )}
 
             {step === "tasks" && (
