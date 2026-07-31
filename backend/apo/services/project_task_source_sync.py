@@ -109,7 +109,7 @@ def sync_task_source(session: Session, source: ProjectTaskSourceDB) -> SyncResul
     if source.source_type == "published":
         # SPEC-159: published catalogs own their inventory directly;
         # no server-side sync needed.
-        return source
+        return SyncResult(source=source, discovered_count=0, resolved_commit_sha=None)
     message = (
         f"Unknown source type: {source.source_type!r}. "
         "Expected one of: git, filesystem, demo, published."
@@ -376,31 +376,14 @@ def _maybe_inject_github_token(
     when a valid encrypted connection exists for this project. Otherwise
     the original URL is returned unchanged so anonymous clone / other
     git hosts work as before.
+
+    SPEC-159 removed the GitHub-OAuth connection flow (``apo.services.github_oauth``),
+    so there is no stored project token to inject today; operator-supplied
+    credentials embedded directly in the clone URL still work and are
+    redacted by ``_redact_git_credentials``. This stays a safe pass-through
+    so the git-sync path does not depend on the removed module.
     """
-    try:
-        from urllib.parse import urlparse, urlunparse
-
-        parsed = urlparse(repo_url)
-    except ValueError:
-        return repo_url
-    if parsed.hostname != "github.com" or not parsed.scheme.startswith("http"):
-        return repo_url
-
-    from .github_oauth import load_github_config, resolve_access_token
-
-    config = load_github_config()
-    if config is None:
-        return repo_url
-
-    token = resolve_access_token(session, source.project, config)
-    if not token:
-        return repo_url
-
-    try:
-        new_netloc = f"x-access-token:{token}@github.com"
-        return urlunparse(parsed._replace(netloc=new_netloc))
-    except Exception:  # noqa: BLE001 — token injection is best-effort
-        return repo_url
+    return repo_url
 
 
 def _apply_source_subpath(

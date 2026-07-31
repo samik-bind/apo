@@ -182,13 +182,12 @@ def publish_catalog(
             project=project_id,
             task_source_id=existing.id,
             task_id=task["task_id"],
-            task_inventory_id=task["task_id"],
             display_name=task["display_name"],
             adapter_name=task["adapter_name"],
             folder_path=task["folder_path"],
             task_path=task["task_path"],
             has_checks=task["has_checks"],
-            has_simulator=task["has_user_simulator"],
+            has_user_simulator=task["has_user_simulator"],
             source_type="published",
         )
         session.add(inv)

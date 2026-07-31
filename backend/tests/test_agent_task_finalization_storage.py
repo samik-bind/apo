@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 from sqlmodel import Session, select, text
-from apo.db import engine, init_db
+from apo.db import engine, reset_apo_file_db
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskRunDB, RunDB
 from apo.services.agent_task_runner import finalize_task_run_with_result
 from apo.services.trace_backend import get_trace_backend
@@ -19,7 +19,7 @@ from apo.services.trace_backend import get_trace_backend
 
 @pytest.fixture(autouse=True)
 def setup_database():
-    init_db()
+    reset_apo_file_db()
     yield
     with Session(engine) as session:
         session.execute(text("DELETE FROM agent_task_deliverables"))

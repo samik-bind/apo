@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 import pytest
 from sqlmodel import Session, select, text
-from apo.db import engine, init_db
+from apo.db import engine, reset_apo_file_db
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskDeliverableDB, AgentTaskRunDB
 from apo.services.agent_task_deliverables import (
     INLINE_THRESHOLD_BYTES,
@@ -30,7 +30,7 @@ from apo.services.artifact_stores.local import LocalArtifactStore
 
 @pytest.fixture(autouse=True)
 def setup_database(tmp_path):
-    init_db()
+    reset_apo_file_db()
     yield
     with Session(engine) as session:
         session.execute(text("DELETE FROM agent_task_deliverables"))

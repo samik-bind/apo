@@ -219,11 +219,16 @@ def test_run_error_for_filesystem_says_rescanned(tmp_path, session):
 
 
 # ---------------------------------------------------------------------------
-# Route-level self-heal: GET /v1/projects/{id}/agent-tasks
+# Route-level behavior: GET /v1/projects/{id}/agent-tasks
 # ---------------------------------------------------------------------------
 
 
-def test_list_route_auto_syncs_filesystem_source(tmp_path, session, make_authed_client):
+def test_list_route_reads_persisted_inventory_without_lazy_sync(
+    tmp_path, session, make_authed_client
+):
+    """SPEC-159: the project task list reads persisted inventory and does not
+    lazily re-sync the filesystem. A newly-added on-disk task appears only
+    after an explicit ``sync_task_source`` (catalogs are client-published)."""
     tasks_root = str(tmp_path)
     _write_task(tasks_root, "alpha", "alpha")
     source = _seed_filesystem_project(session, tasks_root)
@@ -234,5 +239,12 @@ def test_list_route_auto_syncs_filesystem_source(tmp_path, session, make_authed_
     client = make_authed_client("owner-fs", session)
     resp = client.get(f"/v1/projects/{source.project}/agent-tasks")
     assert resp.status_code == 200
+    ids = sorted(t["id"] for t in resp.json())
+    # No lazy refresh: "beta" is absent until an explicit sync.
+    assert ids == ["alpha"]
+
+    # After an explicit sync, "beta" surfaces.
+    sync_task_source(session, source)
+    resp = client.get(f"/v1/projects/{source.project}/agent-tasks")
     ids = sorted(t["id"] for t in resp.json())
     assert ids == ["alpha", "beta"]

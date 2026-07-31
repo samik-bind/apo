@@ -194,6 +194,20 @@ def init_db():
         _ = load_default_prices(session)
 
 
+def reset_apo_file_db() -> None:
+    """Drop every table on the configured engine and re-run ``init_db``.
+
+    Test modules that import ``apo.db.engine`` directly and call ``init_db``
+    share one (file-backed) database. ``init_db`` is idempotent — it creates
+    tables if missing but never clears rows — so data accumulates across test
+    files/runs and causes UNIQUE/FK violations (e.g. a stale ``batch-run-1``).
+    Dropping all tables first gives each test a clean schema. Safe to call
+    repeatedly; intended for the test suite, not production request paths.
+    """
+    SQLModel.metadata.drop_all(engine)
+    init_db()
+
+
 def _migrate_to_baseline():
     """Version 1 baseline migration.
 
