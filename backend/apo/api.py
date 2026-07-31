@@ -42,6 +42,7 @@ from .routes import (
     project_members,
     system_runtime,
     executor_protocol,
+    executor_protocol_v2,
     executor_pools,
 )
 
@@ -172,6 +173,7 @@ def create_app() -> FastAPI:
     app.include_router(project_members.router)
     app.include_router(system_runtime.router)
     app.include_router(executor_protocol.router)
+    app.include_router(executor_protocol_v2.router)
     app.include_router(executor_pools.router)
 
     return app
