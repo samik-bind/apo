@@ -243,6 +243,106 @@ def claim_next_attempt(
     return None
 
 
+def claim_next_source_owned_attempt(
+    session: Session,
+    *,
+    executor: ExecutorDB,
+) -> ClaimedAttempt | None:
+    """SPEC-161/164: atomically lease the oldest eligible source-owned Attempt.
+
+    Reuses the same database-backed capacity/sequential/TTL/atomic-race
+    authority as ``claim_next_attempt`` but targets source-owned work:
+    queued ``assignment_kind="source_owned"`` Attempts in this Executor's
+    canonical source-owned Pool whose ``target_user_id`` equals the
+    Executor's ``enrolled_by_user_id``. Requires protocol v2 and the
+    ``source-owned-ts`` driver. Client-reported ``available_slots`` may
+    suppress a claim but never grants capacity.
+    """
+    from apo.models.execution import SUPPORTED_EXECUTOR_PROTOCOL_VERSIONS
+
+    now = _now()
+    locked_executor = _lock_executor_for_claim(session, executor.id)
+    if (
+        locked_executor is None
+        or locked_executor.revoked_at is not None
+        or not locked_executor.enabled
+        or locked_executor.enrolled_by_user_id is None
+        or locked_executor.protocol_version not in SUPPORTED_EXECUTOR_PROTOCOL_VERSIONS
+        or locked_executor.protocol_version < 2
+        or locked_executor.executor_pool_id is None
+    ):
+        return None
+    executor = locked_executor
+
+    driver_kinds = set(executor.driver_kinds_json or [])
+    if "source-owned-ts" not in driver_kinds:
+        return None
+    if _active_count(session, executor) >= executor.max_concurrency:
+        return None
+
+    candidates = session.exec(
+        select(TaskExecutionAttemptDB)
+        .where(
+            TaskExecutionAttemptDB.status == QUEUED,
+            TaskExecutionAttemptDB.assignment_kind == "source_owned",
+            TaskExecutionAttemptDB.executor_pool_id == executor.executor_pool_id,
+            TaskExecutionAttemptDB.target_user_id == executor.enrolled_by_user_id,
+        )
+        .order_by(_as_column(TaskExecutionAttemptDB.queued_at))
+    ).all()
+
+    for attempt in candidates:
+        if attempt.queue_expires_at <= now:
+            continue  # TTL expired; the reaper will fail it
+        pool = _pool_for(session, attempt)
+        if pool is None or not pool.enabled or pool.archived_at is not None:
+            continue
+        if pool.required_driver_kind != "source-owned-ts":
+            continue
+        if _sequential_blocker(session, attempt):
+            continue
+
+        new_generation = attempt.lease_generation + 1
+        active_attempt = aliased(TaskExecutionAttemptDB)
+        active_count = (
+            select(func.count())
+            .select_from(active_attempt)
+            .where(
+                active_attempt.executor_id == executor.id,
+                _as_column(active_attempt.status).in_([LEASED, RUNNING]),
+            )
+            .scalar_subquery()
+        )
+        result = session.exec(
+            update(TaskExecutionAttemptDB)
+            .where(
+                _as_column(TaskExecutionAttemptDB.id) == attempt.id,
+                _as_column(TaskExecutionAttemptDB.status) == QUEUED,
+                active_count < executor.max_concurrency,
+            )
+            .values(
+                status=LEASED,
+                executor_id=executor.id,
+                claimed_at=now,
+                heartbeat_at=now,
+                lease_expires_at=now + timedelta(seconds=ATTEMPT_LEASE_SECONDS),
+                lease_generation=new_generation,
+            )
+        )
+        session.commit()
+        if result.rowcount == 1:
+            session.refresh(attempt)
+            return ClaimedAttempt(
+                attempt=attempt,
+                lease=CurrentAttemptLease(
+                    attempt_id=attempt.id,
+                    lease_generation=new_generation,
+                    executor_id=executor.id,
+                ),
+            )
+    return None
+
+
 def _pool_for(session: Session, attempt: TaskExecutionAttemptDB):
     from apo.models.db import ExecutorPoolDB
 
@@ -591,6 +691,7 @@ __all__ = [
     "SUCCEEDED",
     "TERMINAL_STATUSES",
     "claim_next_attempt",
+    "claim_next_source_owned_attempt",
     "cancel_active_batch_on_pause",
     "fail_attempt",
     "heartbeat_attempt",

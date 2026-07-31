@@ -18,14 +18,25 @@ import { runTaskChild } from "../lib/local-task-child.ts";
 import {
   bootstrapAndEnroll,
   heartbeat,
-  claimWork,
+  claimWorkStructured,
   submitAttestation,
   startAttempt,
   heartbeatAttempt,
   submitResult,
+  submitFailure,
+  type SourceOwnedFailureKind,
+  type SourceOwnedAssignment,
 } from "../lib/connected-executor.ts";
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** SPEC-164: recompute the local catalog digest from the current Task root so
+ * catalog changes stop new claims and recover automatically after publication. */
+function computeLocalDigest(taskRoot: string): string {
+  const tasks = discoverTaskMeta(taskRoot);
+  const published = tasks.map(toPublishedTask).sort((a, b) => a.task_id.localeCompare(b.task_id));
+  return computeCatalogDigest(published);
 }
 
 export async function run(argv: string[]): Promise<number> {
@@ -54,7 +65,7 @@ export async function run(argv: string[]): Promise<number> {
   // 1. Discover local tasks and compute digest
   const tasks = discoverTaskMeta(taskRoot);
   const published = tasks.map(toPublishedTask).sort((a, b) => a.task_id.localeCompare(b.task_id));
-  const catalogDigest = computeCatalogDigest(published);
+  let catalogDigest = computeCatalogDigest(published);
   console.log(dim(`Discovered ${published.length} task${published.length === 1 ? "" : "s"} in ${taskRoot}`));
 
   // 2. Load or create executor state
@@ -108,6 +119,10 @@ export async function run(argv: string[]): Promise<number> {
   process.on("SIGTERM", handleSignal);
 
   while (!shouldStop) {
+    // SPEC-164: recompute the local catalog digest each poll so a Task
+    // metadata change is detected without restarting apo connect.
+    catalogDigest = computeLocalDigest(taskRoot);
+
     // Heartbeat periodically
     eligibility = await safeHeartbeat(config.backendUrl, state.credential, catalogDigest, concurrency);
     if (eligibility === null) {
@@ -128,14 +143,21 @@ export async function run(argv: string[]): Promise<number> {
       continue;
     }
 
-    let assignment: Awaited<ReturnType<typeof claimWork>> = null;
+    let assignment: SourceOwnedAssignment | null = null;
+    let retryAfterMs = 5_000;
     try {
-      assignment = await claimWork({
+      const claimResult = await claimWorkStructured({
         backendUrl: config.backendUrl,
         credential: state.credential,
         catalogDigest,
         availableSlots,
       });
+      if (claimResult.kind === "assignment") {
+        assignment = claimResult.assignment;
+      } else {
+        // Honor the server-advertised interval (Retry-After) instead of a tight loop.
+        retryAfterMs = claimResult.retryAfterMs;
+      }
     } catch (err) {
       if ((err as Error).message.includes("invalid or revoked")) {
         console.error(red("error: executor credential revoked. Re-run `apo connect` to re-enroll."));
@@ -147,7 +169,7 @@ export async function run(argv: string[]): Promise<number> {
     }
 
     if (assignment === null) {
-      await sleep(5000);
+      await sleep(retryAfterMs);
       continue;
     }
 
@@ -210,16 +232,27 @@ function printEligibility(
 async function executeAssignment(
   backendUrl: string,
   taskRoot: string,
-  assignment: Awaited<ReturnType<typeof claimWork>> & object,
+  assignment: SourceOwnedAssignment,
   cancelSignal: AbortSignal,
 ): Promise<void> {
   const completionId = `${assignment.attempt_id}-${Date.now()}`;
-  const fail = async (failure_kind: string, error_message: string) => {
-    await submitResult({
+  const fail = async (
+    failure_kind: SourceOwnedFailureKind,
+    error_message: string,
+    outcome?: { stdoutTail?: string; stderrTail?: string },
+  ) => {
+    await submitFailure({
       backendUrl,
       attemptJwt: assignment.attempt_jwt,
       attemptId: assignment.attempt_id,
-      result: { completion_id: completionId, pass_result: false, failure_kind, error_message },
+      failure: {
+        completion_id: completionId,
+        failure_kind,
+        error_message,
+        exit_code: null,
+        stdout_tail: outcome?.stdoutTail ?? null,
+        stderr_tail: outcome?.stderrTail ?? null,
+      },
     });
   };
 
@@ -230,14 +263,14 @@ async function executeAssignment(
     tasks.map(toPublishedTask).sort((a, b) => a.task_id.localeCompare(b.task_id)),
   );
   if (localDigest !== assignment.catalog_digest) {
-    await fail("task_resolution", "local catalog digest no longer matches the assignment");
+    await fail("task_import", "local catalog digest no longer matches the assignment");
     throw new Error(`catalog digest mismatch for ${assignment.task_id}`);
   }
 
   // 2. Resolve the exact task_id locally; never fall back to a server path.
   const task = tasks.find((t) => t.id === assignment.task_id);
   if (!task) {
-    await fail("task_resolution", `Task ${assignment.task_id} not found locally`);
+    await fail("task_import", `Task ${assignment.task_id} not found locally`);
     throw new Error(`Task ${assignment.task_id} not found locally`);
   }
 
@@ -296,16 +329,16 @@ async function executeAssignment(
     clearInterval(heartbeatInterval);
 
     if (!outcome.ok) {
-      const failure_kind = outcome.timedOut ? "task_timeout" : "task_runtime";
-      await submitResult({
+      const failure_kind: SourceOwnedFailureKind = outcome.timedOut ? "timeout" : "task_runtime";
+      await submitFailure({
         backendUrl,
         attemptJwt: assignment.attempt_jwt,
         attemptId: assignment.attempt_id,
-        result: {
+        failure: {
           completion_id: completionId,
-          pass_result: false,
           failure_kind,
           error_message: outcome.error,
+          exit_code: null,
           stdout_tail: outcome.stdoutTail || null,
           stderr_tail: outcome.stderrTail || null,
         },
@@ -314,12 +347,16 @@ async function executeAssignment(
       throw new Error(outcome.error);
     }
 
-    // 8. Submit the structured result from the isolated child.
+    // 8. Submit the full structured result (checks, trace, deliverables,
+    //    transcript, model/effort) from the isolated child.
     const summary = outcome.summary as {
       pass?: boolean;
       adapterName?: string;
       checks?: unknown;
       traceRunId?: string;
+      deliverables?: Record<string, unknown>;
+      transcript?: Record<string, unknown>;
+      runConfiguration?: { model: string; effort?: string };
     };
     await submitResult({
       backendUrl,
@@ -331,13 +368,20 @@ async function executeAssignment(
         adapter_name: summary.adapterName ?? null,
         checks: summary.checks ?? null,
         trace_run_id: summary.traceRunId ?? null,
+        transcript: summary.transcript ?? null,
+        deliverables: summary.deliverables ?? null,
+        run_configuration: summary.runConfiguration ?? null,
+        exit_code: null,
+        stdout_tail: outcome.stdoutTail || null,
+        stderr_tail: outcome.stderrTail || null,
+        error_message: null,
       },
     });
   } catch (err) {
     clearInterval(heartbeatInterval);
-    // A failure was already submitted for child/cancellation outcomes; only
-    // submit a runtime failure if finalization hasn't happened yet.
-    if (!/timed out|task_runtime|task_resolution/.test((err as Error).message)) {
+    // A failure was already submitted for child/cancellation/timeout/import
+    // outcomes; only submit a runtime failure if finalization hasn't happened.
+    if (!/timed out|task_runtime|task_import|catalog digest mismatch|not found locally/.test((err as Error).message)) {
       await fail("task_runtime", (err as Error).message);
     }
     throw err;

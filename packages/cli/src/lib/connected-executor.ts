@@ -197,6 +197,56 @@ export async function claimWork(opts: {
   return await resp.json() as SourceOwnedAssignment;
 }
 
+/** SPEC-164: structured claim result so the loop can honor server timing. */
+export type ClaimWorkResult =
+  | { kind: "assignment"; assignment: SourceOwnedAssignment }
+  | { kind: "empty"; retryAfterMs: number }
+  | { kind: "catalog_mismatch"; projectCatalogDigest: string | null; retryAfterMs: number };
+
+/** Parse a ``Retry-After`` header (seconds) into milliseconds, default 5s. */
+export function parseRetryAfterMs(headers: Headers, fallbackMs = 5_000): number {
+  const raw = headers.get("retry-after");
+  if (!raw) return fallbackMs;
+  const seconds = Number.parseInt(raw, 10);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  return fallbackMs;
+}
+
+export async function claimWorkStructured(opts: {
+  backendUrl: string;
+  credential: string;
+  catalogDigest: string;
+  availableSlots: number;
+}): Promise<ClaimWorkResult> {
+  const resp = await fetch(`${v2Base(opts.backendUrl)}/claims`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${opts.credential}`,
+    },
+    body: JSON.stringify({
+      catalog_digest: opts.catalogDigest,
+      available_slots: opts.availableSlots,
+    }),
+  });
+
+  if (resp.status === 204) {
+    return { kind: "empty", retryAfterMs: parseRetryAfterMs(resp.headers) };
+  }
+  if (resp.status === 409) {
+    return {
+      kind: "catalog_mismatch",
+      projectCatalogDigest: null,
+      retryAfterMs: parseRetryAfterMs(resp.headers, 10_000),
+    };
+  }
+  if (resp.status === 401) throw new Error("Executor credential invalid or revoked");
+  if (!resp.ok) throw new Error(`Claim failed: ${resp.status}`);
+
+  const assignment = await resp.json() as SourceOwnedAssignment;
+  return { kind: "assignment", assignment };
+}
+
 export async function submitAttestation(opts: {
   backendUrl: string;
   attemptJwt: string;
@@ -281,5 +331,42 @@ export async function submitResult(opts: {
 
   if (!resp.ok) {
     throw new Error(`Result submission failed: ${resp.status}`);
+  }
+}
+
+/** SPEC-164: authoritative failure kinds for source-owned execution. */
+export type SourceOwnedFailureKind =
+  | "task_import"
+  | "task_runtime"
+  | "timeout"
+  | "cancelled"
+  | "executor_shutdown"
+  | "result_invalid"
+  | "driver";
+
+export async function submitFailure(opts: {
+  backendUrl: string;
+  attemptJwt: string;
+  attemptId: string;
+  failure: {
+    completion_id: string;
+    failure_kind: SourceOwnedFailureKind;
+    error_message: string | null;
+    exit_code: number | null;
+    stdout_tail: string | null;
+    stderr_tail: string | null;
+  };
+}): Promise<void> {
+  const resp = await fetch(`${v2Base(opts.backendUrl)}/attempts/${opts.attemptId}/failure`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${opts.attemptJwt}`,
+    },
+    body: JSON.stringify(opts.failure),
+  });
+
+  if (!resp.ok) {
+    throw new Error(`Failure submission failed: ${resp.status}`);
   }
 }

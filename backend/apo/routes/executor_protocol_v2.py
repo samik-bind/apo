@@ -52,6 +52,12 @@ router = APIRouter(prefix="/v1/executor-protocol/v2", tags=["executor-protocol-v
 
 PROTOCOL_VERSION = 2
 
+#: SPEC-164: replace the route-level magic timeouts with shared constants. The
+#: Attempt JWT covers the max task timeout plus finalization grace; the task
+#: timeout is the single assignment budget enforced by the connector parent.
+_SOURCE_OWNED_JWT_TTL_SECONDS = 2 * 60 * 60
+_SOURCE_OWNED_TASK_TIMEOUT_SECONDS = 60 * 60
+
 
 # ---------------------------------------------------------------------------
 # Auth dependencies
@@ -244,10 +250,16 @@ async def claims_v2(
     executor: ExecutorDB = Depends(_require_executor),
     session: Session = Depends(get_session),
 ) -> SourceOwnedAssignment | None:
-    """Claim a source-owned assignment. Returns 204 when no work exists."""
+    """Claim a source-owned assignment. Returns 204 when no work exists.
+
+    SPEC-164: delegates to the shared ``claim_next_source_owned_attempt`` so
+    capacity, queue TTL, sequential ordering, Pool health, lease fencing, and
+    the atomic race are all enforced by the database-backed authority — not
+    hand-written route-level timeouts.
+    """
     response.headers["X-Apo-Executor-Protocol"] = str(PROTOCOL_VERSION)
 
-    # Check catalog eligibility
+    # Catalog eligibility gates claims; a mismatch keeps the Executor online.
     eligibility = check_catalog_eligibility(
         session, executor.project or "", body.catalog_digest,
     )
@@ -255,77 +267,45 @@ async def claims_v2(
         response.status_code = status.HTTP_409_CONFLICT
         return None
 
-    # Find a source-owned attempt for this executor's user
-    pool_id = executor.executor_pool_id
-    user_id = executor.enrolled_by_user_id
-
-    candidate = session.exec(
-        select(TaskExecutionAttemptDB).where(
-            TaskExecutionAttemptDB.status == "queued",
-            TaskExecutionAttemptDB.assignment_kind == "source_owned",
-            TaskExecutionAttemptDB.executor_pool_id == pool_id,
-            TaskExecutionAttemptDB.target_user_id == user_id,
-        ).order_by(col(TaskExecutionAttemptDB.queued_at))
-    ).first()
-
-    if candidate is None:
+    # Client-reported available_slots may suppress a claim but never grant
+    # capacity; the server's persisted max_concurrency is authoritative.
+    if body.available_slots <= 0:
         response.status_code = status.HTTP_204_NO_CONTENT
         response.headers["Retry-After"] = "5"
         return None
 
-    from sqlalchemy import update
+    from ..services.execution_leases import claim_next_source_owned_attempt
 
-    now = datetime.now(timezone.utc)
-    lease_expires = now  # Will be set properly by lease service
-    from datetime import timedelta
-    lease_expires = now + timedelta(seconds=300)
-
-    stmt = (
-        update(TaskExecutionAttemptDB)
-        .where(
-            col(TaskExecutionAttemptDB.id) == candidate.id,
-            col(TaskExecutionAttemptDB.status) == "queued",
-        )
-        .values(
-            status="leased",
-            executor_id=executor.id,
-            claimed_at=now,
-            lease_generation=candidate.lease_generation + 1,
-            lease_expires_at=lease_expires,
-        )
-    )
-    result = session.execute(stmt)
-    if getattr(result, "rowcount", 0) == 0:
+    claimed = claim_next_source_owned_attempt(session, executor=executor)
+    if claimed is None:
         response.status_code = status.HTTP_204_NO_CONTENT
         response.headers["Retry-After"] = "5"
         return None
 
-    session.commit()
-    session.refresh(candidate)
-
-    # Issue attempt JWT
+    attempt = claimed.attempt
+    # Issue the fenced Attempt JWT via the shared creator.
     from ..services.executor_auth import create_attempt_jwt
+
     attempt_jwt = create_attempt_jwt(
-        attempt=candidate,
-        lease_generation=candidate.lease_generation,
-        expires_in_seconds=7200,
+        attempt=attempt,
+        lease_generation=claimed.lease.lease_generation,
+        expires_in_seconds=_SOURCE_OWNED_JWT_TTL_SECONDS,
     )
 
-    # Look up task + batch
-    task_run = session.get(AgentTaskRunDB, candidate.task_run_id)
-    batch_run = session.get(AgentTaskBatchRunDB, candidate.batch_run_id)
+    task_run = session.get(AgentTaskRunDB, attempt.task_run_id)
+    batch_run = session.get(AgentTaskBatchRunDB, attempt.batch_run_id)
 
     return SourceOwnedAssignment(
-        attempt_id=candidate.id,
-        task_run_id=candidate.task_run_id,
-        batch_run_id=candidate.batch_run_id,
+        attempt_id=attempt.id,
+        task_run_id=attempt.task_run_id,
+        batch_run_id=attempt.batch_run_id,
         task_id=task_run.task_id if task_run else "",
         environment=batch_run.environment if batch_run else "default",
-        timeout_seconds=3600,
-        project=candidate.project,
+        timeout_seconds=_SOURCE_OWNED_TASK_TIMEOUT_SECONDS,
+        project=attempt.project,
         catalog_digest=body.catalog_digest,
-        lease_generation=candidate.lease_generation,
-        lease_expires_at=candidate.lease_expires_at.isoformat() if candidate.lease_expires_at else "",
+        lease_generation=claimed.lease.lease_generation,
+        lease_expires_at=attempt.lease_expires_at.isoformat() if attempt.lease_expires_at else "",
         attempt_jwt=attempt_jwt,
         trace_endpoint=request.url.scheme + "://" + request.url.netloc + "/api/public/otel/v1/traces",
         result_max_bytes=10_485_760,

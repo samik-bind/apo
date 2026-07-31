@@ -22,6 +22,7 @@ from apo.db import get_session
 from apo.models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
+    ExecutorDB,
     ProjectDB,
     TaskExecutionAttemptDB,
     UserDB,
@@ -168,3 +169,144 @@ def test_v2_result_rejects_wrong_attempt_token(isolated_engine):
         assert resp.status_code == 403
     finally:
         app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# SPEC-164: shared claim service — capacity, sequential order, isolation
+# ---------------------------------------------------------------------------
+
+
+def _enroll_v2_executor(
+    engine,
+    *,
+    user_id: str,
+    pool_id: str,
+    name: str,
+    online: bool = True,
+    max_concurrency: int = 4,
+) -> str:
+    from apo.models.db import ExecutorDB
+
+    with Session(engine) as s:
+        ex = ExecutorDB(
+            id="ex_" + name,
+            scope_kind="pool",
+            project="p1",
+            executor_pool_id=pool_id,
+            name=name,
+            enabled=True,
+            credential_prefix="apo_ex_" + name[:8],
+            credential_hash="hash-" + name,
+            protocol_version=2,
+            executor_version="0.1.0",
+            enrolled_by_user_id=user_id,
+            driver_kinds_json=["source-owned-ts"],
+            capabilities_json={"assignment_kinds": ["source_owned"]},
+            max_concurrency=max_concurrency,
+            last_seen_at=datetime.now(timezone.utc) if online else None,
+        )
+        s.add(ex); s.commit()
+        return ex.id
+
+
+def _queue_source_owned_attempt(
+    engine,
+    *,
+    attempt_id: str,
+    pool_id: str,
+    target_user_id: str,
+    sequence_index: int = 0,
+    run_id: str = "run-1",
+) -> None:
+    with Session(engine) as s:
+        if s.get(AgentTaskRunDB, run_id) is None:
+            s.add(AgentTaskRunDB(
+                id=run_id, batch_run_id="bch-1", task_id="t", task_path="p",
+                sequence_index=sequence_index, status="pending",
+            )); s.flush()
+        s.add(TaskExecutionAttemptDB(
+            id=attempt_id, project="p1", batch_run_id="bch-1", task_run_id=run_id,
+            sequence_index=sequence_index, target_kind="pool",
+            assignment_kind="source_owned", target_user_id=target_user_id,
+            executor_pool_id=pool_id, status="queued",
+            queue_expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+            queued_at=datetime.now(timezone.utc),
+        )); s.commit()
+
+
+def _source_pool(engine) -> str:
+    from apo.services.source_owned_executor import ensure_source_owned_pool
+    with Session(engine) as s:
+        return ensure_source_owned_pool(s, "p1").id
+
+
+def _seed_project_owner(engine) -> str:
+    """Ensure project p1 + an owner user exist; return the owner user id."""
+    with Session(engine) as s:
+        existing = s.exec(select(UserDB)).first()
+        if existing is not None:
+            return existing.id
+        u = UserDB(email="o@t.com", name="O", password_hash="x", is_active=True)
+        s.add(u); s.commit(); s.refresh(u)
+        if s.get(ProjectDB, "p1") is None:
+            s.add(ProjectDB(id="p1", name="P", created_by=u.id)); s.commit()
+        return u.id
+
+
+def test_claim_uses_shared_capacity_authority(isolated_engine):
+    """Spec backend claim test 3: persisted max_concurrency is authoritative."""
+    from apo.services.execution_leases import claim_next_source_owned_attempt
+
+    engine = isolated_engine
+    uid = _seed_project_owner(engine)
+    pool_id = _source_pool(engine)
+    ex_id = _enroll_v2_executor(engine, user_id=uid, pool_id=pool_id, name="cap", max_concurrency=1)
+    _queue_source_owned_attempt(engine, attempt_id="a1", pool_id=pool_id, target_user_id=uid, run_id="r1")
+    _queue_source_owned_attempt(engine, attempt_id="a2", pool_id=pool_id, target_user_id=uid, run_id="r2")
+
+    with Session(engine) as s:
+        ex = s.get(ExecutorDB, ex_id)
+        first = claim_next_source_owned_attempt(s, executor=ex)
+        second = claim_next_source_owned_attempt(s, executor=ex)
+    assert first is not None  # capacity 1 → first claim leases
+    assert second is None     # at capacity → no second claim
+
+
+def test_claim_cannot_cross_user_or_assignment_kind(isolated_engine):
+    """Spec backend claim test 4: only the executor's exact source-owned target."""
+    from apo.services.execution_leases import claim_next_source_owned_attempt
+
+    engine = isolated_engine
+    owner_id = _seed_project_owner(engine)
+    pool_id = _source_pool(engine)
+    with Session(engine) as s:
+        u2 = UserDB(email="b@t.com", name="B", password_hash="x", is_active=True)
+        s.add(u2); s.commit(); s.refresh(u2)
+    ex_id = _enroll_v2_executor(engine, user_id=owner_id, pool_id=pool_id, name="own")
+    # work targeted to the OTHER user
+    _queue_source_owned_attempt(engine, attempt_id="other", pool_id=pool_id, target_user_id=u2.id)
+
+    with Session(engine) as s:
+        ex = s.get(ExecutorDB, ex_id)
+        result = claim_next_source_owned_attempt(s, executor=ex)
+    assert result is None  # never claims another member's work
+
+
+def test_claim_respects_sequential_batch_order(isolated_engine):
+    """Spec backend claim test 3: a later sequence_index is blocked by its predecessor."""
+    from apo.services.execution_leases import claim_next_source_owned_attempt
+
+    engine = isolated_engine
+    uid = _seed_project_owner(engine)
+    pool_id = _source_pool(engine)
+    ex_id = _enroll_v2_executor(engine, user_id=uid, pool_id=pool_id, name="seq", max_concurrency=4)
+    _queue_source_owned_attempt(engine, attempt_id="seq0", pool_id=pool_id, target_user_id=uid, sequence_index=0, run_id="rs0")
+    _queue_source_owned_attempt(engine, attempt_id="seq1", pool_id=pool_id, target_user_id=uid, sequence_index=1, run_id="rs1")
+
+    with Session(engine) as s:
+        ex = s.get(ExecutorDB, ex_id)
+        first = claim_next_source_owned_attempt(s, executor=ex)
+        # While seq0 is merely leased (not terminal), seq1 must not leapfrog.
+        second = claim_next_source_owned_attempt(s, executor=ex)
+    assert first is not None and first.attempt.id == "seq0"
+    assert second is None

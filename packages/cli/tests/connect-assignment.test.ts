@@ -112,6 +112,7 @@ describe("SPEC-161 connector assignment execution", () => {
       if (url.endsWith("/start")) return jsonResp({ attempt_id: "att-1", status: "running", phase: "running" });
       if (url.endsWith("/heartbeat")) return jsonResp({ cancel_requested: false });
       if (url.endsWith("/result")) return jsonResp({ ok: true });
+      if (url.endsWith("/failure")) return jsonResp({ ok: true });
       return jsonResp({});
     });
   });
@@ -133,6 +134,26 @@ describe("SPEC-161 connector assignment execution", () => {
     expect(result.completion_id).toContain("att-1");
   });
 
+  it("submits the full result payload (deliverables, transcript, run_configuration)", async () => {
+    childOutcome = {
+      ok: true,
+      summary: {
+        pass: true,
+        adapterName: "claude-code",
+        traceRunId: "tr-9",
+        deliverables: { verdict: "pass" },
+        transcript: { turns: 3 },
+        runConfiguration: { model: "claude-opus-4", effort: "high" },
+      },
+    };
+    await exec!("http://cp", "/ws", { ...assignment }, new AbortController().signal);
+    const result = fetchCalls.find((c) => c.url.endsWith("/result"))!.body as Record<string, unknown>;
+    expect(result.deliverables).toEqual({ verdict: "pass" });
+    expect(result.transcript).toEqual({ turns: 3 });
+    expect(result.run_configuration).toEqual({ model: "claude-opus-4", effort: "high" });
+    expect(result.trace_run_id).toBe("tr-9");
+  });
+
   it("passes the task-scoped assignment values to the isolated child spawner", async () => {
     await exec!("http://cp", "/ws", { ...assignment }, new AbortController().signal);
     expect(lastChildOpts).toBeTruthy();
@@ -143,20 +164,23 @@ describe("SPEC-161 connector assignment execution", () => {
     expect(lastChildOpts!.timeoutSeconds).toBe(30);
   });
 
-  it("fails task_resolution when the task_id is not present locally", async () => {
+  it("fails task_import when the task_id is not present locally", async () => {
     await expect(
       exec!("http://cp", "/ws", { ...assignment, task_id: "missing/task" }, new AbortController().signal),
     ).rejects.toThrow(/not found locally/);
-    const failure = fetchCalls.find((c) => c.url.endsWith("/result"))!.body as Record<string, unknown>;
-    expect(failure.failure_kind).toBe("task_resolution");
+    const failure = fetchCalls.find((c) => c.url.endsWith("/failure"))!.body as Record<string, unknown>;
+    expect(failure.failure_kind).toBe("task_import");
+    // No false failed-check result is submitted to /result.
+    expect(fetchCalls.find((c) => c.url.endsWith("/result"))).toBeUndefined();
   });
 
-  it("reports task_timeout when the isolated child times out", async () => {
-    childOutcome = { ok: false, error: "task_timeout", timedOut: true };
+  it("reports timeout when the isolated child times out", async () => {
+    childOutcome = { ok: false, error: "timeout", timedOut: true };
     await expect(
       exec!("http://cp", "/ws", { ...assignment }, new AbortController().signal),
     ).rejects.toThrow(/timed out/);
-    const failure = fetchCalls.find((c) => c.url.endsWith("/result"))!.body as Record<string, unknown>;
-    expect(failure.failure_kind).toBe("task_timeout");
+    const failure = fetchCalls.find((c) => c.url.endsWith("/failure"))!.body as Record<string, unknown>;
+    expect(failure.failure_kind).toBe("timeout");
+    expect(fetchCalls.find((c) => c.url.endsWith("/result"))).toBeUndefined();
   });
 });
