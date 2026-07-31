@@ -37,49 +37,6 @@ const commands: Record<string, CommandEntry> = {
     help: "Clear saved credentials (sign out)",
     note: "Deletes ~/.apo/credentials. No backend connection needed.",
   },
-  "project source show": {
-    handler: loadCommand("project-source-show"),
-    help: "Show the configured project task source",
-    note: "Requires --project + backend auth.",
-  },
-  "project source set": {
-    handler: loadCommand("project-source-set"),
-    help: "Create or replace the project task source",
-    options: [
-      ["--type <git|filesystem|demo>", "Source type (required)"],
-      ["--repo <url>", "Repository URL (required for git)"],
-      ["--ref <branch>", "Git ref (default: main)"],
-      ["--subpath <path>", "Subpath within repo or source"],
-      ["--path <dir>", "Filesystem path (required for filesystem)"],
-      ["--name <text>", "Display name"],
-      ["--seed <id>", "Demo seed id (default: default)"],
-    ],
-    examples: [
-      "apo project source set --type git --repo owner/repo --ref main",
-      "apo project source set --type filesystem --path ./tasks",
-    ],
-    note: "Requires --project + backend auth.",
-  },
-  "project source sync": {
-    handler: loadCommand("project-source-sync"),
-    help: "Sync the project task source into task inventory",
-    note: "Requires --project + backend auth.",
-  },
-  "project init-tasks": {
-    handler: loadCommand("project-init-tasks"),
-    help: "Configure and sync a GitHub-backed task source",
-    options: [
-      ["--repo <owner/repo>", "GitHub repo (required; accepts URL or owner/repo)"],
-      ["--branch <name>", "Git ref (default: main)"],
-      ["--subpath <path>", "Subpath within repo"],
-      ["--name <text>", "Display name (default: owner/repo)"],
-    ],
-    examples: [
-      "apo project init-tasks --repo owner/repo",
-      "apo project init-tasks --repo owner/repo --branch dev --subpath tasks",
-    ],
-    note: "Opens browser for GitHub OAuth on first sync. Requires --project + backend auth.",
-  },
   "project list": {
     handler: loadCommand("project-list"),
     help: "List projects you can access",
@@ -133,11 +90,6 @@ const commands: Record<string, CommandEntry> = {
       "apo project config show default-execution",
     ],
     note: "default-execution is the project-level default for where `apo task run` dispatches (SPEC-136). Stored per-machine in ~/.apo/credentials — lower priority than a task's own execution declaration.",
-  },
-  "project sync-tasks": {
-    handler: loadCommand("project-sync-tasks"),
-    help: "Sync the configured project task inventory",
-    note: "Requires --project + backend auth.",
   },
   "task list": {
     handler: loadCommand("task-list"),

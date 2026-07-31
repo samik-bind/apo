@@ -65,13 +65,6 @@ from ..services.project_task_inventory import (
 from ..services.project_task_sources import (
     get_task_source_db,
     serialize as serialize_task_source,
-    upsert_task_source,
-)
-from ..services.project_task_source_sync import (
-    GitError,
-    SyncError,
-    refresh_filesystem_source,
-    sync_task_source,
 )
 
 router = APIRouter(prefix="/v1/projects", tags=["projects"])
@@ -418,99 +411,6 @@ def _assert_not_demo(project_id: str) -> None:
         )
 
 
-@router.get("/{project_id}/task-source")
-async def get_project_task_source(
-    project_id: str,
-    request: Request,
-    session: Session = Depends(get_session),
-) -> ProjectTaskSource | None:
-    """Return the project's task source, or ``null`` if unconfigured."""
-    user_id = _get_user_id(request)
-    _project, _role = _load_project_for_user(session, project_id, user_id)
-    return serialize_task_source(get_task_source_db(session, project_id), session=session)
-
-
-@router.patch("/{project_id}/task-source")
-async def update_project_task_source(
-    project_id: str,
-    body: UpdateProjectTaskSourceRequest,
-    request: Request,
-    session: Session = Depends(get_session),
-) -> ProjectTaskSource:
-    """Create or replace the project's task source configuration.
-
-    Switching source type clears fields that do not apply to the new
-    mode. On success, the source enters ``pending_sync``; trigger
-    ``POST /v1/projects/{id}/task-source/sync`` to advance it to
-    ``ready`` (full Git sync lands in SPEC-119).
-    """
-    user_id = _get_user_id(request)
-    _load_project_with_role(
-        session, project_id, user_id, minimum_role="admin"
-    )
-    _assert_not_demo(project_id)
-    row = upsert_task_source(session, project_id, body)
-    return serialize_task_source(row, session=session)  # pyright: ignore[reportReturnType]
-
-
-@router.post("/{project_id}/task-source/sync")
-def sync_project_task_source(
-    project_id: str,
-    request: Request,
-    session: Session = Depends(get_session),
-) -> ProjectTaskSource:
-    """Trigger a sync of the project's task source.
-
-    Defined as plain ``def`` (not ``async def``) so FastAPI runs it in
-    a threadpool — git subprocess calls are blocking I/O and would
-    freeze the event loop if marked async.
-
-    Delegates to :mod:`apo.services.project_task_source_sync`,
-    which:
-
-    - clones/fetches Git sources with sparse checkout + partial clone
-      and records the resolved commit SHA;
-    - scans filesystem sources directly;
-    - re-seeds demo sources from the bundled example-service workspace.
-
-    Inventory rows are replaced atomically on success. On failure the
-    source row is moved to ``status="error"`` with a human-readable
-    ``last_error`` message.
-    """
-    user_id = _get_user_id(request)
-    _load_project_with_role(
-        session, project_id, user_id, minimum_role="admin"
-    )
-    _assert_not_demo(project_id)
-
-    row = get_task_source_db(session, project_id)
-    if row is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Project has no task source configured yet.",
-        )
-
-    try:
-        _ = sync_task_source(session, row)
-    except GitError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Task source sync failed: {exc}",
-        ) from exc
-    except SyncError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Task source sync failed unexpectedly: {exc}",
-        ) from exc
-
-    # ``sync_task_source`` already advanced the row in-place; re-read so
-    # we serialize the freshest state back to the client.
-    refreshed = get_task_source_db(session, project_id)
-    if refreshed is None:
-        raise HTTPException(status_code=404, detail="Project task source vanished.")
-    return serialize_task_source(refreshed, session=session)  # pyright: ignore[reportReturnType]
-
-
 # ---------------------------------------------------------------------------
 # Project-scoped agent tasks (SPEC-119)
 # ---------------------------------------------------------------------------
@@ -572,9 +472,7 @@ async def list_project_agent_tasks(
             detail="Project has no task source configured.",
         )
 
-    # Filesystem sources are cheap to re-scan (no clone), so lazily refresh on
-    # list — newly added/edited tasks show up without a manual sync (issue #17).
-    refresh_filesystem_source(session, source)
+    # SPEC-159: published catalogs are already in inventory; no lazy refresh.
     rows = list_inventory_for_project(session, project_id, grep=grep)
     summaries = [to_summary(row) for row in rows]
     if not summaries:

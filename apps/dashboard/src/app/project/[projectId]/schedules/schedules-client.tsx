@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { type AgentTaskSummary } from "@/lib/agent-task-api";
 import { type ProjectTaskSource } from "@/lib/projects-api";
-import { ProjectTaskSourceEmptyState } from "@/components/project-task-source";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type Filter, useScheduleActions } from "./useScheduleActions";
@@ -70,7 +70,9 @@ export function AgentTaskSchedulesClient({
           <Calendar size={16} className="text-primary" />
           <h1 className="text-[18px] font-semibold">Schedules</h1>
         </div>
-        <ProjectTaskSourceEmptyState projectId={projectId} scope="schedules" />
+        <div className="px-6 py-10 text-center text-sm text-neutral-400">
+          Run <code className="text-neutral-200">apo task publish</code> to publish your task catalog before scheduling.
+        </div>
       </div>
     );
   }

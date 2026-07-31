@@ -25,7 +25,7 @@ import {
   getAgentTaskBatchRun,
 } from "@/lib/agent-task-api";
 import { type ProjectTaskSource } from "@/lib/projects-api";
-import { ProjectTaskSourceEmptyState } from "@/components/project-task-source";
+
 import { TASK_RUN_STATUS, type TaskRunStatus } from "@/components/task-run-list.utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -248,7 +248,9 @@ export function RunsClient({
       <div className="flex-1 overflow-auto">
         {sourceUnconfigured ? (
           <div className="px-6 py-10">
-            <ProjectTaskSourceEmptyState projectId={projectId} scope="batch-runs" />
+            <div className="px-6 py-10 text-center text-sm text-neutral-400">
+              Run <code className="text-neutral-200">apo task publish</code> to publish your task catalog.
+            </div>
           </div>
         ) : batchRuns.length === 0 ? (
           <div className="m-6 rounded-md border border-dashed border-border bg-card/40 p-10 text-center text-[13px] text-muted-foreground">

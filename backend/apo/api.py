@@ -40,7 +40,6 @@ from .routes import (
     demo,
     projects,
     project_members,
-    github,
     system_runtime,
     executor_protocol,
     executor_pools,
@@ -171,7 +170,6 @@ def create_app() -> FastAPI:
     app.include_router(demo.router)
     app.include_router(projects.router)
     app.include_router(project_members.router)
-    app.include_router(github.router)
     app.include_router(system_runtime.router)
     app.include_router(executor_protocol.router)
     app.include_router(executor_pools.router)

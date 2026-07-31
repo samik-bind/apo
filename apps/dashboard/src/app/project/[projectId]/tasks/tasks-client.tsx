@@ -34,7 +34,7 @@ import {
   type ProjectTaskSource,
   syncProjectTaskSource,
 } from "@/lib/projects-api";
-import { ProjectTaskSourceSetupCard } from "@/components/project-task-source";
+
 import { ExecutorPoolSelect } from "@/components/executor-pool-select";
 import type { ExecutorPoolSummary } from "@/lib/executor-api";
 const TASK_ROOT = process.env.NEXT_PUBLIC_AGENT_TASK_ROOT ?? null;
@@ -659,14 +659,7 @@ export function AgentTasksClient({
     <div className="flex flex-col">
       {editingSource && taskSource && !isDemoProject ? (
         <div className="border-b border-border px-6 py-10">
-          <ProjectTaskSourceSetupCard
-            projectId={projectId}
-            taskSource={taskSource}
-            isDemo={isDemoProject}
-            startInEdit
-            onSynced={() => setEditingSource(false)}
-          />
-          <div className="mx-auto mt-4 flex w-full max-w-2xl justify-end">
+          <div className="mx-auto max-w-2xl">
             <Button
               type="button"
               size="sm"
@@ -679,15 +672,15 @@ export function AgentTasksClient({
         </div>
       ) : showSetupCard ? (
         <div className="px-6 py-10">
-          <ProjectTaskSourceSetupCard
-            projectId={projectId}
-            taskSource={taskSource}
-            isDemo={isDemoProject}
-          />
+          <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-6 text-center">
+            <p className="text-sm text-neutral-400">
+              Run <code className="text-neutral-200">apo task publish</code> to publish your task catalog.
+            </p>
+          </div>
         </div>
       ) : (
         <>
-      <TasksToolbar
+          <TasksToolbar
         taskSource={taskSource}
         isDemoProject={isDemoProject}
         editingSource={editingSource}
