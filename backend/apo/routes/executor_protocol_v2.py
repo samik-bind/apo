@@ -467,3 +467,109 @@ async def attempt_heartbeat_v2(
     except LeaseError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"kind": "stale_generation", "message": str(exc)})
     return {"cancel_requested": resp.cancel_requested}
+
+
+# ---------------------------------------------------------------------------
+# Shared finalization (v2 aliases of the v1 result/failure routes)
+# ---------------------------------------------------------------------------
+
+
+class AttemptResultRequest(BaseModel):
+    completion_id: str
+    pass_result: bool
+    adapter_name: str | None = None
+    trace_run_id: str | None = None
+    checks: list[dict[str, object]] | None = None
+    transcript: dict[str, object] | None = None
+    deliverables: dict[str, object] | None = None
+    exit_code: int | None = None
+    stdout_tail: str | None = None
+    stderr_tail: str | None = None
+    error_message: str | None = None
+
+
+class AttemptFailureRequest(BaseModel):
+    completion_id: str
+    failure_kind: str
+    error_message: str | None = None
+    exit_code: int | None = None
+    stdout_tail: str | None = None
+    stderr_tail: str | None = None
+
+
+@router.post("/attempts/{attempt_id}/result")
+async def attempt_result_v2(
+    attempt_id: str,
+    body: AttemptResultRequest,
+    response: Response,
+    lease: CurrentAttemptLease = Depends(_require_attempt_lease),
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """SPEC-161 v2 result: alias of the shared finalization path."""
+    response.headers["X-Apo-Executor-Protocol"] = str(PROTOCOL_VERSION)
+    if lease.attempt_id != attempt_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "attempt token not valid for this attempt")
+    from ..services.execution_finalization import (
+        AttemptResultBody,
+        CompletionConflict,
+        finalize_attempt_result,
+    )
+
+    try:
+        finalize_attempt_result(
+            session,
+            lease=lease,
+            body=AttemptResultBody(
+                completion_id=body.completion_id,
+                pass_result=body.pass_result,
+                adapter_name=body.adapter_name,
+                trace_run_id=body.trace_run_id,
+                checks=body.checks,
+                transcript=body.transcript,
+                deliverables=body.deliverables,
+                exit_code=body.exit_code,
+                stdout_tail=body.stdout_tail,
+                stderr_tail=body.stderr_tail,
+                error_message=body.error_message,
+                run_configuration=None,
+            ),
+        )
+    except CompletionConflict as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return {"ok": True, "attempt_id": attempt_id}
+
+
+@router.post("/attempts/{attempt_id}/failure")
+async def attempt_failure_v2(
+    attempt_id: str,
+    body: AttemptFailureRequest,
+    response: Response,
+    lease: CurrentAttemptLease = Depends(_require_attempt_lease),
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """SPEC-161 v2 failure: alias of the shared finalization path."""
+    response.headers["X-Apo-Executor-Protocol"] = str(PROTOCOL_VERSION)
+    if lease.attempt_id != attempt_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "attempt token not valid for this attempt")
+    from ..services.execution_finalization import (
+        AttemptFailureBody,
+        CompletionConflict,
+        finalize_attempt_failure,
+    )
+
+    try:
+        finalize_attempt_failure(
+            session,
+            lease=lease,
+            body=AttemptFailureBody(
+                completion_id=body.completion_id,
+                failure_kind=body.failure_kind,
+                error_message=body.error_message,
+                exit_code=body.exit_code,
+                stdout_tail=body.stdout_tail,
+                stderr_tail=body.stderr_tail,
+            ),
+        )
+    except CompletionConflict as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return {"ok": True, "attempt_id": attempt_id}

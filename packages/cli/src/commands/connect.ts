@@ -6,12 +6,15 @@
  */
 
 import { green, red, dim, cyan } from "../lib/format.ts";
-import { parseArgs, getFlagValue, getBoolFlag } from "../lib/args.ts";
+import { parseArgs, getFlagValue } from "../lib/args.ts";
 import { resolveConfig } from "../lib/config.ts";
 import { discoverTaskMeta } from "../lib/task-meta.ts";
 import { toPublishedTask } from "../lib/task-catalog.ts";
 import { computeCatalogDigest } from "../lib/task-catalog-digest.ts";
 import { loadExecutorState, saveExecutorState } from "../lib/executor-state.ts";
+import { walkWorkspaceForRevision } from "../lib/task-revision.ts";
+import { readGitProvenance } from "../lib/git-provenance.ts";
+import { runTaskChild } from "../lib/local-task-child.ts";
 import {
   bootstrapAndEnroll,
   heartbeat,
@@ -86,11 +89,16 @@ export async function run(argv: string[]): Promise<number> {
   // 4. Main loop
   let running = 0;
   let shouldStop = false;
+  // One shutdown controller: aborting it cancels every active child's Task
+  // (SIGTERM → grace → SIGKILL) so Ctrl+C stops new claims and tears down
+  // active work through the same path as a Control-Plane cancellation.
+  const shutdownController = new AbortController();
 
   const handleSignal = () => {
     if (!shouldStop) {
       shouldStop = true;
-      console.log(dim("\nStopping — no new claims. Active tasks will finish. Press Ctrl+C again to force."));
+      shutdownController.abort();
+      console.log(dim("\nStopping — no new claims. Active tasks will be cancelled. Press Ctrl+C again to force."));
     } else {
       console.error(red("Forcing exit."));
       process.exit(1);
@@ -146,8 +154,8 @@ export async function run(argv: string[]): Promise<number> {
     running++;
     console.log(cyan(`\n← Assigned: ${assignment.task_id}`));
 
-    // Execute asynchronously
-    executeAssignment(config.backendUrl, taskRoot, assignment)
+    // Execute asynchronously in an isolated child process.
+    executeAssignment(config.backendUrl, taskRoot, assignment, shutdownController.signal)
       .catch((err) => console.error(red(`task ${assignment.task_id} failed: ${(err as Error).message}`)))
       .finally(() => {
         running--;
@@ -203,42 +211,65 @@ async function executeAssignment(
   backendUrl: string,
   taskRoot: string,
   assignment: Awaited<ReturnType<typeof claimWork>> & object,
+  cancelSignal: AbortSignal,
 ): Promise<void> {
-  // 1. Resolve task locally
+  const completionId = `${assignment.attempt_id}-${Date.now()}`;
+  const fail = async (failure_kind: string, error_message: string) => {
+    await submitResult({
+      backendUrl,
+      attemptJwt: assignment.attempt_jwt,
+      attemptId: assignment.attempt_id,
+      result: { completion_id: completionId, pass_result: false, failure_kind, error_message },
+    });
+  };
+
+  // 1. Rediscover local catalog and confirm the digest still matches the claim
+  //    (the Task must not have changed between claim and execution).
   const tasks = discoverTaskMeta(taskRoot);
+  const localDigest = computeCatalogDigest(
+    tasks.map(toPublishedTask).sort((a, b) => a.task_id.localeCompare(b.task_id)),
+  );
+  if (localDigest !== assignment.catalog_digest) {
+    await fail("task_resolution", "local catalog digest no longer matches the assignment");
+    throw new Error(`catalog digest mismatch for ${assignment.task_id}`);
+  }
+
+  // 2. Resolve the exact task_id locally; never fall back to a server path.
   const task = tasks.find((t) => t.id === assignment.task_id);
   if (!task) {
+    await fail("task_resolution", `Task ${assignment.task_id} not found locally`);
     throw new Error(`Task ${assignment.task_id} not found locally`);
   }
 
-  // 2. Hash source (placeholder — real implementation uses walkWorkspaceForRevision)
-  const contentSha256 = "0000000000000000000000000000000000000000000000000000000000000000";
+  // 3. Hash the current configured Task root and read sanitized Git provenance.
+  const walked = walkWorkspaceForRevision({ rootDir: taskRoot });
+  const git = readGitProvenance(taskRoot);
 
-  // 3. Submit attestation
+  // 4. Submit source attestation (real digest + provenance — no placeholders).
   await submitAttestation({
     backendUrl,
     attemptJwt: assignment.attempt_jwt,
     attemptId: assignment.attempt_id,
     attestation: {
       source_type: "connected_worktree",
-      repository_url: null,
-      base_commit_sha: null,
-      dirty: true,
-      content_sha256: contentSha256,
+      repository_url: git.repositoryUrl,
+      base_commit_sha: git.baseCommitSha,
+      dirty: git.dirty,
+      content_sha256: walked.contentSha256,
       task_root_label: taskRoot.split("/").pop() || "tasks",
-      file_count: 0,
-      uncompressed_size_bytes: 0,
+      file_count: walked.manifest.summary.fileCount,
+      uncompressed_size_bytes: walked.manifest.summary.uncompressedSizeBytes,
     },
   });
 
-  // 4. Start
+  // 5. /start immediately before Task import/execution.
   await startAttempt({
     backendUrl,
     attemptJwt: assignment.attempt_jwt,
     attemptId: assignment.attempt_id,
   });
 
-  // 5. Heartbeat while running
+  // 6. Heartbeat while the isolated child runs.
   const heartbeatInterval = setInterval(() => {
     heartbeatAttempt({
       backendUrl,
@@ -249,39 +280,71 @@ async function executeAssignment(
   }, 30_000);
 
   try {
-    // 6. Execute the task locally (simplified — real impl spawns a child)
-    const { runTaskDir } = await import("@apo/sdk/agent-task");
-    const summary = await runTaskDir(task.path) as { pass: boolean; adapterName?: string; checks?: unknown; traceRunId?: string };
+    // 7. Run the Task in a spawned child with timeout + cancellation.
+    const outcome = await runTaskChild({
+      taskDir: task.path,
+      envRoot: taskRoot,
+      traceEndpoint: assignment.trace_endpoint,
+      project: assignment.project,
+      taskRunId: assignment.task_run_id,
+      traceRequired: true,
+      attemptJwt: assignment.attempt_jwt,
+      timeoutSeconds: assignment.timeout_seconds,
+      cancelSignal,
+    });
 
     clearInterval(heartbeatInterval);
 
-    // 7. Submit result
+    if (!outcome.ok) {
+      const failure_kind = outcome.timedOut ? "task_timeout" : "task_runtime";
+      await submitResult({
+        backendUrl,
+        attemptJwt: assignment.attempt_jwt,
+        attemptId: assignment.attempt_id,
+        result: {
+          completion_id: completionId,
+          pass_result: false,
+          failure_kind,
+          error_message: outcome.error,
+          stdout_tail: outcome.stdoutTail || null,
+          stderr_tail: outcome.stderrTail || null,
+        },
+      });
+      if (outcome.timedOut) throw new Error(`task timed out after ${assignment.timeout_seconds}s`);
+      throw new Error(outcome.error);
+    }
+
+    // 8. Submit the structured result from the isolated child.
+    const summary = outcome.summary as {
+      pass?: boolean;
+      adapterName?: string;
+      checks?: unknown;
+      traceRunId?: string;
+    };
     await submitResult({
       backendUrl,
       attemptJwt: assignment.attempt_jwt,
       attemptId: assignment.attempt_id,
       result: {
-        completion_id: `${assignment.attempt_id}-${Date.now()}`,
-        pass_result: summary.pass,
+        completion_id: completionId,
+        pass_result: summary.pass ?? false,
         adapter_name: summary.adapterName ?? null,
-        checks: summary.checks as unknown,
+        checks: summary.checks ?? null,
         trace_run_id: summary.traceRunId ?? null,
       },
     });
   } catch (err) {
     clearInterval(heartbeatInterval);
-    // Submit failure
-    await submitResult({
-      backendUrl,
-      attemptJwt: assignment.attempt_jwt,
-      attemptId: assignment.attempt_id,
-      result: {
-        completion_id: `${assignment.attempt_id}-${Date.now()}`,
-        pass_result: false,
-        failure_kind: "task_runtime",
-        error_message: (err as Error).message,
-      },
-    });
+    // A failure was already submitted for child/cancellation outcomes; only
+    // submit a runtime failure if finalization hasn't happened yet.
+    if (!/timed out|task_runtime|task_resolution/.test((err as Error).message)) {
+      await fail("task_runtime", (err as Error).message);
+    }
     throw err;
   }
 }
+
+// Test-only export: executeAssignment is otherwise module-private. Exposed so
+// the connector assignment scene test can drive it with a mocked Control Plane
+// and a stubbed child spawner without spawning a real apo connect process.
+export const __executeAssignmentForTest = executeAssignment;
