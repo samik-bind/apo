@@ -36,8 +36,7 @@ describe("main", () => {
     expect(logs.join("\n")).toContain("task list");
     expect(logs.join("\n")).toContain("runs list");
     expect(logs.join("\n")).toContain("batch list");
-    expect(logs.join("\n")).toContain("project init-tasks");
-    expect(logs.join("\n")).toContain("project sync-tasks");
+    expect(logs.join("\n")).toContain("task publish");
   });
 
   it("shows help with no arguments", async () => {
@@ -77,9 +76,8 @@ describe("global help", () => {
   it("lists all commands", async () => {
     const { output } = await runCapture(["--help"]);
     for (const cmd of [
-      "task list", "task run", "runs list", "runs show",
+      "task list", "task run", "task publish", "runs list", "runs show",
       "traces list", "traces show", "batch list", "batch show", "batch create",
-      "project source show", "project init-tasks",
     ]) {
       expect(output).toContain(cmd);
     }
@@ -149,12 +147,11 @@ describe("per-command help", () => {
     expect(output).toContain("project config");
   });
 
-  it("shows project source set help with type options", async () => {
-    const { output, code } = await runCapture(["project", "source", "set", "--help"]);
+  it("shows task publish help with dir and dry-run options", async () => {
+    const { output, code } = await runCapture(["task", "publish", "--help"]);
     expect(code).toBe(0);
-    expect(output).toContain("--type");
-    expect(output).toContain("git");
-    expect(output).toContain("filesystem");
+    expect(output).toContain("--dry-run");
+    expect(output).toContain("--dir");
   });
 
   it("shows project create help with name arg and required email/password", async () => {

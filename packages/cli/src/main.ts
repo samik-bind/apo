@@ -117,6 +117,21 @@ const commands: Record<string, CommandEntry> = {
     ],
     note: "Scans local tasks and publishes bounded metadata only — no source files, prompts, or credentials leave your machine.",
   },
+  "connect": {
+    handler: loadCommand("connect"),
+    help: "Connect as a persistent source-owned executor",
+    options: [
+      ["--dir <path>", "Task root directory (default: from config)"],
+      ["--project <id>", "Project to connect to (default: active project)"],
+      ["--name <name>", "Display name for this machine"],
+      ["--concurrency <n>", "Max parallel tasks (default: 4)"],
+    ],
+    examples: [
+      "apo connect",
+      "apo connect --project acme --concurrency 8",
+    ],
+    note: "Runs in the foreground. Discovers tasks locally, publishes nothing, and executes only assignments matching your published Task Catalog. Source files and credentials never leave your machine.",
+  },
   "task show": {
     handler: loadCommand("task-show"),
     help: "Show task details",

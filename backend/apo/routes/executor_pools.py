@@ -695,4 +695,46 @@ def _pool_detail(session: Session, project_id: str, pool: ExecutorPoolDB) -> dic
     }
 
 
+# ---------------------------------------------------------------------------
+# SPEC-161: Member-authorized Connected Executor bootstrap
+# ---------------------------------------------------------------------------
+
+
+class ConnectedExecutorBootstrapRequest(BaseModel):
+    name: str
+    capabilities: dict[str, object]
+
+
+@router.post("/projects/{project_id}/connected-executor-bootstrap", status_code=201)
+async def connected_executor_bootstrap(
+    project_id: str,
+    body: ConnectedExecutorBootstrapRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """Issue a one-time enrollment token for a source-owned Connected Executor.
+
+    Any project member may bootstrap. Creates the canonical system-managed
+    source-owned Pool if it does not exist.
+    """
+    from ..services.source_owned_executor import bootstrap_connected_executor
+
+    user_id = request.state.user_id if hasattr(request.state, "user_id") else None
+    if not user_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Authentication required")
+
+    result = bootstrap_connected_executor(
+        session,
+        project_id=project_id,
+        user_id=user_id,
+        name=body.name,
+    )
+
+    return {
+        "enrollment_token": result.enrollment_token,
+        "expires_at": result.expires_at.isoformat(),
+        "protocol_version": result.protocol_version,
+    }
+
+
 __all__ = ["router"]
