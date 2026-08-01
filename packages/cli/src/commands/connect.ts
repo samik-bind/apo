@@ -236,11 +236,15 @@ async function executeAssignment(
   cancelSignal: AbortSignal,
 ): Promise<void> {
   const completionId = `${assignment.attempt_id}-${Date.now()}`;
+  // SPEC-166 #85: track finalization explicitly so the catch block never
+  // issues a second submitFailure against a terminal Attempt (401).
+  let finalized = false;
   const fail = async (
     failure_kind: SourceOwnedFailureKind,
     error_message: string,
     outcome?: { stdoutTail?: string; stderrTail?: string },
   ) => {
+    finalized = true;
     await submitFailure({
       backendUrl,
       attemptJwt: assignment.attempt_jwt,
@@ -332,6 +336,7 @@ async function executeAssignment(
 
     if (!outcome.ok) {
       const failure_kind: SourceOwnedFailureKind = outcome.timedOut ? "timeout" : "task_runtime";
+      finalized = true;
       await submitFailure({
         backendUrl,
         attemptJwt: assignment.attempt_jwt,
@@ -379,11 +384,11 @@ async function executeAssignment(
         error_message: null,
       },
     });
+    finalized = true;
   } catch (err) {
     clearInterval(heartbeatInterval);
-    // A failure was already submitted for child/cancellation/timeout/import
-    // outcomes; only submit a runtime failure if finalization hasn't happened.
-    if (!/timed out|task_runtime|task_import|catalog digest mismatch|not found locally/.test((err as Error).message)) {
+    // SPEC-166 #85: only submit a failure if no finalization has happened.
+    if (!finalized) {
       await fail("task_runtime", (err as Error).message);
     }
     throw err;

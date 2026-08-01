@@ -73,9 +73,9 @@ export function resolveExecutionMode(input: ExecutionModeInput): ExecutionModeRe
   if (input.projectDefault === "local") return { mode: "local-recorded", reason: "project" };
   if (input.projectDefault === "backend") return { mode: "backend", reason: "project" };
 
-  // 7. Today's implicit default for any task with a project set. Reachability
-  //    is consulted afterward by run() — if the backend is down it degrades.
-  if (input.hasProject) return { mode: "backend", reason: "default" };
+  // 7. SPEC-165: the implicit default is caller (local recorded) execution.
+  //    Bundled/backend execution is retired — the narrowed API rejects its fields.
+  if (input.hasProject) return { mode: "local-recorded", reason: "default" };
 
   // 8. Offline: no project, run locally without recording (today's fallback).
   return { mode: "local-unrecorded", reason: "no-project" };
