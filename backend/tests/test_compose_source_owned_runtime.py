@@ -3,7 +3,7 @@
 # pyright: reportUnusedCallResult=false, reportAttributeAccessIssue=false
 # pyright: reportMissingTypeArgument=false, reportOptionalMemberAccess=false
 
-"""SPEC-168: source-owned Compose topology contract.
+"""Source-owned Compose topology contract.
 
 The retired Bundled Executor service, its volumes, and the task-source cache
 must be absent from docker-compose.yml. The database volume and source-owned

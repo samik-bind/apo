@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-167 v20 migration: move check evidence off the hot run row.
+"""v20 migration: move check evidence off the hot run row.
 
 Builds a pre-v20 schema by hand, runs the migration, and asserts the post-shape:
 scalar verdict columns populated, ``agent_task_check_reports`` created and
