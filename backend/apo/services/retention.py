@@ -132,6 +132,16 @@ def _delete_old_batch_runs(session: Session, cutoff: datetime) -> int:
             "(SELECT id FROM agent_task_runs WHERE batch_run_id IN :ids)",
             old_batch_ids,
         )
+    # Check reports FK task_runs. The FK is ON DELETE CASCADE, but
+    # SQLite only fires cascades when ``PRAGMA foreign_keys=ON`` (set in
+    # production but not in every test engine), so an explicit guarded
+    # pre-delete makes purge robust and testable regardless of the pragma.
+    if _table_exists(session, "agent_task_check_reports"):
+        deleted += _exec_in(
+            "DELETE FROM agent_task_check_reports WHERE run_id IN "
+            "(SELECT id FROM agent_task_runs WHERE batch_run_id IN :ids)",
+            old_batch_ids,
+        )
     if _table_exists(session, "agent_task_runs"):
         deleted += _exec_in(
             "DELETE FROM agent_task_runs WHERE batch_run_id IN :ids",

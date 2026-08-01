@@ -79,6 +79,7 @@ CLAUDE.md
 /.codex/
 /.opencode/
 /.ncode/
+/.zcode/
 /.agent-state/
 /.personal/
 /wayfinder/

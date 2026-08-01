@@ -1,8 +1,9 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 # pyright: reportUnusedCallResult=false, reportAttributeAccessIssue=false
+# pyright: reportMissingTypeArgument=false, reportOptionalMemberAccess=false
 
-"""Source-owned Compose topology contract.
+"""SPEC-168: source-owned Compose topology contract.
 
 The retired Bundled Executor service, its volumes, and the task-source cache
 must be absent from docker-compose.yml. The database volume and source-owned
@@ -12,6 +13,7 @@ control-plane configuration must remain.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -23,10 +25,10 @@ except ImportError:
 _COMPOSE = Path(__file__).resolve().parents[2] / "docker-compose.yml"
 
 
-@pytest.mark.skipif(yaml is None, reason="PyYAML not installed")
 class TestSourceOwnedComposeTopology:
-    def _data(self) -> dict:
-        return yaml.safe_load(_COMPOSE.read_text())  # type: ignore[union-attr]
+    def _data(self) -> dict[str, Any]:
+        assert yaml is not None
+        return cast(dict[str, Any], yaml.safe_load(_COMPOSE.read_text()))
 
     def test_executor_service_is_absent(self) -> None:
         services = self._data().get("services", {})
