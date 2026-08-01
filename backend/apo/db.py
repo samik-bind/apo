@@ -3,7 +3,7 @@
 import os
 from collections.abc import Callable
 
-from sqlalchemy import event, text
+from sqlalchemy import bindparam, event, text
 from sqlalchemy.engine import Connection
 from sqlmodel import SQLModel, create_engine, Session
 
@@ -1246,6 +1246,85 @@ def _migrate_to_v19() -> None:
     """Version 19: make Attempt task_revision_id nullable."""
     with engine.begin() as conn:
         _make_attempt_task_revision_nullable(conn)
+
+
+def _migrate_to_v20() -> None:
+    """Version 20 (SPEC-167): move check evidence off the hot run row.
+
+    Adds the scalar verdict columns (``total_checks`` / ``passed_checks`` /
+    ``failed_checks``) to ``agent_task_runs`` and the
+    ``agent_task_check_reports`` table, then backfills both from legacy
+    ``checks_json`` in the SAME transaction: counts onto the run row, the
+    evidence into a 1:1 report row, and the legacy column nulled — so the hot
+    list/stats path is safe immediately and the data lives in exactly one
+    place.
+
+    New DBs already have the columns + table (``SQLModel.metadata.create_all``
+    runs before migrations), so the DDL is a guarded no-op there and the
+    backfill loop processes zero rows.
+    """
+    from datetime import datetime, timezone
+
+    with engine.begin() as conn:
+        _add_column_if_missing(
+            conn, "agent_task_runs", "total_checks", "INTEGER NOT NULL DEFAULT 0"
+        )
+        _add_column_if_missing(
+            conn, "agent_task_runs", "passed_checks", "INTEGER NOT NULL DEFAULT 0"
+        )
+        _add_column_if_missing(
+            conn, "agent_task_runs", "failed_checks", "INTEGER NOT NULL DEFAULT 0"
+        )
+
+        if "agent_task_check_reports" not in _get_table_names(conn):
+            id_type = "TEXT" if _is_sqlite() else "VARCHAR"
+            timestamp_type = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+            conn.exec_driver_sql(
+                f"""
+                CREATE TABLE agent_task_check_reports (
+                    run_id {id_type} PRIMARY KEY
+                        REFERENCES agent_task_runs(id) ON DELETE CASCADE,
+                    value_json JSON,
+                    created_at {timestamp_type} NOT NULL
+                )
+                """
+            )
+
+        # Backfill: read legacy checks_json, compute counts, copy evidence into
+        # the report row, then null the legacy column — all atomically.
+        rows = conn.exec_driver_sql(
+            "SELECT id, checks_json FROM agent_task_runs WHERE checks_json IS NOT NULL"
+        ).fetchall()
+        now = datetime.now(timezone.utc)
+        for run_id, raw in rows:
+            try:
+                checks = json.loads(raw) if isinstance(raw, str) else raw
+            except (ValueError, TypeError):
+                checks = None
+            if not isinstance(checks, list):
+                continue
+            total = len(checks)
+            passed = sum(
+                1 for c in checks if isinstance(c, dict) and c.get("pass") is True
+            )
+            # Insert the evidence first (copying the parsed checks via the JSON
+            # type so the value round-trips on read), then null the legacy
+            # column. Ordering within the run is safe: ``raw`` is already in hand.
+            conn.execute(
+                text(
+                    "INSERT INTO agent_task_check_reports "
+                    "(run_id, value_json, created_at) VALUES (:id, :v, :now)"
+                ).bindparams(bindparam("v", type_=JSON)),
+                {"id": run_id, "v": checks, "now": now},
+            )
+            conn.execute(
+                text(
+                    "UPDATE agent_task_runs "
+                    "SET total_checks = :t, passed_checks = :p, "
+                    "failed_checks = :f, checks_json = NULL WHERE id = :id"
+                ),
+                {"t": total, "p": passed, "f": total - passed, "id": run_id},
+            )
 
 
 def _migrate_schedule_pool_schema(conn: Connection) -> None:
