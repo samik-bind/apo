@@ -33,7 +33,7 @@ from apo.models.db import (
     TaskExecutionAttemptDB,
     UserDB,
 )
-from apo.models.execution import EXECUTOR_PROTOCOL_VERSION
+from apo.models.execution import SUPPORTED_EXECUTOR_PROTOCOL_VERSIONS
 from apo.services.execution_pools import PoolError, set_default_pool
 from apo.services.executor_auth import generate_enrollment_token
 from apo.services.project_memberships import enforce_project_role_from_request
@@ -109,7 +109,7 @@ async def list_executor_pools(
         compatible = [
             executor
             for executor in online
-            if executor.protocol_version == EXECUTOR_PROTOCOL_VERSION
+            if executor.protocol_version in SUPPORTED_EXECUTOR_PROTOCOL_VERSIONS
             and pool.required_driver_kind in (executor.driver_kinds_json or [])
         ]
         available_capacity = sum(
@@ -192,7 +192,7 @@ def _executor_status(
     if ex.last_seen_at is None or (datetime.now(timezone.utc) - ex.last_seen_at) > timedelta(seconds=_EXECUTOR_OFFLINE_THRESHOLD_SECONDS):
         return "offline"
     if (
-        ex.protocol_version != EXECUTOR_PROTOCOL_VERSION
+        ex.protocol_version not in SUPPORTED_EXECUTOR_PROTOCOL_VERSIONS
         or pool is None
         or pool.required_driver_kind not in (ex.driver_kinds_json or [])
     ):
@@ -671,7 +671,7 @@ def _pool_detail(session: Session, project_id: str, pool: ExecutorPoolDB) -> dic
     compatible = [
         executor
         for executor in online
-        if executor.protocol_version == EXECUTOR_PROTOCOL_VERSION
+        if executor.protocol_version in SUPPORTED_EXECUTOR_PROTOCOL_VERSIONS
         and pool.required_driver_kind in (executor.driver_kinds_json or [])
     ]
     available_capacity = sum(

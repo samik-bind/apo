@@ -1169,6 +1169,85 @@ def _migrate_to_v18() -> None:
         _migrate_schedule_source_owned_schema(conn)
 
 
+def _make_attempt_task_revision_nullable(conn: Connection) -> None:
+    """SPEC-166: make task_execution_attempts.task_revision_id nullable.
+
+    The v13 migration created it NOT NULL; SPEC-161 made the SQLModel field
+    nullable (source-owned Attempts have no Revision until /start) but never
+    changed the existing database constraint. This migration closes that gap.
+
+    PostgreSQL: ``ALTER COLUMN ... DROP NOT NULL``.
+    SQLite: ``ALTER COLUMN`` is unavailable, so rebuild the table from current
+    metadata and copy every row without transformation. Idempotent on both.
+    """
+    if "task_execution_attempts" not in _get_table_names(conn):
+        return
+
+    # Already nullable? No-op.
+    cols = conn.exec_driver_sql("PRAGMA table_info('task_execution_attempts')").fetchall()
+    if not cols:
+        # PostgreSQL path — check information_schema
+        result = conn.exec_driver_sql(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_name = 'task_execution_attempts' AND column_name = 'task_revision_id'"
+        ).fetchone()
+        if result and str(result[0]).upper() == "YES":
+            return
+    else:
+        # SQLite path
+        for row in cols:
+            if row[1] == "task_revision_id" and str(row[3]) == "0":
+                # notnull flag is 0 → already nullable
+                return
+        # Check if task_revision_id column exists at all
+        if not any(row[1] == "task_revision_id" for row in cols):
+            return
+
+    if _is_sqlite():
+        # SQLite: rebuild the table from current metadata.
+        # 1. Drop indexes that reference the table so they can be recreated
+        existing_indexes = conn.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_execution_attempts'"
+        ).fetchall()
+        for idx_row in existing_indexes:
+            idx_name = idx_row[0]
+            if idx_name and not idx_name.startswith("sqlite_"):
+                conn.exec_driver_sql(f"DROP INDEX IF EXISTS \"{idx_name}\"")
+
+        # 2. Rename the legacy table
+        conn.exec_driver_sql(
+            "ALTER TABLE task_execution_attempts RENAME TO _task_execution_attempts_v18_legacy"
+        )
+
+        # 3. Create the table from current SQLModel metadata (nullable field)
+        from sqlmodel import SQLModel
+        from apo.models import db as models_db  # noqa: F401 - registers models
+
+        _ = models_db
+        TaskExecutionAttemptDB_meta = SQLModel.metadata.tables.get("task_execution_attempts")
+        if TaskExecutionAttemptDB_meta is not None:
+            TaskExecutionAttemptDB_meta.create(conn)
+
+        # 4. Copy every row without transformation
+        conn.exec_driver_sql(
+            "INSERT INTO task_execution_attempts SELECT * FROM _task_execution_attempts_v18_legacy"
+        )
+
+        # 5. Drop the temporary table
+        conn.exec_driver_sql("DROP TABLE _task_execution_attempts_v18_legacy")
+    else:
+        # PostgreSQL: simple ALTER COLUMN
+        conn.exec_driver_sql(
+            "ALTER TABLE task_execution_attempts ALTER COLUMN task_revision_id DROP NOT NULL"
+        )
+
+
+def _migrate_to_v19() -> None:
+    """Version 19: make Attempt task_revision_id nullable (SPEC-166, issues #83/#84)."""
+    with engine.begin() as conn:
+        _make_attempt_task_revision_nullable(conn)
+
+
 def _migrate_schedule_pool_schema(conn: Connection) -> None:
     """The v14 schedule-pool migration, runnable against any connection."""
     _add_column_if_missing(conn, "agent_task_schedules", "executor_pool_id", "VARCHAR")
@@ -1636,7 +1715,7 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
     )
 
 
-LATEST_SCHEMA_VERSION = 18
+LATEST_SCHEMA_VERSION = 19
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -1657,6 +1736,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     16: _migrate_to_v16,
     17: _migrate_to_v17,
     18: _migrate_to_v18,
+    19: _migrate_to_v19,
 }
 
 

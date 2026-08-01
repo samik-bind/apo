@@ -340,6 +340,20 @@ async def create_agent_task_batch_run(
             status_code=status_code,
             detail={"kind": error.kind, "msg": str(error)},
         ) from error
+    except Exception as error:
+        # SPEC-166: bounded 500 for unexpected database transaction failures.
+        # Roll back, log server-side, and return a safe response without SQL/schema details.
+        import logging
+
+        logging.getLogger(__name__).exception("Batch creation failed")
+        session.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "kind": "batch_creation_failed",
+                "msg": "Could not create the run. Check the server logs.",
+            },
+        ) from error
 
     task_runs = session.exec(
         select(AgentTaskRunDB).where(AgentTaskRunDB.batch_run_id == batch.id)
