@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false, reportAttributeAccessIssue=false
 
-"""SPEC-140 ticket 02: LocalArtifactStore atomicity and durability.
+"""LocalArtifactStore atomicity and durability.
 
 The local store writes to a staging file, flushes, verifies size and digest,
 and uses an atomic same-filesystem rename into ``objects/``. It must reject

@@ -1,4 +1,4 @@
-"""SPEC-136 tickets 04/05: tier-graph + era validation.
+"""Tickets 04/05: tier-graph + era validation.
 
 Enforces write-time invariants so the resolution/compute layers can assume
 they hold:

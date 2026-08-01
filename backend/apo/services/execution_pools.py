@@ -1,4 +1,4 @@
-"""SPEC-143: Executor Pool management and ProjectActor resolution.
+"""Executor Pool management and ProjectActor resolution.
 
 A Pool is a stable Project-owned execution/trust target. Dashboard runs and
 schedules target a Pool rather than a transient machine. ``ProjectActor``

@@ -36,7 +36,7 @@ Task source remains on the connected machine.
 
 ## Context
 
-SPEC-161 established the correct product boundary, but its implementation
+Established the correct product boundary, but its implementation
 stopped at a protocol/control-loop skeleton. The current code must not be
 treated as production complete:
 
@@ -496,7 +496,7 @@ an importable fixture Task root; do not call `executeAssignment` directly.
    env fields in HTTP payloads.
 5. Return no work, then send SIGINT and assert clean bounded exit.
 
-This scene must fail against the pre-SPEC-164 implementation because the v2
+This scene must fail against the legacy implementation because the v2
 result route is missing and the child/trace contract is not wired.
 
 ## Integration Points (WIRING — mandatory, concrete)
@@ -779,5 +779,5 @@ All routes remain under `/v1/executor-protocol/v2`.
 ## Log
 
 - 2026-07-31: Spec created after auditing the implemented SPEC-161 through
-  SPEC-163 chain and finding that the source-owned Control Plane was complete
+  Chain and finding that the source-owned Control Plane was complete
   but the connected assignment runtime and v2 finalization path were not.

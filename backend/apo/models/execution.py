@@ -1,10 +1,10 @@
-"""SPEC-142: Task Revision transport/domain schemas.
+"""Task Revision transport/domain schemas.
 
 Public-safe serializers and the caller attestation shape. ``TaskRevisionSummary``
 deliberately omits private storage fields (``bundle_storage_key``, the full
 per-file manifest, raw excluded filenames) and full filesystem paths.
-``CallerSourceAttestation`` is added here for contract testing; SPEC-145 wires
-it into the CLI/API path.
+``CallerSourceAttestation`` is added here for contract testing; it is wired
+into the CLI/API path.
 """
 
 from __future__ import annotations

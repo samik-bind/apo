@@ -97,10 +97,10 @@ def to_task_run_summary(
     the caller from ``RunDB`` via the run's ``trace_run_id``. It is a
     parameter (not read here) so this projection stays a pure function.
     """
-    total_checks = len(tr.checks_json or [])
-    passed_checks = sum(
-        1 for result in (tr.checks_json or []) if result.get("pass") is True
-    )
+    # the verdict is a persisted scalar projection; no need to load
+    # the check evidence document to count verdicts.
+    total_checks = tr.total_checks
+    passed_checks = tr.passed_checks
     return AgentTaskRunSummary(
         id=tr.id,
         batch_run_id=tr.batch_run_id,

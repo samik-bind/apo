@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""SPEC-129 Track 6 Phase 2: legacy ingestion as a canonical adapter.
+"""Legacy ingestion as a canonical adapter.
 
 The /api/v1/ingestion route must translate legacy events into canonical
 OTLP spans (OtlpSpanDB as source of truth) and derive RunDB/LoggedCallDB via

@@ -1,4 +1,4 @@
-"""Tests for SPEC-132 Behavior 2: Authentication fails closed.
+"""Tests for Authentication fails closed.
 
 The open-dev auth bypass (unauthenticated access to protected routes)
 was previously allowed whenever ``AUTH_SECRET`` was empty, regardless of

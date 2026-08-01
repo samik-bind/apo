@@ -1,7 +1,7 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
 # pyright: reportAttributeAccessIssue=false
 
-"""SPEC-151 acceptance tests: shared telemetry admission control.
+"""Acceptance tests: shared telemetry admission control.
 
 Red-first: tests written before implementation.
 """

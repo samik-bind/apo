@@ -47,7 +47,7 @@ export const formatCost = usdFormat;
  * Format a micro-USD integer as a USD string.
  * Costs are stored as integers (micro-USD = USD * 1e6); divide by 1e6 first.
  * Use this for call.cost / run.total_cost / breakdown values coming from the
- * backend post-SPEC-136.
+ * backend current.
  */
 export function formatCostMicro(microUsd: number | null | undefined): string {
   if (microUsd == null) return "\u2014";

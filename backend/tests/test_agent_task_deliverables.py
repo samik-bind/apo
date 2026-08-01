@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-140 ticket 03: Deliverable service placement and manifests.
+"""Deliverable service placement and manifests.
 
 Centralizes JSON validation, compact serialization, inline-vs-object placement,
 and manifest construction so list/detail routes never load a body.

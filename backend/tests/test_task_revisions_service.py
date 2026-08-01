@@ -1,5 +1,5 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportUnannotatedClassAttribute=false, reportUnusedParameter=false
-"""SPEC-142: Task Revisions service (materialize / attest / delete).
+"""Task Revisions service (materialize / attest / delete).
 
 Covers acceptance tests #3 (secret exclusion), #6 (limits), #7 (git provenance
 shape), #8 (attestation honesty), #9 (ArtifactStore failure), #10 (DB failure

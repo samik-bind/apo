@@ -1,7 +1,7 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 # pyright: reportIndexIssue=false, reportAttributeAccessIssue=false
 
-"""SPEC-137 scene test #2: FastAPI OTLP route projects a converted Langfuse fixture.
+"""Scene test #2: FastAPI OTLP route projects a converted Langfuse fixture.
 
 Loads the deterministic OTLP fixture produced by the CLI converter
 (specs/fixtures/langfuse/single-trace-otlp.json), authenticates as a real

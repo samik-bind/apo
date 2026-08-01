@@ -38,6 +38,8 @@ def _make_task_run(**overrides: object) -> AgentTaskRunDB:
         "status": "passed",
         "pass_result": True,
         "checks_json": [{"name": "format", "pass": True}],
+        "total_checks": 1,
+        "passed_checks": 1,
         "total_cost": 0.042,
         "started_at": datetime(2026, 6, 8, 12, 0, 0, tzinfo=timezone.utc),
         "completed_at": datetime(2026, 6, 8, 12, 0, 5, tzinfo=timezone.utc),
@@ -175,6 +177,8 @@ class TestPayloadBuilders:
             status="failed",
             pass_result=False,
             checks_json=[{"name": "format", "pass": True}, {"name": "safety", "pass": False}],
+            total_checks=2,
+            passed_checks=1,
         )
         payload = _build_task_run_payload(tr)
         assert payload["total_checks"] == 2

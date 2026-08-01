@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false
 
-"""SPEC-136 ticket 09: cost system migration (big-bang, v10).
+"""Cost system migration (big-bang, v10).
 
 Mirrors the hand-rolled old-schema SQLite pattern in
 ``test_projection_identity_migration.py``: build the OLD schema by hand,

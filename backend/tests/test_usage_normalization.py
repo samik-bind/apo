@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownLambdaType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false
 
-"""SPEC-136 ticket 03: provider usage normalization.
+"""Provider usage normalization.
 
 Parametrized over fixtures/usage/*.json. Each fixture asserts:
   - the normalized map matches the expected canonical keys

@@ -1,8 +1,8 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-140 ticket 10: legacy Task Run readability during the compat window.
+"""Legacy Task Run readability during the compat window.
 
-Rows written before SPEC-140 have ``deliverables_json`` / ``transcript_json``
+Rows written previously have ``deliverables_json`` / ``transcript_json``
 populated and no ``AgentTaskDeliverableDB`` rows. They must stay readable via
 the detail and manifest endpoints, and the manifest synthesizes from the
 legacy column — with no write or backfill occurring.

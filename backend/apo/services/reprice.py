@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 
-"""SPEC-136 ticket 12: re-pricing service.
+"""Re-pricing service.
 
 Inline streamed-batch reprice. For each call with ``raw_usage`` that is not
 provided-cost, recompute cost against ``call.start_time`` + current tiers via

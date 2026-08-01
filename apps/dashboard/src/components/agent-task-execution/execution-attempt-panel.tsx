@@ -74,7 +74,7 @@ export function ExecutionAttemptPanel({
                 )}
               </div>
               <div className="flex items-start gap-3 text-[11px] text-muted-foreground">
-                {/* SPEC-162: source-owned Runs never expose driver/machine. */}
+                {/* source-owned Runs never expose driver/machine. */}
                 {!isSourceOwned && attempt.driver_kind && (
                   <span className="inline-flex items-center gap-1">
                     <Cpu className="h-3 w-3" />

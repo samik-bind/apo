@@ -1,4 +1,4 @@
-"""SPEC-151: telemetry admission middleware and protected-route registry.
+"""Telemetry admission middleware and protected-route registry.
 
 The registry classifies exact method/path pairs as protected telemetry writes.
 The middleware (wired after AuthMiddleware, before RequestSizeMiddleware)

@@ -1,4 +1,4 @@
-"""SPEC-161: Source-Owned Connected Executor services.
+"""Source-Owned Connected Executor services.
 
 Owns: canonical source-owned Pool creation, member-authorized bootstrap,
 catalog eligibility checks, and source-owned claim filtering.

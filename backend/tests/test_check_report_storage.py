@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-167: Check Report storage boundary.
+"""Check Report storage boundary.
 
 The full check evidence lives off the hot ``agent_task_runs`` row in
 ``agent_task_check_reports``; the run row carries only the scalar verdict

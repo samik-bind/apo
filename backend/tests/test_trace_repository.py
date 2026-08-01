@@ -2,7 +2,7 @@
 
 """Tests for the Trace Projection repository.
 
-The repository wraps the Trace Projection supplied by SPEC-129 and returns an
+The repository wraps the Trace Projection supplied by the projector and returns an
 immutable ``TraceProjectionSnapshot`` — never SQLModel rows. It enforces
 Project isolation on every lookup.
 
@@ -101,7 +101,7 @@ def _make_call(
 
 
 class TestProjectIsolation:
-    """SPEC-130 Test 1: the repository isolates Projects."""
+    """Test 1: the repository isolates Projects."""
 
     def test_querying_a_trace_returns_only_that_projects_observations(self):
         """Project isolation: querying project A's trace returns only A's calls,
@@ -142,7 +142,7 @@ class TestProjectIsolation:
 
 
 class TestSerializationContract:
-    """SPEC-130 Test 2: snapshots serialize to stable lower-camel-case JSON."""
+    """Test 2: snapshots serialize to stable lower-camel-case JSON."""
 
     def test_serialize_by_alias_lower_camel_case(self):
         with Session(engine) as session:
@@ -198,7 +198,7 @@ class TestSerializationContract:
 
 
 class TestChildBeforeRoot:
-    """SPEC-130 Test 3: child-before-root produces a stable hierarchy."""
+    """Test 3: child-before-root produces a stable hierarchy."""
 
     def test_partial_then_complete_with_correct_parent_ids(self):
         repo = NativeTraceRepository()

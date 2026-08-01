@@ -1,5 +1,5 @@
 # pyright: reportMissingImports=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownArgumentType=false, reportAny=false, reportExplicitAny=false, reportUnknownParameterType=false
-"""SPEC-140 ticket 09: optional S3-compatible ArtifactStore.
+"""Optional S3-compatible ArtifactStore.
 
 Clients still upload/download through authenticated Apo endpoints; no browser
 or executor receives bucket credentials. Uses the AWS credential chain when

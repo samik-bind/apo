@@ -1,7 +1,7 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
 # pyright: reportAttributeAccessIssue=false
 
-"""SPEC-156: Always store full Trace Content.
+"""Always store full Trace Content.
 
 These tests assert that OTLP content is stored unchanged regardless of any
 legacy Project policy column, and that the content-policy interface is gone.
@@ -68,7 +68,7 @@ def _content_payload() -> bytes:
 
 
 class TestFullTraceContent:
-    """SPEC-156: decoded OTLP content is unchanged by the receiver."""
+    """Decoded OTLP content is unchanged by the receiver."""
 
     def test_full_content_preserved_for_off_project(self, session: Session) -> None:
         """A Project with legacy policy='off' still stores full content."""

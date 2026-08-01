@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Anonymous public-ingress smoke probe.
 #
-# Probes the final SPEC-153/155 route matrix from any external machine.
+# Probes the final route matrix from any external machine.
 # Credential-free, safe to repeat, no state changes.
 #
 # Usage: scripts/public-ingress-smoke.sh https://apo.example.com

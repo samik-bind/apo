@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false
 
-"""SPEC-143: execution_leases — atomic claim, start/heartbeat fencing, reaper.
+"""Execution_leases — atomic claim, start/heartbeat fencing, reaper.
 
 Covers acceptance tests #1 (race), #2 (scope), #4 (capacity from DB), #5
 (sequential Batch), #6 (pre-start requeue), #7 (post-start lost), #8 (stale

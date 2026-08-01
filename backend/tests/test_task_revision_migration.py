@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-142: task_revisions schema migration (v12).
+"""Task_revisions schema migration (v12).
 
 Mirrors the hand-rolled old-schema SQLite pattern in
 ``test_agent_task_deliverable_migration.py``: build a pre-v12 schema by hand,

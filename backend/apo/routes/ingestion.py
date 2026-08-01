@@ -1,7 +1,7 @@
 # pyright: reportCallInDefaultInitializer=false
 
 """
-Legacy batch ingestion API (deprecated — SPEC-129).
+Legacy batch ingestion API (deprecated; use the OTLP path).
 
 This route accepts apo's custom event protocol (``run-create``, ``call-create``,
 ``call-update``, ``score-create``) at ``POST /api/v1/ingestion``. It is

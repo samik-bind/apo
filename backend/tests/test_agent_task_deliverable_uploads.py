@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-140 ticket 04: artifact upload intents, completion, and access rules.
+"""Artifact upload intents, completion, and access rules.
 
 Two-phase uploads: create intent (idempotent on matching metadata), PUT bytes
 (streamed, size+digest verified), ready summary. Terminal runs reject new

@@ -158,7 +158,7 @@ the Python bootstrap uses:
 | `APO_PROJECT` | Diagnostic resource attribute |
 
 So the recipes all collapse to `configureApoTelemetry({ takeOwnership: true })`
-once those vars are set. SPEC-149 note: there is no `NEXT_PUBLIC_APO_PUBLIC_KEY`
+once those vars are set. there is no `NEXT_PUBLIC_APO_PUBLIC_KEY`
 variant — telemetry submission requires both halves of an API-key pair, so
 the SDK never reads a browser-public value.
 

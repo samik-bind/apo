@@ -1,4 +1,4 @@
-"""Tests for SPEC-132 deployment-profile runtime contract.
+"""Tests for the deployment-profile runtime contract.
 
 Establishes the v1 release contract fields on ``RuntimeConfig``:
 

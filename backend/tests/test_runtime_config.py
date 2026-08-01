@@ -1,4 +1,4 @@
-"""Tests for SPEC-124 self-hosted alpha topology runtime config + readiness."""
+"""Tests for self-hosted alpha topology runtime config + readiness."""
 
 from pathlib import Path
 from types import ModuleType
@@ -185,7 +185,7 @@ class TestHealthReadyEndpoint:
 
 
 class TestDatabaseDescriptorSanitization:
-    """SPEC-124 hardening: never leak credentials via the runtime config API."""
+    """Hardening: never leak credentials via the runtime config API."""
 
     def test_postgres_dsn_strips_credentials(self) -> None:
         from apo.services.runtime_config import _describe_database

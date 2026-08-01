@@ -5,7 +5,7 @@ description: "Send OpenTelemetry traces to apo from any application — not just
 
 `@apo/sdk/otel` sends traces to apo from any application, using standard OpenTelemetry. This is the lower-level tracing layer — you reach for it when you want apo's traces **outside** of an agent-task run (a production service, a background job, a script). Inside an agent-task run you don't need it; the task runner wires tracing up for you (see [Tracing integrations](/reference/tracing-integrations/)).
 
-This module replaced the retired `TraceTracker` custom protocol (removed in SPEC-129). It is plain OTel: the official OTLP/HTTP exporter, standard semantic conventions, and a real OTel `Resource`. No custom wire format.
+This module replaced the retired `TraceTracker` custom protocol (removed). It is plain OTel: the official OTLP/HTTP exporter, standard semantic conventions, and a real OTel `Resource`. No custom wire format.
 
 ```typescript
 import { configureApoTelemetry } from "@apo/sdk/otel";
@@ -135,7 +135,7 @@ const processor = createApoSpanProcessor({
 | `APO_AUTH_TOKEN` | Bearer token. Used for short-lived task-run/attempt tokens and secret-bearing legacy keys; ignored when a Basic pair is provided. |
 
 :::caution[Both halves required — there is no browser-safe ingest credential]
-SPEC-149: every long-lived telemetry write requires both halves of an
+every long-lived telemetry write requires both halves of an
 API-key pair, sent as HTTP Basic (`base64("pk-apo-…:sk-apo-…")`). The
 public identifier alone is **not** a credential — a `Bearer pk-apo-…`
 request is rejected with the same generic `401` as any invalid token.

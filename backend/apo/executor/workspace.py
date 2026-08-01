@@ -1,4 +1,4 @@
-"""SPEC-144: per-Attempt workspace + result-path management.
+"""Per-Attempt workspace + result-path management.
 
 Each Attempt runs in an isolated, fresh workspace under the configured
 workspace root. The result file lives at ``<workspace>/.apo-result/result.json``

@@ -28,8 +28,7 @@ The SDK supports the two-key auth model directly from environment variables.
 Important:
 
 - The two halves are sent together as HTTP Basic
-  (`base64("pk-apo-…:sk-apo-…")`). SPEC-149 removed
-  `NEXT_PUBLIC_APO_PUBLIC_KEY` and the public-key-only Bearer path: a
+  (`base64("pk-apo-…:sk-apo-…")`). `NEXT_PUBLIC_APO_PUBLIC_KEY` and the public-key-only Bearer path were removed: a
   `pk-apo-…` value alone is not a credential and is rejected with the same
   generic `401` as any unknown token. There is no supported browser-public
   ingestion credential.

@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from sqlmodel import Session
 from apo.db import engine
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskRunDB
+from apo.services.check_report_storage import persist_check_report
 
 PROJECT = "agent-task-demo"
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -237,6 +238,10 @@ def create_batch_run(
                 total_tokens=tokens,
             )
         session.add(run)
+        # seed the scalar verdict + the off-row check report so the
+        # demo project's list/stats show correct counts and the detail view
+        # renders full evidence.
+        persist_check_report(session, run, checks)
 
     return batch_id
 

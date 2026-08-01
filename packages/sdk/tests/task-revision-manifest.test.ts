@@ -69,7 +69,7 @@ function toInputs(c: Case): ManifestFileInput[] {
   }));
 }
 
-describe("SPEC-142 task-revision-manifest (TypeScript)", () => {
+describe("task-revision-manifest (TypeScript)", () => {
   it.each(loadCases().map((c) => [c.name, c] as const))(
     "case %s reproduces the canonical digest and summary",
     (_name, c) => {

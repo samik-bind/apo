@@ -2,7 +2,7 @@
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
-"""SPEC-162: aggregate Connected Executor status for the dashboard.
+"""Aggregate Connected Executor status for the dashboard.
 
 Covers acceptance tests:
 - 9. Aggregate status is User-scoped (one member offline never reports another's ready).

@@ -2,7 +2,7 @@
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
-"""SPEC-163 scene: the registered scheduler path delivers source-owned work.
+"""Scene: the registered scheduler path delivers source-owned work.
 
 Covers backend scene test 2: ``run_due_schedules_once`` against the test
 engine creates one Occurrence, one source-owned Batch, ordered Attempts,

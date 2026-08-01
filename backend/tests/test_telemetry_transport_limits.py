@@ -1,7 +1,7 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
 # pyright: reportAttributeAccessIssue=false
 
-"""SPEC-150 acceptance tests: bounded public OTLP request work.
+"""Acceptance tests: bounded public OTLP request work.
 
 Red-first: these tests are written before the implementation. Each test
 maps to an acceptance test in the spec.

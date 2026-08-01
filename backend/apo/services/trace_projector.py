@@ -460,7 +460,7 @@ def _apply_cost(session: Session, call: LoggedCallDB, span: OtlpSpanDB) -> None:
     carry per-step token data but are not separate billable API calls. Computing
     cost for them would double-count against the parent ``ai.generateText`` span.
 
-    SPEC-137: a finite, non-negative ``apo.observation.cost.amount`` is the
+    a finite, non-negative ``apo.observation.cost.amount`` is the
     authoritative reported cost for imported observations. It populates
     ``provided_cost`` and wins over any server-side model-price calculation.
     Currency is recorded in ``call.metadata`` when supplied.
@@ -472,7 +472,7 @@ def _apply_cost(session: Session, call: LoggedCallDB, span: OtlpSpanDB) -> None:
         and reported >= 0
         and not (isinstance(reported, bool))
     ):
-        # SPEC-137 reports cost in USD; SPEC-136 stores micro-USD int.
+        # Reports cost in USD; storage uses micro-USD int.
         micro = round(float(reported) * 1_000_000)
         call.provided_cost = micro
         call.cost = micro

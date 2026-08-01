@@ -1,4 +1,4 @@
-"""SPEC-142: canonical Task Revision manifest (Python twin).
+"""Canonical Task Revision manifest (Python twin).
 
 Pure canonicalizer. Both this module and its TypeScript twin
 (``packages/sdk/src/agent-task/task-revision-manifest.ts``) MUST produce

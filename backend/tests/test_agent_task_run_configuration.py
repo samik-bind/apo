@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-148 ticket 01: Run Configuration validation and Batch summary states.
+"""Run Configuration validation and Batch summary states.
 
 Pure-function tests for the adapter-reported Run Configuration contract:
 normalization rules (trimming, byte-length bounds, control-character

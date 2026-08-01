@@ -1,4 +1,4 @@
-"""SPEC-140: request middleware."""
+"""Request middleware."""
 
 from apo.middleware.request_size import RequestSizeMiddleware
 

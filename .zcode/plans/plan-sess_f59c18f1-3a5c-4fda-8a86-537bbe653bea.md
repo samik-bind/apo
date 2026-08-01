@@ -1,4 +1,4 @@
-# SPEC-136 Cost System Redesign — TDD Implementation Plan
+# Cost System Redesign — TDD Implementation Plan
 
 ## Resolved decisions (before coding)
 

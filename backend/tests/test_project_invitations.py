@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false
 
-"""Tests for SPEC-127: project-scoped invitation flow."""
+"""Tests for project-scoped invitation flow."""
 
 from __future__ import annotations
 

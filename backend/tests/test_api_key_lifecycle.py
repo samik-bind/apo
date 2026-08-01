@@ -94,7 +94,7 @@ class TestCreateWithScopeAndExpiry:
     def test_create_with_omitted_scope_defaults_to_ingest(
         self, client: TestClient, session: Session, make_authed_client: Any
     ) -> None:
-        """SPEC-149: omitting ``scope`` yields an ``ingest`` credential. The
+        """Omitting ``scope`` yields an ``ingest`` credential. The
         previous ``full`` default was unsafe for the producer issuance use
         case — most new keys exist to submit telemetry."""
         authed = _setup_and_get_authed_client(client, session, make_authed_client)
@@ -108,7 +108,7 @@ class TestCreateWithScopeAndExpiry:
     def test_create_invalid_scope_returns_422(
         self, client: TestClient, session: Session, make_authed_client: Any
     ) -> None:
-        """SPEC-149: ``scope`` is typed as ``Literal["full", "ingest"]`` so
+        """``scope`` is typed as ``Literal["full", "ingest"]`` so
         Pydantic rejects unknown values at request-body parse time. The
         exact error shape is Pydantic's structured ``detail`` list; we assert
         on the status code plus a stable substring inside the loc/msg."""

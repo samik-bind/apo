@@ -339,7 +339,7 @@ def _check_auth_secret(dev_mode: bool) -> ReadinessCheckResult:
 def _check_task_runtime() -> ReadinessCheckResult:
     """Check whether the agent-task subprocess runtime is usable.
 
-    Delegates to the SPEC-125 runtime resolver. Resolution order:
+    Delegates to the runtime resolver. Resolution order:
 
     1. Packaged bundle at ``$AGENT_TASK_RUNTIME_DIR/runner.mjs``
        (container / self-hosted alpha).

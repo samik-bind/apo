@@ -1,4 +1,4 @@
-"""Tests for SPEC-125 containerized agent-task runtime packaging."""
+"""Tests for containerized agent-task runtime packaging."""
 
 from pathlib import Path
 from types import ModuleType

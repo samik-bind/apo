@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false
 
-"""SPEC-147: Connected Executor management — Pool CRUD, enrollment, revoke, health."""
+"""Connected Executor management — Pool CRUD, enrollment, revoke, health."""
 
 from __future__ import annotations
 

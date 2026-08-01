@@ -12,7 +12,7 @@ import { readGitProvenance, sanitizeGitUrl, buildCallerIdentity } from "../src/l
  * state honestly.
  */
 
-describe("SPEC-145 git-provenance", () => {
+describe("git-provenance", () => {
   it("sanitizeGitUrl strips user-info and query credentials", () => {
     expect(sanitizeGitUrl("https://user:pass@github.com/acme/service.git"))
       .toBe("https://github.com/acme/service.git");

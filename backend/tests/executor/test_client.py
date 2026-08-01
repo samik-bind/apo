@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportUnannotatedClassAttribute=false, reportImplicitOverride=false, reportPrivateUsage=false
 
-"""SPEC-144: ExecutorProtocolClient — async httpx with bounded retry semantics."""
+"""ExecutorProtocolClient — async httpx with bounded retry semantics."""
 
 from __future__ import annotations
 

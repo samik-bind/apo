@@ -221,7 +221,7 @@ class TestValidateApiKey:
     def test_omitted_scope_defaults_to_ingest(
         self, client: TestClient, session: Session, make_authed_client: Any
     ) -> None:
-        """SPEC-149 Acceptance Test #13: creating a key without an explicit
+        """Acceptance Test #13: creating a key without an explicit
         ``scope`` produces an ``ingest`` credential (response + DB row)."""
         authed = _setup_and_get_authed_client(client, session, make_authed_client)
         resp = authed.post(
@@ -238,7 +238,7 @@ class TestValidateApiKey:
     def test_explicit_full_scope_remains_available(
         self, client: TestClient, session: Session, make_authed_client: Any
     ) -> None:
-        """SPEC-149 Acceptance Test #14: an explicit ``scope: "full"`` still
+        """Acceptance Test #14: an explicit ``scope: "full"`` still
         creates a full key usable for management endpoints."""
         authed = _setup_and_get_authed_client(client, session, make_authed_client)
         create_resp = authed.post(

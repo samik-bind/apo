@@ -1,6 +1,6 @@
 """Idempotent first-user provisioning from INIT_USER_* environment variables.
 
-SPEC-153: uses the shared installation-initialization claim service so
+uses the shared installation-initialization claim service so
 bootstrap and browser setup share the same durable singleton. Bootstrap is a
 no-op once the installation is initialized, even if all Users are later
 deleted.

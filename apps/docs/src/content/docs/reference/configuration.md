@@ -128,7 +128,7 @@ The tracing SDK reads these environment variables:
 | `APO_API_KEY` | Legacy single-key auth (alternative auth). |
 | `APO_AUTH_TOKEN` | Bearer token for short-lived task-run/attempt tokens, or secret-bearing legacy keys. |
 
-SPEC-149: `NEXT_PUBLIC_APO_PUBLIC_KEY` is intentionally **not** read. The
+`NEXT_PUBLIC_APO_PUBLIC_KEY` is intentionally **not** read. The
 public identifier does not authorize ingestion by itself, and publishing
 it in a browser bundle creates a misleading direct-browser integration.
 Telemetry submission requires both halves of an API-key pair encoded as

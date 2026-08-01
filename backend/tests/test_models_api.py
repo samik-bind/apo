@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
 
-"""SPEC-136 ticket 10: nested-document models API.
+"""Nested-document models API.
 
 Verifies the nested CRUD (list/get/create/put/delete), ``__global__`` write
 rejection (409), tier-graph validation (422), and ``?effective=true`` merge.

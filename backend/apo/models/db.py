@@ -146,7 +146,7 @@ class RunDB(SQLModel, table=True):
     Represents a single execution of a flow/workflow.
     A run groups multiple logged calls together and stores run-level metrics.
 
-    SPEC-133 M4: ``id`` is the OTel trace ID (not the PK). The PK is a
+    M4: ``id`` is the OTel trace ID (not the PK). The PK is a
     surrogate ``row_id`` so two projects can each project the same trace ID.
     """
 
@@ -488,7 +488,7 @@ class AgentTaskRunDB(SQLModel, table=True):
     checks_json: list[dict[str, object]] | None = Field(
         default=None, sa_column=Column("checks_json", JSON)
     )
-    # SPEC-167: scalar verdict projection of the Check Report. The hot list/stats
+    # scalar verdict projection of the Check Report. The hot list/stats
     # path reads these and never touches the evidence document. ``checks_json``
     # above is the legacy inline copy — NULL after the backfill migration, dropped
     # in a follow-up release; new runs never populate it (``persist_check_report``
@@ -517,7 +517,7 @@ class AgentTaskRunDB(SQLModel, table=True):
 
 
 class AgentTaskCheckReportDB(SQLModel, table=True):
-    """SPEC-167: a Task Run's full check evidence, stored off the hot row.
+    """A Task Run's full check evidence, stored off the hot row.
 
     The run row carries only the scalar verdict (``total_checks`` /
     ``passed_checks`` / ``failed_checks``); the per-check reasoning, judge
@@ -549,7 +549,7 @@ class AgentTaskCheckReportDB(SQLModel, table=True):
 
 
 class AgentTaskDeliverableDB(SQLModel, table=True):
-    """SPEC-140: a named Task Run Deliverable (JSON value or file Artifact).
+    """A named Task Run Deliverable (JSON value or file Artifact).
 
     Owns Deliverable identity and metadata. The ``inline_value_json`` body and
     ``storage_key`` are never selected by list/manifest/detail queries — only
@@ -660,7 +660,7 @@ class AgentTaskScheduleDB(SQLModel, table=True):
 
 
 class AgentTaskScheduleOccurrenceDB(SQLModel, table=True):
-    """SPEC-163: durable identity for one due Schedule time.
+    """Durable identity for one due Schedule time.
 
     Either owns one 24-hour queued Batch or is recorded as missed. The unique
     ``(schedule_id, kind, scheduled_for)`` identity makes dispatch idempotent
@@ -1141,7 +1141,7 @@ class TaskRevisionDB(SQLModel, table=True):
     id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:16])
     project: str = Field(foreign_key="projects.id", index=True)
     batch_run_id: str = Field(
-        foreign_key="agent_task_batch_runs.id", index=True  # SPEC-161: uniqueness removed
+        foreign_key="agent_task_batch_runs.id", index=True  # uniqueness removed
     )
     materialization: str  # "attested" | "bundled"
     source_type: str
@@ -1297,7 +1297,7 @@ class TaskExecutionAttemptDB(SQLModel, table=True):
     )
     sequence_index: int
     target_kind: str = Field(index=True)  # caller | pool
-    assignment_kind: str = Field(default="bundled", index=True)  # SPEC-161: caller | bundled | source_owned
+    assignment_kind: str = Field(default="bundled", index=True)  # caller | bundled | source_owned
     target_user_id: str | None = Field(
         default=None, foreign_key="users.id", index=True
     )

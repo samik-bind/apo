@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 
-"""SPEC-136 ticket 07: JSON-defaults loader.
+"""JSON-defaults loader.
 
 The bundled JSON (``apo/data/default-model-prices.json``) is the SOLE source
 of truth for ``__global__`` models. ``load_default_prices`` reconciles the DB

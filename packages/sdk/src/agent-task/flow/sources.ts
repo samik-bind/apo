@@ -5,7 +5,7 @@
  *
  * Each normalizer is `(source) => Flow`. Add new ones by following the shape.
  *
- * @deprecated SPEC-130 Track D: These are **compatibility recording adapters**,
+ * @deprecated These are **compatibility recording adapters**,
  * not the primary testing architecture. The canonical path is now the Trace
  * Projection snapshot (`TraceProjectionSnapshot` → `TraceView` →
  * `runTraceChecks`). These normalizers remain available during the

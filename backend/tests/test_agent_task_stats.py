@@ -26,15 +26,21 @@ def _run(
 ) -> RunStatFields:
     # ``compute_run_stats`` operates on the minimal ``RunStatFields``
     # projection — it deliberately does not see the full DB row (no
-    # transcript_json / deliverables_json), which is what keeps the task
-    # list from OOM-killing the backend. Tests mirror that contract.
+    # transcript_json / deliverables_json / check evidence), which is what keeps
+    # the task list from OOM-killing the backend. Tests mirror that contract.
+    # the verdict is a persisted scalar pair, derived here from the
+    # raw checks the same way ``persist_check_report`` derives them.
+    check_list = checks or []
+    total = len(check_list)
+    passed = sum(1 for c in check_list if c.get("pass") is True)
     return RunStatFields(
         status=status,
         started_at=started_at,
         completed_at=completed_at,
         total_cost=total_cost,
         pass_result=pass_result,
-        checks_json=checks,
+        total_checks=total,
+        passed_checks=passed,
     )
 
 

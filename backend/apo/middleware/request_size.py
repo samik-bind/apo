@@ -1,11 +1,11 @@
-"""SPEC-140 + SPEC-150: request-size and OTLP transport ASGI enforcement.
+"""Request-size and OTLP transport ASGI enforcement.
 
 Wraps the downstream ``receive`` callable so byte limits are enforced BEFORE
 Pydantic materializes a body. Counts streamed bytes even when
 ``Content-Length`` is absent or false (chunked transfers), so a forged or
 omitted header cannot bypass the cap.
 
-SPEC-150 extends this to the canonical public OTLP trace path with
+Extends this to the canonical public OTLP trace path with
 configurable limits (``TelemetryTransportLimits``): a hard on-wire byte cap
 enforced while streaming, and a receive-only body deadline that does not
 constrain persistence or the response stream.
@@ -29,7 +29,7 @@ from starlette.types import ASGIApp, Message
 if TYPE_CHECKING:
     from ..services.telemetry_limits import TelemetryTransportLimits
 
-# SPEC-140 §Request and Storage Limits — code constants.
+# §Request and Storage Limits — code constants.
 _RESULT_BODY_LIMIT = 10 * 1024 * 1024  # 10 MiB Task result body
 _ARTIFACT_UPLOAD_LIMIT = 100 * 1024 * 1024  # 100 MiB per Artifact upload
 
@@ -57,7 +57,7 @@ _LIMITED_PATHS: tuple[tuple[str, str, str | None, int], ...] = (
 class RequestSizeMiddleware(BaseHTTPMiddleware):
     """Reject bodies that exceed the per-route byte limit before buffering.
 
-    SPEC-150 adds configurable OTLP transport limits (on-wire byte cap +
+    Adds configurable OTLP transport limits (on-wire byte cap +
     receive-only deadline) when ``otlp_limits`` is provided.
     """
 

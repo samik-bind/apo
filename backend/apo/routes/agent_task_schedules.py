@@ -413,7 +413,7 @@ def _create_source_owned_schedule(
     http_request: Request,
     membership: object,
 ) -> AgentTaskScheduleDetail:
-    """SPEC-163: persist a source-owned Schedule owned by the authed admin.
+    """Persist a source-owned Schedule owned by the authed admin.
 
     The request may not carry an execution owner, Pool, Executor, task root,
     path, or grep. Selection is a typed catalog selector validated at dispatch.
@@ -750,7 +750,7 @@ async def trigger_schedule(
 def _trigger_source_owned_schedule(
     session: Session, *, schedule: AgentTaskScheduleDB
 ) -> TriggerScheduleResponse:
-    """SPEC-163 Run Now: return active work or create one manual Occurrence.
+    """Run Now: return active work or create one manual Occurrence.
 
     Idempotent: if a non-terminal Batch already exists, return it with
     ``created=False``. Otherwise deliver a manual Occurrence targeted to the
@@ -833,7 +833,7 @@ async def list_schedule_occurrences(
     session: Session = Depends(get_session),
     limit: int = Query(default=20, ge=1, le=100),
 ):
-    """SPEC-163: bounded newest-first Occurrence history (Project members)."""
+    """Bounded newest-first Occurrence history (Project members)."""
     from apo.models.db import AgentTaskScheduleOccurrenceDB
 
     schedule = session.get(AgentTaskScheduleDB, schedule_id)

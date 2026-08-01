@@ -2,7 +2,7 @@
 
 """Tests for the trace-quality latency fix.
 
-SPEC-122 follow-up: the SDK historically reported ``latency_ms: 0`` for
+Follow-up: the SDK historically reported ``latency_ms: 0`` for
 any span that completed within the same millisecond tick. The backend
 now derives latency from ``end_time - created_at`` when the SDK omits
 ``latency_ms`` (and has ``end_time`` available).

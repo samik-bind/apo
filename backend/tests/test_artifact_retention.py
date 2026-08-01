@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-140 ticket 08: retention covers Deliverable objects, not just rows.
+"""Retention covers Deliverable objects, not just rows.
 
 Deleting a Task Run must remove its external objects idempotently BEFORE the
 database rows, and a store failure must retain the rows for the next cleanup

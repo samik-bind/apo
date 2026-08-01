@@ -870,7 +870,7 @@ def bulk_export_runs(
         )
 
 
-# ── SPEC-129 Criterion #2: Replay / re-projection ─────────────────────────
+# ── Replay / re-projection ─────────────────────────
 
 
 @router.post("/{run_id}/reproject")
@@ -885,7 +885,7 @@ def reproject_run(
     ``RunDB`` / ``LoggedCallDB``. Use this after a mapper change to update
     the product tables without re-ingesting the raw payload.
 
-    SPEC-129 Criterion #2: "The same raw canonical span can be replayed to
+    Criterion #2: "The same raw canonical span can be replayed to
     produce a new Trace Projection after a mapper change."
 
     The ``project`` query parameter specifies which project the trace belongs

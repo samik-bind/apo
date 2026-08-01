@@ -1,4 +1,4 @@
-"""SPEC-144: Bundled Executor agent — the connect lifecycle.
+"""Bundled Executor agent — the connect lifecycle.
 
 Owns protocol sequencing: load persisted state or enroll, heartbeat + claim
 loop, and the per-assignment flow (bundle download/verify/extract -> /start ->
@@ -482,7 +482,7 @@ def _opt_str(d: dict[str, object], key: str) -> str | None:
 
 
 def _opt_run_configuration(value: object) -> dict[str, object] | None:
-    """SPEC-148: parse the runner's runConfiguration JSON into a request body.
+    """Parse the runner's runConfiguration JSON into a request body.
 
     Returns ``None`` when absent/malformed; the finalizer validates and
     normalizes before persisting.

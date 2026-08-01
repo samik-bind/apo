@@ -1,4 +1,4 @@
-"""SPEC-142: deterministic Execution Bundle create / verify / extract.
+"""Deterministic Execution Bundle create / verify / extract.
 
 An Execution Bundle is a deterministic ``tar.gz``:
 
@@ -49,7 +49,7 @@ _WORKSPACE_PREFIX = "workspace/"
 
 @dataclass(frozen=True)
 class BundleLimits:
-    """SPEC-142 §Limits. Exceeded limits raise :class:`BundleError` and leave no bundle."""
+    """§Limits. Exceeded limits raise :class:`BundleError` and leave no bundle."""
 
     max_file_count: int = 50_000
     max_total_uncompressed_bytes: int = 256 * 1024 * 1024

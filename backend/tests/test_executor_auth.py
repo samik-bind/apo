@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportPrivateUsage=false
 
-"""SPEC-143: executor_auth — enrollment tokens, credentials, and Attempt JWTs.
+"""Executor_auth — enrollment tokens, credentials, and Attempt JWTs.
 
 Mirrors the existing service-token / API-key patterns: SHA-256+salt hashing
 (``apo_ex_`` credentials, ``apo_enroll_`` tokens), single-secret HS256 JWTs
@@ -270,7 +270,7 @@ def _seed_attempt(session: Session, *, gen: int = 1) -> TaskExecutionAttemptDB:
 def test_attempt_jwt_round_trips_claims(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # SPEC-152 made create_attempt_jwt fail closed when AUTH_SECRET is unset
+    # Made create_attempt_jwt fail closed when AUTH_SECRET is unset
     # (CI has none). Provide one so the round-trip can issue a token.
     monkeypatch.setattr("apo.services.executor_auth.AUTH_SECRET", "test-secret")
     att = _seed_attempt(session, gen=3)

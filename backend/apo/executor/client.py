@@ -1,4 +1,4 @@
-"""SPEC-144: ExecutorProtocolClient — typed async client for the SPEC-143 protocol.
+"""ExecutorProtocolClient — typed async client for the protocol.
 
 Uses a long-lived ``httpx.AsyncClient`` with explicit timeouts. Retries
 transient network errors and 5xx with capped exponential backoff + jitter, but

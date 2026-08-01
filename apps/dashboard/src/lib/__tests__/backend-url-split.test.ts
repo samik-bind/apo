@@ -1,5 +1,5 @@
 /**
- * Tests for SPEC-132 Behavior 3: same-origin browser URL contract.
+ * Tests for same-origin browser URL contract.
  *
  * The dashboard must never let browser code resolve a request to the
  * Docker-internal backend URL (e.g. `http://backend:8000`). A remote

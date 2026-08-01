@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import type { AddressInfo } from "node:net";
 
 /*
- * SPEC-164 real CLI scene test.
+ * Real CLI scene test.
  *
  * Spawns the real `packages/cli/src/main.ts connect` command against a local
  * fake HTTP server and an importable fixture Task root. It does NOT call
@@ -126,7 +126,7 @@ function spawnConnect(port: number, homeDir: string): ReturnType<typeof spawn> {
   });
 }
 
-describe("SPEC-164 real apo connect scene", () => {
+describe("real apo connect scene", () => {
   it("runs an assignment through the real command and finalizes via /result", async () => {
     const { server, port, requests } = await startFakeServer();
     const home = mkdtempSync(join(tmpdir(), "apo-connect-scene-"));

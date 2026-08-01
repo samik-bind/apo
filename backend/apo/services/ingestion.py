@@ -67,7 +67,7 @@ def _ingestion_usage_attributes(body: dict[str, object]) -> dict[str, object]:
     The legacy direct-writer carries flat ``prompt_tokens``/``completion_tokens``
     (and optionally richer usage under ``usage`` / ``raw_usage``). Map these onto
     the canonical OTel gen_ai.usage.* keys the normalizer reads. If the body
-    already carries a ``usage``/``raw_usage`` map (post-SPEC-136 SDK), forward
+    already carries a ``usage``/``raw_usage`` map (current SDK), forward
     canonical keys under their OTel attribute names so the normalizer picks
     them up.
     """

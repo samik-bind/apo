@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownLambdaType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false
 
-"""SPEC-136 ticket 12: re-pricing service.
+"""Re-pricing service.
 
 Inline streamed-batch reprice. Reads raw_usage + current tiers, recomputes via
 compute_cost, overwrites cost in place when not dry_run. Provided-cost calls

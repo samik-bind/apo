@@ -118,7 +118,7 @@ describe("readConfig", () => {
       expect(config.apiKey).toBe("sk-legacy-key");
     });
 
-    it("SPEC-149: ignores NEXT_PUBLIC_APO_PUBLIC_KEY entirely", () => {
+    it("ignores NEXT_PUBLIC_APO_PUBLIC_KEY entirely", () => {
       // A browser-bundled public identifier is not a usable credential and
       // publishing one creates a misleading direct-browser integration. The
       // SDK must never surface it.

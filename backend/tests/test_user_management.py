@@ -14,7 +14,7 @@ def _setup_admin_authed(
 ) -> tuple[TestClient, str]:
     """Create admin user via the public setup endpoint and return an authed client.
 
-    SPEC-122: the first signup is no longer auto-admin. These tests
+    the first signup is no longer auto-admin. These tests
     cover the instance-maintenance ``/auth/users`` endpoints, which
     still require ``UserDB.is_admin``. We flip the flag directly in the
     DB to exercise that path.

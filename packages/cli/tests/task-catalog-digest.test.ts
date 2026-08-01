@@ -3,7 +3,7 @@ import { computeCatalogDigest } from "../src/lib/task-catalog-digest.ts";
 import type { PublishedTask } from "../src/lib/task-catalog.ts";
 
 /*
- * SPEC-159/161: the TypeScript and Python catalog digest functions MUST agree
+ * The TypeScript and Python catalog digest functions MUST agree
  * byte-for-byte. This regression test pins the TS output to the value produced
  * by apo.services.task_catalog.compute_catalog_digest for the same input, so a
  * drift (e.g. missing recursive key sort) fails the suite.
@@ -22,7 +22,7 @@ const tasks: PublishedTask[] = [
   },
 ];
 
-describe("SPEC-161 cross-language catalog digest", () => {
+describe("cross-language catalog digest", () => {
   it("matches the Python compute_catalog_digest for a single task", () => {
     expect(computeCatalogDigest(tasks)).toBe(
       "sha256:628bd058a9ceeccbda0a04817dd9233e5370aa5031b3d6f218113ecc67ef8f3c",

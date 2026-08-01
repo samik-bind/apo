@@ -27,7 +27,7 @@ function resetOtel() {
   try { trace.disable(); } catch { /* noop */ }
 }
 
-describe("SPEC-131 nested context propagation", () => {
+describe("nested context propagation", () => {
   let contextManager: AsyncHooksContextManager;
   afterEach(() => {
     try { contextManager?.disable(); } catch { /* noop */ }
@@ -59,7 +59,7 @@ describe("SPEC-131 nested context propagation", () => {
   });
 });
 
-describe("SPEC-131 host-provider composition", () => {
+describe("host-provider composition", () => {
   afterEach(resetOtel);
 
   it("a pre-existing global provider is not silently replaced", async () => {
@@ -93,7 +93,7 @@ describe("SPEC-131 host-provider composition", () => {
   });
 });
 
-describe("SPEC-131 resource attributes", () => {
+describe("resource attributes", () => {
   afterEach(resetOtel);
 
   it("service.name, service.version, and environment reach the span resource", async () => {
@@ -119,7 +119,7 @@ describe("SPEC-131 resource attributes", () => {
   });
 });
 
-describe("SPEC-131 module reset", () => {
+describe("module reset", () => {
   afterEach(resetOtel);
 
   it("a second configuration after shutdown can re-register globally", async () => {

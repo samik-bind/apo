@@ -382,7 +382,7 @@ def _dispatch_source_owned_schedule(
     schedule: AgentTaskScheduleDB,
     now: datetime,
 ):
-    """SPEC-163: deliver one Occurrence for a due source-owned Schedule.
+    """Deliver one Occurrence for a due source-owned Schedule.
 
     Returns the ``OccurrenceDeliveryResult`` so the caller can count created
     Batches. The Occurrence+Batch+pointer+cadence advance share one

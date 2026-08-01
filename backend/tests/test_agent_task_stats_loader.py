@@ -57,8 +57,10 @@ def _run(
     started_at: datetime | None = _NOW,
 ) -> AgentTaskRunDB:
     # The heavy columns are set deliberately. The whole point of these tests
+    # The heavy columns are set deliberately. The whole point of these tests
     # is to prove the stats loader ignores them — so they must be present in
     # the seeded rows (otherwise "not loaded" would be vacuously true).
+    check_list = checks or []
     return AgentTaskRunDB(
         id=run_id,
         batch_run_id=batch_id,
@@ -70,6 +72,8 @@ def _run(
         completed_at=started_at,
         total_cost=total_cost,
         checks_json=checks,
+        total_checks=len(check_list),
+        passed_checks=sum(1 for c in check_list if c.get("pass") is True),
         transcript_json={"messages": ["x" * 100_000]},  # large, must stay on disk
         deliverables_json={"artifacts": ["y" * 50_000]},  # large, must stay on disk
     )
@@ -182,7 +186,8 @@ def test_stats_loader_returns_correct_grouped_fields(session: Session) -> None:
     assert runs[0].status == "passed"
     assert runs[0].pass_result is True
     assert runs[0].total_cost == 0.002
-    assert runs[0].checks_json == [{"pass": True}, {"pass": False}]
+    assert runs[0].total_checks == 2
+    assert runs[0].passed_checks == 1
     assert runs[1].started_at == _OLDER
     assert runs[1].status == "failed"
 

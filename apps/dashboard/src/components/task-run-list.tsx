@@ -109,7 +109,7 @@ export function TaskRunRow({
           <span className="shrink-0 font-mono text-[12px] text-muted-foreground">{run.batch_run_id.slice(0, 8)}</span>
         </div>
 
-        {/* SPEC-148: Execution — model · effort in its own column (not crammed
+        {/* Execution — model · effort in its own column (not crammed
             into the name meta line). Full qualified name on hover. */}
         <div className="min-w-0">
           <span

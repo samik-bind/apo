@@ -1,4 +1,4 @@
-"""SPEC-136 pricing services: resolution, compute, validation, JSON loader.
+"""Pricing services: resolution, compute, validation, JSON loader.
 
 Public API:
   - ``resolve_model_era`` — find the active model-era row for (model, project, time)

@@ -11,7 +11,7 @@ import { writeResultAtomically, RESULT_MAX_BYTES } from "../src/agent-task/runne
  * the parent directory.
  */
 
-describe("SPEC-144 runner-result writer", () => {
+describe("runner-result writer", () => {
   let dir: string;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "apo-runner-result-"));

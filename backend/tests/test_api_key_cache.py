@@ -327,7 +327,7 @@ class TestValidationCachingBasicExpiry:
 
 
 class TestValidationCachingBearerPublic:
-    """SPEC-149 removed the ``validate_bearer_public_key`` path. These tests
+    """Removed the ``validate_bearer_public_key`` path. These tests
     pin the removal: a public identifier alone must not consult the cache,
     must not populate the cache, and must not return a cached credential."""
 

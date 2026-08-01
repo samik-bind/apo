@@ -44,11 +44,8 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      # Persistent task-source cache so re-syncs fetch instead of re-cloning.
-      - task_source_cache:/var/lib/apo/task-sources
       # Persistent SQLite database (the file lives at /app/data/optimizer.db).
       - apo_db:/app/data
-      - apo_executor_bootstrap:/var/lib/apo/executor-bootstrap
     environment:
       # No DATABASE_URL → the supported alpha default is SQLite at
       # /app/data/optimizer.db. The apo_db volume keeps it across restarts.
@@ -56,7 +53,6 @@ services:
       # apply docker-compose.postgres.yml (see comments there).
       - AUTH_SECRET=${AUTH_SECRET}
       - APO_DEPLOYMENT_PROFILE=${APO_DEPLOYMENT_PROFILE:-local}
-      - APO_BUNDLED_EXECUTOR_ENABLED=${APO_BUNDLED_EXECUTOR_ENABLED:-true}
       - APO_PUBLIC_URL=${APO_PUBLIC_URL:-${NEXTAUTH_URL:-http://localhost:3000}}
       # FRONTEND_URL is the browser-facing URL: used for CORS allow-list and
       # for generating links (password reset, invitations) that the user opens
@@ -66,10 +62,7 @@ services:
       - FRONTEND_URL=${APO_PUBLIC_URL:-${NEXTAUTH_URL:-http://localhost:3000}}
       # Alpha topology: scheduler runs in the single backend process.
       - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-true}
-      # the bundled executor enrolls + claims work; give slow
-      # model calls lease headroom (default 90s is too tight for cheap models).
       - APO_ATTEMPT_LEASE_SECONDS=${APO_ATTEMPT_LEASE_SECONDS:-600}
-      - TASK_SOURCE_CACHE_DIR=/var/lib/apo/task-sources
       # Optional first-user bootstrap (idempotent — only runs when no users
       # exist). Normal onboarding is account creation + project invite.
       # Operators set these explicitly when they want headless first boot;
@@ -96,47 +89,5 @@ services:
       retries: 5
       start_period: 15s
 
-  # Bundled Executor. Reuses the backend image as a separate process
-  # that pulls work over HTTP via the SPEC-143 protocol. It mounts NO database or
-  # task-source cache, publishes NO port, and is never internet-facing. The
-  # supervisor runs as root and drops Task child processes to appuser.
-  executor:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    command: ["python", "-m", "apo.executor", "connect"]
-    user: "0:0"
-    restart: unless-stopped
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    volumes:
-      - apo_executor_state:/var/lib/apo-executor
-      - apo_executor_bootstrap:/var/lib/apo/executor-bootstrap
-    environment:
-      - APO_CONTROL_PLANE_URL=http://backend:8000
-      - APO_EXECUTOR_STATE_DIR=/var/lib/apo-executor
-      - APO_EXECUTOR_NAME=${APO_EXECUTOR_NAME:-bundled-1}
-      - APO_EXECUTOR_MAX_CONCURRENCY=${APO_EXECUTOR_MAX_CONCURRENCY:-1}
-      - APO_EXECUTOR_DRIVER=subprocess
-      - APO_ATTEMPT_LEASE_SECONDS=${APO_ATTEMPT_LEASE_SECONDS:-600}
-      - APO_EXECUTOR_TASK_USER=appuser
-      - APO_TASK_ENV_ALLOWLIST=${APO_TASK_ENV_ALLOWLIST:-OPENROUTER_API_KEY,OPENROUTER_BASE_URL,AGENT_TASK_OPENROUTER_MODEL}
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - OPENROUTER_BASE_URL=${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
-      - AGENT_TASK_OPENROUTER_MODEL=${AGENT_TASK_OPENROUTER_MODEL:-google/gemini-2.5-flash-lite}
-    deploy:
-      resources:
-        limits:
-          memory: 1g
-    depends_on:
-      backend:
-        condition: service_healthy
-
 volumes:
-  task_source_cache:
   apo_db:
-  apo_executor_state:
-  apo_executor_bootstrap:

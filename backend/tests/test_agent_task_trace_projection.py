@@ -7,7 +7,7 @@ execution boundary read. A task-run service token reads only its own Task
 Run's projection; the route resolves the Trace through
 ``AgentTaskRunDB.trace_run_id`` (callers cannot supply an arbitrary Trace ID).
 
-Covers SPEC-130 Test Cases 9-13:
+Covers Test Cases 9-13:
   9.  Service token reads its own projected Trace -> 200.
   10. Projection not ready -> 202 + Retry-After.
   11. Token cannot read another Task Run -> 403 (no trace ID leaked).
@@ -120,7 +120,7 @@ def _token(task_run_id: str, project: str = _PROJECT) -> str:
 
 
 class TestReadOwnProjection:
-    """SPEC-130 Test 9: service token reads its own projected Trace."""
+    """Test 9: service token reads its own projected Trace."""
 
     def test_own_complete_trace_returns_200(self, client: TestClient, session: Session):
         _seed_task_run(session, task_run_id="run-a", trace_run_id="trace-a")
@@ -139,7 +139,7 @@ class TestReadOwnProjection:
 
 
 class TestProjectionNotReady:
-    """SPEC-130 Test 10: projection not ready -> 202 + Retry-After."""
+    """Test 10: projection not ready -> 202 + Retry-After."""
 
     def test_incomplete_trace_returns_202(self, client: TestClient, session: Session):
         _seed_task_run(session, task_run_id="run-b", trace_run_id="trace-b")
@@ -156,7 +156,7 @@ class TestProjectionNotReady:
 
 
 class TestCrossRunForbidden:
-    """SPEC-130 Test 11: token cannot read another Task Run's projection."""
+    """Test 11: token cannot read another Task Run's projection."""
 
     def test_token_for_other_run_returns_403(self, client: TestClient, session: Session):
         _seed_task_run(session, task_run_id="run-a", trace_run_id="trace-a")
@@ -175,7 +175,7 @@ class TestCrossRunForbidden:
 
 
 class TestPayloadProjectCannotOverride:
-    """SPEC-130 Test 12: payload/telemetry Project cannot override token Project.
+    """Test 12: payload/telemetry Project cannot override token Project.
 
     The route scopes the repository lookup to the token's verified project,
     never a query parameter or telemetry attribute. A token for project A
@@ -205,7 +205,7 @@ class TestPayloadProjectCannotOverride:
 
 
 class TestNoTraceClaimed:
-    """SPEC-130 Test 13: Task Run completed without a Trace -> 409."""
+    """Test 13: Task Run completed without a Trace -> 409."""
 
     def test_completed_run_without_trace_returns_409(self, client: TestClient, session: Session):
         _seed_task_run(session, task_run_id="run-c", trace_run_id=None)

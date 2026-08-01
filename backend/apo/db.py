@@ -153,7 +153,7 @@ def _enforce_single_task_trace(conn: Connection) -> None:
 
 
 def _migrate_task_catalog_columns():
-    """SPEC-159: add Task Catalog columns to project_task_sources if absent."""
+    """Add Task Catalog columns to project_task_sources if absent."""
     with engine.connect() as conn:
         for col, coltype in [
             ("catalog_digest", "TEXT"),
@@ -233,7 +233,7 @@ def _migrate_to_baseline():
     with engine.begin() as conn:
         _add_column_if_missing(conn, "logged_calls", "version", "VARCHAR")
         _add_column_if_missing(conn, "logged_calls", "latency_ms", "FLOAT")
-        _add_column_if_missing(conn, "logged_calls", "cost", "INTEGER")  # SPEC-136: micro-USD int
+        _add_column_if_missing(conn, "logged_calls", "cost", "INTEGER")  # micro-USD int
 
         # Inline-comment selection anchors (nullable; whole-object comments
         # leave them NULL).
@@ -1170,9 +1170,9 @@ def _migrate_to_v18() -> None:
 
 
 def _make_attempt_task_revision_nullable(conn: Connection) -> None:
-    """SPEC-166: make task_execution_attempts.task_revision_id nullable.
+    """Make task_execution_attempts.task_revision_id nullable.
 
-    The v13 migration created it NOT NULL; SPEC-161 made the SQLModel field
+    The v13 migration created it NOT NULL; a later change made the SQLModel field
     nullable (source-owned Attempts have no Revision until /start) but never
     changed the existing database constraint. This migration closes that gap.
 

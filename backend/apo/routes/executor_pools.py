@@ -1,6 +1,6 @@
-"""SPEC-146/147: Executor Pool management APIs.
+"""Executor Pool management APIs.
 
-SPEC-146 added read/default. SPEC-147 adds the full Connected-Executor product
+Added read/default. Later work adds the full Connected-Executor product
 surface: create/archive Pool, enrollment tokens, executor list/revoke/rename —
 all Project-scoped with role enforcement. User APIs can only create ``connected``
 Pools; ``bundled``/``managed`` are provider-only.

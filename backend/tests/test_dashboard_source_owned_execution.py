@@ -2,7 +2,7 @@
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
-"""SPEC-162: dashboard source-owned Batch creation, routing, and lifecycle.
+"""Dashboard source-owned Batch creation, routing, and lifecycle.
 
 Covers acceptance tests:
 - 1. Source-owned creation targets the authenticated User.

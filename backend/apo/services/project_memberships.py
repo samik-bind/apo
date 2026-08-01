@@ -162,7 +162,7 @@ def _legacy_owner_membership(
 ) -> ProjectMembershipDB:
     """Synthetic owner membership for legacy/ad-hoc projects without a ProjectDB row.
 
-    SPEC-122 transition: existing tests and SDK ingestion flows may reference
+    Transition: existing tests and SDK ingestion flows may reference
     project names that have no ``ProjectDB`` row (and therefore no memberships).
     Rather than break those flows, treat the acting user as an implicit owner
     of any non-existent project. Once a project is created through the proper
@@ -192,7 +192,7 @@ def require_project_role_or_legacy(
     project), normal membership rules apply. If no ``ProjectDB`` row
     exists, the caller is treated as an implicit owner — this preserves
     backward compatibility with SDK ingestion flows and tests that
-    pre-date SPEC-122. Real projects always go through membership.
+    pre-date the membership system. Real projects always go through membership.
 
     **Scope:** only for read/management paths against *existing* keys.
     Never use this on a mint path (creating a new key): it would let any
@@ -263,7 +263,7 @@ def enforce_project_role_from_request(
 
     Designed to drop into existing route handlers that previously only
     called ``require_project_not_demo``. Uses the legacy-tolerant check
-    so existing SDK/ingestion flows that pre-date SPEC-122 keep working.
+    so existing SDK/ingestion flows that pre-date the membership system keep working.
 
     In open-dev mode (no ``AUTH_SECRET``) the middleware does not set
     ``user_id`` on the request state. We treat that case as a permissive
@@ -522,7 +522,7 @@ def remove_member(
 def _pause_source_owned_schedules_for_user(
     session: Session, *, project_id: str, user_id: str
 ) -> None:
-    """SPEC-163: hard-pause source-owned schedules whose owner left the Project."""
+    """Hard-pause source-owned schedules whose owner left the Project."""
     schedules = session.exec(
         select(AgentTaskScheduleDB).where(
             AgentTaskScheduleDB.project == project_id,

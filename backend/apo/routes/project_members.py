@@ -5,7 +5,7 @@ gated by project role checks rather than ``UserDB.is_admin``. Admins
 and owners can list, add, update, and remove members; ordinary members
 receive ``403`` on every mutating endpoint.
 
-SPEC-127 adds the sibling ``/v1/projects/{project_id}/invitations``
+Adds the sibling ``/v1/projects/{project_id}/invitations``
 surface so admins/owners can invite users who do not yet have an
 account. Invitations are project-scoped and never consult
 ``UserDB.is_admin``.

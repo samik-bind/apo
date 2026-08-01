@@ -163,7 +163,7 @@ def _extract_task_input(transcript: object) -> str | None:
 def _trace_output_for_task_run(task_run: AgentTaskRunDB) -> dict[str, object] | None:
     """Build the compact Deliverable manifest written to ``RunDB.output``.
 
-    SPEC-140 §Trace linkage: the trace row carries name/kind/size only, never
+    The trace row carries name/kind/size only, never
     a body. Legacy rows (``deliverables_json`` set, no Deliverable rows) get a
     synthesized manifest so old data also stays bounded. New rows with neither
     Deliverable rows nor legacy JSON leave output null.

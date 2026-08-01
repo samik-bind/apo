@@ -1,6 +1,6 @@
 # pyright: reportCallInDefaultInitializer=false, reportAny=false, reportExplicitAny=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 
-"""SPEC-136 ticket 10: nested-document models API + match endpoint.
+"""Nested-document models API + match endpoint.
 
 Replaces the flat ModelDefinitionDB CRUD with the normalized
 ``(model, tier, usage_key)`` document shape. Writes reject ``__global__``

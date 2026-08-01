@@ -1,4 +1,4 @@
-"""SPEC-136 ticket 06: the single cost compute function.
+"""The single cost compute function.
 
 ``compute_cost`` is used by ingestion AND re-pricing AND the match endpoint.
 It resolves era -> tier -> prices, then computes a per-dimension breakdown

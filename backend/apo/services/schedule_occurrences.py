@@ -1,4 +1,4 @@
-"""SPEC-163: idempotent source-owned Schedule Occurrence delivery.
+"""Idempotent source-owned Schedule Occurrence delivery.
 
 Owns the durable transition from a due Schedule to either one pending 24-hour
 queued source-owned Batch (a ``pending`` Occurrence) or a recorded miss. The

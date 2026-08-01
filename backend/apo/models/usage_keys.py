@@ -6,7 +6,7 @@ input_tokens, cached_tokens, reasoning_tokens, …). The normalizer
 these keys. Any key not in this set is store-but-unpriced: kept in
 ``raw_usage``, never priced.
 
-See SPEC-136 ticket 01 for the design rationale.
+See the design rationale.
 """
 
 from enum import Enum

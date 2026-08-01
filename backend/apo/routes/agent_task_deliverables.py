@@ -1,4 +1,4 @@
-"""SPEC-140 ticket 04: Task Run Deliverable routes.
+"""Task Run Deliverable routes.
 
 All paths live under the existing ``/v1`` router. The specific Deliverable
 routes are declared before any future catch-all ``{name:path}`` route;

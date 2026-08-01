@@ -1,4 +1,4 @@
-"""SPEC-144: persisted Executor identity (supervisor-owned, 0600).
+"""Persisted Executor identity (supervisor-owned, 0600).
 
 The credential is returned once at enrollment and never printed or logged.
 State is written atomically (temp file + fsync + rename) with supervisor-only

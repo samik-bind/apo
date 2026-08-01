@@ -37,7 +37,7 @@ function writeTask(root: string): string {
   return "caller-task";
 }
 
-describe("SPEC-145 task run --executor caller dispatch", () => {
+describe("task run --executor caller dispatch", () => {
   let testDir: string;
   let taskId: string;
 

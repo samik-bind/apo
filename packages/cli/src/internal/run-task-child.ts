@@ -1,5 +1,5 @@
 /**
- * SPEC-161 child entrypoint for source-owned Task execution.
+ * Child entrypoint for source-owned Task execution.
  *
  * Spawned one-per-Attempt by the Connected Executor parent (connect.ts). It
  * imports ``runTaskDir`` from the SDK and runs the Task in this isolated

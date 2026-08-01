@@ -36,7 +36,7 @@ def _make_span(
 
 
 class TestObservationTypeClassification:
-    """Classification follows the SPEC-129 priority order."""
+    """Classification follows the documented priority order."""
 
     def test_apo_observation_type_override(self):
         """1. apo.observation.type takes top priority."""

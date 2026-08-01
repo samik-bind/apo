@@ -1,4 +1,4 @@
-"""SPEC-143/145/146: execution queue — Batch + Task Run + Attempt creation.
+"""Execution queue — Batch + Task Run + Attempt creation.
 
 - ephemeral caller Executor.
 - server-initiated runs become durable
@@ -265,7 +265,7 @@ async def create_pooled_batch_run(
     execute customer code or wait for an Executor. Sequential Task order within
     one Batch is preserved by ``sequence_index`` (only the lowest non-terminal
     Attempt is claimable). If Bundle persistence succeeds but the DB transaction
-    fails, the SPEC-142 service deletes the orphan object.
+    fails, the service deletes the orphan object.
     """
     from apo.services.agent_task_runner import create_batch_run
     from apo.services.task_revisions import (
@@ -555,7 +555,7 @@ def _ensure_source_owned_pool_for_queue(
 ) -> ExecutorPoolDB:
     """Return the canonical source-owned Pool for the project.
 
-    Reuses SPEC-161's ``ensure_source_owned_pool`` so we never create a
+    Reuses ``ensure_source_owned_pool`` so we never create a
     second source-owned execution model.
     """
     from .source_owned_executor import ensure_source_owned_pool

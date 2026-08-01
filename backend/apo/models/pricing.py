@@ -1,6 +1,6 @@
 # pyright: reportIncompatibleVariableOverride=false
 
-"""SPEC-136 pricing data model + nested-document schemas.
+"""Pricing data model + nested-document schemas.
 
 Replaces the flat ``ModelDefinitionDB`` single-table system with a normalized
 ``(model, tier, usage_key) -> price`` model:

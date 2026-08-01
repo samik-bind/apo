@@ -2,7 +2,7 @@
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
-"""SPEC-165: retire bundled execution and purge Bundle objects.
+"""Retire bundled execution and purge Bundle objects.
 
 Covers acceptance tests 1 (preserves installation), 2 (only bundled terminalized),
 3 (narrow bundle purge), and 5 (source-owned Pool survives).

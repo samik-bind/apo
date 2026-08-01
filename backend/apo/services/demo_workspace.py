@@ -74,7 +74,7 @@ def is_demo_read_only() -> bool:
 def is_demo_authoring_enabled() -> bool:
     """Return whether demo authoring is allowed on this deployment.
 
-    SPEC-122: demo authoring is decoupled from project role. It is
+    demo authoring is decoupled from project role. It is
     controlled by the ``DEMO_AUTHORING_ENABLED`` env var. When unset,
     the legacy ``not is_demo_read_only()`` value is used so existing
     local workflows (``DEMO_READ_ONLY=false``) keep working.

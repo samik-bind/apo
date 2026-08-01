@@ -377,7 +377,7 @@ def _maybe_inject_github_token(
     the original URL is returned unchanged so anonymous clone / other
     git hosts work as before.
 
-    SPEC-159 removed the GitHub-OAuth connection flow (``apo.services.github_oauth``),
+    Removed the GitHub-OAuth connection flow (``apo.services.github_oauth``),
     so there is no stored project token to inject today; operator-supplied
     credentials embedded directly in the clone URL still work and are
     redacted by ``_redact_git_credentials``. This stays a safe pass-through

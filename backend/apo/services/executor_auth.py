@@ -1,6 +1,6 @@
 # pyright: reportPrivateUsage=false
 
-"""SPEC-143: Executor authentication — enrollment, credentials, Attempt JWTs.
+"""Executor authentication — enrollment, credentials, Attempt JWTs.
 
 Three concerns, all mirroring existing patterns so there is one credential
 model across the product:

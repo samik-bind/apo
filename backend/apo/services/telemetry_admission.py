@@ -1,4 +1,4 @@
-"""SPEC-151: identity-aware telemetry admission control.
+"""Identity-aware telemetry admission control.
 
 Token-bucket admission for requests, bytes, and Telemetry Ingestion Units,
 layered as per-identity and per-installation (global) buckets. A route-specific

@@ -1,6 +1,6 @@
 # pyright: reportCallInDefaultInitializer=false
 
-"""SPEC-143: Executor Control Plane HTTP protocol.
+"""Executor Control Plane HTTP protocol.
 
 All endpoints under ``/v1/executor-protocol/v1``. The protocol authenticates
 itself (one-time enrollment token, long-lived ``apo_ex_`` credential, or a
@@ -9,7 +9,7 @@ public to the user/api-key auth middleware so the two credential models stay
 isolated. Every response carries ``X-Apo-Executor-Protocol: 1``.
 
 This is a foundation spec: the routes are registered and Project scoped, but no
-production run entry point queues through them until SPEC-144 ships a proven
+production run entry point queues through them until the bundled executor ships a proven
 Executor.
 """
 

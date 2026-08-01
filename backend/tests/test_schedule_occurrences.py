@@ -2,7 +2,7 @@
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
-"""SPEC-163: idempotent Schedule Occurrence delivery for source-owned schedules.
+"""Idempotent Schedule Occurrence delivery for source-owned schedules.
 
 Covers the core scheduler dispatch contract:
 - 3. Offline ownership still creates one durable Batch.

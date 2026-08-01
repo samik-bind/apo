@@ -226,7 +226,7 @@ def test_run_error_for_filesystem_says_rescanned(tmp_path, session):
 def test_list_route_reads_persisted_inventory_without_lazy_sync(
     tmp_path, session, make_authed_client
 ):
-    """SPEC-159: the project task list reads persisted inventory and does not
+    """The project task list reads persisted inventory and does not
     lazily re-sync the filesystem. A newly-added on-disk task appears only
     after an explicit ``sync_task_source`` (catalogs are client-published)."""
     tasks_root = str(tmp_path)

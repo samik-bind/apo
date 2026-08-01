@@ -41,6 +41,7 @@ from ..models import (
 )
 from ..models.db import ProjectMembershipDB
 from ..services.agent_task_configuration import configuration_from_row
+from ..services.check_report_storage import load_check_report
 from ..services.agent_task_discovery import (
     DiscoveredAgentTask,
     discover_agent_task_by_id,
@@ -290,7 +291,7 @@ async def create_agent_task_batch_run(
 ):
     """Create a source-owned Batch from exact catalog Task IDs.
 
-    SPEC-165: the dashboard Batch is source-owned by definition. The
+    the dashboard Batch is source-owned by definition. The
     authenticated User is always the owner/target; no Pool, path, root,
     grep, or execution_target field is accepted.
     """
@@ -496,7 +497,7 @@ async def create_caller_batch_run_route(
     http_request: Request,
     session: Session = Depends(get_session),
 ) -> CallerCreateResponse:
-    """SPEC-145: atomically create one Batch + Task Run + attested Revision +
+    """Atomically create one Batch + Task Run + attested Revision +
     leased caller Attempt, and return the Attempt JWT the CLI uses for
     /start, heartbeat, and result. The caller owns execution; no Executor
     process is enrolled."""
@@ -579,7 +580,7 @@ async def list_agent_task_batch_runs(
     """List batch runs with server-side filtering and pagination.
 
     Text search (``q``) matches on id, selection_type, environment, and grep.
-    SPEC-148 configuration filters (``model``/``effort``): comma-separated.
+    Configuration filters (``model``/``effort``): comma-separated.
     A batch matches only when ONE child Task Run satisfies ALL supplied
     dimensions. Model facets are computed from the text/status/project
     filtered set (before model/effort filtering) so the dropdown always
@@ -752,7 +753,7 @@ async def list_agent_task_runs(
 ):
     """List all task runs, optionally filtered.
 
-    SPEC-148: ``model``/``effort`` are repeatable and exact/case-sensitive.
+    ``model``/``effort`` are repeatable and exact/case-sensitive.
     Repeated values within one dimension OR; the two dimensions AND. A run
     with an unreported configuration (NULL columns) never matches.
     """
@@ -809,19 +810,11 @@ async def get_agent_task_run(
         trace_error_message=task_run.trace_error_message,
         total_cost=task_run.total_cost,
         total_tokens=task_run.total_tokens,
-        total_checks=len(task_run.checks_json or []),
-        passed_checks=sum(
-            1
-            for result in (task_run.checks_json or [])
-            if result.get("pass") is True
-        ),
-        failed_checks=sum(
-            1
-            for result in (task_run.checks_json or [])
-            if result.get("pass") is not True
-        ),
+        total_checks=task_run.total_checks,
+        passed_checks=task_run.passed_checks,
+        failed_checks=task_run.failed_checks,
         trigger=trigger,
-        checks_json=task_run.checks_json,
+        checks_json=load_check_report(session, task_run.id),
         transcript_json=task_run.transcript_json,
         deliverables_json=task_run.deliverables_json,
         error_category=classify_run_outcome(
@@ -914,19 +907,11 @@ async def report_agent_task_run_result(
         trace_error_message=task_run.trace_error_message,
         total_cost=task_run.total_cost,
         total_tokens=task_run.total_tokens,
-        total_checks=len(task_run.checks_json or []),
-        passed_checks=sum(
-            1
-            for result in (task_run.checks_json or [])
-            if result.get("pass") is True
-        ),
-        failed_checks=sum(
-            1
-            for result in (task_run.checks_json or [])
-            if result.get("pass") is not True
-        ),
+        total_checks=task_run.total_checks,
+        passed_checks=task_run.passed_checks,
+        failed_checks=task_run.failed_checks,
         trigger=trigger,
-        checks_json=task_run.checks_json,
+        checks_json=load_check_report(session, task_run.id),
         transcript_json=task_run.transcript_json,
         deliverables_json=task_run.deliverables_json,
         error_category=classify_run_outcome(

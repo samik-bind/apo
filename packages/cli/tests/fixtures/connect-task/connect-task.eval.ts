@@ -1,5 +1,5 @@
 /**
- * SPEC-164 fixture Task for the real `apo connect` scene test.
+ * Fixture Task for the real `apo connect` scene test.
  *
  * Deliberately deterministic: the adapter runs one turn with no LLM and no
  * external I/O, so the scene test can assert the full claim → attestation →

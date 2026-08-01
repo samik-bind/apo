@@ -1,5 +1,5 @@
 /**
- * SPEC-161 parent-side spawner for source-owned Task execution.
+ * Parent-side spawner for source-owned Task execution.
  *
  * Spawns one isolated child per Attempt (``internal/run-task-child.ts``),
  * builds a sanitized child environment that injects only Task-scoped Apo

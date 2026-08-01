@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownLambdaType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false
 
-"""SPEC-136: data model + per-call storage (tickets 02, 06).
+"""Data model + per-call storage (tickets 02, 06).
 
 Verifies the new 3-table pricing shape and the LoggedCall cost fields
 replaced the flat ModelDefinitionDB system.

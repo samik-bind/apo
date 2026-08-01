@@ -1,10 +1,10 @@
 """Project management API endpoints.
 
-Includes the SPEC-118 project task source model: each project owns an
+Includes the project task source model: each project owns an
 explicit task source row that drives task inventory, replacing the
 previous process-global fallback to ``apps/example-service/e2e``.
 
-Includes the SPEC-119 project-scoped agent-task routes: canonical list
+Includes the project-scoped agent-task routes: canonical list
 and detail endpoints read from persisted inventory instead of doing a
 live filesystem scan on every request.
 """

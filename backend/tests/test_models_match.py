@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
 
-"""SPEC-136 ticket 10: GET /api/v1/models/match endpoint.
+"""GET /api/v1/models/match endpoint.
 
 Verifies the match endpoint resolves model+usage -> tier + per-key breakdown
 using the same compute pipeline as ingestion, with anchored full-match

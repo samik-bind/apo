@@ -1,7 +1,7 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 # pyright: reportIndexIssue=false, reportAttributeAccessIssue=false
 
-"""SPEC-131 Milestone 6: end-to-end integration tests with STOCK exporters.
+"""End-to-end integration tests with STOCK exporters.
 
 These are the closure tests. They stand up a real FastAPI receiver on an
 ephemeral port with isolated storage and drive it with the OFFICIAL OTLP/HTTP
@@ -205,7 +205,7 @@ def _spans_for(otel_server, *, trace_id: str | None = None, project_id: str | No
 
 
 class TestPythonProtobufExporter:
-    """SPEC-131 Test Case 1: stock Python protobuf exporter end to end."""
+    """Test Case 1: stock Python protobuf exporter end to end."""
 
     def test_stock_python_otlp_export_is_accepted(self, otel_server):
         from opentelemetry import trace
@@ -273,7 +273,7 @@ class TestPythonProtobufExporter:
         assert root_span.start_time.year == 2026
 
     def test_projection_parity_with_canonical_spans(self, otel_server):
-        """SPEC-131 Test Case 13: the projection matches canonical facts."""
+        """Test Case 13: the projection matches canonical facts."""
         from opentelemetry import trace
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
@@ -338,7 +338,7 @@ class TestPythonProtobufExporter:
 
 
 class TestTypeScriptExporter:
-    """SPEC-131 Test Case 9/11: nested TS trace via the official OTLP exporter.
+    """Test Case 9/11: nested TS trace via the official OTLP exporter.
 
     Runs the compiled SDK OTel setup against the live server through a small
     Node script. Asserts the nested trace lands with correct parentage.

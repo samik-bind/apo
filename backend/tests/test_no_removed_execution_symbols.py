@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false
 
-"""SPEC-146: prove no production module references removed execution symbols.
+"""Prove no production module references removed execution symbols.
 
 The old Control-Plane subprocess runner was deleted. This test searches the
 production codebase and fails if any module imports or calls the removed

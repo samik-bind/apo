@@ -1,4 +1,4 @@
-"""SPEC-140: ArtifactStore protocol and shared types.
+"""ArtifactStore protocol and shared types.
 
 An ``ArtifactStore`` owns immutable file bytes outside the relational
 database. The database owns Deliverable identity, authorization, and listing;

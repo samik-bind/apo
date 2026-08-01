@@ -713,7 +713,7 @@ function buildTraceRunOptions(
   tracing: AgentTaskTraceOptions,
 ) {  const tags = Array.from(new Set(["agent-task", "e2e", ...(tracing.tags ?? [])]));
 
-  // SPEC-128/129: carry the task-run claim attributes on the root span. The
+  // Carry the task-run claim attributes on the root span. The
   // backend projector reads `apo.task.run.id` to atomically link this trace to
   // the task run. These land in rootSpan.metadata today (legacy ingestion);
   // once the runner migrates to OTLP export (Track C) they become real OTel

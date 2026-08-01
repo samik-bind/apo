@@ -1,6 +1,6 @@
 # pyright: reportPrivateUsage=false
 
-"""SPEC-143: lease state machine — atomic claim, start/heartbeat fencing, reaper.
+"""Lease state machine — atomic claim, start/heartbeat fencing, reaper.
 
 The database is authoritative for ownership; an Executor's heartbeat or request
 body is never trusted as status. The state machine:
@@ -247,7 +247,7 @@ def claim_next_source_owned_attempt(
     *,
     executor: ExecutorDB,
 ) -> ClaimedAttempt | None:
-    """SPEC-161/164: atomically lease the oldest eligible source-owned Attempt.
+    """Atomically lease the oldest eligible source-owned Attempt.
 
     Reuses the same database-backed capacity/sequential/TTL/atomic-race
     authority as ``claim_next_attempt`` but targets source-owned work:
@@ -538,7 +538,7 @@ def fail_attempt(
 ) -> TaskExecutionAttemptDB:
     """Mark a non-terminal Attempt failed and align its logical Run state.
 
-    Used by SPEC-161/162 queue maintenance when an Attempt can no longer
+    Used by queue maintenance when an Attempt can no longer
     make progress for a non-lease reason (e.g. its Task was removed from
     the published catalog → ``task_not_in_catalog``). Never auto-retries.
     """
@@ -604,7 +604,7 @@ def _finalize_logical_run(
 def _mark_schedule_occurrence_delivered(
     session: Session, attempt: TaskExecutionAttemptDB
 ) -> None:
-    """SPEC-163: promote a pending Schedule Occurrence to delivered on /start."""
+    """Promote a pending Schedule Occurrence to delivered on /start."""
     from apo.services.schedule_occurrences import mark_occurrence_delivered_on_start
 
     mark_occurrence_delivered_on_start(
@@ -615,7 +615,7 @@ def _mark_schedule_occurrence_delivered(
 def _resolve_schedule_occurrence_if_terminal(
     session: Session, batch: AgentTaskBatchRunDB
 ) -> None:
-    """SPEC-163 hook shared by finalization and recovery."""
+    """Hook shared by finalization and recovery."""
     if batch.status not in ("completed", "error", "cancelled"):
         return
     from apo.services.schedule_occurrences import resolve_occurrence_on_terminal_batch
@@ -629,7 +629,7 @@ def cancel_active_batch_on_pause(
     schedule: AgentTaskScheduleDB,
     now: datetime,
 ) -> bool:
-    """SPEC-163 pause/delete: cancel the active Batch iff no Task code started.
+    """Pause/delete: cancel the active Batch iff no Task code started.
 
     Returns True when the Batch was cancelled (pre-start). If any Attempt
     started, the whole Batch is left intact to finish; only the active pointer

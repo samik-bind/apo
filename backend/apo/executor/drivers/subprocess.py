@@ -1,4 +1,4 @@
-"""SPEC-144: SubprocessExecutionDriver.
+"""SubprocessExecutionDriver.
 
 Launches the packaged Node runner in a new process session/group, concurrently
 drains stdout/stderr into 64 KiB UTF-8-safe ring-buffer tails (never buffering
@@ -26,7 +26,7 @@ from apo.executor.drivers.base import DriverResult, Heartbeat
 DEFAULT_TIMEOUT_SECONDS = 600
 CANCELLATION_GRACE_SECONDS = 10
 STDOUT_TAIL_BYTES = 64 * 1024
-DEFAULT_MAX_RESULT_BYTES = 10 * 1024 * 1024  # SPEC-140 / SPEC-144 §result file
+DEFAULT_MAX_RESULT_BYTES = 10 * 1024 * 1024  # 10 MiB result-file size cap
 _RESULT_INVALID = "result_invalid"
 
 

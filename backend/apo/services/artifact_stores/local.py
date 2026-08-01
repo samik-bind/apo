@@ -1,4 +1,4 @@
-"""SPEC-140: local filesystem ArtifactStore.
+"""Local filesystem ArtifactStore.
 
 Zero-configuration default. Objects live under the existing persistent
 ``/app/data`` volume so no MinIO, bucket, port, credential, or extra

@@ -1,7 +1,7 @@
 /**
  * Force-flush integration test for the official OTLP exporter.
  *
- * This is the gating condition for SPEC-130 Track C: "The standard TypeScript
+ * This is the gating condition for "The standard TypeScript
  * OTLP exporter is proven by a force-flushed HTTP integration test."
  *
  * The official `OTLPTraceExporter` uses Node's `http` module (not fetch), so it

@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 
-"""SPEC-136 ticket 06: the shared cost-application seam.
+"""The shared cost-application seam.
 
 Both ingestion paths (the canonical ``TraceProjector._apply_cost`` and the
 legacy direct-writer ``process_call_create``/``process_call_update``) call into

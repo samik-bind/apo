@@ -15,7 +15,7 @@ import { describe, it, expect } from "vitest";
 import { defineCheck, resetFlowChecks } from "../src/agent-task/checks/flow-runner.ts";
 import { createLocalTraceProjectionRecorder } from "../src/agent-task/trace-projection/local-recorder.ts";
 
-describe("SPEC-130 two-phase split (Tests 14 + 15)", () => {
+describe("two-phase split (Tests 14 + 15)", () => {
   it("root span ends and flushes before the first check executes", async () => {
     const recorder = createLocalTraceProjectionRecorder();
     const checkCallOrder: string[] = [];

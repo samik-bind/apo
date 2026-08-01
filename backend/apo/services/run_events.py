@@ -123,12 +123,9 @@ def _build_task_run_payload(task_run: AgentTaskRunDB) -> dict[str, object]:
         delta = (tr.completed_at - tr.started_at).total_seconds() * 1000
         duration_ms = round(delta, 1)
 
-    total_checks = len(tr.checks_json or [])
-    passed_checks = sum(
-        1
-        for item in (tr.checks_json or [])
-        if isinstance(item, dict) and item.get("pass") is True
-    )
+    # read the persisted scalar verdict, not the evidence document.
+    total_checks = tr.total_checks
+    passed_checks = tr.passed_checks
 
     return {
         "task_run_id": tr.id,

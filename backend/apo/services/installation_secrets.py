@@ -1,4 +1,4 @@
-"""SPEC-152: Safe installation secret lifecycle — centralized validation.
+"""Safe installation secret lifecycle — centralized validation.
 
 Parses deployment and database profile selectors, validates installation
 secrets (AUTH_SECRET, POSTGRES_PASSWORD, GitHub OAuth), and provides a shared

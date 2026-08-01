@@ -2,7 +2,7 @@
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
-"""SPEC-161 v2 finalization routes (result / failure) alias the shared path.
+"""Finalization routes (result / failure) alias the shared path.
 
 Covers the new ``/v1/executor-protocol/v2/attempts/{id}/result`` and
 ``/failure`` routes that the Connected Executor's ``submitResult`` targets.

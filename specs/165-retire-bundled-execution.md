@@ -824,7 +824,7 @@ and live demo seeding. Historical specs may retain those terms.
 ## Acceptance Tests (RED-FIRST)
 
 Write the removal/contract tests first. At least one assertion in every new
-test file must fail against the pre-SPEC-165 implementation.
+test file must fail against the legacy implementation.
 
 ### Backend unit tests
 

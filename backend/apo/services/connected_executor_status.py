@@ -1,4 +1,4 @@
-"""SPEC-162: aggregate Connected Executor status for one Project member.
+"""Aggregate Connected Executor status for one Project member.
 
 Computes one ``ConnectedEnvironmentState`` from the authoritative database
 state of the non-revoked source-owned Executors whose ``enrolled_by_user_id``

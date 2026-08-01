@@ -1,4 +1,4 @@
-"""SPEC-153: Public readiness probe.
+"""Public readiness probe.
 
 Wraps the existing ``run_readiness_checks`` with a 5-second TTL cache,
 concurrent-call coalescing, and a caller deadline. Returns only a boolean —

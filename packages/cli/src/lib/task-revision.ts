@@ -6,8 +6,8 @@
  * canonicalizer exported from ``@apo/sdk/agent-task``. The walker never
  * maintains a second digest algorithm and never follows links.
  *
- * This module is consumed by SPEC-145 (caller executor CLI migration). For
- * SPEC-142 it only ships the library + tests.
+ * This module is consumed by the caller executor CLI migration. For
+ * It only ships the library + tests.
  */
 
 import { readFileSync, readdirSync, lstatSync, type Stats } from "node:fs";
@@ -29,7 +29,7 @@ export interface RevisionLimits {
   maxPathBytes: number;
 }
 
-/** SPEC-142 §Limits defaults. The compressed-bundle limit is bundle-level. */
+/** Limits defaults. The compressed-bundle limit is bundle-level. */
 export const DEFAULT_REVISION_LIMITS: RevisionLimits = {
   maxFileCount: 50_000,
   maxTotalBytes: 256 * 1024 * 1024,

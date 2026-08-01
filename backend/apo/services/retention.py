@@ -155,7 +155,7 @@ async def delete_deliverable_objects_for_runs(
 ) -> None:
     """Delete external Deliverable objects for the given runs BEFORE their rows.
 
-    SPEC-140 §Retention and deletion: objects are removed idempotently first;
+    Objects are removed idempotently first;
     only after success may the database rows go. A store failure raises so the
     caller retains the rows and retries on the next cleanup — objects are never
     orphaned by deleting the manifest first. Inline JSON rows need no object

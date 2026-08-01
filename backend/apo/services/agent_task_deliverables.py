@@ -1,4 +1,4 @@
-"""SPEC-140 ticket 03: Deliverable service.
+"""Deliverable service.
 
 Owns JSON validation, compact serialization, inline-vs-object placement,
 manifest construction, and upload state transitions. The service, not the
@@ -38,7 +38,7 @@ from apo.models.schemas import (
 from apo.services.artifact_store import ArtifactStore
 from apo.services.artifact_stores.registry import artifact_limits
 
-# SPEC-140 §3 — inline threshold is a code constant, not a tuning knob.
+# — inline threshold is a code constant, not a tuning knob.
 INLINE_THRESHOLD_BYTES = 64 * 1024  # 64 KiB
 
 # name validation. 1-255 UTF-8 bytes, no NUL/control characters.
@@ -195,7 +195,7 @@ def synthesize_legacy_manifest(
 ) -> list[DeliverableSummary]:
     """Synthesize a manifest from a legacy ``deliverables_json`` blob.
 
-    Used only for rows written before SPEC-140 that have no Deliverable rows.
+    Used only for rows written previously that have no Deliverable rows.
     The body is loaded exactly once, on this one-run request, never from
     list/statistics/compare queries. Names are surfaced in lexical order.
     """

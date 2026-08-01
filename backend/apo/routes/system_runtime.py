@@ -2,7 +2,7 @@
 
 Exposes the deployment topology descriptor and the deep readiness probe
 that operators (and Compose healthchecks) can rely on beyond the basic
-``/health`` liveness probe. SPEC-125 adds the agent-task runtime
+``/health`` liveness probe. The agent-task runtime probe adds
 availability endpoint.
 """
 

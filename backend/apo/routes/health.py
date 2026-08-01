@@ -29,7 +29,7 @@ async def health_check():
 
 @router.get("/api/public/health")
 async def public_readiness(request: Request):
-    """SPEC-153: detail-free public readiness status.
+    """Detail-free public readiness status.
 
     Returns only ``{"status":"ready"}`` (200) or ``{"status":"not_ready"}``
     (503). Never includes check names, paths, or exception detail.

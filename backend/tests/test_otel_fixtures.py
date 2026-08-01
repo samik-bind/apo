@@ -14,7 +14,7 @@ This test module validates that:
   3. The expected projection is internally consistent (trace IDs match, span
      IDs are unique, parent references resolve).
 
-These fixtures are the contract that gates Tracks 1-6 of SPEC-129. Every
+These fixtures are the contract that gates the OTLP tracing pipeline. Every
 normalizer, projector, and receiver must produce results matching these
 expected projections.
 """
@@ -148,7 +148,7 @@ class TestFixtureConsistency:
 
 
 class TestSpecificFixtures:
-    """Verify specific fixtures cover the required scenarios from SPEC-129."""
+    """Verify specific fixtures cover the required scenarios."""
 
     def test_generic_fixture_exists(self):
         f = _load_fixture("generic-root-child")

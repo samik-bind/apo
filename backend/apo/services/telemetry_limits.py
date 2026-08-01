@@ -1,7 +1,7 @@
 """Typed, startup-validated telemetry limits.
 
-SPEC-150: hard transport boundaries for the canonical OTLP endpoint.
-SPEC-151: identity-aware admission control policies (token buckets,
+hard transport boundaries for the canonical OTLP endpoint.
+identity-aware admission control policies (token buckets,
 concurrency, invalid-auth throttle, batch caps).
 
 There is no disable flag: ``0`` never means unlimited. A present empty,

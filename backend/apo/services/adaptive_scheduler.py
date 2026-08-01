@@ -6,7 +6,6 @@ independently. Passing tests back off exponentially (1d -> 2.5d -> 6.25d);
 failing tests reset to the minimum interval. The schedule's next_run_at
 is the earliest next-run across all its task states.
 
-SPEC-069.
 """
 
 import logging

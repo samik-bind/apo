@@ -20,7 +20,7 @@ const lease: CallerLease = {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("SPEC-145 caller-execution client", () => {
+describe("caller-execution client", () => {
   it("createCallerRun posts to /agent-task-batch-runs/caller with the API key", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       jsonResp({

@@ -659,7 +659,7 @@ class AgentTaskRunExternalSummary(SQLModel):
 
     The token's ``sub`` equals the run id; an external executor (e.g. the CLI
     ``--local`` flag) presents it as ``APO_AUTH_TOKEN`` so ingestion claims
-    the trace via the existing SPEC-128/129 path.
+    the trace via the existing canonical path.
     """
 
     id: str
@@ -818,7 +818,7 @@ class ScheduleLastBatchSummary(SQLModel):
     failure_breakdown: list[FailureBreakdownItem] = Field(default_factory=list)
 
 
-#: SPEC-163: typed catalog selection stored on a source-owned Schedule's
+#: typed catalog selection stored on a source-owned Schedule's
 #: ``selection_query``. ``kind`` discriminates exact IDs, a folder, or all.
 ScheduleOccurrenceStatus = Literal["pending", "delivered", "missed", "cancelled"]
 OccurrenceMissedReason = Literal[
@@ -930,7 +930,7 @@ class CreateAgentTaskScheduleRequest(SQLModel):
 
 
 class TriggerScheduleResponse(SQLModel):
-    """SPEC-163 Run Now result: the active Batch (existing or newly created)."""
+    """Run Now result: the active Batch (existing or newly created)."""
 
     batch_run_id: str | None
     occurrence_id: str | None
@@ -961,7 +961,7 @@ class UpdateAgentTaskScheduleRequest(SQLModel):
 class ApiKeyCreate(SQLModel):
     """Body of ``POST /v1/api-keys``.
 
-    SPEC-149: ``scope`` defaults to ``ingest`` (the least privilege required
+    ``scope`` defaults to ``ingest`` (the least privilege required
     for telemetry submission). Requesting ``full`` remains an explicit
     administrative choice for CLI and management clients.
     """

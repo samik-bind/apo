@@ -1,4 +1,4 @@
-"""SPEC-144: Execution Driver boundary.
+"""Execution Driver boundary.
 
 A Driver owns the Executor-local launch mechanism for one assignment. The
 initial driver is a trusted subprocess; future Docker/Kubernetes/managed

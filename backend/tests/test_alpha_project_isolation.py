@@ -1,11 +1,11 @@
-"""SPEC-126: internal alpha release gate — project isolation.
+"""Internal alpha release gate — project isolation.
 
 Validates that two fresh projects never silently inherit each other's
 task inventory, task runs, batch runs, traces, or schedules. This is a
 release gate for internal alpha because cross-project leakage would
 destroy operator trust before the product has any.
 
-These tests target the SPEC-118/119/120 product model.
+These tests target the project-scoped product model.
 """
 
 from datetime import datetime, timedelta, timezone

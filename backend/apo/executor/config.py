@@ -1,4 +1,4 @@
-"""SPEC-144: Bundled Executor configuration (env-driven).
+"""Bundled Executor configuration (env-driven).
 
 Resolves the executor process configuration from environment variables. The
 Control Plane URL must be HTTPS except for loopback or Compose-internal hostnames

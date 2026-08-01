@@ -1,7 +1,7 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
 # pyright: reportAttributeAccessIssue=false
 
-"""SPEC-153 acceptance tests: installation initialization (tests 1-7)."""
+"""Acceptance tests: installation initialization (tests 1-7)."""
 
 from __future__ import annotations
 

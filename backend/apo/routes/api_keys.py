@@ -122,7 +122,7 @@ def _validate_scope(scope: str) -> str:
 def _invalidate_cache_for_key(api_key: ApiKeyDB) -> None:
     """Invalidate cache entries keyed off the current DB record.
 
-    SPEC-149: call BEFORE deleting or mutating the record. The exact Basic
+    call BEFORE deleting or mutating the record. The exact Basic
     entry is reconstructed from the stored public identifier and the stored
     hashed secret — both available without plaintext — so revocation and
     rotation take effect immediately rather than riding the positive TTL.

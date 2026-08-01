@@ -1,4 +1,4 @@
-"""SPEC-144: Bundled Executor entrypoint — ``python -m apo.executor connect``."""
+"""Bundled Executor entrypoint — ``python -m apo.executor connect``."""
 
 from __future__ import annotations
 

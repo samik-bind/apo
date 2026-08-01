@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-140 ticket 01: AgentTaskDeliverableDB repository + projection queries.
+"""AgentTaskDeliverableDB repository + projection queries.
 
 The repository owns Deliverable identity and metadata. List/manifest queries
 must select metadata columns only — never inline bodies or storage keys — so a

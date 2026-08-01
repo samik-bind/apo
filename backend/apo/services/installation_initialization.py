@@ -1,4 +1,4 @@
-"""SPEC-153: Installation initialization service.
+"""Installation initialization service.
 
 The sole authority for setup eligibility and initial-user claims. Uses a
 durable singleton row (``InstallationStateDB``) as the source of truth — not

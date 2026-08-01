@@ -67,7 +67,7 @@ async def list_queues(
     """
     List annotation queues, optionally filtered by project.
 
-    SPEC-122: unfiltered queries are scoped to projects the caller is a
+    unfiltered queries are scoped to projects the caller is a
     member of, so queues from unrelated projects are never exposed.
     Filtered queries require at least member role on the project.
     """

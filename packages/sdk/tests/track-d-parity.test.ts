@@ -64,7 +64,7 @@ async function runSnapshot(checkFn: (t: TestContext) => void) {
   return results[0]!;
 }
 
-describe("SPEC-130 Track D — projection assertions (Test 21)", () => {
+describe("— projection assertions (Test 21)", () => {
   it("calledTool matches the same name", async () => {
     const result = await runSnapshot((t) => {
       t.calledTool("read_file", { count: 2 });

@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownLambdaType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false
 
-"""SPEC-136 ticket 06: cost computation — breakdown math + precedence.
+"""Cost computation — breakdown math + precedence.
 
 Verifies: breakdown[k] = round(price_stored * tokens / 1_000_000) per
 dimension (price_stored is micro-USD-per-1M), total = sum(breakdown),

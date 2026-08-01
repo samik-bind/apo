@@ -1,7 +1,7 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
 # pyright: reportAttributeAccessIssue=false
 
-"""SPEC-155: Trace confidentiality — anonymous sharing removed.
+"""Trace confidentiality — anonymous sharing removed.
 
 These tests assert that legacy anonymous Trace routes are gone and that
 authenticated Trace detail still works without publication state.

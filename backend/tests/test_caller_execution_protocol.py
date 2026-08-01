@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportUnusedParameter=false, reportIndexIssue=false
 
-"""SPEC-145: caller create-and-claim protocol + authorization.
+"""Caller create-and-claim protocol + authorization.
 
 Drives POST /agent-task-batch-runs/caller through the real TestClient, then the
 executor-protocol /start /heartbeat /result with the returned Attempt JWT, and

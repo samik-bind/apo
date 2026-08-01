@@ -1,5 +1,5 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false
-"""SPEC-142: Task Revision manifest canonicalizer — Python parity corpus.
+"""Task Revision manifest canonicalizer — Python parity corpus.
 
 Each fixture under ``contracts/task-revision/v1/cases/`` carries inputs and an
 ``expected.contentSha256`` derived independently from the canonical algorithm.

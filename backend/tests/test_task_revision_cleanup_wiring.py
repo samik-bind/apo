@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportUnannotatedClassAttribute=false, reportUnusedParameter=false
 
-"""SPEC-142 wiring: retention/project-deletion bundle cleanup + batch-detail scene.
+"""Wiring: retention/project-deletion bundle cleanup + batch-detail scene.
 
 Covers acceptance #9 (ArtifactStore-backed cleanup), #12 (historical Batches
 without Revisions still render), and the scene test (Batch + Revision through

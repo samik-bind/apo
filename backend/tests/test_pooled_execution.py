@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false
 
-"""SPEC-146: pooled Batch creation + pool resolution policy.
+"""Pooled Batch creation + pool resolution policy.
 
 Covers acceptance: explicit Pool overrides default; missing target uses valid
 default; no default -> 409 executor_pool_required; cross-Project Pool rejected;

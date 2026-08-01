@@ -125,7 +125,7 @@ def _get_live_auth_middleware_module():
 def open_dev_auth_bypass(request):
     """Force the auth middleware into open-dev mode for all tests.
 
-    SPEC-132 made the middleware fail closed (401) when ``AUTH_SECRET`` is set,
+    Made the middleware fail closed (401) when ``AUTH_SECRET`` is set,
     even in the development profile. That is correct for production but breaks
     every test that uses the plain ``client`` fixture (which sends no cookie or
     API key). Route tests exercise application logic, not auth — the dedicated

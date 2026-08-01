@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-140 ticket 03: finalization no longer duplicates transcript/body.
+"""Finalization no longer duplicates transcript/body.
 
 New recorded Task Runs leave ``transcript_json`` null (the Trace is the
 conversation source) and the linked trace row's ``output`` carries only a
@@ -14,6 +14,7 @@ from sqlmodel import Session, select, text
 from apo.db import engine, reset_apo_file_db
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskRunDB, RunDB
 from apo.services.agent_task_runner import finalize_task_run_with_result
+from apo.services.check_report_storage import load_check_report
 from apo.services.trace_backend import get_trace_backend
 
 
@@ -162,7 +163,9 @@ class TestFinalizationStorageBoundary:
             session.commit()
             refreshed = session.get(AgentTaskRunDB, run.id)
             assert refreshed is not None
-            checks = refreshed.checks_json or []
+            # evidence lives in the check report row, not checks_json.
+            assert refreshed.checks_json is None
+            checks = load_check_report(session, refreshed.id) or []
             assert isinstance(checks[0]["received"], dict)
             assert checks[0]["received"]["kind"] == "truncated"  # type: ignore[index]
             assert "y" * 1000 not in str(checks)

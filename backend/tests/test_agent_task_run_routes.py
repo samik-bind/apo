@@ -66,7 +66,7 @@ def test_batch_list_projects_configuration_summary(
     client: TestClient,
     session: Session,
 ) -> None:
-    """SPEC-148: batch list derives uniform/mixed/partial/unknown from children."""
+    """Batch list derives uniform/mixed/partial/unknown from children."""
     now = datetime.now(timezone.utc)
     session.add_all(
         [
@@ -121,7 +121,7 @@ def test_task_run_list_projects_nested_run_configuration(
     client: TestClient,
     session: Session,
 ) -> None:
-    """SPEC-148: task run list carries nested run_configuration per row."""
+    """Task run list carries nested run_configuration per row."""
     now = datetime.now(timezone.utc)
     session.add_all([_batch("batch-cfg", "p", now)])
     session.add_all(
@@ -229,7 +229,7 @@ def test_batch_run_list_filter_matches_only_when_one_child_satisfies_all_dimensi
     client: TestClient,
     session: Session,
 ) -> None:
-    """SPEC-148: a batch matches ?model=X&effort=Y only if ONE child has BOTH.
+    """A batch matches ?model=X&effort=Y only if ONE child has BOTH.
 
     Never model from one child and effort from another — that would invent a
     configuration that never ran.

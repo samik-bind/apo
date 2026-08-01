@@ -12,7 +12,7 @@ const baseOpts = {
   timeoutSeconds: 60,
 };
 
-describe("SPEC-161 local-task-child environment", () => {
+describe("local-task-child environment", () => {
   it("injects the task-scoped Apo values and the scoped Attempt token", () => {
     const env = buildChildEnv({ ...baseOpts });
     expect(env.AGENT_TASK_TRACE_ENDPOINT).toBe("http://cp/otel");

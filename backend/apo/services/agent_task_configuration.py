@@ -1,4 +1,4 @@
-"""SPEC-148: Run Configuration validation and Batch summary derivation.
+"""Run Configuration validation and Batch summary derivation.
 
 Pure functions for the adapter-reported Run Configuration contract. These are
 the rules shared by every result-entry path (the shared Task Run finalizer

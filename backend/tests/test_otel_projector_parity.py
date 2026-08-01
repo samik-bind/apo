@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""SPEC-129 Track 6 Phase 1: canonical-path feature parity regression tests.
+"""Canonical-path feature parity regression tests.
 
 These prove the OTLP canonical projector does everything the legacy ingestion
 path did, so legacy callers can be migrated onto it and the legacy code

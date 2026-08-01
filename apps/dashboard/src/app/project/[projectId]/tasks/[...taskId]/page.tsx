@@ -50,7 +50,7 @@ const EMPTY_TASK_RUNS: Awaited<ReturnType<typeof listTaskRuns>> = [];
  *
  * 1. **Demo project** → legacy filesystem discovery
  *    (`getAgentTask`). The demo workspace is intentionally read-only and
- *    not backed by the SPEC-119 inventory sync state machine.
+ *    not backed by the inventory sync state machine.
  *
  * 2. **Non-demo project** → the project-scoped inventory endpoint
  *    (`getProjectAgentTask`) is canonical and the *first* thing tried.

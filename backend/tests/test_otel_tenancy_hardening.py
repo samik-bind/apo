@@ -1,10 +1,10 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""SPEC-131 Milestone 1 regression tests: prove the tenancy + auth gaps.
+"""Regression tests: prove the tenancy + auth gaps.
 
 These tests target the audited security/tenancy failures. They are written
 against the CURRENT (pre-hardening) behavior and are expected to FAIL until
-Milestones 3+4 land. Each names the SPEC-131 invariant:
+Milestones 3+4 land. Each names the invariant:
 
   - Deliberate cross-project duplicate IDs (Test Case 8)
   - Mismatched service-token claim (Test Case 6)

@@ -1,7 +1,7 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
 # pyright: reportAttributeAccessIssue=false
 
-"""SPEC-152 acceptance tests: installation secret validation."""
+"""Acceptance tests: installation secret validation."""
 
 from __future__ import annotations
 

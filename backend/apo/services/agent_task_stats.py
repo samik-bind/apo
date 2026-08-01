@@ -37,9 +37,10 @@ class RunStatFields:
 
     This exists so the query feeding ``compute_run_stats`` can project only
     these columns. There is intentionally no ``id``, ``task_path``, and —
-    crucially — no ``transcript_json`` / ``deliverables_json`` here: the
-    stats math does not need them, and pulling them for thousands of
-    historical rows OOM-kills the backend.
+    crucially — no ``checks_json`` / ``transcript_json`` / ``deliverables_json``
+    here: the stats math does not need the evidence document, and pulling it
+    for thousands of historical rows OOM-kills the backend. The verdict was moved onto the row as scalars, so stats now sums two ints per run instead
+    of loading and iterating the check document.
     """
 
     status: str
@@ -47,7 +48,8 @@ class RunStatFields:
     completed_at: datetime | None
     total_cost: float | None
     pass_result: bool | None
-    checks_json: list[dict[str, object]] | None
+    total_checks: int
+    passed_checks: int
 
 
 def compute_run_stats(runs: Sequence[RunStatFields]) -> AgentTaskRunStats:
@@ -70,14 +72,9 @@ def compute_run_stats(runs: Sequence[RunStatFields]) -> AgentTaskRunStats:
     failed = sum(1 for r in runs if r.status == "failed")
     errored = sum(1 for r in runs if r.status == "error")
 
-    total_checks = 0
-    passed_checks = 0
-    for r in runs:
-        if r.checks_json:
-            for check in r.checks_json:
-                total_checks += 1
-                if check.get("pass"):
-                    passed_checks += 1
+    # sum the persisted scalar verdict columns.
+    total_checks = sum(r.total_checks for r in runs)
+    passed_checks = sum(r.passed_checks for r in runs)
 
     costs = [r.total_cost for r in runs if r.total_cost is not None]
     latest = runs[0] if runs else None
@@ -107,13 +104,13 @@ def load_run_stat_fields(
 ) -> dict[str, list[RunStatFields]]:
     """Load only the run columns stats needs, grouped by task id.
 
-    This is the OOM fix: it projects a handful of scalar columns (plus
-    ``checks_json``) and never touches ``transcript_json`` /
-    ``deliverables_json``. Runs are returned in descending ``started_at``
-    order so the first element of each group is the most recent run (which
-    ``compute_run_stats`` treats as ``latest``). Scoped to ``project_id``
-    via the parent batch run so two projects' runs never mix even if they
-    share a task id.
+    This is the OOM fix: it projects a handful of scalar columns (including the
+    Verdict counters) and never touches ``checks_json`` /
+    ``transcript_json`` / ``deliverables_json``. Runs are returned in descending
+    ``started_at`` order so the first element of each group is the most recent
+    run (which ``compute_run_stats`` treats as ``latest``). Scoped to
+    ``project_id`` via the parent batch run so two projects' runs never mix even
+    if they share a task id.
     """
     if not task_ids:
         return {}
@@ -126,7 +123,8 @@ def load_run_stat_fields(
             _COMPLETED_AT_COL,
             _TOTAL_COST_COL,
             _PASS_RESULT_COL,
-            _CHECKS_JSON_COL,
+            _TOTAL_CHECKS_COL,
+            _PASSED_CHECKS_COL,
         )
         .join(AgentTaskBatchRunDB, _BATCH_RUN_ID_COL == _BATCH_ID_COL)
         .where(
@@ -145,7 +143,8 @@ def load_run_stat_fields(
         completed_at,
         total_cost,
         pass_result,
-        checks_json,
+        total_checks,
+        passed_checks,
     ) in rows:
         grouped.setdefault(task_id, []).append(
             RunStatFields(
@@ -154,7 +153,8 @@ def load_run_stat_fields(
                 completed_at=completed_at,
                 total_cost=total_cost,
                 pass_result=pass_result,
-                checks_json=checks_json,
+                total_checks=total_checks,
+                passed_checks=passed_checks,
             )
         )
     return grouped
@@ -178,8 +178,9 @@ _TOTAL_COST_COL: ColumnElement[float | None] = _as_column(
 _PASS_RESULT_COL: ColumnElement[bool | None] = _as_column(
     cast(object, AgentTaskRunDB.pass_result)
 )
-_CHECKS_JSON_COL: ColumnElement[list[dict[str, object]] | None] = _as_column(
-    cast(object, AgentTaskRunDB.checks_json)
+_TOTAL_CHECKS_COL: ColumnElement[int] = _as_column(cast(object, AgentTaskRunDB.total_checks))
+_PASSED_CHECKS_COL: ColumnElement[int] = _as_column(
+    cast(object, AgentTaskRunDB.passed_checks)
 )
 _BATCH_RUN_ID_COL: ColumnElement[str] = _as_column(
     cast(object, AgentTaskRunDB.batch_run_id)

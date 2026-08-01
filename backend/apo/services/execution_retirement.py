@@ -1,4 +1,4 @@
-"""SPEC-165: retire bundled execution and purge Control Plane Bundle objects.
+"""Retire bundled execution and purge Control Plane Bundle objects.
 
 Two idempotent startup operations called in ``api.py::lifespan`` after
 ``init_db()`` and before scheduler/reaper/demo startup:
@@ -37,7 +37,7 @@ from apo.models.db import (
 
 logger = logging.getLogger(__name__)
 
-#: SPEC-165 stable reasons recorded on retired rows.
+#: Stable reasons recorded on retired rows.
 BUNDLED_SCHEDULE_RETIRED_REASON = "bundled_execution_retired"
 EXECUTION_RETIRED_FAILURE_KIND = "execution_retired"
 

@@ -4,7 +4,7 @@ Provides validation functions for the supported wire formats:
     - Basic auth (public_key:secret_key) — grants the key's stored scope
     - Legacy Bearer (sk-xxx) — backward-compatible, full scope from key record
 
-SPEC-149 removed the public-key-only Bearer authentication path. A
+Removed the public-key-only Bearer authentication path. A
 ``pk-apo-*`` value used alone is no longer secret material and must not
 authenticate; the middleware rejects it before any DB lookup. The
 ``is_public_key`` helper is retained so the rejection is explicit and
@@ -76,7 +76,7 @@ def generate_key_pair() -> tuple[str, str, str, str]:
 def is_public_key(token: str) -> bool:
     """Check whether a bearer token has the public-key prefix (``pk-apo-``).
 
-    SPEC-149: this helper exists for the middleware to *reject* public
+    this helper exists for the middleware to *reject* public
     identifiers explicitly. A ``True`` return never authorizes
     authentication — it identifies a value that must be refused before any
     DB lookup, ``last_used_at`` update, or auth-state population.

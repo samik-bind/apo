@@ -119,7 +119,7 @@ export function CompareClient({
 
         {batchA && batchB && (
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
-            {/* SPEC-148: which configuration dimension changed between runs. */}
+            {/* which configuration dimension changed between runs. */}
             {configurationDelta(batchA, batchB) && (
               <span className="font-mono text-foreground">
                 {configurationDelta(batchA, batchB)}

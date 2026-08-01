@@ -1,4 +1,4 @@
-"""SPEC-144: bounded subprocess output (64 KiB UTF-8-safe ring-buffer tails).
+"""Bounded subprocess output (64 KiB UTF-8-safe ring-buffer tails).
 
 Captures stdout/stderr from a child process without ever buffering the whole
 stream. The retained tail is decoded UTF-8-safe (``errors="replace"``) so

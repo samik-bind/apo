@@ -3,7 +3,7 @@
 """Trace Projection repository.
 
 Reads the physical Trace Projection tables (``RunDB`` / ``LoggedCallDB``,
-supplied by SPEC-129's projector) and returns an immutable
+supplied by the projector) and returns an immutable
 ``TraceProjectionSnapshot`` — never SQLModel rows. This is the read boundary
 the Task-Run-scoped projection endpoint (Track B) and the agent-task runner
 (Track C) consume.
@@ -39,8 +39,8 @@ from ..models.trace_projection import (
 class TraceRepository(Protocol):
     """Read/write boundary for an immutable Trace Projection snapshot.
 
-    Per SPEC-129 §4: "introduce a ``TraceRepository`` as the only read/write
-    boundary for product Trace Projections." Both the projector (writes) and
+    Introduces a ``TraceRepository`` as the only read/write
+    boundary for product Trace Projections. Both the projector (writes) and
     the dashboard/CLI (reads) go through this interface.
     """
 
@@ -121,7 +121,7 @@ class TraceRepository(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Native implementation (reads SPEC-129's projected runs/logged_calls)
+# Native implementation (reads the projected runs/logged_calls)
 # ---------------------------------------------------------------------------
 
 
@@ -231,7 +231,7 @@ class NativeTraceRepository:
     """Reads the projected ``runs``/``logged_calls`` tables.
 
     Callers receive only :class:`TraceProjectionSnapshot` instances. The
-    physical tables are an implementation detail of the SPEC-129 projector; if
+    physical tables are an implementation detail of the projector; if
     storage changes later this class (not its callers) is the only thing that
     moves.
     """

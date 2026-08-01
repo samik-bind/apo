@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false
 
-"""Tests for SPEC-122: project-scoped admins and membership."""
+"""Tests for project-scoped admins and membership."""
 
 from typing import Any
 
@@ -566,7 +566,7 @@ class TestSetupNoLongerGrantsAdmin:
     def test_first_user_is_not_auto_admin(
         self, client: TestClient, session: Session
     ) -> None:
-        """SPEC-122: ``/auth/setup`` must not grant product-admin to the first user."""
+        """``/auth/setup`` must not grant product-admin to the first user."""
         resp = client.post(
             "/auth/setup",
             json={
@@ -592,7 +592,7 @@ class TestSetupNoLongerGrantsAdmin:
 
 
 class TestApiKeyListAdminScoped:
-    """SPEC-122: API key inventory is admin-scoped."""
+    """API key inventory is admin-scoped."""
 
     def test_member_cannot_list_keys_for_project(
         self,
@@ -696,7 +696,7 @@ class TestApiKeyListAdminScoped:
 
 
 class TestWebhookReadAdminScoped:
-    """SPEC-122: webhook inventory is admin-scoped."""
+    """Webhook inventory is admin-scoped."""
 
     def test_member_cannot_list_webhooks(
         self,
@@ -765,7 +765,7 @@ class TestWebhookReadAdminScoped:
 
 
 class TestAnnotationQueueListScoped:
-    """SPEC-122: annotation queue inventory must respect project boundary."""
+    """Annotation queue inventory must respect project boundary."""
 
     def test_member_can_list_queues_for_their_project(
         self,

@@ -1,7 +1,7 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
 # pyright: reportAttributeAccessIssue=false
 
-"""SPEC-161 Phase 2: Source-owned executor backend services.
+"""Source-owned executor backend services.
 
 Tests for: canonical pool creation, member bootstrap, catalog-gated claims,
 and source attestation.

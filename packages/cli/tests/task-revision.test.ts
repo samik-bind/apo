@@ -31,7 +31,7 @@ function touch(root: string, rel: string, content: string | Buffer, mode?: numbe
   if (mode !== undefined) chmodSync(full, mode);
 }
 
-describe("SPEC-142 CLI workspace walker", () => {
+describe("CLI workspace walker", () => {
   let root: string;
   beforeEach(() => { root = makeTree(); });
   afterEach(() => { rmSync(root, { recursive: true, force: true }); });

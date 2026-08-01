@@ -1,5 +1,5 @@
 """
-Langfuse-compatible public API endpoints (legacy adapter — SPEC-129).
+Langfuse-compatible public API endpoints (legacy adapter).
 
 Provides drop-in replacement endpoints for Langfuse SDK integration. Events
 are mirrored into the canonical ``OtlpSpanDB`` store alongside the direct

@@ -1,4 +1,4 @@
-"""SPEC-159: Task Catalog service.
+"""Task Catalog service.
 
 Owns validation, canonical digest calculation, and idempotent atomic
 replacement of a Project's task catalog. No source files, repository

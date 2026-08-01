@@ -1,4 +1,4 @@
-"""SPEC-142: Task Revisions service.
+"""Task Revisions service.
 
 Materializes immutable Task Revisions for pooled execution, records caller
 attestations, deletes bundle objects, and exposes a public-safe summary. The
@@ -407,7 +407,7 @@ async def delete_task_revision_bundles_for_batches(
 ) -> int:
     """Delete bundle objects for revisions in the given batches BEFORE their rows.
 
-    Mirrors SPEC-140 ``delete_deliverable_objects_for_runs``: objects are
+    Mirrors ``delete_deliverable_objects_for_runs``: objects are
     removed idempotently first, grouped by backend; only after success may the
     relational rows go. Returns the number of objects deleted.
     """

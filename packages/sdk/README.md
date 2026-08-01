@@ -53,7 +53,7 @@ variants. `apiKey` is the legacy single-key format (`sk-…`); prefer the
 two-key model (`publicKey` + `secretKey`, generated as `pk-apo-…` / `sk-apo-…`
 in the dashboard).
 
-SPEC-149: there is no browser-safe variant of `APO_PUBLIC_KEY`. The public
+there is no browser-safe variant of `APO_PUBLIC_KEY`. The public
 identifier alone does not authorize ingestion, and exposing it in a
 browser bundle creates a misleading direct-browser integration.
 `NEXT_PUBLIC_APO_PUBLIC_KEY` is intentionally not read. Telemetry

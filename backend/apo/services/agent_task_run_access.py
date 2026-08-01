@@ -1,4 +1,4 @@
-"""SPEC-140 ticket 04: reusable Task Run access authorization.
+"""Reusable Task Run access authorization.
 
 One helper owns the Project-derivation + own-service-token rule so every
 Deliverable upload, download, lookup, and the touched Task Run detail/result

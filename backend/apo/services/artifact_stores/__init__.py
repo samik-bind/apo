@@ -1,4 +1,4 @@
-"""SPEC-140: ArtifactStore backend implementations.
+"""ArtifactStore backend implementations.
 
 - ``LocalArtifactStore``: the zero-configuration default, a directory tree
   under the persistent ``/app/data`` volume.

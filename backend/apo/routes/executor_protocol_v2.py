@@ -1,4 +1,4 @@
-"""SPEC-161: Protocol v2 routes for source-owned Connected Executors.
+"""Protocol v2 routes for source-owned Connected Executors.
 
 Parallel to the v1 bundled-executor protocol. Shares enrollment, lease,
 and finalization services but routes only source-owned assignments.
@@ -52,7 +52,7 @@ router = APIRouter(prefix="/v1/executor-protocol/v2", tags=["executor-protocol-v
 
 PROTOCOL_VERSION = 2
 
-#: SPEC-164: replace the route-level magic timeouts with shared constants. The
+#: replace the route-level magic timeouts with shared constants. The
 #: Attempt JWT covers the max task timeout plus finalization grace; the task
 #: timeout is the single assignment budget enforced by the connector parent.
 _SOURCE_OWNED_JWT_TTL_SECONDS = 2 * 60 * 60
@@ -252,7 +252,7 @@ async def claims_v2(
 ) -> SourceOwnedAssignment | None:
     """Claim a source-owned assignment. Returns 204 when no work exists.
 
-    SPEC-164: delegates to the shared ``claim_next_source_owned_attempt`` so
+    delegates to the shared ``claim_next_source_owned_attempt`` so
     capacity, queue TTL, sequential ordering, Pool health, lease fencing, and
     the atomic race are all enforced by the database-backed authority — not
     hand-written route-level timeouts.
@@ -485,7 +485,7 @@ async def attempt_result_v2(
     lease: CurrentAttemptLease = Depends(_require_attempt_lease),
     session: Session = Depends(get_session),
 ) -> dict[str, object]:
-    """SPEC-161 v2 result: alias of the shared finalization path."""
+    """Result: alias of the shared finalization path."""
     response.headers["X-Apo-Executor-Protocol"] = str(PROTOCOL_VERSION)
     if lease.attempt_id != attempt_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "attempt token not valid for this attempt")
@@ -527,7 +527,7 @@ async def attempt_failure_v2(
     lease: CurrentAttemptLease = Depends(_require_attempt_lease),
     session: Session = Depends(get_session),
 ) -> dict[str, object]:
-    """SPEC-161 v2 failure: alias of the shared finalization path."""
+    """Failure: alias of the shared finalization path."""
     response.headers["X-Apo-Executor-Protocol"] = str(PROTOCOL_VERSION)
     if lease.attempt_id != attempt_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "attempt token not valid for this attempt")

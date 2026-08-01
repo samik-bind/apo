@@ -6,7 +6,7 @@ These deps rely on AuthMiddleware having authenticated the request and set
 `request.state.user_id`. They perform fresh DB lookups so role/active status
 is always current (JWT claims can go stale until token expiry).
 
-SPEC-122 introduces project-scoped authorization via
+Introduces project-scoped authorization via
 :mod:`apo.services.project_memberships`. Those helpers are re-exported
 here so routes can import everything auth-related from one module.
 """

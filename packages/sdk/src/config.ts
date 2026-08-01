@@ -10,7 +10,7 @@ export interface EnvConfig {
   /** Project name for optimization tracking */
   project: string;
   /**
-   * Public identifier for the two-key model. SPEC-149: this is the
+   * Public identifier for the two-key model. this is the
    * ``pk-apo-*`` value, used as the Basic-auth username alongside
    * ``secretKey``. It is NOT a usable credential on its own — the SDK
    * never reads ``NEXT_PUBLIC_APO_PUBLIC_KEY`` because publishing a public
@@ -44,8 +44,8 @@ export interface EnvConfig {
  *
  * For `publicKey`:
  * - `APO_PUBLIC_KEY` (server-side public identifier; paired with
- *   `APO_SECRET_KEY` to form HTTP Basic credentials). SPEC-149 removed
- *   support for `NEXT_PUBLIC_APO_PUBLIC_KEY`: the public identifier alone
+ *   `APO_SECRET_KEY` to form HTTP Basic credentials). Support for `NEXT_PUBLIC_APO_PUBLIC_KEY` was removed:
+ *   the public identifier alone
  *   does not authorize ingestion, so publishing it as a browser-safe env
  *   var is actively misleading.
  *

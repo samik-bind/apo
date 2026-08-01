@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://apo.dev/specs/contracts/task-revision/v1/manifest.schema.json",
   "title": "TaskRevisionManifestV1",
-  "description": "SPEC-142 canonical Task Revision manifest. `contentSha256` is the SHA-256 of the compact canonical JSON built from `schemaVersion` plus the bytewise-sorted `files` array (summary is excluded from source identity). Both the TypeScript and Python canonicalizers MUST produce byte-identical canonical JSON and digests for every fixture under cases/.",
+  "description": "Canonical Task Revision manifest. `contentSha256` is the SHA-256 of the compact canonical JSON built from `schemaVersion` plus the bytewise-sorted `files` array (summary is excluded from source identity). Both the TypeScript and Python canonicalizers MUST produce byte-identical canonical JSON and digests for every fixture under cases/.",
   "type": "object",
   "required": ["schemaVersion", "files", "summary"],
   "additionalProperties": false,

@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 
-"""SPEC-136 ticket 03: provider usage normalization.
+"""Provider usage normalization.
 
 The backend is the single normalizer. ``normalize_usage`` maps a provider's
 raw usage attributes onto the canonical ``UsageKey`` set, enforcing the OTel

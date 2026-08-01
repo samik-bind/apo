@@ -1,6 +1,6 @@
 # pyright: reportPrivateUsage=false
 
-"""SPEC-143: Execution Attempt finalization (result / failure).
+"""Execution Attempt finalization (result / failure).
 
 Owns the bounded result body, completion idempotency, exit code, and bounded
 diagnostic tails. Delegates Task Run verdict/Checks/Deliverables/cost/Trace to
@@ -281,7 +281,7 @@ def _finalize_task_run(
 def _resolve_schedule_occurrence_if_terminal(
     session: Session, batch: AgentTaskBatchRunDB
 ) -> None:
-    """SPEC-163 hook: clear the Schedule active pointer and resolve the linked
+    """Hook: clear the Schedule active pointer and resolve the linked
     pending Occurrence once the Batch reaches a terminal state."""
     if batch.status not in ("completed", "error", "cancelled"):
         return

@@ -176,7 +176,7 @@ def get_task_runtime_status() -> AgentTaskRuntimeStatus:
 
 
 def probe_task_runtime() -> ReadinessCheckResult:
-    """Readiness check used by SPEC-124's ``/health/ready``."""
+    """Readiness check used by the ``/health/ready`` probe."""
     resolved = resolve_task_runtime()
     if resolved.available:
         return ReadinessCheckResult(

@@ -1,4 +1,4 @@
-"""Tests for SPEC-125 hardening: task dependency install policy."""
+"""Tests for task dependency install policy."""
 
 from pathlib import Path
 from types import ModuleType

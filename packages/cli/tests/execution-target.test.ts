@@ -7,7 +7,7 @@ import { resolveExecutionTarget } from "../src/lib/execution-target.ts";
  * backend reachability. `--remote` / task `backend` require a Bundled Pool.
  */
 
-describe("SPEC-145 resolveExecutionTarget precedence", () => {
+describe("resolveExecutionTarget precedence", () => {
   const base = { localFlag: false, remoteFlag: false };
 
   it("1. explicit --executor overrides legacy flags, task hints, and preferences", () => {

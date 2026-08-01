@@ -1,4 +1,4 @@
-"""SPEC-167: Check Report storage boundary.
+"""Check Report storage boundary.
 
 A Task Run's check evidence lives off the hot ``agent_task_runs`` row. The run
 row carries only the scalar verdict (``total_checks`` / ``passed_checks`` /

@@ -1,10 +1,10 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""SPEC-131 Milestone 1 regression tests: prove the protocol gaps before fixing.
+"""Regression tests: prove the protocol gaps before fixing.
 
 These tests target the audited failures in the OTLP receiver path. They are
 written against the CURRENT (pre-hardening) behavior and are expected to FAIL
-until Milestone 2+ lands. Each test names the SPEC-131 invariant it guards:
+until Milestone 2+ lands. Each test names the invariant it guards:
 
   - Standard OTLP/JSON nanosecond timestamps (Test Case 2)
   - Protobuf response encoding (Test Case 1)

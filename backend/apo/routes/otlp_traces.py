@@ -204,7 +204,7 @@ async def receive_otlp_traces(
 def _otlp_error_response(content_type: str, status_code: int, message: str) -> Response:
     """Encode a ``google.rpc.Status`` error in the request's response encoding.
 
-    SPEC-150: FastAPI OTLP failures use the matching OTLP response encoding
+    FastAPI OTLP failures use the matching OTLP response encoding
     (protobuf → serialized Status, JSON → protobuf JSON representation).
     The message is a short developer-facing string with no payload or
     credential detail.

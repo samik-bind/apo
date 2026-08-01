@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-140 ticket 01: agent_task_deliverables schema migration (v11).
+"""Agent_task_deliverables schema migration (v11).
 
 Mirrors the hand-rolled old-schema SQLite pattern in
 ``test_cost_migration.py``: build the OLD schema by hand, run the migration,

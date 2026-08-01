@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { SourceOwnedAssignment } from "../src/lib/connected-executor.ts";
 
 /*
- * SPEC-161 connector assignment scene test.
+ * Connector assignment scene test.
  *
  * Drives connect.ts::executeAssignment against a mocked Control Plane and a
  * stubbed child spawner, verifying the runtime is production-shaped:
@@ -100,7 +100,7 @@ const assignment: SourceOwnedAssignment = {
 // Import after mocks are registered.
 const { __executeAssignmentForTest: exec } = await import("../src/commands/connect.ts");
 
-describe("SPEC-161 connector assignment execution", () => {
+describe("connector assignment execution", () => {
   beforeEach(() => {
     fetchCalls.length = 0;
     lastChildOpts = undefined;

@@ -27,7 +27,7 @@ from ..models.db import (
 from ..models.schemas import AgentTaskRunConfiguration
 from .agent_task_configuration import normalize_run_configuration
 from .agent_task_discovery import DEFAULT_TASK_ROOT, resolve_task_paths
-from .check_result_storage import normalize_checks_for_storage
+from .check_report_storage import persist_check_report
 from .trace_backend import get_trace_backend
 from .trace_ownership import (
     mark_failed,
@@ -88,11 +88,11 @@ def create_batch_run(
     Resolves the selection into concrete task paths and creates one
     TaskRun row per discovered task.
 
-    SPEC-119: when ``task_source`` is provided, snapshot its provenance
+    when ``task_source`` is provided, snapshot its provenance
     (source type, ref, resolved commit SHA, subpath) onto the batch and
     each task run, and resolve inventory rows to populate
     ``task_inventory_id``. Legacy callers (no ``task_source``) get the
-    pre-SPEC-119 behaviour unchanged.
+    legacy behaviour unchanged.
     """
     resolved_task_root = task_root or DEFAULT_TASK_ROOT
     inventory_rows: list[ProjectTaskInventoryDB] = []
@@ -311,14 +311,10 @@ def update_batch_run_status(session: Session, batch: AgentTaskBatchRunDB) -> Non
     batch.errored_tasks = sum(1 for tr in task_runs if tr.status == "error")
     # Check-level rollup — the "how well did it do" metric. Mirrors
     # to_task_run_summary's per-task logic so batch and child rows agree.
-    # A check passes iff result.get("pass") is True (strict, not truthy).
-    batch.total_checks = sum(len(tr.checks_json or []) for tr in task_runs)
-    batch.passed_checks = sum(
-        1
-        for tr in task_runs
-        for result in (tr.checks_json or [])
-        if result.get("pass") is True
-    )
+    # sums the persisted scalar columns; never loads the check
+    # evidence document.
+    batch.total_checks = sum(tr.total_checks for tr in task_runs)
+    batch.passed_checks = sum(tr.passed_checks for tr in task_runs)
 
     all_done = all(tr.status in ("passed", "failed", "error") for tr in task_runs)
     if all_done and task_runs:
@@ -424,11 +420,12 @@ def finalize_task_run_with_result(
     task_run.configured_effort = (
         normalized_config.effort if normalized_config else None
     )
-    # normalize checks before any persistence or event
-    # emission so a large Deliverable repeated across judge assertions cannot
-    # blow up the row or the list/detail query. Direct service calls and tests
-    # cannot bypass this — every persisted ``checks_json`` is bounded.
-    task_run.checks_json = normalize_checks_for_storage(checks)
+    # persist the scalar verdict onto the run row and the full check
+    # evidence into ``agent_task_check_reports`` (off the hot row). Stages on the
+    # session; the caller's transaction commits so scalars + report land
+    # together. Direct service calls and tests cannot bypass this — every
+    # finalized run has correct counts and a bounded, un-shrunk report.
+    persist_check_report(session, task_run, checks)
     # new recorded runs leave ``transcript_json``/``deliverables_json``
     # null (the SDK omits transcript; Deliverables persist as rows). Legacy
     # callers may still populate both during the compatibility window.

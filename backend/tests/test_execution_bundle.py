@@ -1,8 +1,8 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false
-"""SPEC-142: Execution Bundle create / verify / extract.
+"""Execution Bundle create / verify / extract.
 
 Covers acceptance tests #2 (deterministic bundles), #5 (traversal extraction
-rejection), #6 (limits), and the bundle round-trip consumed by SPEC-144.
+rejection), #6 (limits), and the bundle round-trip consumed by the bundled executor.
 """
 
 from __future__ import annotations

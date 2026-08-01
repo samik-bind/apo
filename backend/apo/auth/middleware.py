@@ -138,7 +138,7 @@ def _is_public(path: str) -> bool:
 def _is_open_dev_bypass_allowed() -> bool:
     """Whether the open-dev (unauthenticated) bypass may be used.
 
-    SPEC-132 Behavior 2: the bypass is allowed ONLY in the ``development``
+    Behavior 2: the bypass is allowed ONLY in the ``development``
     profile with an empty ``AUTH_SECRET``. Release profiles (``local``,
     ``server``) must fail closed — a missing or weak secret yields 401s
     on protected routes, never open access.

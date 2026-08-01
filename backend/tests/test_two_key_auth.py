@@ -3,7 +3,7 @@
 """Tests for the two-key API model.
 
 Covers key pair generation, Basic auth validation, and legacy Bearer backward
-compat. SPEC-149 removes the public-key-only Bearer authentication path: a
+compat. The public-key-only Bearer authentication path is removed: a
 ``pk-apo-*`` value used alone must never authenticate (security invariant #2).
 These tests document both supported wire formats (Basic pair, legacy secret
 Bearer) and the explicit rejection of public identifiers.
@@ -140,7 +140,7 @@ class TestValidationFunctions:
         assert result is None
 
     def test_public_key_only_validator_is_removed(self) -> None:
-        """SPEC-149 Acceptance Test #1: ``validate_bearer_public_key`` and its
+        """Acceptance Test #1: ``validate_bearer_public_key`` and its
         cache-key helper no longer exist in the public API. A public
         identifier must not authorize ingestion on its own."""
         import apo.auth.api_key_auth as auth_module
@@ -239,7 +239,7 @@ class TestMiddlewareBasicAuth:
 
 
 class TestMiddlewarePublicKeyBearerRejection:
-    """SPEC-149: a ``Bearer pk-apo-*`` value must fail authentication with the
+    """A ``Bearer pk-apo-*`` value must fail authentication with the
     same generic 401 as any invalid credential, before scope authorization,
     before any DB lookup, and before any telemetry is persisted."""
 
@@ -249,7 +249,7 @@ class TestMiddlewarePublicKeyBearerRejection:
         session: Session,
         make_authed_client: Any,
     ) -> None:
-        """SPEC-149 Acceptance Test #6: ``POST /api/v1/ingestion`` with a
+        """Acceptance Test #6: ``POST /api/v1/ingestion`` with a
         Bearer public key returns 401 and persists nothing."""
         authed = _setup_and_get_authed_client(client, session, make_authed_client)
         create_resp = authed.post(
@@ -336,7 +336,7 @@ class TestMiddlewarePublicKeyBearerRejection:
         session: Session,
         make_authed_client: Any,
     ) -> None:
-        """SPEC-149 Acceptance Test #7: ``POST /api/public/otel/v1/traces``
+        """Acceptance Test #7: ``POST /api/public/otel/v1/traces``
         with a Bearer public key returns 401 and persists no inbox batch or
         canonical span."""
         authed = _setup_and_get_authed_client(client, session, make_authed_client)

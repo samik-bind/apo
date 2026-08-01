@@ -1,7 +1,7 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 # pyright: reportPrivateUsage=false, reportUnusedCallResult=false, reportMissingTypeArgument=false
 
-"""SPEC-162: v17 source-owned heartbeat observations migration.
+"""V17 source-owned heartbeat observations migration.
 
 Covers fresh install (create_all includes the columns) and upgrade from the
 preceding v16 schema. The migration is idempotent, backfills to NULL, and

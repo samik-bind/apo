@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-140 ticket 09: S3ArtifactStore conformance.
+"""S3ArtifactStore conformance.
 
 The S3 backend must satisfy the same observable semantics as the local store.
 Uses a fake boto3 client (in-memory) so the suite runs without AWS credentials

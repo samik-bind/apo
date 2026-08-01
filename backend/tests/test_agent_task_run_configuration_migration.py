@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-148 ticket 01: Task Run Configuration schema migration (v15).
+"""Task Run Configuration schema migration (v15).
 
 Mirrors the hand-rolled old-schema SQLite pattern in
 ``test_agent_task_deliverable_migration.py`` and ``test_cost_migration.py``:
@@ -16,7 +16,7 @@ from sqlmodel import create_engine
 
 
 def test_latest_schema_version_bumped_to_v15() -> None:
-    """The latest schema version is registered (v18 after SPEC-163).
+    """The latest schema version is registered (v18).
 
     The test name preserves its v15 origin; the assertion is the guard that
     reminds the next schema bump to add migration coverage.

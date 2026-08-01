@@ -1,4 +1,4 @@
-"""SPEC-136 tickets 04/05: model-era resolution + tier matching.
+"""Tickets 04/05: model-era resolution + tier matching.
 
 Resolution order (3-step pipeline):
   1. Resolve model era (match_pattern + temporal predicate -> one models row)

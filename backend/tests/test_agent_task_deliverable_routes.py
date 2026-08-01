@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-140 ticket 04: deliverable routes and request-size middleware.
+"""Deliverable routes and request-size middleware.
 
 Exercises the registered HTTP routes end-to-end through the TestClient:
 manifest fetch (metadata-only), JSON body fetch, two-phase Artifact upload,

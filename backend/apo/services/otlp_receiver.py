@@ -250,7 +250,7 @@ class OtlpReceiver:
         :class:`OtlpDecodeError` (400) or :class:`OtlpSizeLimitError` (413)
         and write nothing — no inbox row, no canonical span.
 
-        SPEC-156: all received Trace Content is stored in full. There is no
+        all received Trace Content is stored in full. There is no
         content-policy redaction or filtering step.
 
         ``context`` carries the authenticated ingestion identity so Task Run

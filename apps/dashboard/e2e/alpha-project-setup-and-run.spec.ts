@@ -50,7 +50,7 @@ test.describe("Alpha: project setup and run surfaces @alpha", () => {
       return;
     }
 
-    // Auth disabled — assert the SPEC-124 + SPEC-125 panels are present.
+    // Auth disabled — assert the alpha readiness panels are present.
     await expect(
       page.getByText("Deployment Topology", { exact: true }),
     ).toBeVisible();

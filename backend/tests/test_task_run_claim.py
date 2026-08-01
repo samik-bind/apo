@@ -210,7 +210,7 @@ class TestTaskRunClaim:
     def test_claim_rejected_when_attribute_does_not_match_token_subject(self):
         """A root span whose apo.task.run.id != token subject must NOT claim.
 
-        This is the SPEC-129 §7.3 security boundary: the OTLP receiver validates
+        This is the security boundary: the OTLP receiver validates
         the root claim before associating the OTel trace ID with the task run.
         A token for task run A cannot claim task run B by emitting B's id in the
         span attributes. Locks the attribute-name contract the SDK emits.

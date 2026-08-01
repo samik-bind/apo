@@ -1,4 +1,4 @@
-"""SPEC-140: ArtifactStore registry and configuration.
+"""ArtifactStore registry and configuration.
 
 Resolves the configured write backend (``APO_ARTIFACT_STORE``) and reads
 backends by the name recorded on a Deliverable row. The default local backend
@@ -6,7 +6,7 @@ needs no extra services; S3 is opt-in.
 
 Configuration is validated eagerly: invalid/negative/overflowing numeric
 environment values raise at process start rather than silently disabling
-limits (see SPEC-140 §Request and Storage Limits).
+limits (see Request and Storage Limits).
 """
 
 from __future__ import annotations
@@ -121,7 +121,7 @@ def get_store(backend: str | None, *, artifact_dir: Path | None = None) -> Artif
     if name == "local":
         return LocalArtifactStore(root=artifact_dir or default_artifact_dir())
     if name == "s3":
-        # SPEC-140 ticket 09 — S3ArtifactStore. Imported lazily so the AWS SDK
+        # Ticket 09 — S3ArtifactStore. Imported lazily so the AWS SDK
         # stays an optional dependency in the default Local topology.
         try:
             from apo.services.artifact_stores.s3 import S3ArtifactStore

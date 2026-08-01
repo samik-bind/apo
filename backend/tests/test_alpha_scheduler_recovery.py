@@ -1,4 +1,4 @@
-"""SPEC-126: internal alpha release gate — scheduler restart recovery.
+"""Internal alpha release gate — scheduler restart recovery.
 
 Validates that an unscheduled backend restart cannot leave the
 scheduler in a state where:
@@ -8,7 +8,7 @@ scheduler in a state where:
  - schedules appear "due now" forever and confuse operators.
 
 These tests target the alpha single-node topology and the in-process
-scheduler specifically (see SPEC-124).
+scheduler specifically.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -188,7 +188,7 @@ class TestScheduleNextRunAdvancesConsistently:
 
 
 class TestUpdateBatchRunStatusRecoversTracePersistence:
-    """SPEC-126: trace persistence failures must surface clearly post-restart."""
+    """Trace persistence failures must surface clearly post-restart."""
 
     def test_mixed_persistence_states_resolve_to_failed_or_persisted(
         self,

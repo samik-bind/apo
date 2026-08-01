@@ -214,7 +214,7 @@ export function createOtelAgentTaskTraceClient(
         rootSpan.setAttribute("apo.run.tags", JSON.stringify(params.tags));
       }
 
-      // SPEC-128/129 §7.1: the task-run claim attributes. The backend projector
+      // The task-run claim attributes. The backend projector
       // reads `apo.task.run.id` from the root span and atomically links this
       // trace to AgentTaskRunDB.trace_run_id. The task run id arrives from any
       // of three sources (first wins): an explicit taskRunId on params, the

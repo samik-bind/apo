@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportMissingTypeArgument=false, reportArgumentType=false, reportReturnType=false, reportCallIssue=false
 
-"""SPEC-143: execution control-plane schema migration (v13).
+"""Execution control-plane schema migration (v13).
 
 Mirrors the hand-rolled old-schema SQLite pattern: build a pre-v13 schema by
 hand, run the migration, assert the post-shape. Idempotent, no backfill, no I/O.
