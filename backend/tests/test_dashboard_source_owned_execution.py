@@ -450,9 +450,7 @@ class TestCreateBatchRunRoute:
             "/v1/agent-task-batch-runs",
             json={
                 "project": _PROJECT,
-                "selection_type": "tasks",
                 "task_ids": ["support/refund", "support/cancel-subscription"],
-                "execution_target": {"kind": "source_owned"},
             },
         )
 
@@ -481,9 +479,7 @@ class TestCreateBatchRunRoute:
             "/v1/agent-task-batch-runs",
             json={
                 "project": _PROJECT,
-                "selection_type": "tasks",
                 "task_ids": ["support/refund"],
-                "execution_target": {"kind": "source_owned"},
                 "target_user_id": "attacker",
                 "requested_by_user_id": "attacker",
             },
@@ -503,15 +499,12 @@ class TestCreateBatchRunRoute:
             "/v1/agent-task-batch-runs",
             json={
                 "project": _PROJECT,
-                "selection_type": "tasks",
                 "task_ids": ["support/refund"],
                 "task_root": "tasks",
-                "execution_target": {"kind": "source_owned"},
             },
         )
 
         assert resp.status_code == 422
-        assert resp.json()["detail"]["kind"] == "source_owned_selection_invalid"
 
     def test_missing_catalog_rejected(self, client, session, project_with_members, make_authed_client):
         user_a, _ = project_with_members
@@ -522,9 +515,7 @@ class TestCreateBatchRunRoute:
             "/v1/agent-task-batch-runs",
             json={
                 "project": _PROJECT,
-                "selection_type": "tasks",
                 "task_ids": ["support/refund"],
-                "execution_target": {"kind": "source_owned"},
             },
         )
 

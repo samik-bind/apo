@@ -288,12 +288,11 @@ async def create_agent_task_batch_run(
     http_request: Request,
     session: Session = Depends(get_session),
 ):
-    """Create a new batch run from a task selection.
+    """Create a source-owned Batch from exact catalog Task IDs.
 
-    SPEC-146: every server-initiated Batch becomes durable queued Attempts.
-    An explicit Pool wins; otherwise the Project default is required.
-    SPEC-162: an explicit ``source_owned`` target routes to the
-    authenticated User's Connected Executors using exact catalog Task IDs.
+    SPEC-165: the dashboard Batch is source-owned by definition. The
+    authenticated User is always the owner/target; no Pool, path, root,
+    grep, or execution_target field is accepted.
     """
     require_project_not_demo(body.project)
     membership = enforce_project_role_from_request(
@@ -303,78 +302,15 @@ async def create_agent_task_batch_run(
         minimum_role="member",
     )
 
-    target = body.execution_target
-    if target is not None and target.kind == "source_owned":
-        return await _create_source_owned_batch_run_route(
-            session, body=body, http_request=http_request, membership=membership
-        )
-
-    task_source = get_task_source_db(session, body.project)
-
-    explicit_pool_id_raw = target.pool_id if target is not None else None
-    explicit_pool_id = str(explicit_pool_id_raw) if explicit_pool_id_raw else None
-    from apo.services.execution_queue import (
-        PoolResolutionError,
-        create_pooled_batch_run,
-    )
-
-    try:
-        batch = await create_pooled_batch_run(
-            session,
-            project_id=body.project,
-            pool_id=explicit_pool_id,
-            selection_type=body.selection_type,
-            task_paths=body.task_paths or None,
-            task_root=body.task_root,
-            grep=body.grep,
-            environment=body.environment,
-            run_metadata=body.run_metadata,
-            task_source=task_source,
-        )
-    except PoolResolutionError as error:
-        raise HTTPException(
-            status_code=409,
-            detail={"kind": error.kind, "msg": str(error)},
-        ) from error
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
-    except SyncError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
-
-    task_runs = session.exec(
-        select(AgentTaskRunDB).where(AgentTaskRunDB.batch_run_id == batch.id)
-    ).all()
-    return to_batch_run_detail(batch, task_runs)
-
-
-async def _create_source_owned_batch_run_route(
-    session: Session,
-    *,
-    body: CreateAgentTaskBatchRunRequest,
-    http_request: Request,
-    membership: ProjectMembershipDB,
-) -> AgentTaskBatchRunDetail:
-    """Dispatch an explicit ``source_owned`` target (SPEC-162).
-
-    The authenticated request determines ``requested_by_user_id`` and
-    ``target_user_id``; never accept either from the request body. Legacy
-    bundled selection fields (``task_paths``/``task_root``/``grep``) are
-    rejected. Exact catalog Task IDs are required and resolved against the
-    current Project Task Catalog.
-    """
-    if body.task_paths or body.task_root or body.grep:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "kind": "source_owned_selection_invalid",
-                "msg": "source-owned execution accepts task_ids only",
-            },
-        )
-
     # Source-owned routing requires a real authenticated User; the legacy
     # open-dev "dev" sentinel must never be persisted into User foreign keys.
     acting_user_id = cast(str | None, getattr(http_request.state, "user_id", None))
-    if not acting_user_id or acting_user_id != membership.user_id:
+    membership_user_id = getattr(membership, "user_id", None)
+    if (
+        not acting_user_id
+        or not membership_user_id
+        or str(acting_user_id) != str(membership_user_id)
+    ):
         raise HTTPException(
             status_code=401,
             detail="source-owned execution requires an authenticated project member",
@@ -389,7 +325,7 @@ async def _create_source_owned_batch_run_route(
         batch = create_source_owned_batch_run(
             session,
             project_id=body.project,
-            user_id=acting_user_id,
+            user_id=str(acting_user_id),
             task_ids=body.task_ids,
             environment=body.environment,
             run_metadata=body.run_metadata,
@@ -478,73 +414,8 @@ async def cancel_agent_task_batch_run(
     return {"ok": True, "cancelled": len(attempts)}
 
 
-@router.post(
-    "/agent-task-batch-runs/external",
-    response_model=AgentTaskBatchRunExternalDetail,
-    status_code=201,
-)
-async def create_external_agent_task_batch_run(
-    request: CreateAgentTaskBatchRunRequest,
-    http_request: Request,
-    session: Session = Depends(get_session),
-):
-    """Create a batch run whose tasks execute out-of-band (Issue #4).
-
-    For tasks that cannot run inside the backend container (they need
-    dev-machine credentials, a VPC tunnel, a personal stage, etc.), the
-    external executor — typically ``apo task run --local`` — runs the task
-    on its own machine and reports the result back via
-    ``POST /v1/agent-task-runs/{id}/result``.
-
-    This endpoint creates the batch + task run rows, marks them ``running``,
-    and returns a scoped trace token per task run. The token's ``sub`` is
-    the task run id; the executor presents it as ``APO_AUTH_TOKEN`` so trace
-    ingestion claims the run via the existing SPEC-128/129 path.
-
-    No subprocess is spawned — the caller owns execution.
-    """
-    require_project_not_demo(request.project)
-    _ = enforce_project_role_from_request(
-        http_request, session, request.project, minimum_role="member"
-    )
-    task_source = get_task_source_db(session, request.project)
-    try:
-        batch = create_batch_run(
-            session=session,
-            project=request.project,
-            selection_type=request.selection_type,
-            task_paths=request.task_paths,
-            task_root=request.task_root,
-            grep=request.grep,
-            environment=request.environment,
-            run_metadata=request.run_metadata,
-            task_source=task_source,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except SyncError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-
-    pairs = prepare_external_batch_runs(session, batch)
-
-    return AgentTaskBatchRunExternalDetail(
-        id=batch.id,
-        project=batch.project,
-        status=batch.status,
-        task_runs=[
-            AgentTaskRunExternalSummary(
-                id=task_run.id,
-                task_id=task_run.task_id,
-                task_path=task_run.task_path,
-                status=task_run.status,
-                started_at=task_run.started_at,
-                trace_token=token,
-            )
-            for task_run, token in pairs
-        ],
-    )
-
-
+# ============================================================================
+# SPEC-146: Cancellation routes (idempotent; must precede any catch-all)
 # ============================================================================
 # SPEC-145: Caller Executor create-and-claim
 # ============================================================================

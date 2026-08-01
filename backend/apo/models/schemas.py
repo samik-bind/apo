@@ -647,18 +647,11 @@ class AgentTaskBatchRunDetail(SQLModel):
 class CreateAgentTaskBatchRunRequest(SQLModel):
     model_config = {"extra": "forbid"}
     project: str
-    selection_type: str
-    # SPEC-162: exact catalog Task IDs for source-owned execution.
+    # SPEC-165: exact catalog Task IDs. Source-owned by definition — no
+    # Pool, path, root, grep, selection_type, or execution_target accepted.
     task_ids: list[str] = Field(default_factory=list)
-    # Legacy bundled path: filesystem-relative selection.
-    task_paths: list[str] = Field(default_factory=list)
-    task_root: str | None = None
-    grep: str | None = None
     environment: str = "default"
     run_metadata: dict[str, object] | None = None
-    # Explicit target wins. ``source_owned`` routes to the authenticated
-    # User's Connected Executors; ``pool`` keeps the legacy bundled path.
-    execution_target: ExecutionTarget | None = None
 
 
 class AgentTaskRunExternalSummary(SQLModel):

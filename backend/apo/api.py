@@ -54,16 +54,23 @@ async def lifespan(app: FastAPI):
     set_event_loop(asyncio.get_event_loop())
     init_email_service()
     init_db()
+    # SPEC-165: retire bundled execution before any scheduler/reaper/demo
+    # startup. Fence legacy state and purge Bundle objects idempotently.
+    with Session(engine) as session:
+        from .services.execution_retirement import (
+            purge_legacy_bundle_objects,
+            retire_legacy_execution_rows,
+        )
+        from datetime import datetime, timezone
+
+        retire_legacy_execution_rows(session, now=datetime.now(timezone.utc))
+        purge_legacy_bundle_objects(session)
     # SPEC-122: ensure the demo project exists at startup so it shows
-    # up in project lists and users can browse it read-only, regardless
-    # of whether demo *authoring* (seeding task runs) is enabled.
+    # up in project lists and users can browse it read-only.
     from .services.demo_workspace import _ensure_demo_project_exists  # pyright: ignore[reportPrivateUsage]
     _ensure_demo_project_exists()
     with Session(engine) as session:
         bootstrap_initial_user(session)
-        from .services.bundled_executor import bootstrap_bundled_executor
-
-        bootstrap_bundled_executor(session)
     from .services.agent_task_scheduler import start_schedule_dispatcher, stop_schedule_dispatcher
     from .services.retention import apply_max_page_count, start_retention_loop, stop_retention_loop
     from .services.trace_ingestion_queue import (
