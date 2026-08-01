@@ -139,12 +139,36 @@ describe("SPEC-145 task run --executor caller dispatch", () => {
     expect(code).toBe(2);
   });
 
-  it("--no-record + --executor <pool> is a usage error (exit 2)", async () => {
+  // SPEC-165 #89 regression: the BARE command (no --executor flag) must
+  // route to caller execution. Every previous iteration fixed the decision
+  // but not the routing gate, so the default still hit a deleted endpoint.
+  it("bare task run (no flags) posts to the caller create-and-claim endpoint", async () => {
+    const calls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.includes("/health")) return new Response("ok", { status: 200 });
+      if (url.includes("/agent-task-batch-runs/caller")) {
+        return mockResp({
+          batch_run_id: "b1", task_run_id: "r1", attempt_id: "a1", lease_generation: 1,
+          lease_expires_at: "2026-01-01T00:00:00Z", attempt_jwt: "jwt-1",
+          trace_endpoint: "http://backend.test", trace_project: "proj-test",
+        }, 201);
+      }
+      if (url.includes("/attempts/a1/start")) return mockResp({ status: "running" });
+      if (url.includes("/attempts/a1/heartbeat")) return mockResp({ cancel_requested: false });
+      if (url.includes("/attempts/a1/result")) return mockResp({ status: "succeeded" });
+      return mockResp({}, 404);
+    });
+
+    // NO --executor flag, NO --local, NO --remote — just the bare command
     const code = await run([
       taskId, "--dir", testDir, "--backend", "http://backend.test",
       "--project", "proj-test", "--api-key", "sk-apo-test",
-      "--executor", "some-pool", "--no-record",
     ]);
-    expect(code).toBe(2);
+
+    expect(calls.some((u) => u.includes("/v1/agent-task-batch-runs/caller"))).toBe(true);
+    expect(calls.some((u) => u.includes("/v1/agent-task-batch-runs/external"))).toBe(false);
+    expect(code).toBe(0);
   });
 });

@@ -119,56 +119,25 @@ export async function run(argv: string[]): Promise<number> {
     return 2;
   }
 
-  // SPEC-145: explicit --executor uses the new target model + create-and-claim
-  // protocol. Legacy --local/--remote/task/project-default stay on the /external
-  // compat dispatch for one release (SPEC-146 cuts over); they must NOT pass
-  // through resolveExecutionTarget (which would throw for remote/backend
-  // without a configured Bundled Pool).
-  if (executorFlag !== undefined) {
-    const target = resolveExecutionTarget({
-      executorFlag,
-      localFlag: flagLocal,
-      remoteFlag: flagRemote,
-      taskExecution: resolved.execution,
-      defaultExecutor: config.defaultExecutor,
-      legacyDefaultExecution: config.defaultExecution,
-    });
-    if (target.target.kind === "pool" && noRecord) {
-      console.error("--no-record cannot be combined with a Pool target");
-      return 2;
-    }
-    if (target.target.kind === "caller" && !noRecord && config.projectId && config.apiKey) {
-      if (await isBackendReachable(config.backendUrl)) {
-        return runCallerRecorded(config, resolved);
-      }
-      console.error(`${red("error:")} backend unreachable; configured recording failed (use --no-record to run unrecorded)`);
-      return 2;
-    }
-  }
-
-  // SPEC-159: --no-record forces local-unrecorded regardless of dispatch mode.
+  // SPEC-165: caller execution is the only recorded runtime. --no-record
+  // forces an unrecorded local run. --executor caller is accepted as a no-op
+  // for one release of backward compatibility.
   if (noRecord) {
     return runLocally(config, resolved.taskDir);
   }
 
-  // Legacy dispatch for --local / --remote / task / project-default / unrecorded.
-  const decision = resolveExecutionMode({
-    flagLocal,
-    flagRemote,
-    taskExecution: resolved.execution,
-    projectDefault: config.defaultExecution,
-    hasProject: Boolean(config.projectId),
-  });
-
-  switch (decision.mode) {
-    case "local-recorded":
-      return runLocalRecordedDispatch(config, resolved, decision.reason);
-    case "backend":
-      return runBackendDispatch(config, resolved, decision.reason);
-    case "local-unrecorded":
-    default:
-      return runLocally(config, resolved.taskDir);
+  // Default recorded path: caller create-and-claim (SPEC-145).
+  if (config.projectId && config.apiKey) {
+    if (await isBackendReachable(config.backendUrl)) {
+      return runCallerRecorded(config, resolved);
+    }
+    console.error(`${red("error:")} backend unreachable; configured recording failed (use --no-record to run unrecorded)`);
+    return 2;
   }
+
+  // No project or credential configured → run unrecorded with a notice.
+  console.error(`${dim("note:")} run is not being recorded (no project or credential configured)`);
+  return runLocally(config, resolved.taskDir);
 }
 
 /**
