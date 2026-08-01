@@ -1,0 +1,70 @@
+---
+title: apo task publish
+description: Publish your Task catalog so the dashboard and apo connect can see your Tasks.
+---
+
+# apo task publish
+
+Publish a metadata-only Task catalog from your local workspace. The catalog tells the server which Tasks exist — their IDs, display names, adapters, and check flags — without uploading source code, prompts, or file contents.
+
+## Synopsis
+
+```bash
+apo task publish [--dir <path>]
+```
+
+## Why publish
+
+The dashboard's Tasks page, Schedules, and `apo connect` all need to know which Tasks exist in your workspace. `apo task publish` sends only bounded metadata:
+
+- Task IDs (hierarchical, e.g. `support/refund`)
+- Display names
+- Adapter names
+- Whether each Task has checks or a user simulator
+- Tags
+
+No source files, repository credentials, prompts, fixtures, or environment values are sent.
+
+## Usage
+
+```bash
+# Publish from the current directory
+apo task publish
+
+# Publish from a specific Task root
+apo task publish --dir ./my-tasks
+```
+
+Output:
+
+```
+✓ Published 14 tasks to acme-evals
+  digest: sha256:a1b2c3d4...
+  published_at: 2026-07-31T12:00:00Z
+```
+
+## When to re-publish
+
+Re-publish whenever you:
+
+- Add a new Task
+- Remove or rename a Task
+- Change a Task's adapter or checks
+
+`apo connect` detects catalog mismatches automatically and pauses until you re-publish. The connection resumes without restart.
+
+## The catalog digest
+
+The server computes a canonical SHA-256 digest over the normalized catalog (sorted by Task ID, canonical JSON). `apo connect` computes the same digest locally and sends it with each heartbeat and claim. If the digests differ, claiming is paused — this prevents executing a Task that has changed since publication.
+
+## Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir <path>` | Current directory | Task workspace root |
+
+## See also
+
+- [apo connect](/cli/connect/) — the persistent executor that consumes the catalog
+- [Tasks](/concepts/tasks/) — how Tasks are discovered and structured
+- [Quickstart](/quickstart/) — the full publish → connect → run workflow

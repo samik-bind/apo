@@ -97,11 +97,13 @@ export default defineConfig({
 						label: 'task',
 						collapsed: false,
 						items: [
+							{ label: 'task publish', slug: 'cli/task-publish' },
 							{ label: 'task run', slug: 'cli/task-run' },
 							{ label: 'task list', slug: 'cli/task-list' },
 							{ label: 'task show', slug: 'cli/task-show' },
 						],
 					},
+					{ label: 'connect', slug: 'cli/connect' },
 					{
 						label: 'runs',
 						collapsed: false,

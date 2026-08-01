@@ -35,7 +35,7 @@ import TerminalOutput from '../../../components/demos/TerminalOutput.astro';
 ## Synopsis
 
 ```bash
-apo task run <task-id | path> [--ci] [--executor <caller|pool-id>] [--no-record]
+apo task run <task-id | path> [--ci] [--no-record]
 ```
 
 ## Description
@@ -68,11 +68,7 @@ The folder scoping is why two families can each define `task("cost-inquiry")` wi
 |---|---|---|
 | `<task-id \| path>` | (required) | Task id (folder name) or filesystem path. |
 | `--ci` | off | CI mode: records CI metadata, uses strict exit codes. |
-| `--executor caller` | policy | Run on this machine and record through a task-scoped Attempt. |
-| `--executor <pool-id>` | policy | Queue on one exact Executor Pool. Apo never falls back to another target. |
-| `--no-record` | off | Run on this machine without creating a backend Run. Cannot be combined with a Pool. |
-| `--local` | off | Deprecated alias for `--executor caller`. |
-| `--remote` | off | Deprecated request for the Project's Bundled Pool. Errors if none is configured. |
+| `--no-record` | off | Run on this machine without creating a backend Run. |
 
 ## Output
 
@@ -113,38 +109,33 @@ A failing run exits non-zero whether or not `--ci` is set — so any script gati
 
 `--ci` doesn't change the exit codes; it records CI metadata (trigger source, actor, commit) on the run and reports a strict `0`/`1`/`2` mapping based on the pass result. Use it when you want the batch run tagged with its originating pipeline.
 
-## Choose where the Task runs
+## How the Task runs
 
-Placement is policy, not a connectivity accident. Apo resolves the target in
-this order: explicit `--executor`, compatibility flags, Task configuration,
-Project default, legacy configuration, then Caller.
+`apo task run` always executes on your local machine through caller execution.
+The Task runs against your current source — the server never receives source
+code, paths, or credentials. Only the result, trace, and deliverables are
+recorded.
 
-Use Caller for Tasks that need developer-machine credentials, a VPC tunnel, or
-a live personal stage:
-
-```bash
-apo task run bind-e2e --executor caller
-```
-
-With Caller execution, apo:
+With a configured backend, Project, and credential, apo:
 
 1. creates a Batch, Task Run, attested source Revision, and leased Attempt;
 2. runs the Task on your machine with only the task-scoped Attempt credential;
-3. reports the verdict, tests, trace, and deliverables through the same
-   finalization protocol as persistent Executors.
+3. reports the verdict, tests, trace, and deliverables through the
+   finalization protocol.
 
-Use a Pool when execution must happen on the self-hosted Bundled Executor or a
-Connected Executor in your environment:
+Use `--no-record` to run without contacting the server at all:
 
 ```bash
-apo task run extract-parties --executor pool_01JXYZ
+apo task run scratch-check --no-record
 ```
 
 :::caution[No silent fallback]
 If a configured recorded run cannot reach the backend, the command exits `2`.
-If a Pool is offline, the Run waits there until its queue timeout. Use
-`--no-record` when you intentionally want an unrecorded local run.
+Never silently downgrade a configured recorded run to unrecorded.
 :::
+
+For persistent execution (dashboard and scheduled runs), use
+[`apo connect`](/cli/connect/) instead.
 
 ## Example
 
@@ -158,16 +149,14 @@ apo task run extract-parties --ci
 # Run a task by path
 apo task run ./e2e/tasks/extract-parties
 
-# Run a task that needs dev-machine credentials / VPC / stage,
-# but still record it on the backend for dashboard history
-apo task run bind-e2e --executor caller
-
 # Intentionally run without a dashboard record
 apo task run scratch-check --no-record
 ```
 
 ## See also
 
+- [`apo connect`](/cli/connect/) — persistent executor for dashboard/schedule runs
+- [`apo task publish`](/cli/task-publish/) — publish your Task catalog
 - [`apo runs show`](/cli/runs-show/) — read the full breakdown of a run.
 - [`apo traces show`](/cli/traces-show/) — debug a failure through the trace.
 - [Loop engineering](/guides/loop-engineering/) — how a coding agent uses this command to close the loop.

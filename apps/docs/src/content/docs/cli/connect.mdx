@@ -1,0 +1,92 @@
+---
+title: apo connect
+description: Run a persistent Connected Executor for dashboard and scheduled work.
+---
+
+# apo connect
+
+Connect your local workspace as a persistent executor. Dashboard and scheduled runs are delivered to this machine, executed against your current source, and reported back — without uploading source, paths, or credentials to the server.
+
+## Synopsis
+
+```bash
+apo connect [--dir <path>] [--project <id>] [--name <name>] [--concurrency <n>]
+```
+
+## What it does
+
+`apo connect` is a foreground process that:
+
+1. Discovers your local Task catalog and verifies it matches the Project's published catalog.
+2. Enrolls as a source-owned Executor (one-time; reuses the stored credential on restart).
+3. Polls for assignments — Tasks queued from the dashboard or a Schedule.
+4. For each assignment: attests the local source hash, spawns an isolated child process, runs the Task through `runTaskDir`, and submits the result + trace.
+
+The server never receives your source code, repository credentials, environment variables, or file paths. It receives only Task identity, bounded results, and trace telemetry.
+
+## Prerequisites
+
+- A published Task Catalog (`apo task publish`)
+- A full-scope login (`apo login`)
+- A configured Project (`apo project use`)
+
+## Usage
+
+```bash
+# Connect from your Task workspace
+apo connect
+
+# Specify a directory and friendly name
+apo connect --dir ./my-tasks --name "dev-laptop"
+
+# Limit concurrent executions
+apo connect --concurrency 2
+```
+
+Output:
+
+```
+Discovered 14 tasks in ./my-tasks
+Connected to acme-evals · catalog matches · capacity 4
+Waiting for assignments…  Ctrl+C to stop
+```
+
+## When a Task is assigned
+
+When the dashboard or a Schedule creates a Run, `apo connect` claims it and executes locally:
+
+```
+← Assigned: support/refund
+✓ Completed: support/refund (3 active)
+```
+
+The Run's Trace, Tests, and Deliverables appear in the dashboard as if the server ran it — but the execution happened on your machine, against your current source.
+
+## Catalog changes
+
+If your local catalog no longer matches the published one (you added, renamed, or removed a Task), `apo connect` pauses claiming and prints:
+
+```
+Catalog mismatch — run `apo task publish` to update.
+```
+
+Publish the updated catalog and the connection resumes automatically. No restart needed.
+
+## Cancellation
+
+Press `Ctrl+C` once to stop new claims and gracefully cancel active Tasks. Press again to force exit. Lease recovery remains authoritative — an interrupted Task is never silently retried.
+
+## Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dir <path>` | Current directory | Task workspace root |
+| `--project <id>` | Configured project | Project to connect to |
+| `--name <name>` | Auto-generated | Display name for this machine |
+| `--concurrency <n>` | `4` | Max concurrent Task executions |
+
+## See also
+
+- [apo task publish](/cli/task-publish/) — publish your Task catalog
+- [apo task run](/cli/task-run/) — one-shot recorded execution
+- [Tasks](/concepts/tasks/) — how Tasks are discovered and structured
