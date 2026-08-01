@@ -159,13 +159,13 @@ describe("isBackendReachable", () => {
     expect(result).toBe(false);
   });
 
-  it("returns false on non-ok response", async () => {
+  it("returns true on any HTTP response (401 means auth enforced, not unreachable)", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(null, { status: 500 }),
+      new Response(null, { status: 401 }),
     );
 
     const result = await isBackendReachable("http://localhost:8000");
-    expect(result).toBe(false);
+    expect(result).toBe(true);
   });
 
   it("checks health through a public backend-proxy base path", async () => {

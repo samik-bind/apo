@@ -170,8 +170,11 @@ export async function apiPatch<T>(
 export async function isBackendReachable(baseUrl: string): Promise<boolean> {
   try {
     const url = resolveApiUrl(baseUrl, "/health");
-    const response = await fetch(url.toString(), { method: "GET" });
-    return response.ok;
+    await fetch(url.toString(), { method: "GET" });
+    // Any HTTP response means the server is up. A 401/403 just means auth
+    // is enforced — the caller has credentials and will authenticate on
+    // the actual API call. Only a network failure (catch) means unreachable.
+    return true;
   } catch {
     return false;
   }

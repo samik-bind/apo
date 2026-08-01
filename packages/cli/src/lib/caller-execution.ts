@@ -191,13 +191,22 @@ export class CallerHeartbeat {
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly abort = new AbortController();
   private stopped = false;
+  private readonly backendUrl: string;
+  private readonly lease: CallerLease;
+  private readonly onStale: () => void;
+  private readonly intervalMs: number;
 
   constructor(
-    private readonly backendUrl: string,
-    private readonly lease: CallerLease,
-    private readonly onStale: () => void,
-    private readonly intervalMs: number = DEFAULT_HEARTBEAT_INTERVAL_MS,
-  ) {}
+    backendUrl: string,
+    lease: CallerLease,
+    onStale: () => void,
+    intervalMs: number = DEFAULT_HEARTBEAT_INTERVAL_MS,
+  ) {
+    this.backendUrl = backendUrl;
+    this.lease = lease;
+    this.onStale = onStale;
+    this.intervalMs = intervalMs;
+  }
 
   start(phase: string): void {
     const tick = async (): Promise<void> => {
