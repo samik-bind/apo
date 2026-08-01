@@ -8,7 +8,7 @@ import { discoverTaskMeta, findTaskMetaById } from "../lib/task-meta.ts";
 import { bold, dim, formatJson, formatTime, passFail, formatTrigger, red } from "../lib/format.ts";
 import type { CheckResult } from "../lib/agent-task-types.ts";
 import { formatChecks, NO_CHECKS_REGISTERED_MESSAGE } from "../lib/checks-format.ts";
-import type { TaskExecutionPreference } from "@apo/sdk/agent-task";
+type TaskExecutionPreference = "local" | "backend" | "auto";
 import {
   resolveExecutionMode,
   type ExecutionReason,

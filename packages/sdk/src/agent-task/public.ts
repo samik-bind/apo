@@ -1,7 +1,6 @@
 export type {
   TaskDefinition,
   TaskConfig,
-  TaskExecutionPreference,
   FileEntry,
 } from "./task/types.ts";
 export {

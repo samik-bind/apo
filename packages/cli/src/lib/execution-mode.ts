@@ -1,4 +1,4 @@
-import type { TaskExecutionPreference } from "@apo/sdk/agent-task";
+type TaskExecutionPreference = "local" | "backend" | "auto";
 
 /**
  * The resolved dispatch intent for `apo task run` (SPEC-136).

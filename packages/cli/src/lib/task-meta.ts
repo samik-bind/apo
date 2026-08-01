@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { join, relative } from "path";
 import { listTaskCandidateDirs, type ScanOptions } from "./scanner.ts";
-import type { TaskExecutionPreference } from "@apo/sdk/agent-task";
+type TaskExecutionPreference = "local" | "backend" | "auto";
 
 export type TaskMeta = {
   /**

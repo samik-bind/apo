@@ -33,7 +33,6 @@ import { harborAdapter } from "../../../../harbor-adapter.ts";
 
 const { test: check } = task("count-dataset-tokens", {
   adapter: harborAdapter,
-  execution: "local",
   maxTurns: 1,
   description:
     "Terminal-Bench 2.0 count-dataset-tokens, run via Harbor. Correctness is the official benchmark verifier; apo records the run, trace, and artifacts.",
