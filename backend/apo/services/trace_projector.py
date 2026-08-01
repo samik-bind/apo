@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlmodel import Session, col, select
@@ -521,7 +522,10 @@ def _compute_run_aggregates(session: Session, trace_id: str, project: str) -> No
     for metric in calculate_and_store_aggregate_metrics(session, trace_id, project):
         session.add(metric)
 
-    # Backfill call_count and primary_model from the projected calls.
+    # SPEC-166 #92: recompute call_count on every projection (spans arrive
+    # asynchronously, so a snapshot from the first pass goes stale), and
+    # pick primary_model by cost contribution (the model under test, not
+    # whichever simulator/judge call happened to arrive first).
     run = select_run(session, trace_id, project)
     if run is not None:
         calls = session.exec(
@@ -531,10 +535,7 @@ def _compute_run_aggregates(session: Session, trace_id: str, project: str) -> No
             )
         ).all()
         run.call_count = len(calls)
-        if not run.primary_model:
-            gen = next((c for c in calls if c.model), None)
-            if gen:
-                run.primary_model = gen.model
+        run.primary_model = _primary_model_by_cost(calls)
         session.add(run)
 
 
@@ -641,3 +642,23 @@ def _call_sse_body(span: OtlpSpanDB, normalized: NormalizedSpan) -> dict[str, ob
         body["level"] = "ERROR"
         body["status_message"] = normalized.error_message
     return body
+
+
+def _primary_model_by_cost(calls: Sequence[LoggedCallDB]) -> str | None:
+    """Pick the model with the highest total cost contribution.
+
+    The model under test (e.g. claude-opus-5) dominates cost, while the
+    user-simulator and judge calls are negligible. This naturally selects
+    the agent's model rather than whichever harness call arrived first.
+    Falls back to the first call with a model when no call has cost data.
+    """
+    if not calls:
+        return None
+    totals: dict[str, float] = {}
+    for c in calls:
+        if c.model and c.cost is not None:
+            totals[c.model] = totals.get(c.model, 0.0) + c.cost
+    if totals:
+        return max(totals, key=lambda k: totals[k])  # type: ignore[return-value]
+    first_model = next((c for c in calls if c.model), None)
+    return first_model.model if first_model else None

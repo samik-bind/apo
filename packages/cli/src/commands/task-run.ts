@@ -333,6 +333,9 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
       adapter_name: summary.adapterName ?? null,
       trace_run_id: summary.traceRunId ?? null,
       checks: summary.checks as unknown,
+      transcript: (summary as { transcript?: Record<string, unknown> }).transcript ?? null,
+      deliverables: (summary as { deliverables?: Record<string, unknown> }).deliverables ?? null,
+      run_configuration: (summary as { runConfiguration?: { model: string; effort?: string } }).runConfiguration ?? null,
     });
     // SPEC-166 #90: render the result so the CLI shows PASS/FAIL + checks,
     // just like the local and backend paths it replaced.

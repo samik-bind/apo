@@ -62,6 +62,9 @@ export interface CallerResultBody {
   adapter_name?: string | null;
   trace_run_id?: string | null;
   checks?: unknown;
+  transcript?: Record<string, unknown> | null;
+  deliverables?: Record<string, unknown> | null;
+  run_configuration?: { model: string; effort?: string } | null;
   exit_code?: number | null;
   stdout_tail?: string | null;
   stderr_tail?: string | null;
