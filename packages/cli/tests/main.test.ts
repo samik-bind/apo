@@ -77,7 +77,7 @@ describe("global help", () => {
     const { output } = await runCapture(["--help"]);
     for (const cmd of [
       "task list", "task run", "task publish", "runs list", "runs show",
-      "traces list", "traces show", "batch list", "batch show", "batch create",
+      "traces list", "traces show", "batch list", "batch show",
     ]) {
       expect(output).toContain(cmd);
     }
@@ -96,13 +96,6 @@ describe("per-command help", () => {
     expect(output).toContain("apo runs show de89cab");
   });
 
-  it("shows batch create help with required --tasks flag", async () => {
-    const { output, code } = await runCapture(["batch", "create", "--help"]);
-    expect(code).toBe(0);
-    expect(output).toContain("--tasks");
-    expect(output).toContain("required");
-    expect(output).toContain("Examples:");
-  });
 
   it("shows login help with its options", async () => {
     const { output, code } = await runCapture(["login", "--help"]);
@@ -132,20 +125,7 @@ describe("per-command help", () => {
     expect(output).toMatch(/execution|implicit|project default/i);
   });
 
-  it("shows project config help with set/unset/show subcommands", async () => {
-    const { output, code } = await runCapture(["project", "config", "--help"]);
-    expect(code).toBe(0);
-    expect(output).toContain("apo project config");
-    expect(output).toContain("set");
-    expect(output).toContain("unset");
-    expect(output).toContain("show");
-    expect(output).toContain("default-execution");
-  });
 
-  it("lists project config in the global command list", async () => {
-    const { output } = await runCapture(["--help"]);
-    expect(output).toContain("project config");
-  });
 
   it("shows task publish help with dir and dry-run options", async () => {
     const { output, code } = await runCapture(["task", "publish", "--help"]);

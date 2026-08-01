@@ -75,22 +75,6 @@ const commands: Record<string, CommandEntry> = {
     ],
     note: "Opens interactive picker if no argument given. Requires prior login.",
   },
-  "project config": {
-    handler: loadCommand("project-config"),
-    help: "Read or write project-level CLI preferences",
-    args: [
-      ["<set|unset|show>", "Subcommand"],
-      ["<key>", "Config key (currently: default-execution)"],
-      ["[value]", "Value for set (local | backend)"],
-    ],
-    examples: [
-      "apo project config set default-execution local",
-      "apo project config set default-execution backend",
-      "apo project config unset default-execution",
-      "apo project config show default-execution",
-    ],
-    note: "default-execution is the project-level default for where `apo task run` dispatches (SPEC-136). Stored per-machine in ~/.apo/credentials — lower priority than a task's own execution declaration.",
-  },
   "task list": {
     handler: loadCommand("task-list"),
     help: "List discovered tasks",
@@ -296,19 +280,6 @@ const commands: Record<string, CommandEntry> = {
       "apo batch show abc123 --watch",
     ],
     note: "Accepts batch-id prefixes. Requires backend auth.",
-  },
-  "batch create": {
-    handler: loadCommand("batch-create"),
-    help: "Create a new batch run on backend",
-    options: [
-      ["--tasks <id1,id2,...>", "Comma-separated task ids (required)"],
-      ["--executor <pool-id>", "Target this exact executor Pool instead of the Project default"],
-    ],
-    examples: [
-      "apo batch create --tasks meeting-summary,code-review",
-      "apo batch create --tasks meeting-summary --executor pool_01JXYZ",
-    ],
-    note: "Every batch is queued for an executor Pool; apo uses --executor when supplied, otherwise the Project default. Missing, disabled, or archived targets fail instead of silently running elsewhere. Without --project, task ids resolve from local --dir. Requires backend auth.",
   },
   reprice: {
     handler: loadCommand("reprice"),
