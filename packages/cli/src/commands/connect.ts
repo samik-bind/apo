@@ -317,7 +317,9 @@ async function executeAssignment(
     const outcome = await runTaskChild({
       taskDir: task.path,
       envRoot: taskRoot,
-      traceEndpoint: assignment.trace_endpoint,
+      // SPEC-166 #87: use the configured backend base URL, not the server's
+      // trace_endpoint (which is a full path that the SDK would double).
+      traceEndpoint: backendUrl,
       project: assignment.project,
       taskRunId: assignment.task_run_id,
       traceRequired: true,
