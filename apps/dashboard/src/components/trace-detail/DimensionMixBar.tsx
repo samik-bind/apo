@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * SPEC-136 ticket 11: a 3px-tall monochrome bar showing a model's cost dimension
+ * a 3px-tall monochrome bar showing a model's cost dimension
  * mix. Each canonical dimension is a grayscale shade (design.md: color = state,
  * not decoration); the relative width of a segment is that dimension's share of
  * the total breakdown. Amber is reserved for unpriced dimensions (none here —

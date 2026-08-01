@@ -144,7 +144,7 @@ def create_api_key(
     _: object = Depends(require_api_key_scope("full")),
 ):
     """
-    Create a new API key pair (SPEC-092 two-key model).
+    Create a new API key pair.
 
     Generates a public key (pk-apo-<uuid>) and secret key (sk-apo-<uuid>).
     The secret key is shown once in the response; only its hash is stored.
@@ -155,7 +155,7 @@ def create_api_key(
     expires_at = _parse_expires_at(body.expires_at)
 
     require_project_not_demo(body.project)
-    # SPEC-122: API key creation requires admin role on the project.
+    # API key creation requires admin role on the project.
     # Issue #11: use the STRICT check — minting a key scoped to a
     # nonexistent project would let any admin mint a ghost-scoped key.
     # Real projects created through `POST /v1/projects` (or the
@@ -211,7 +211,7 @@ def list_api_keys(
     """
     user_id = _get_user_id(request)
 
-    # SPEC-122: API key inventory is admin-scoped per the spec ("API
+    # API key inventory is admin-scoped per the spec ("API
     # keys are managed by project admins/owners"). Ordinary members
     # must not enumerate keys for a project, even read-only.
     from ..services.project_memberships import (
@@ -285,7 +285,7 @@ def revoke_api_key(
 
     require_project_not_demo(api_key.project)
 
-    # SPEC-122: API key revocation requires admin role on the project.
+    # API key revocation requires admin role on the project.
     # The legacy ``request.state.is_admin`` check was dead code (the
     # middleware never set that attribute); it is replaced by the
     # membership check. Legacy projects (no ProjectDB row) tolerate the
@@ -327,7 +327,7 @@ def rotate_api_key(
 
     require_project_not_demo(api_key.project)
 
-    # SPEC-122: API key rotation requires admin role on the project
+    # API key rotation requires admin role on the project
     # (replaces dead ``request.state.is_admin`` code path).
     membership = require_project_role_or_legacy(
         session, api_key.project, user_id, minimum_role="admin"
@@ -407,7 +407,7 @@ def bootstrap_api_key(
     scope = _validate_scope(body.scope)
 
     require_project_not_demo(body.project)
-    # SPEC-122: SDK bootstrap allows any project member to mint a key
+    # SDK bootstrap allows any project member to mint a key
     # for the project they belong to. Issue #11: use the STRICT check
     # — without it, any authenticated user could mint a `full`-scoped
     # key stamped with an arbitrary nonexistent project value.

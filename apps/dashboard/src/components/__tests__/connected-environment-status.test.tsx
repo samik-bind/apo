@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { ConnectedEnvironmentStatusView } from "@/components/connected-environment-status";
 
-describe("ConnectedEnvironmentStatusView copy (SPEC-162)", () => {
+describe("ConnectedEnvironmentStatusView copy", () => {
   const cases: Array<{
     state: Parameters<typeof ConnectedEnvironmentStatusView>[0]["state"];
     expected: RegExp;

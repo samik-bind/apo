@@ -1,4 +1,4 @@
-"""Standard OTLP/HTTP trace receiver route (SPEC-129 Track 1).
+"""Standard OTLP/HTTP trace receiver route.
 
 The canonical external trace write endpoint. Accepts OTLP/JSON and
 OTLP/protobuf with optional gzip encoding, authenticates via the standard
@@ -73,10 +73,10 @@ async def receive_otlp_traces(
     content_type = request.headers.get("content-type", "application/json")
     encoding = request.headers.get("content-encoding")
 
-    # SPEC-151: consume bytes from the admission controller's byte budget.
-    # The hard cap (SPEC-150) already bounded the body; this charges it to
+    # consume bytes from the admission controller's byte budget.
+    # The hard cap already bounded the body; this charges it to
     # the sustained per-identity + global byte rate buckets. No refund on
-    # later failure (SPEC-151 invariant #8).
+    # later failure.
     identity = getattr(request.state, "telemetry_identity", None)
     try:
         controller = getattr(request.app.state, "admission_controller", None)
@@ -100,12 +100,12 @@ async def receive_otlp_traces(
                    "Cookie-authenticated requests are not accepted on this endpoint.",
         )
 
-    # Load transport limits (SPEC-150). The on-wire cap and deadline were
+    # Load transport limits. The on-wire cap and deadline were
     # already enforced by the middleware while streaming; the receiver uses
     # the decompressed/span caps for post-decode admission.
     limits = load_telemetry_transport_limits()
 
-    # Build the authenticated ingestion context (SPEC-131 M3).
+    # Build the authenticated ingestion context.
     from ..models.trace_ingestion import TraceIngestionContext
 
     context = TraceIngestionContext.for_request_state(
@@ -115,11 +115,11 @@ async def receive_otlp_traces(
     )
     project = session.get(ProjectDB, project_id)
 
-    # Ingest with transport limits (SPEC-150). Request-level failures raise
+    # Ingest with transport limits. Request-level failures raise
     # typed errors and write nothing — the route maps them to OTLP responses.
     receiver = OtlpReceiver()
 
-    # SPEC-151: consume one unit per decoded Span, before any persistence.
+    # consume one unit per decoded Span, before any persistence.
     def _consume_units(count: int) -> None:
         if identity is not None and controller is not None:
             unit_rejection = controller.consume_units(identity, count)
@@ -147,7 +147,7 @@ async def receive_otlp_traces(
 
     partial = _build_partial_success(result.rejected, result.errors)
 
-    # SPEC-129 §2: projection runs asynchronously so the OTLP response returns
+    # projection runs asynchronously so the OTLP response returns
     # immediately after the inbox commit. We process just the batch we accepted
     # (not any arbitrary queued batch) via a background task.
     async def _project_batch():
@@ -172,7 +172,7 @@ async def receive_otlp_traces(
     response.headers["X-Otlp-Batch-Id"] = result.batch_id
     response.headers["X-Otlp-Mode"] = "async"
 
-    # Encode the response to match the request encoding (SPEC-131 Milestone 2.5).
+    # Encode the response to match the request encoding.
     if content_type == "application/x-protobuf":
         from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
             ExportTraceServiceResponse,

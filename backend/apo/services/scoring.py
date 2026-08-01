@@ -101,7 +101,7 @@ def record_score(
     `target` is a ``(kind, id)`` pair where kind is ``"trace"`` or ``"observation"``.
 
     ``project`` scopes the metric row so two Projects sharing an OTel id cannot
-    overwrite each other's score (SPEC-133 M4).
+    overwrite each other's score.
     """
     kind, target_id = target
     if kind not in ("trace", "observation"):

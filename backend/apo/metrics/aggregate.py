@@ -15,7 +15,7 @@ def calculate_and_store_aggregate_metrics(
     Calculate total_cost, avg_latency, total_tokens from all calls in a run.
 
     Scoped by ``(run_id, project)``: two Projects may share an OTel trace id, so
-    summing calls without the Project would mix tenants (SPEC-133 M4).
+    summing calls without the Project would mix tenants.
     Returns list of RunMetricDB objects to be added to the session.
     """
     calls = session.exec(

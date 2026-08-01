@@ -1,5 +1,5 @@
 /**
- * OTel-backed agent-task trace client (SPEC-129 §7).
+ * OTel-backed agent-task trace client.
  *
  * Replaces the deprecated ``TraceTracker``-backed ``createAgentTaskTraceClient``
  * with one that uses standard OpenTelemetry spans exported via the canonical
@@ -13,8 +13,7 @@
  *   - Run completion happens when the root span ends (OTel native)
  *   - Export goes through ``configureApoTelemetry``'s OTLP exporter
  *
- * SPEC-129 §7:
- *   1. The runner starts an active root span named ``apo.task.run`` and adds
+ * *   1. The runner starts an active root span named ``apo.task.run`` and adds
  *      ``apo.task.id`` and ``apo.task.run.id``.
  *   2. Child framework spans inherit context normally.
  *   3. Completion happens when the root span ends.
@@ -200,7 +199,7 @@ export function createOtelAgentTaskTraceClient(
       const taskId = params.task_id ?? params.flow_name ?? "task";
       const flowName = params.flow_name ?? taskId;
 
-      // Create the root span with apo.task attributes (SPEC-129 §7)
+      // Create the root span with apo.task attributes
       const rootSpan = tracer.startSpan("apo.task.run");
       rootSpan.setAttribute("apo.observation.type", "AGENT");
       rootSpan.setAttribute("apo.run.flow_name", flowName);
@@ -374,7 +373,7 @@ export function createOtelAgentTaskTraceClient(
           catch (e) { const m = e instanceof Error ? e.message : String(e); endSpan({ id: spanId, output: { error: m }, level: "ERROR" }); throw e; }
         },
         async score(scoreParams: CreateScoreParams): Promise<void> {
-          // SPEC-129 §5: Scores are domain records via the score API
+          // Scores are domain records via the score API
           const { score: scoreFn } = await import("../otel/index.ts");
           const scoreHeaders = config.headers
             ?? (config.authToken ? { Authorization: `Bearer ${config.authToken}` } : {});
@@ -407,7 +406,7 @@ export function createOtelAgentTaskTraceClient(
       // Activate the root span in the OTel context so child spans created via
       // createSpan() (which calls tracer.startSpan) automatically inherit it
       // as their parent. This is standard OTel context propagation — no manual
-      // parent_span_id passing needed (SPEC-129 §7.4).
+      // parent_span_id passing needed.
       return context.with(trace.setSpan(context.active(), rootSpan), async () => {
         let result: T | undefined;
         let runError: unknown;

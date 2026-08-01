@@ -40,7 +40,7 @@ export async function run(argv: string[]): Promise<number> {
   if (status) params.status = status;
   const limit = getFlagValue(flags, "limit");
   if (limit) params.limit = limit;
-  // SPEC-148: repeatable model/effort filters (OR within dimension, AND across).
+  // repeatable model/effort filters (OR within dimension, AND across).
   const models = getFlagValues(multiFlags, "model");
   if (models.length > 0) params.model = models;
   const efforts = getFlagValues(multiFlags, "effort");

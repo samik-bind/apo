@@ -53,7 +53,7 @@ function batchLabel(batch: AgentTaskBatchRunDetail | AgentTaskBatchRunSummary): 
 }
 
 /**
- * SPEC-148: name the configuration dimensions that differ between two
+ * name the configuration dimensions that differ between two
  * uniform batches. Returns a label like `"Changed: effort"` or `null` when
  * the two are equivalent, or when either side is not a single uniform pair
  * (mixed/partial/unknown are already labeled honestly on each header).
@@ -252,7 +252,7 @@ function BatchSlot({
     errored: batch.errored_tasks,
     total: batch.total_tasks,
   });
-  // SPEC-148: the header shows the adapter-reported Run Configuration summary
+  // the header shows the adapter-reported Run Configuration summary
   // (uniform/mixed/partial/unknown), replacing the old dominantModel
   // heuristic that guessed a single model from observed trace data.
   const executionLabel = formatBatchExecution(batch.configuration);

@@ -1,12 +1,12 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for the Trace Projection repository (SPEC-130 Track A).
+"""Tests for the Trace Projection repository.
 
 The repository wraps the Trace Projection supplied by SPEC-129 and returns an
 immutable ``TraceProjectionSnapshot`` — never SQLModel rows. It enforces
 Project isolation on every lookup.
 
-Key properties (SPEC-130 §Test Cases 1-3):
+Key properties:
   - Project isolation: identical trace IDs in two projects return only the
     requesting project's observations.
   - No ORM leakage: snapshots serialize to stable lower-camel-case JSON.

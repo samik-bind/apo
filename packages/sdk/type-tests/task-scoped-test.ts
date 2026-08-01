@@ -40,7 +40,7 @@ scope.test("report-title", (_t, { deliverables }) => {
 });
 
 // describe() groups checks but does not change deliverable typing: a test
-// inside describe still sees the task-scoped deliverables (SPEC-160).
+// inside describe still sees the task-scoped deliverables.
 scope.describe("rules", () => {
   scope.test("rule-0", (_t, { deliverables }) => {
     deliverables.report.title.toUpperCase();

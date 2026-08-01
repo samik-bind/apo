@@ -341,7 +341,7 @@ async def create_agent_task_batch_run(
             detail={"kind": error.kind, "msg": str(error)},
         ) from error
     except Exception as error:
-        # SPEC-166: bounded 500 for unexpected database transaction failures.
+        # bounded 500 for unexpected database transaction failures.
         # Roll back, log server-side, and return a safe response without SQL/schema details.
         import logging
 
@@ -369,7 +369,7 @@ async def create_agent_task_batch_run(
 
 
 # ============================================================================
-# SPEC-146: Cancellation routes (idempotent; must precede any catch-all)
+# Cancellation routes (idempotent; must precede any catch-all)
 # ============================================================================
 
 
@@ -379,7 +379,7 @@ async def cancel_agent_task_run(
     http_request: Request,
     session: Session = Depends(get_session),
 ) -> dict[str, object]:
-    """Cancel one Task Run's Attempt (SPEC-143 semantics). Idempotent."""
+    """Cancel one Task Run's Attempt. Idempotent."""
     from apo.models.db import TaskExecutionAttemptDB
     from apo.services.execution_leases import request_cancellation
 
@@ -429,9 +429,9 @@ async def cancel_agent_task_batch_run(
 
 
 # ============================================================================
-# SPEC-146: Cancellation routes (idempotent; must precede any catch-all)
+# Cancellation routes (idempotent; must precede any catch-all)
 # ============================================================================
-# SPEC-145: Caller Executor create-and-claim
+# Caller Executor create-and-claim
 # ============================================================================
 
 

@@ -55,7 +55,7 @@ def get_current_user(
 def require_admin(user: UserDB = Depends(get_current_user)) -> UserDB:
     """Return the authenticated admin user, or raise 403.
 
-    Note (SPEC-122): ``is_admin`` is reserved for instance-maintenance
+    Note: ``is_admin`` is reserved for instance-maintenance
     flows guarded by ``ADMIN_API_KEY``. Product routes must use the
     project-role helpers (``require_project_role`` etc.) instead.
     """

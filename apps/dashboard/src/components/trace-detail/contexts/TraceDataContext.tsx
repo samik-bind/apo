@@ -74,7 +74,7 @@ export interface LoggedCall {
   prompt_id?: string | null;
   prompt_version?: number | null;
 
-  // Cost (SPEC-136): micro-USD int totals + per-call frozen storage.
+  // Cost: micro-USD int totals + per-call frozen storage.
   provided_cost?: number | null;
   cost_breakdown?: Record<string, number> | null;
   raw_usage?: Record<string, number> | null;

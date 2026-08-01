@@ -123,7 +123,7 @@ export function resetFlowChecks(): void {
 }
 
 /**
- * Register a single-level group of checks (SPEC-160). Runs `fn` synchronously;
+ * Register a single-level group of checks. Runs `fn` synchronously;
  * any `test()`/`defineCheck()` call inside it is stamped with the group's id
  * and display name, so the dashboard can nest those checks under a collapsible
  * header with a roll-up verdict.
@@ -172,7 +172,7 @@ export function describe(
 }
 
 /**
- * Projection-first check runner (SPEC-130 Track C). Runs registered checks
+ * Projection-first check runner. Runs registered checks
  * against a {@link TraceView} built from a {@link TraceProjectionSnapshot}.
  *
  * Trace-dependent assertions that need unavailable evidence (e.g. timing,
@@ -240,7 +240,7 @@ export async function runTraceChecks(args: {
           : {}),
         ...(check.group_id ? { group_id: check.group_id } : {}),
         ...(check.group_name ? { group_name: check.group_name } : {}),
-        // SPEC-130 Track D: stamp the snapshot source so consumers can detect
+        // stamp the snapshot source so consumers can detect
         // the deprecated legacy-flow compatibility path (source="legacy-flow").
         ...(args.snapshot.source !== "canonical"
           ? { source: args.snapshot.source }

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# Backend image for the self-hosted alpha topology (SPEC-124 / SPEC-125).
+# Backend image for the self-hosted alpha topology.
 #
 # Build context MUST be the repo root so we can:
 #   1. Build the agent-task runtime bundle from packages/sdk.
@@ -14,7 +14,7 @@
 #   docker compose build
 # (the compose files set context: .. and dockerfile: backend/Dockerfile)
 
-# ---- Node builder: emit the agent-task runtime bundle (SPEC-125) ----
+# ---- Node builder: emit the agent-task runtime bundle ----
 FROM node:22-slim AS agent-task-builder
 
 WORKDIR /workspace
@@ -63,7 +63,7 @@ COPY --from=agent-task-builder /usr/local/lib/node_modules /usr/local/lib/node_m
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
-# SPEC-125 / SPEC-126 hardening: the runtime needs:
+# the runtime needs:
 #   - curl, dumb-init, libpq5: process + DB client
 #   - git: required so synced Git task sources can clone/fetch
 #   - jq: used by the operator smoke script
@@ -102,11 +102,11 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 COPY backend/ ./
 
-# SPEC-125: agent-task runtime bundle built in the first stage.
+# agent-task runtime bundle built in the first stage.
 COPY --from=agent-task-builder \
     /workspace/packages/sdk/dist/agent-task-runtime /app/agent-task-runtime
 
-# SPEC-126 fixture: bundle the example-service demo task tree so the
+# bundle the example-service demo task tree so the
 # demo workspace works in the container without mounting the repo.
 COPY apps/example-service/e2e/agent-task-demo /app/apps/example-service/e2e/agent-task-demo
 # The demo adapters deliberately exercise the real example agent instead of

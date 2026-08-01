@@ -335,7 +335,7 @@ def validate_current_attempt_jwt(
     return attempt, claims
 
 
-# ── Lease constants (SPEC-143 §Lease constants) ───────────────────────────
+# ── Lease constants ───────────────────────────
 # Env-overridable per repo convention; defaults are the spec's constants.
 
 EXECUTOR_HEARTBEAT_SECONDS = int(os.environ.get("APO_EXECUTOR_HEARTBEAT_SECONDS", "20"))

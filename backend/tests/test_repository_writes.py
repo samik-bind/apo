@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for the TraceRepository write boundary (SPEC-129 §4)."""
+"""Tests for the TraceRepository write boundary."""
 
 from datetime import datetime, timezone
 

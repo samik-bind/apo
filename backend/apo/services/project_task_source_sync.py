@@ -1,4 +1,4 @@
-"""Project task source sync service (SPEC-119).
+"""Project task source sync service.
 
 Turns a configured task source into actual task inventory by:
 
@@ -107,7 +107,7 @@ def sync_task_source(session: Session, source: ProjectTaskSourceDB) -> SyncResul
     if source.source_type == "git":
         return _sync_git_source(session, source)
     if source.source_type == "published":
-        # SPEC-159: published catalogs own their inventory directly;
+        # published catalogs own their inventory directly;
         # no server-side sync needed.
         return SyncResult(source=source, discovered_count=0, resolved_commit_sha=None)
     message = (
@@ -315,7 +315,7 @@ def _sync_git_source(session: Session, source: ProjectTaskSourceDB) -> SyncResul
 
     mark_syncing(session, source)
 
-    # SPEC-121: if the project has a GitHub OAuth connection, resolve
+    # if the project has a GitHub OAuth connection, resolve
     # its access token and rewrite the clone URL so private repos work
     # without per-user PATs.
     clone_url = _maybe_inject_github_token(session, repo_url, source)
@@ -775,7 +775,7 @@ def _run_git(cwd: Path, *args: str) -> str:
 
     All error paths redact embedded URL credentials before constructing
     the ``GitError`` message, so tokens never reach ``source.last_error``
-    or the UI (SPEC-132 Behavior 6).
+    or the UI.
     """
     safe_args = [_redact_git_credentials(a) for a in args]
     try:

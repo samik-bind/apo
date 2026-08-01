@@ -16,7 +16,7 @@ import { shortModel } from "@/lib/run-configuration";
 export type ModelOption = { model: string; count: number };
 
 /**
- * SPEC-148: a URL-backed multi-select facet for filtering runs by model.
+ * a URL-backed multi-select facet for filtering runs by model.
  *
  * Lives on the Execution column header — the model is that column's data, so
  * the filter is discoverable in context. Options are derived from all loaded

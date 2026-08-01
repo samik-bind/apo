@@ -12,7 +12,7 @@ interface BatchRunCancelButtonProps {
   disabled?: boolean;
 }
 
-/** SPEC-162: client cancellation action for the server-rendered Batch detail.
+/** client cancellation action for the server-rendered Batch detail.
  *
  * Idempotent: the second click while the request is in flight is suppressed
  * and the button renders a disabled "Cancelling…" state. The underlying

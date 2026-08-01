@@ -43,7 +43,7 @@ export function ApiKeyCreateDialog({
   const initialProject = defaultProject ?? projects[0]?.id ?? ""
   const [name, setName] = useState("")
   const [project, setProject] = useState(initialProject)
-  // SPEC-149: default to the least-privileged scope. Telemetry producer
+  // default to the least-privileged scope. Telemetry producer
   // issuance is the common case; full management access is an explicit
   // administrative choice.
   const [scope, setScope] = useState<ApiKeyScope>("ingest")

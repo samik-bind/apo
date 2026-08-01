@@ -4,7 +4,7 @@ const AUTH = `Basic ${btoa("pk-apo-6b40e8e4-fca6-4d9e-a97a-3421141a3845:sk-apo-7
 
 // These tests use the real backend on :8000.
 // Run with: APO_E2E=1 npx vitest run tests/otel-trace-client.test.ts
-describe.skipIf(!process.env.APO_E2E)("OTel agent-task trace client (SPEC-129 §7)", () => {
+describe.skipIf(!process.env.APO_E2E)("OTel agent-task trace client", () => {
   it("traceRun provides context with runId and rootSpanId", async () => {
     const { createOtelAgentTaskTraceClient } = await import(
       "../src/agent-task/otel-trace-client.ts"

@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for the OTLP span normalizer (SPEC-129 Track 2).
+"""Tests for the OTLP span normalizer.
 
 The normalizer consumes canonical ``OtlpSpanDB`` rows and produces
 ``NormalizedSpan`` objects — the derived view the projector and dashboard use.

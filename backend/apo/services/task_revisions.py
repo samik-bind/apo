@@ -11,8 +11,7 @@ the orphan object is deleted best-effort (idempotent). If the object write
 fails, no row is created.
 
 This is a foundation spec: nothing here changes where Tasks run and no
-production batch-creation path calls it yet (SPEC-146 wires pooled entry
-points; SPEC-145 wires caller create-and-claim).
+production batch-creation path calls it yet.
 """
 
 from __future__ import annotations

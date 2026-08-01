@@ -91,7 +91,7 @@ export function TaskRuntimeStatusPanel({
             ) : null}
             <div className="mt-2 text-muted-foreground">
               Agent task runs will fail with an operator-grade error until the
-              backend image includes the packaged runtime (SPEC-125).
+              backend image includes the packaged runtime.
             </div>
           </div>
         </div>

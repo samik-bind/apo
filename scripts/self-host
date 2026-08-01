@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC-152: Safe installation secret lifecycle — host helper.
+# Safe installation secret lifecycle — host helper.
 set -euo pipefail
 
 _REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -85,7 +85,7 @@ cmd_init() {
   done
   case "$profile" in local|server) ;; *) _die_usage "init: --profile must be local or server" ;; esac
   case "$database" in sqlite|postgres) ;; *) _die_usage "init: --database must be sqlite or postgres" ;; esac
-  # SPEC-154: --ingress is only valid for server profile.
+  # --ingress is only valid for server profile.
   if [[ -n "$ingress" ]]; then
     [[ "$profile" == "server" ]] || _die_usage "init: --ingress requires --profile server"
     case "$ingress" in caddy|cloudflare-tunnel) ;; *) _die_usage "init: --ingress must be caddy or cloudflare-tunnel" ;; esac
@@ -114,7 +114,7 @@ cmd_init() {
   $has_profile || { values[APO_DEPLOYMENT_PROFILE]="$profile"; has_profile=true; }
   $has_db || { values[APO_DATABASE_PROFILE]="$database"; has_db=true; }
   $has_url || { values[APO_PUBLIC_URL]="$public_url"; has_url=true; }
-  # SPEC-154: persist ingress mode for server profile.
+  # persist ingress mode for server profile.
   if [[ "$profile" == "server" ]]; then
     [[ -n "${values[APO_INGRESS_MODE]:-}" ]] || values[APO_INGRESS_MODE]="$ingress"
   fi
@@ -168,7 +168,7 @@ cmd_doctor() {
   fi
   [[ "$db" == "postgres" ]] && [[ -z "${values[POSTGRES_PASSWORD]:-}" ]] && { _err "error: POSTGRES_PASSWORD required"; errors=$((errors+1)); }
 
-  # SPEC-154: validate ingress mode and tunnel token.
+  # validate ingress mode and tunnel token.
   local ingress="${values[APO_INGRESS_MODE]:-caddy}"
   if [[ "$profile" == "server" ]]; then
     case "$ingress" in caddy|cloudflare-tunnel) ;; *) _err "error: APO_INGRESS_MODE must be caddy or cloudflare-tunnel"; errors=$((errors+1)) ;; esac

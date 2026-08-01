@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for the TraceIngestionQueue (SPEC-129 §2).
+"""Tests for the TraceIngestionQueue.
 
 The queue decouples OTLP acceptance from projection. The receiver persists
 the raw batch, enqueues its batch_id, and returns an OTLP response. A worker

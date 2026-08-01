@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC-157: Anonymous public-ingress smoke probe.
+# Anonymous public-ingress smoke probe.
 #
 # Probes the final SPEC-153/155 route matrix from any external machine.
 # Credential-free, safe to repeat, no state changes.
@@ -111,9 +111,9 @@ probe_auth_blocked GET "/backend-proxy/docs" "404" "Swagger docs denied"
 probe_auth_blocked GET "/backend-proxy/openapi.json" "404" "OpenAPI spec denied"
 probe_auth_blocked GET "/backend-proxy/hello" "404" "dev hello route denied"
 
-# --- Legacy anonymous sharing removed (SPEC-155) ---
-probe_auth_blocked GET "/public/traces/spec-157-canary" "404" "anonymous trace route removed"
-probe_auth_blocked PATCH "/v1/runs/spec-157-canary/visibility" "404" "visibility toggle removed"
+# --- Legacy anonymous sharing removed ---
+probe_auth_blocked GET "/public/traces/legacy-canary" "404" "anonymous trace route removed"
+probe_auth_blocked PATCH "/v1/runs/legacy-canary/visibility" "404" "visibility toggle removed"
 
 # --- Security headers on dashboard ---
 dash_headers="$(curl -sS --max-time "$TIMEOUT" -D - -o /dev/null "$PUBLIC_URL/" 2>/dev/null || echo "")"

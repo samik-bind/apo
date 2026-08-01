@@ -54,8 +54,7 @@ const TIMESTAMPED_MIN = "";
 
 /**
  * Comparison key for deterministic ordering by invocation time then span ID.
- * Missing `startedAt` sorts AFTER every timestamped observation (SPEC-130:
- * "Missing timestamps sort after timestamped observations").
+ * Missing `startedAt` sorts AFTER every timestamped observation.
  */
 function invocationOrderKey(obs: TraceProjectionObservation): [number, string, string] {
   const hasTs = obs.startedAt != null ? 0 : 1;

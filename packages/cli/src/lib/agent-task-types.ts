@@ -120,9 +120,9 @@ export type CheckResult = {
   location?: CheckLocation;
   source_file?: string;
   assertions?: CheckAssertionResult[];
-  /** SPEC-160: id of the describe() group this check was declared inside. */
+  /** id of the describe() group this check was declared inside. */
   group_id?: string;
-  /** SPEC-160: display name of the enclosing describe() group. */
+  /** display name of the enclosing describe() group. */
   group_name?: string;
 };
 

@@ -73,7 +73,7 @@ export const claudeAdapter = defineAdapter({
     const cwd = join(ctx.taskDir, "files");
     const state = (ctx.state ?? EMPTY_STATE) as ClaudeSessionState;
 
-    // SPEC-148: the model is the agent's concern — apo never picks it. Resolve
+    // the model is the agent's concern — apo never picks it. Resolve
     // it from the same env the agent reads (CLAUDE_MODEL, via buildOtelEnv's
     // process.env spread) and report that ONE resolved value as the run's
     // configuration. The same object both constructs the agent (inside

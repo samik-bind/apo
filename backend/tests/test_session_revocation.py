@@ -39,7 +39,7 @@ def _setup_admin_and_authed(
     )
     admin = session.exec(select(UserDB)).first()
     assert admin is not None
-    # SPEC-122: /auth/setup no longer auto-grants is_admin. The global
+    # /auth/setup no longer auto-grants is_admin. The global
     # /auth/users admin endpoints still check UserDB.is_admin, so set
     # it directly for these legacy admin-flow tests.
     admin.is_admin = True

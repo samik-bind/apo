@@ -121,7 +121,7 @@ export function TraceDetailTabs({ run }: TraceDetailTabsProps) {
             acc[model].count += 1;
             acc[model].tokens += c.total_tokens || 0;
             acc[model].cost += c.cost || 0;
-            // Aggregate per-dimension breakdown for the mix bar (SPEC-136 ticket 11).
+            // Aggregate per-dimension breakdown for the mix bar.
             if (c.cost_breakdown) {
               for (const [key, val] of Object.entries(c.cost_breakdown as Record<string, number>)) {
                 acc[model].breakdown[key] = (acc[model].breakdown[key] ?? 0) + val;

@@ -60,7 +60,7 @@ export function defineTask<
 export type TaskScope<TDeliverables> = {
   test: TestRegistration<TDeliverables>;
   /**
-   * Register a single-level group of checks (SPEC-160). See
+   * Register a single-level group of checks. See
    * {@link describe} in `checks/flow-runner.ts`. Returned from `task()` so the
    * `test` inside the callback stays task-scoped (typed deliverables).
    */
@@ -85,7 +85,7 @@ export type TaskScope<TDeliverables> = {
  *
  * // A task that needs dev-machine resources (cloud creds, VPC, stage) can
  * // declare execution: "local" so `apo task run` runs it on the caller's
- * // machine while still recording a backend run row (SPEC-136).
+ * // machine while still recording a backend run row.
  * task("bind-e2e", {
  *   adapter: bindAdapter,
  *   deliverables: ["summary"],

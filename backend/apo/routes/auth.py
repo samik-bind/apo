@@ -197,7 +197,7 @@ def _user_to_response(user: UserDB) -> UserResponse:
 
 @router.get("/has-users")
 def has_users(session: Session = Depends(get_session)) -> dict[str, bool]:
-    # SPEC-153: use the shared installation-initialization service so
+    # use the shared installation-initialization service so
     # setup_available reflects the durable singleton, not just user count.
     from ..services.installation_initialization import get_installation_setup_status
 
@@ -221,7 +221,7 @@ async def setup(body: SetupRequest, session: Session = Depends(get_session)) -> 
 
     verification_required = _is_email_verification_required()
 
-    # SPEC-122: the first user is no longer automatically a product
+    # the first user is no longer automatically a product
     # super-admin. Project authorization comes from project
     # memberships (owner on created projects). ``UserDB.is_admin`` is
     # reserved for instance-maintenance flows guarded by
@@ -667,7 +667,7 @@ def deactivate_user(
 
 
 # ---------------------------------------------------------------------------
-# Project invitation preview + acceptance (SPEC-127)
+# Project invitation preview + acceptance
 # ---------------------------------------------------------------------------
 # These endpoints are intentionally public for preview/create-account
 # (the invitee may not have a session yet) and signed-in-only for the

@@ -1,5 +1,5 @@
 /**
- * SPEC-142: CLI filesystem walker for a caller workspace.
+ * CLI filesystem walker for a caller workspace.
  *
  * Walks a source root, applies the required exclusions and limits, reads each
  * surviving regular/executable file, and feeds the result to the shared
@@ -20,7 +20,7 @@ import {
   type TaskRevisionManifestV1,
 } from "@apo/sdk/agent-task";
 
-/** Limits enforced before a Batch is persisted (SPEC-142 §Limits). */
+/** Limits enforced before a Batch is persisted. */
 export interface RevisionLimits {
   maxFileCount: number;
   maxTotalBytes: number;

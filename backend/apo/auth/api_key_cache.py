@@ -1,4 +1,4 @@
-"""In-memory TTL cache for API key validation results (SPEC-093).
+"""In-memory TTL cache for API key validation results.
 
 Caches both valid keys (positive cache, 5-minute TTL) and invalid keys
 (negative cache, 60-second TTL) so the database isn't hit on every

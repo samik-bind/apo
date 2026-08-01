@@ -253,7 +253,7 @@ class TestProjectorCostAndAggregates:
             assert call is not None
             assert call.total_tokens == 150
             # A correctly-formed GenAI span (model + usage) must produce cost.
-            # SPEC-136: gpt-4o input=$2.50/MTok, output=$10.00/MTok.
+            # gpt-4o input=$2.50/MTok, output=$10.00/MTok.
             #   input: round(2_500_000 micro-per-1M * 100 / 1e6) = 250 micro-USD
             #   output: round(10_000_000 * 50 / 1e6) = 500 micro-USD
             #   total = 750 micro-USD

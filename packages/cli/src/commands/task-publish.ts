@@ -1,5 +1,5 @@
 /**
- * SPEC-159: apo task publish
+ * apo task publish
  *
  * Scans the local task tree, publishes bounded metadata to the Apo Task
  * Catalog, and keeps source files/repository credentials off the server.

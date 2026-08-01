@@ -79,7 +79,7 @@ class TestReadinessChecks:
         assert report.checks["database"].ok
         assert report.checks["task_source_cache"].ok
         assert report.checks["auth_secret"].ok
-        # SPEC-140: the local artifact store is ready by default (zero-config).
+        # the local artifact store is ready by default (zero-config).
         assert report.checks["artifact_store"].ok
 
     def test_readiness_does_not_depend_on_task_runtime_when_scheduler_enabled(
@@ -250,7 +250,7 @@ class TestRuntimeConfigEndpoint:
         assert "scheduler_enabled" in body
         assert "backend_url" in body
         assert "frontend_url" in body
-        # SPEC-124 hardening: database is a sanitized descriptor, NOT a raw DSN.
+        # database is a sanitized descriptor, NOT a raw DSN.
         assert "database_url" not in body
         db = body["database"]
         assert db["engine"] in {"postgres", "sqlite", "unknown"}

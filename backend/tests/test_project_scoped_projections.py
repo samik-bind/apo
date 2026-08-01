@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for project-scoped projection identities (SPEC-133 M4).
+"""Tests for project-scoped projection identities.
 
 Two projects must be able to project the same OTel trace ID independently.
 Surrogate ``row_id`` primary keys plus ``UNIQUE(project, id)`` constraints

@@ -1,11 +1,11 @@
 /**
- * SPEC-140 ticket 05: file Artifact declaration helper.
+ * file Artifact declaration helper.
  *
  * A ``FileArtifact`` is a path descriptor that identifies a regular local
  * file at persistence time. The SDK streams it to the backend (two-phase
  * upload) rather than buffering bytes in the result body.
  *
- * Rules (SPEC-140 §SDK):
+ * Rules:
  * - ``path`` must identify a regular local file at persistence time;
  * - directories, sockets, devices, and symbolic links are rejected;
  * - the default display filename is ``basename(path)``;

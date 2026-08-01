@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportImplicitStringConcatenation=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false
 
-"""Existing v8 databases migrate metric tables to Project-scoped rows (SPEC-133 M4)."""
+"""Existing v8 databases migrate metric tables to Project-scoped rows."""
 
 from sqlalchemy import create_engine, text
 

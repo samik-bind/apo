@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for the OTLP receiver (SPEC-129 Track 1).
+"""Tests for the OTLP receiver.
 
 The receiver decodes OTLP/JSON and OTLP/protobuf payloads, binds the project
 from authenticated credentials (never from payload attributes), persists

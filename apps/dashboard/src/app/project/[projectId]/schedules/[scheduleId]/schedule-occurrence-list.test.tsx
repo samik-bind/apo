@@ -26,7 +26,7 @@ function occ(
   };
 }
 
-describe("ScheduleOccurrenceList (SPEC-163)", () => {
+describe("ScheduleOccurrenceList", () => {
   it("uses honest states and never labels a miss as a failed Task result", () => {
     render(
       <ScheduleOccurrenceList

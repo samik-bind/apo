@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readGitProvenance, sanitizeGitUrl, buildCallerIdentity } from "../src/lib/git-provenance.ts";
 
 /**
- * SPEC-145: Git provenance for the caller attestation. Shells out to git (never
+ * Git provenance for the caller attestation. Shells out to git (never
  * env-only), sanitizes credentials out of the remote URL, and reports dirty
  * state honestly.
  */

@@ -139,7 +139,7 @@ function adaptRotateResponse(
 /**
  * Create a new API key pair.
  *
- * SPEC-149: defaults to ``ingest`` (least privilege) — the common
+ * defaults to ``ingest`` (least privilege) — the common
  * telemetry-producer use case. Pass ``"full"`` explicitly for CLI and
  * management credentials.
  */

@@ -112,21 +112,21 @@ export async function run(argv: string[]): Promise<number> {
 
   // Resolve the task's filesystem path + its declared execution preference.
   // We read `execution` statically (no module load) so we don't re-register
-  // checks just to pick a dispatch mode (SPEC-136).
+  // checks just to pick a dispatch mode.
   const resolved = resolveTask(taskRef, config.taskRoot);
   if (!resolved) {
     console.error(`Task not found: ${taskRef}`);
     return 2;
   }
 
-  // SPEC-165: caller execution is the only recorded runtime. --no-record
+  // caller execution is the only recorded runtime. --no-record
   // forces an unrecorded local run. --executor caller is accepted as a no-op
   // for one release of backward compatibility.
   if (noRecord) {
     return runLocally(config, resolved.taskDir);
   }
 
-  // Default recorded path: caller create-and-claim (SPEC-145).
+  // Default recorded path: caller create-and-claim.
   if (config.projectId && config.apiKey) {
     if (await isBackendReachable(config.backendUrl)) {
       return runCallerRecorded(config, resolved);
@@ -144,7 +144,7 @@ export async function run(argv: string[]): Promise<number> {
  * Dispatch to the Issue #4 local-recorded path, applying the reachability
  * fallback it has always had: if the backend isn't reachable (or no project
  * is set), degrade to an unrecorded local run with a warning. The implicit
- * task/project paths (SPEC-136) inherit the exact same fallback.
+ * task/project paths inherit the exact same fallback.
  */
 type ResolvedTask = {
   taskId: string | undefined;
@@ -233,7 +233,7 @@ async function runLocally(config: Config, taskDir: string): Promise<number> {
 }
 
 /**
- * SPEC-145: recorded caller execution. Hashes the real caller workspace, creates
+ * recorded caller execution. Hashes the real caller workspace, creates
  * + claims one Attempt, /start, runs the SDK Task locally with the Attempt JWT
  * in the child env (never the Project API key), heartbeats, and submits the
  * result/failure through the scoped protocol.
@@ -337,7 +337,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
       deliverables: (summary as { deliverables?: Record<string, unknown> }).deliverables ?? null,
       run_configuration: (summary as { runConfiguration?: { model: string; effort?: string } }).runConfiguration ?? null,
     });
-    // SPEC-166 #90: render the result so the CLI shows PASS/FAIL + checks,
+    // render the result so the CLI shows PASS/FAIL + checks,
     // just like the local and backend paths it replaced.
     if (config.json) {
       console.log(JSON.stringify(summary));

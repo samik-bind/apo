@@ -1,5 +1,5 @@
 /**
- * SPEC-149 Acceptance Tests #4 and #5: the SDK must never produce a
+ * the SDK must never produce a
  * browser-public-key credential, and must never synthesize partial Basic
  * authentication from only one of `publicKey` / `secretKey`.
  */
@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { buildApoAuthHeaders } from "../src/otel/index";
 
-describe("buildApoAuthHeaders (SPEC-149)", () => {
+describe("buildApoAuthHeaders", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
@@ -37,7 +37,7 @@ describe("buildApoAuthHeaders (SPEC-149)", () => {
   });
 
   it("produces no Authorization header when only APO_PUBLIC_KEY is set", () => {
-    // SPEC-149 security invariant: partial Basic (public-only) is never
+    // partial Basic (public-only) is never
     // synthesized. The public identifier does not authorize ingestion.
     process.env.APO_PUBLIC_KEY = "pk-apo-env";
     delete process.env.APO_SECRET_KEY;

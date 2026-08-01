@@ -1,5 +1,5 @@
 /**
- * SPEC-140 ticket 07: dashboard Deliverable API helpers.
+ * dashboard Deliverable API helpers.
  *
  * The Task Run page fetches only the manifest (metadata). JSON bodies load one
  * at a time on row expansion with an AbortController; artifact downloads use

@@ -27,7 +27,7 @@ interface CreateScheduleDialogProps {
 }
 
 /**
- * SPEC-163: create a source-owned Schedule. The authenticated creator becomes
+ * create a source-owned Schedule. The authenticated creator becomes
  * the fixed Execution Owner — the dialog never offers a Pool, queue TTL, task
  * root, path, or owner selector. It submits exact catalog Task IDs.
  */

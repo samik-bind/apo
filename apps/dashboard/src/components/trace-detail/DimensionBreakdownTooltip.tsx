@@ -4,7 +4,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { formatCostMicro, usdFormat } from "@/lib/format";
 
 /**
- * SPEC-136 ticket 11: dimension cost-breakdown tooltip.
+ * dimension cost-breakdown tooltip.
  *
  * Reads the stored per-call cost breakdown directly (no client-side pricing
  * fetch). Groups dimensions by family (Input / Output), sorts by descending

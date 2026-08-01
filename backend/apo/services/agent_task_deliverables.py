@@ -5,7 +5,7 @@ manifest construction, and upload state transitions. The service, not the
 routes, owns these concerns so backend and external execution paths share
 one finalization boundary.
 
-Placement rules (SPEC-140 §"Chosen storage matrix"):
+Placement rules:
 
 - compact UTF-8 size <= ``INLINE_THRESHOLD_BYTES`` -> stored inline as
   ``{"value": <value>}`` on the row;
@@ -41,7 +41,7 @@ from apo.services.artifact_stores.registry import artifact_limits
 # SPEC-140 §3 — inline threshold is a code constant, not a tuning knob.
 INLINE_THRESHOLD_BYTES = 64 * 1024  # 64 KiB
 
-# SPEC-140: name validation. 1-255 UTF-8 bytes, no NUL/control characters.
+# name validation. 1-255 UTF-8 bytes, no NUL/control characters.
 _NAME_MAX_BYTES = 255
 _UPLOAD_INTENT_TTL = timedelta(seconds=86_400)
 
@@ -223,7 +223,7 @@ def synthesize_legacy_manifest(
 def build_trace_output_manifest(
     items: list[DeliverableSummary], task_run_id: str
 ) -> dict[str, object]:
-    """Compact manifest written into ``RunDB.output`` (SPEC-140 §Trace linkage).
+    """Compact manifest written into ``RunDB.output``.
 
     Contains name/kind/size only — never a body. This replaces the old path
     that copied the full Deliverables object into the trace row.
@@ -238,7 +238,7 @@ def build_trace_output_manifest(
     }
 
 
-# --- Artifact upload intents (SPEC-140 §"Artifact uploads are two-phase") -----
+# --- Artifact upload intents -----
 
 
 def validate_deliverable_name(name: str) -> str:

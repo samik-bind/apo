@@ -1,4 +1,4 @@
-"""Runtime configuration service (SPEC-124, extended by SPEC-132).
+"""Runtime configuration service.
 
 Surfaces the deployment-shaped runtime configuration of the backend so
 operators can see what topology their instance is actually running in.
@@ -36,7 +36,7 @@ from .readiness import ReadinessCheckResult, ReadinessReport
 SUPPORTED_TOPOLOGY = "single-node"
 DEFAULT_TASK_EXECUTION_MODE = "executor_pools"
 
-# SPEC-132 Behavior 7: bounded batch concurrency. Default 1, min 1, max 8.
+# bounded batch concurrency. Default 1, min 1, max 8.
 DEFAULT_MAX_CONCURRENT_BATCHES = 1
 MIN_CONCURRENT_BATCHES = 1
 MAX_CONCURRENT_BATCHES_LIMIT = 8
@@ -321,7 +321,7 @@ def _check_auth_secret(dev_mode: bool) -> ReadinessCheckResult:
             ok=True,
             detail="dev mode (AUTH_SECRET unset); auth bypassed",
         )
-    # SPEC-152: reuse the centralized validation helper so readiness and
+    # reuse the centralized validation helper so readiness and
     # startup share one policy. The minimum is 32 chars.
     from .installation_secrets import auth_secret_problem
 
@@ -353,7 +353,7 @@ def _check_task_runtime() -> ReadinessCheckResult:
 
 
 def _check_artifact_store() -> ReadinessCheckResult:
-    """Check the configured ArtifactStore write backend is usable (SPEC-140).
+    """Check the configured ArtifactStore write backend is usable.
 
     Readiness must fail when the selected write backend is unusable: a missing
     non-active historical backend produces an operator warning on content

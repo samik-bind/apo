@@ -128,7 +128,7 @@ export function formatTime(iso: string): string {
 
 /**
  * Format a cost value as USD. Costs are stored as micro-USD integers
- * (SPEC-136: USD * 1e6), so divide by 1e6 before formatting.
+ *, so divide by 1e6 before formatting.
  */
 export function formatCost(value: number | null): string {
   if (value == null) return "-";

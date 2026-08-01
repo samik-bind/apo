@@ -1,5 +1,5 @@
 /**
- * LocalTraceProjectionRecorder (SPEC-130 Track A).
+ * LocalTraceProjectionRecorder.
  *
  * An ephemeral, backend-independent recorder: it records the existing
  * {@link AgentTaskTraceContext} span lifecycle into a
@@ -51,7 +51,7 @@ export interface AgentTaskTraceCapture {
   /**
    * Read the current (possibly partial) projection snapshot. After the root
    * span ends this is the frozen Phase-1 snapshot that Phase-2 evaluation
-   * should read. Used by the two-phase execution split (SPEC-130 Track C).
+   * should read. Used by the two-phase execution split.
    */
   getSnapshot(): TraceProjectionSnapshot;
 }

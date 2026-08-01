@@ -70,7 +70,7 @@ class TestHasUsers:
     def test_no_users(self, client: TestClient) -> None:
         resp = client.get("/auth/has-users")
         assert resp.status_code == 200
-        # SPEC-153: the response also carries setup_available; assert has_users
+        # the response also carries setup_available; assert has_users
         # specifically rather than exact-equality on the whole payload.
         assert resp.json()["has_users"] is False
 
@@ -99,7 +99,7 @@ class TestSetup:
         assert user is not None
         assert user.email == "admin@test.com"
         assert user.name == "Admin"
-        # SPEC-122: the first user is no longer auto-admin. Product
+        # the first user is no longer auto-admin. Product
         # authorization comes from project memberships.
         assert user.is_admin is False
         assert verify_password("SecurePass123", user.password_hash)
@@ -145,7 +145,7 @@ class TestSetup:
         ).first()
         assert admin is not None
         assert other is not None
-        # SPEC-122: neither user is auto-admin.
+        # neither user is auto-admin.
         assert admin.is_admin is False
         assert other.is_admin is False
 

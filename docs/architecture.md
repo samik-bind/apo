@@ -122,7 +122,7 @@ The write path has explicit ownership boundaries:
 This separation is the intended extension point: add framework convention
 normalizers over canonical spans, not provider-specific ingestion endpoints.
 
-### Cost System (SPEC-136)
+### Cost System
 
 Cost is data, not code. apo prices calls against a normalized
 `(model, tier, usage_key) → price` table and computes the per-dimension
@@ -170,7 +170,7 @@ tiers from their stored `raw_usage`. Provided-cost and pre-migration calls are
 skipped and reported. Triggered via an admin endpoint using a kick-off + poll
 pattern (dodging the CLI's 15s HTTP timeout).
 
-### Task Run Deliverables and Artifacts (SPEC-140)
+### Task Run Deliverables and Artifacts
 
 Deliverable **identity and metadata** are relational; large bodies live
 outside the wide `agent_task_runs` row. The boundary exists because a
@@ -204,7 +204,7 @@ task-list query, and `confirm_and_link` duplicated the full body into
   closed on store errors so objects are never orphaned; expired pending
   uploads are failed and their staging bytes cleaned.
 
-### Project Invitations (SPEC-127)
+### Project Invitations
 
 Project admins and owners invite teammates by email without requiring the
 invitee to already have an account. The flow is fully project-scoped and
@@ -462,7 +462,7 @@ graph LR
 
 For multi-instance deployments, replace the in-memory broadcaster with Redis pub/sub for cross-instance event distribution while keeping the same SSE frontend interface.
 
-## Self-Hosted Alpha Topology (SPEC-124)
+## Self-Hosted Alpha Topology
 
 The supported self-hosted shape for internal alpha is **single-node**: one host
 runs a frontend, one backend Control Plane, one private Bundled Executor, and a

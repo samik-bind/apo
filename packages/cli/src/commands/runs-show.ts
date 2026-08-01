@@ -159,7 +159,7 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
     console.log(`  Batch:    ${run.batch_run_id} ${dim("(apo batch show " + run.batch_run_id + ")")}`);
   }
   console.log(`  Adapter:  ${run.adapter_name}`);
-  // SPEC-148: configured model/effort (reported by adapter). The trace's
+  // configured model/effort (reported by adapter). The trace's
   // observed model is a separate concern and not shown here.
   if (run.run_configuration) {
     console.log(`  Model:    ${run.run_configuration.model}`);
@@ -199,7 +199,7 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
   }
 
   if (verbose) {
-    // SPEC-140: prefer the manifest (metadata-only) over the legacy
+    // prefer the manifest (metadata-only) over the legacy
     // deliverables_json body. New rows have deliverables_json null; legacy
     // rows synthesize a manifest on the backend.
     const manifest = run.deliverables ?? [];

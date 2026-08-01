@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnusedParameter=false, reportExplicitAny=false, reportUnusedFunction=false
 
-"""Tests for the two-key API model (SPEC-092 + SPEC-149).
+"""Tests for the two-key API model.
 
 Covers key pair generation, Basic auth validation, and legacy Bearer backward
 compat. SPEC-149 removes the public-key-only Bearer authentication path: a
@@ -192,7 +192,7 @@ class TestMiddlewareBasicAuth:
         make_authed_client: Any,
     ) -> None:
         authed = _setup_and_get_authed_client(client, session, make_authed_client)
-        # SPEC-149: omitting scope defaults to ingest; /v1/api-keys requires
+        # omitting scope defaults to ingest; /v1/api-keys requires
         # full, so the Basic pair test must mint an explicit full key.
         create_resp = authed.post(
             "/v1/api-keys",
@@ -449,7 +449,7 @@ class TestRotationUpgradesLegacyKey:
 
 
 # ---------------------------------------------------------------------------
-# SPEC-149 Acceptance Tests #11 and #12: revoke/rotate invalidate the Basic
+# revoke/rotate invalidate the Basic
 # positive cache immediately (before the DB mutation commits). The old
 # credential must fail on its next request, not after the positive TTL.
 # ---------------------------------------------------------------------------
@@ -463,7 +463,7 @@ class TestCacheInvalidationOnRevoke:
         make_authed_client: Any,
     ) -> None:
         authed = _setup_and_get_authed_client(client, session, make_authed_client)
-        # SPEC-149: default scope is ingest; /v1/api-keys requires full, so
+        # default scope is ingest; /v1/api-keys requires full, so
         # the Basic pair test mints an explicit full key.
         create_resp = authed.post(
             "/v1/api-keys",

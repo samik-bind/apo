@@ -15,7 +15,7 @@ export interface ExecutorPoolSummary {
   required_driver_kind: string;
 }
 
-/** SPEC-162: aggregate state of the acting User's Connected Executors. */
+/** aggregate state of the acting User's Connected Executors. */
 export type ConnectedEnvironmentState =
   | "ready"
   | "busy"
@@ -28,7 +28,7 @@ export interface ConnectedEnvironmentStatus {
   state: ConnectedEnvironmentState;
 }
 
-/** SPEC-162: read the current User's aggregate Connected Environment state.
+/** read the current User's aggregate Connected Environment state.
  * Returns only ``{ state }`` — never Executor IDs, names, or credentials. */
 export async function getConnectedEnvironmentStatus(
   projectId: string,

@@ -135,7 +135,7 @@ const commands: Record<string, CommandEntry> = {
     ],
     options: [
       ["--ci", "CI mode: records CI metadata, uses strict exit codes"],
-      ["--executor <caller|pool-id>", "Target executor: 'caller' (this machine) or an exact Pool id (SPEC-145)"],
+      ["--executor <caller|pool-id>", "Target executor: 'caller' (this machine) or an exact Pool id"],
       ["--no-record", "Run on this machine WITHOUT recording (explicit unrecorded; conflicts with a Pool target)"],
       ["--local", "(compat) alias for --executor caller; deprecated"],
       ["--remote", "(compat) force a Bundled Pool; deprecated — errors if none is configured"],
@@ -298,7 +298,7 @@ const commands: Record<string, CommandEntry> = {
       "apo reprice --model-id 3 --dry-run",
     ],
     note:
-      "Operator-only history rewrite (SPEC-136). Requires --admin-key (ADMIN_API_KEY on the backend). Provided-cost and pre-migration calls are skipped.",
+      "Operator-only history rewrite. Requires --admin-key (ADMIN_API_KEY on the backend). Provided-cost and pre-migration calls are skipped.",
   },
 };
 

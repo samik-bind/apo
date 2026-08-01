@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { resolveExecutionTarget } from "../src/lib/execution-target.ts";
 
 /**
- * SPEC-145: resolveExecutionTarget precedence.
+ * resolveExecutionTarget precedence.
  * Reachability is deliberately NOT an input — placement never changes with
  * backend reachability. `--remote` / task `backend` require a Bundled Pool.
  */

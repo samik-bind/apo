@@ -181,7 +181,7 @@ export async function isBackendReachable(baseUrl: string): Promise<boolean> {
 }
 
 /**
- * Fetch a streaming response with a longer timeout (SPEC-140 ticket 06).
+ * Fetch a streaming response with a longer timeout.
  *
  * Artifact downloads can be large and slow; the default 15s request timeout
  * is too short. Returns the raw Response so the caller can stream the body.

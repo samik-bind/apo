@@ -1,4 +1,4 @@
-"""Project membership service (SPEC-122).
+"""Project membership service.
 
 Centralizes all project-scoped authorization checks. Routes and other
 services must use these helpers instead of checking ``UserDB.is_admin``
@@ -510,7 +510,7 @@ def remove_member(
             detail="Cannot remove the last owner of a project",
         )
 
-    # SPEC-163: a User leaving the Project can no longer run their schedules'
+    # a User leaving the Project can no longer run their schedules'
     # source-owned work, so pause theirs rather than silently retargeting it.
     _pause_source_owned_schedules_for_user(session, project_id=project_id, user_id=user_id)
 

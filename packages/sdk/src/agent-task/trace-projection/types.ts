@@ -1,5 +1,5 @@
 /**
- * Trace Projection snapshot contract (SPEC-130 Track A).
+ * Trace Projection snapshot contract.
  *
  * This is the immutable transport/read snapshot of a Trace Projection — the
  * query-optimized representation shared by the dashboard and agent-task
@@ -11,7 +11,7 @@
  * the snapshot came from the canonical repository, a local/offline recorder,
  * or a legacy-Flow compatibility adapter.
  *
- * Rules (SPEC-130 §Interface):
+ * Rules:
  * - `schemaVersion` versions the JSON contract.
  * - `projectionVersion` identifies the normalizer/projector interpretation.
  * - `source` is diagnostic; only `"canonical"` represents a durably projected

@@ -1,4 +1,4 @@
-"""Durable trace ingestion queue (SPEC-129 §2).
+"""Durable trace ingestion queue.
 
 Decouples OTLP acceptance from projection. The receiver persists the raw
 batch, enqueues its ``batch_id``, and returns an OTLP response immediately.
@@ -36,7 +36,7 @@ QUEUE_LEASE_SECONDS = int(os.environ.get("APO_TRACE_QUEUE_LEASE_SECONDS", "300")
 
 
 class TraceIngestionQueue(Protocol):
-    """Protocol for the trace ingestion queue (SPEC-129 §2).
+    """Protocol for the trace ingestion queue.
 
     Implementations may be DB-backed (default), Redis-backed, or SQS-backed.
     The receiver and worker depend only on this interface.

@@ -212,7 +212,7 @@ def _active_attempt_count(session: Session, executor_id: str) -> int:
 
 
 # ============================================================================
-# SPEC-147: Connected Pool CRUD
+# Connected Pool CRUD
 # ============================================================================
 
 
@@ -347,7 +347,7 @@ async def archive_executor_pool(
 
 
 # ============================================================================
-# SPEC-147: Enrollment tokens
+# Enrollment tokens
 # ============================================================================
 
 
@@ -477,7 +477,7 @@ def _container_config(token: str, pool: ExecutorPoolDB) -> dict[str, object]:
 
 
 # ============================================================================
-# SPEC-147: Executor list / revoke / rename
+# Executor list / revoke / rename
 # ============================================================================
 
 
@@ -696,7 +696,7 @@ def _pool_detail(session: Session, project_id: str, pool: ExecutorPoolDB) -> dic
 
 
 # ---------------------------------------------------------------------------
-# SPEC-161: Member-authorized Connected Executor bootstrap
+# Member-authorized Connected Executor bootstrap
 # ---------------------------------------------------------------------------
 
 
@@ -738,7 +738,7 @@ async def connected_executor_bootstrap(
 
 
 # ---------------------------------------------------------------------------
-# SPEC-162: aggregate Connected Executor status for the dashboard
+# aggregate Connected Executor status for the dashboard
 # ---------------------------------------------------------------------------
 
 

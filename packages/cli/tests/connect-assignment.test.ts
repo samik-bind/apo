@@ -157,7 +157,7 @@ describe("SPEC-161 connector assignment execution", () => {
   it("uses the backend base URL (not the server-reported trace_endpoint) for the child trace env", async () => {
     await exec!("http://cp", "/ws", { ...assignment }, new AbortController().signal);
     expect(lastChildOpts).toBeTruthy();
-    // SPEC-166 #87: traceEndpoint must be the backend BASE URL, not the
+    // traceEndpoint must be the backend BASE URL, not the
     // server-provided full path. The SDK appends /api/public/otel/v1/traces
     // itself; a full-path value doubles it and drops every SDK span.
     expect(lastChildOpts!.traceEndpoint).toBe("http://cp");

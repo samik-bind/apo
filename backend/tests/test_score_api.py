@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for the Score domain API (SPEC-129 §5).
+"""Tests for the Score domain API.
 
 Scores are domain records, not synthetic spans. This tests the native
 ``POST /api/v1/traces/{trace_id}/scores`` and

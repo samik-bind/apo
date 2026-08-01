@@ -1,5 +1,5 @@
 /**
- * SPEC-145: canonical execution-target resolution for `apo task run`.
+ * canonical execution-target resolution for `apo task run`.
  *
  * Placement is resolved once from explicit flags > task compatibility >
  * project preference > default. Crucially it takes NO reachability input:

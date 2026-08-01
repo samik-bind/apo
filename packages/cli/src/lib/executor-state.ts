@@ -1,5 +1,5 @@
 /**
- * SPEC-161: Local executor state persistence.
+ * Local executor state persistence.
  *
  * Stores one executor credential per backend + project + task-root identity.
  * The raw task-root path is used only to derive the opaque state-directory

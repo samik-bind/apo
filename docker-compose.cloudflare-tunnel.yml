@@ -1,4 +1,4 @@
-# SPEC-154: Zero-cost Tunnel Trial — Cloudflare Tunnel ingress.
+# Zero-cost Tunnel Trial — Cloudflare Tunnel ingress.
 #
 # Replaces docker-compose.server.yml for the Tunnel Trial. Caddy listens
 # privately on :8080; cloudflared sends traffic from Cloudflare's edge.
@@ -33,7 +33,7 @@ services:
         max-size: "10m"
         max-file: "3"
     environment:
-      # SPEC-154: tunnel mode — Caddy listens privately; no TLS (Cloudflare owns public TLS).
+      # tunnel mode — Caddy listens privately; no TLS (Cloudflare owns public TLS).
       - APO_CADDY_SITE_ADDRESS=:8080
       # Trust the private Compose network peer (cloudflared).
       - APO_TRUSTED_PROXY_RANGES=private_ranges

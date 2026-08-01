@@ -5,7 +5,7 @@ Pure canonicalizer. Both this module and its TypeScript twin
 byte-identical canonical JSON and digests for every fixture under
 ``contracts/task-revision/v1/cases/``.
 
-Canonicalization rules (SPEC-142 §Canonical Task Revision manifest):
+Canonicalization rules:
   - ``/`` path separators (caller ``\\`` normalized to ``/``);
   - Unicode NFC normalization of the path;
   - bytewise lexical ordering of normalized UTF-8 paths;

@@ -1,4 +1,4 @@
-# Self-Hosted Alpha Topology (SPEC-124)
+# Self-Hosted Alpha Topology
 
 The agent-testing platform has exactly **one supported self-hosted topology for
 alpha**: a single node with separate frontend, Control Plane, and Bundled
@@ -214,7 +214,7 @@ The `database` field is a sanitized descriptor — credentials are never
 exposed through this endpoint, even to admins. This is surfaced in the
 dashboard at **Settings → System → Deployment Topology**.
 
-## Task execution dependencies (SPEC-125)
+## Task execution dependencies
 
 Real synced Git sources almost always need dependencies before `runner.mjs`
 can load their task modules. The Executor performs this deterministic install

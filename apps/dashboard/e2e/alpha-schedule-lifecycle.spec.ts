@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * SPEC-126: internal alpha release gate — schedule lifecycle.
+ * internal alpha release gate — schedule lifecycle.
  *
  * Validates the schedule surface renders a clean operator view and does
  * not display misleading copy for schedules whose next_run_at is "now"

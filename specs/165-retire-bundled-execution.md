@@ -1,4 +1,4 @@
-# SPEC-165: Retire Bundled Execution
+# Retire Bundled Execution
 
 ## Overview
 
@@ -15,15 +15,15 @@ permanently non-executable, and source-bearing objects are purged narrowly.
 
 ## Dependencies
 
-- SPEC-159: Client-Published Task Catalog. Non-demo Projects already publish
+- Client-Published Task Catalog. Non-demo Projects already publish
   bounded metadata instead of granting Apo repository access.
-- SPEC-161: Source-Owned Connected Executor. Provides protocol v2, member-owned
+- Source-Owned Connected Executor. Provides protocol v2, member-owned
   enrollment, typed assignments, and per-Attempt source attestation.
-- SPEC-162: Dashboard Runs Through Connected Executors. Provides native manual
+- Dashboard Runs Through Connected Executors. Provides native manual
   dashboard dispatch without Pool or machine selection.
-- SPEC-163: Source-Owned Scheduled Delivery. Provides fixed-owner scheduled
+- Source-Owned Scheduled Delivery. Provides fixed-owner scheduled
   Occurrences delivered to that User's Connected Executors.
-- SPEC-164: Production-Ready Connected Executor Runtime. Completes real local
+- Production-Ready Connected Executor Runtime. Completes real local
   execution and result/failure finalization through `apo connect`.
 - Existing caller execution:
   `packages/cli/src/lib/caller-execution.ts`,

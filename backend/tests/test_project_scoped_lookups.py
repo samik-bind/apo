@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false
 
-"""Cross-tenant isolation tests for project-scoped lookups (SPEC-133 M4).
+"""Cross-tenant isolation tests for project-scoped lookups.
 
 Two Projects can share the same OTel trace/span id. Every read path must
 return only the scoped Project's data — never the other Project's row.

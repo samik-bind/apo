@@ -84,7 +84,7 @@ def create_webhook(
     session: Session = Depends(get_session),
 ):
     require_project_not_demo(body.project)
-    # SPEC-122: webhook management requires project admin role.
+    # webhook management requires project admin role.
     _ = enforce_project_role_from_request(
         request, session, body.project, minimum_role="admin"
     )
@@ -121,7 +121,7 @@ def list_webhooks(
     request: Request,
     session: Session = Depends(get_session),
 ):
-    # SPEC-122: webhook inventory is admin-scoped ("webhooks are managed
+    # webhook inventory is admin-scoped ("webhooks are managed
     # by project admins/owners"). Members must not enumerate webhook
     # configurations for a project.
     _ = enforce_project_role_from_request(
@@ -141,7 +141,7 @@ def get_webhook(
     wh = session.get(WebhookDB, webhook_id)
     if wh is None:
         raise HTTPException(status_code=404, detail="Webhook not found")
-    # SPEC-122: even single-webhook reads require admin role on the
+    # even single-webhook reads require admin role on the
     # webhook's project. Without this, any authenticated user who knows
     # a webhook id could inspect configuration for any project.
     _ = enforce_project_role_from_request(
@@ -162,7 +162,7 @@ def update_webhook(
         raise HTTPException(status_code=404, detail="Webhook not found")
 
     require_project_not_demo(wh.project)
-    # SPEC-122: webhook management requires project admin role.
+    # webhook management requires project admin role.
     _ = enforce_project_role_from_request(
         request, session, wh.project, minimum_role="admin"
     )
@@ -203,7 +203,7 @@ def delete_webhook(
     if wh is None:
         raise HTTPException(status_code=404, detail="Webhook not found")
     require_project_not_demo(wh.project)
-    # SPEC-122: webhook management requires project admin role.
+    # webhook management requires project admin role.
     _ = enforce_project_role_from_request(
         request, session, wh.project, minimum_role="admin"
     )
@@ -222,7 +222,7 @@ def rotate_secret(
         raise HTTPException(status_code=404, detail="Webhook not found")
 
     require_project_not_demo(wh.project)
-    # SPEC-122: webhook management requires project admin role.
+    # webhook management requires project admin role.
     _ = enforce_project_role_from_request(
         request, session, wh.project, minimum_role="admin"
     )
@@ -249,7 +249,7 @@ async def test_webhook(
         raise HTTPException(status_code=404, detail="Webhook not found")
 
     require_project_not_demo(wh.project)
-    # SPEC-122: webhook management requires project admin role.
+    # webhook management requires project admin role.
     _ = enforce_project_role_from_request(
         request, session, wh.project, minimum_role="admin"
     )

@@ -1,4 +1,4 @@
-"""OTLP receiver — the canonical trace write path (SPEC-129 Track 1).
+"""OTLP receiver — the canonical trace write path.
 
 Decodes standard OTLP/JSON and OTLP/protobuf payloads, binds the project from
 authenticated credentials (never from payload attributes), persists canonical
@@ -39,7 +39,7 @@ MAX_PAYLOAD_BYTES = 10 * 1024 * 1024
 
 
 class OtlpPayloadError(ValueError):
-    """Base for request-level OTLP decode/size failures (SPEC-150)."""
+    """Base for request-level OTLP decode/size failures."""
 
 
 class OtlpDecodeError(OtlpPayloadError):
@@ -95,7 +95,7 @@ def decode_otlp_payload(
         raise OtlpSizeLimitError(f"Payload exceeds maximum size of {max_raw} bytes")
 
     # Bounded gzip decompression — incremental reads into a bytearray, never
-    # repeated immutable-byte concatenation (SPEC-150 quality constraint).
+    # repeated immutable-byte concatenation.
     if encoding == "gzip":
         import gzip
 
@@ -177,7 +177,7 @@ def _datetime_from_nanos(nanos: int) -> datetime | None:
     """Convert an OTLP nanosecond timestamp to UTC via integer arithmetic.
 
     Never routes through floating-point seconds, which would lose the
-    sub-microsecond precision OTLP carries (SPEC-131 Milestone 2.1).
+    sub-microsecond precision OTLP carries.
     """
     if nanos < 0:
         return None
@@ -248,13 +248,13 @@ class OtlpReceiver:
 
         Request-level failures (malformed payload, size/span cap) raise
         :class:`OtlpDecodeError` (400) or :class:`OtlpSizeLimitError` (413)
-        and write nothing — no inbox row, no canonical span (SPEC-150).
+        and write nothing — no inbox row, no canonical span.
 
         SPEC-156: all received Trace Content is stored in full. There is no
         content-policy redaction or filtering step.
 
         ``context`` carries the authenticated ingestion identity so Task Run
-        claims are subject- and project-bound (SPEC-131 Milestone 3). When
+        claims are subject- and project-bound. When
         omitted, the ingest is treated as unauthenticated and may not claim.
         """
         # 1. Decode the payload (typed errors, no durable write on failure).
@@ -270,7 +270,7 @@ class OtlpReceiver:
                 f"Span count {span_count} exceeds maximum of {max_spans}"
             )
 
-        # SPEC-151: consume one Telemetry Ingestion Unit per decoded Span
+        # consume one Telemetry Ingestion Unit per decoded Span
         # before any durable write. The callback raises on rejection.
         if admission_consume_units is not None:
             admission_consume_units(span_count)
@@ -308,8 +308,7 @@ class OtlpReceiver:
                     # The canonical span and its derived projection are in
                     # SEPARATE savepoints so a projection conflict (which the
                     # legacy schema cannot represent) never loses the canonical
-                    # span (SPEC-131 M4.3: keep both canonical spans, fail the
-                    # conflicting derived projection explicitly). The receiver
+                    # span. The receiver
                     # owns the final commit (M4.4).
                     canonical: OtlpSpanDB | None = None
                     persist_error: str | None = None
@@ -457,7 +456,7 @@ class OtlpReceiver:
             # Upsert: update the existing row
             existing.parent_span_id = span.get("parentSpanId")
             # Preserve a parsed timestamp; keep the prior value if the payload
-            # omits one. Never substitute ingestion time (SPEC-131 M2).
+            # omits one. Never substitute ingestion time.
             existing.start_time = start_time or existing.start_time
             existing.end_time = end_time or existing.end_time
             existing.span_name = str(span.get("name", ""))

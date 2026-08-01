@@ -1,5 +1,5 @@
 /**
- * Force-flush integration test for the official OTLP exporter (SPEC-129 Track 4).
+ * Force-flush integration test for the official OTLP exporter.
  *
  * This is the gating condition for SPEC-130 Track C: "The standard TypeScript
  * OTLP exporter is proven by a force-flushed HTTP integration test."
@@ -48,7 +48,7 @@ async function stopServer(): Promise<void> {
   }
 }
 
-describe("OTLP exporter force-flush integration (SPEC-129 Track 4)", () => {
+describe("OTLP exporter force-flush integration", () => {
   afterEach(async () => {
     RECEIVED_BODIES.length = 0;
     await stopServer();

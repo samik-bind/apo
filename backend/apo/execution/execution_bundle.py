@@ -5,7 +5,7 @@ An Execution Bundle is a deterministic ``tar.gz``:
     manifest.json            # full TaskRevisionManifestV1 (schemaVersion+files+summary)
     workspace/<source files> # regular/executable only
 
-Determinism (SPEC-142 §materialization step 5): gzip mtime zero; fixed tar
+Determinism: gzip mtime zero; fixed tar
 uid/gid/user/group/mtime; deterministic mode from ``modeClass``; entries sorted
 by path. ``content_sha256`` (over schemaVersion + sorted files) is recomputed
 on verify and must match.

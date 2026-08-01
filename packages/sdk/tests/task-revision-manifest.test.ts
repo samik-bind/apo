@@ -12,7 +12,7 @@ import {
 } from "../src/agent-task/task-revision-manifest.ts";
 
 /**
- * SPEC-142: Task Revision manifest canonicalizer — parity corpus.
+ * Task Revision manifest canonicalizer — parity corpus.
  *
  * Each fixture under contracts/task-revision/v1/cases/ carries inputs
  * (path, modeClass, content) and an `expected.contentSha256` derived

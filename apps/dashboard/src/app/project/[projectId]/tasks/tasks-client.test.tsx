@@ -52,7 +52,7 @@ const taskSource = {
   inventory_stale: false,
 } as unknown as ProjectTaskSource;
 
-describe("AgentTasksClient — native source-owned Run (SPEC-162)", () => {
+describe("AgentTasksClient — native source-owned Run", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // `window.location.href =` assignment is what the client uses to navigate

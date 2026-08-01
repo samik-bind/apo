@@ -23,7 +23,7 @@ export type AgentTaskRunSummary = {
   deliverables?: Record<string, unknown>;
   /** Per-turn transcript of the run. */
   transcript?: Record<string, unknown>;
-  /** SPEC-148: adapter-reported model/effort, forwarded when recording locally. */
+  /** adapter-reported model/effort, forwarded when recording locally. */
   runConfiguration?: AgentTaskRunConfiguration;
 };
 
@@ -59,7 +59,7 @@ export async function runTaskDir(
     loadTaskRuntime(taskDir),
   ]);
 
-  // Set up OTel tracing for CLI-driven task runs (SPEC-129 §7).
+  // Set up OTel tracing for CLI-driven task runs.
   // The backend subprocess (runner-entry.ts) does its own setup;
   // this covers the CLI path (runAgentTaskCli → runTaskDir).
   // Falls back to noop tracing when no endpoint is configured (e.g. tests).

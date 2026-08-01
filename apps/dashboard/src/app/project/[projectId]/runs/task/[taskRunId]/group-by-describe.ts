@@ -1,7 +1,7 @@
 import type { CheckResult } from "@/lib/agent-task-api";
 
 /**
- * One segment of the checks list after `describe()` grouping (SPEC-160).
+ * One segment of the checks list after `describe()` grouping.
  *
  * - ``"check"`` — a bare check, declared outside any describe.
  * - ``"group"`` — a collapsible group of checks that shared one describe id.

@@ -1,6 +1,6 @@
 /**
  * Projection tee — wraps a real {@link AgentTaskTraceContext} and records the
- * span lifecycle into a {@link TraceProjectionSnapshot} (SPEC-130 Track D).
+ * span lifecycle into a {@link TraceProjectionSnapshot}.
  *
  * This is the FlowTee replacement. FlowTee recorded legacy `FlowEvent`s which
  * `snapshotFromFlow` converted to a snapshot. This tee records

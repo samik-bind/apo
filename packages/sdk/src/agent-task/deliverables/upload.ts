@@ -1,5 +1,5 @@
 /**
- * SPEC-140 ticket 05: file Artifact uploader.
+ * file Artifact uploader.
  *
  * After checks run against the original in-memory Deliverables, this module
  * partitions JSON values from file Artifacts, streams each file to the

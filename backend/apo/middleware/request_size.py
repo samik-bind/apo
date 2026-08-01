@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 _RESULT_BODY_LIMIT = 10 * 1024 * 1024  # 10 MiB Task result body
 _ARTIFACT_UPLOAD_LIMIT = 100 * 1024 * 1024  # 100 MiB per Artifact upload
 
-# SPEC-150: the exact canonical public OTLP trace path.
+# the exact canonical public OTLP trace path.
 _OTLP_METHOD = "POST"
 _OTLP_PATH = "/api/public/otel/v1/traces"
 
@@ -75,12 +75,12 @@ class RequestSizeMiddleware(BaseHTTPMiddleware):
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        # 1. Static per-route byte caps (SPEC-140).
+        # 1. Static per-route byte caps.
         limit = _limit_for(request)
         if limit is not None:
             return await _enforce_byte_limit(request, call_next, limit)
 
-        # 2. Configurable OTLP transport limits (SPEC-150).
+        # 2. Configurable OTLP transport limits.
         if self._otlp_limits is not None and _is_otlp_request(request):
             return await _enforce_otlp_limits(request, call_next, self._otlp_limits)
 
@@ -96,7 +96,7 @@ async def _enforce_byte_limit(
     call_next: Callable[[Request], Awaitable[Response]],
     limit: int,
 ) -> Response:
-    """Streamed byte-cap enforcement for static per-route limits (SPEC-140)."""
+    """Streamed byte-cap enforcement for static per-route limits."""
     declared = request.headers.get("content-length")
     if declared is not None:
         try:
@@ -131,7 +131,7 @@ async def _enforce_otlp_limits(
     call_next: Callable[[Request], Awaitable[Response]],
     limits: TelemetryTransportLimits,
 ) -> Response:
-    """Streamed on-wire cap + receive-only deadline for the OTLP path (SPEC-150).
+    """Streamed on-wire cap + receive-only deadline for the OTLP path.
 
     Pre-reads the body in the middleware itself (counting bytes and enforcing
     the deadline) rather than wrapping ``receive`` with an exception-raising

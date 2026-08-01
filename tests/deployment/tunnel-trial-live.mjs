@@ -1,4 +1,4 @@
-// SPEC-157: Complete live tunnel-trial validation.
+// Complete live tunnel-trial validation.
 //
 // Addresses all gaps:
 // 1. Verifies a Trace actually arrives in Apo (not just exit code)
@@ -169,7 +169,7 @@ try {
   }
   record("content-attributes", "PASS", "raw span attributes verified by test_full_trace_content.py unit tests");
 
-  // Verify no is_public field (SPEC-155/156)
+  // Verify no is_public field
   record("no-is_public", traceText.includes("is_public") ? "FAIL" : "PASS", "");
 
   // Verify tenancy — trace was found via project-scoped query, which proves binding

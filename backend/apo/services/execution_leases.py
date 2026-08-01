@@ -3,8 +3,7 @@
 """SPEC-143: lease state machine — atomic claim, start/heartbeat fencing, reaper.
 
 The database is authoritative for ownership; an Executor's heartbeat or request
-body is never trusted as status. The state machine (SPEC-143 §Execution state
-machine):
+body is never trusted as status. The state machine:
 
     queued -> leased -> cancelled -> failed(executor_unavailable)
     leased -> running -> queued (pre-start expiry) -> cancelled
@@ -409,7 +408,7 @@ def start_attempt(
     session.add(attempt)
     session.add(task_run)
     session.add(batch)
-    # SPEC-163: the first /start promotes a pending Schedule Occurrence to
+    # the first /start promotes a pending Schedule Occurrence to
     # delivered — from here its outcome belongs to the Batch, not availability.
     _mark_schedule_occurrence_delivered(session, attempt)
     session.commit()
@@ -587,7 +586,7 @@ def _finalize_logical_run(
     from apo.services.run_events import emit_batch_run_event, emit_task_run_event
 
     update_batch_run_status(session, batch)
-    # SPEC-163: resolve the pending Schedule Occurrence when the Batch reaches
+    # resolve the pending Schedule Occurrence when the Batch reaches
     # a terminal state through recovery/cancellation.
     _resolve_schedule_occurrence_if_terminal(session, batch)
     emit_task_run_event(attempt.project, task_run)

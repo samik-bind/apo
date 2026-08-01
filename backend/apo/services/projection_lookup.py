@@ -1,4 +1,4 @@
-"""Project-scoped lookups for Trace Projection rows (SPEC-133 M4 / ADR-0002).
+"""Project-scoped lookups for Trace Projection rows.
 
 Public OTel trace/span IDs are not globally unique storage identities once two
 Projects can project the same id. Every lookup of a projected ``RunDB`` /

@@ -37,11 +37,11 @@ export const APO_RUN_TASK_ID = "apo.run.task_id" as const;
 export const APO_RUN_VERSION = "apo.run.version" as const;
 export const APO_RUN_TAGS = "apo.run.tags" as const; // JSON array string
 
-// ── Task-run ownership (SPEC-129 §5) ──────────────────────────────────────
+// ── Task-run ownership ──────────────────────────────────────
 //
 // Carried on the root span of a task-run Trace. The backend projector reads
 // `apo.task.run.id` and atomically claims `AgentTaskRunDB.trace_run_id`,
-// enforcing the one-trace-per-task-run invariant (SPEC-128). Without these
+// enforcing the one-trace-per-task-run invariant. Without these
 // attributes the claim path never fires for agent-task runs.
 
 export const APO_TASK_ID = "apo.task.id" as const;

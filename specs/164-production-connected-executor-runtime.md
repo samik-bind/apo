@@ -1,4 +1,4 @@
-# SPEC-164: Production-Ready Connected Executor Runtime
+# Production-Ready Connected Executor Runtime
 
 ## Overview
 
@@ -11,15 +11,15 @@ Task source remains on the connected machine.
 
 ## Dependencies
 
-- SPEC-129: canonical authenticated OTLP ingestion and Task Run trace claims.
-- SPEC-142: `walkWorkspaceForRevision` and canonical source manifests.
-- SPEC-143 through SPEC-145: durable Attempts, lease fencing, shared
+- canonical authenticated OTLP ingestion and Task Run trace claims.
+- `walkWorkspaceForRevision` and canonical source manifests.
+- durable Attempts, lease fencing, shared
   finalization, cancellation, and Caller Execution patterns.
-- SPEC-148: adapter-reported model/effort in the persisted Run result.
-- SPEC-159: explicit metadata-only Task Catalog publication and digest.
-- SPEC-161: protocol-v2 enrollment, source-owned Pool, local Executor state,
+- adapter-reported model/effort in the persisted Run result.
+- explicit metadata-only Task Catalog publication and digest.
+- protocol-v2 enrollment, source-owned Pool, local Executor state,
   source attestation, and the foreground `apo connect` command.
-- SPEC-162 and SPEC-163: dashboard and scheduled creation of source-owned
+- dashboard and scheduled creation of source-owned
   Attempts targeted to one User.
 - Existing code:
   - `packages/cli/src/commands/connect.ts`

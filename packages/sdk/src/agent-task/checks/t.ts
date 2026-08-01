@@ -390,8 +390,7 @@ const CAPABILITY_LABELS: Record<keyof TraceProjectionCapabilities, string> = {
 } as const;
 
 /**
- * Create a projection-first test context from a {@link TraceView} (SPEC-130
- * Track C). Mirrors {@link createTestContext} but gates trace-dependent
+ * Create a projection-first test context from a {@link TraceView}. Mirrors {@link createTestContext} but gates trace-dependent
  * assertions on capabilities: when the projection declares a capability
  * ``unavailable``, the assertion records ``outcome="unsupported"`` (pass=false)
  * instead of vacuously passing against fabricated zero/empty evidence.

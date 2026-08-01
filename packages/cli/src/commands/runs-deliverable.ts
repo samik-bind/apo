@@ -1,6 +1,6 @@
 /**
  * `apo runs deliverable <run-id> [name]` — read a run's deliverables without
- * re-rendering the whole run (SPEC-140).
+ * re-rendering the whole run.
  *
  * Uses the manifest endpoint (metadata only) by default, and fetches exactly
  * one body when a name is given — never the whole run. Binary Artifacts stream

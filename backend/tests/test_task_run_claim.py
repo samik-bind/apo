@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for task-run trace claim via root span attributes (SPEC-129 Track 3.3).
+"""Tests for task-run trace claim via root span attributes.
 
 When an OTLP root span carries ``apo.task.run.id``, the receiver should:
   1. Link the trace to the AgentTaskRunDB via ``trace_run_id``

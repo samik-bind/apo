@@ -1,4 +1,4 @@
-"""Project task inventory service (SPEC-119).
+"""Project task inventory service.
 
 Owns the persisted task inventory table that backs the project-scoped
 ``/v1/projects/{id}/agent-tasks`` routes. Inventory is the source of

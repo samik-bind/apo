@@ -186,7 +186,7 @@ async def trigger_retention_cleanup(
 
 
 # ---------------------------------------------------------------------------
-# SPEC-136 ticket 12: re-pricing (CLI-driven history rewrite)
+# re-pricing (CLI-driven history rewrite)
 # ---------------------------------------------------------------------------
 #
 # ``POST /v1/admin/reprice`` kicks off a background reprice job and returns a

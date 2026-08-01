@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
     set_event_loop(asyncio.get_event_loop())
     init_email_service()
     init_db()
-    # SPEC-165: retire bundled execution before any scheduler/reaper/demo
+    # retire bundled execution before any scheduler/reaper/demo
     # startup. Fence legacy state and purge Bundle objects idempotently.
     with Session(engine) as session:
         from .services.execution_retirement import (
@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
 
         retire_legacy_execution_rows(session, now=datetime.now(timezone.utc))
         purge_legacy_bundle_objects(session)
-    # SPEC-122: ensure the demo project exists at startup so it shows
+    # ensure the demo project exists at startup so it shows
     # up in project lists and users can browse it read-only.
     from .services.demo_workspace import _ensure_demo_project_exists  # pyright: ignore[reportPrivateUsage]
     _ensure_demo_project_exists()
@@ -94,7 +94,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    # SPEC-152: validate installation configuration before constructing
+    # validate installation configuration before constructing
     # anything. Release profiles fail fast on missing/weak secrets.
     from .services.installation_secrets import (
         load_installation_config,
@@ -104,7 +104,7 @@ def create_app() -> FastAPI:
     config = load_installation_config()
     validate_installation_secrets(config)
 
-    # SPEC-153: disable framework docs in the Server Profile.
+    # disable framework docs in the Server Profile.
     if config.deployment_profile == "server":
         app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     else:
@@ -130,16 +130,16 @@ def create_app() -> FastAPI:
         load_telemetry_transport_limits,
     )
 
-    # SPEC-150: validate transport limits at app construction (not lazily).
+    # validate transport limits at app construction (not lazily).
     transport_limits = load_telemetry_transport_limits()
 
-    # SPEC-151: validate admission limits and construct the controller.
+    # validate admission limits and construct the controller.
     admission_limits = load_telemetry_admission_limits()
     admission_controller = TelemetryAdmissionController(admission_limits)
     app.state.admission_controller = admission_controller
     app.state.admission_limits = admission_limits
 
-    # SPEC-153: public readiness probe on app.state.
+    # public readiness probe on app.state.
     from .services.public_readiness import PublicReadinessProbe
     app.state.public_readiness_probe = PublicReadinessProbe()
 

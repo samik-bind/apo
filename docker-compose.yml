@@ -21,7 +21,7 @@ services:
       - BACKEND_URL=http://backend:8000
       - AUTH_SECRET=${AUTH_SECRET}
       - AUTH_TRUST_HOST=true
-      # SPEC-152: pass the deployment profile to the frontend.
+      # pass the deployment profile to the frontend.
       - APO_DEPLOYMENT_PROFILE=${APO_DEPLOYMENT_PROFILE:-local}
       # Keep NEXTAUTH_URL as a fallback for existing installations; new
       # deployments use APO_PUBLIC_URL as the single public-origin setting.
@@ -64,9 +64,9 @@ services:
       # hostname, otherwise CORS blocks browser fetches and generated links
       # resolve to unreachable docker-internal addresses.
       - FRONTEND_URL=${APO_PUBLIC_URL:-${NEXTAUTH_URL:-http://localhost:3000}}
-      # Alpha topology (SPEC-124): scheduler runs in the single backend process.
+      # Alpha topology: scheduler runs in the single backend process.
       - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-true}
-      # SPEC-148 dev: the bundled executor enrolls + claims work; give slow
+      # the bundled executor enrolls + claims work; give slow
       # model calls lease headroom (default 90s is too tight for cheap models).
       - APO_ATTEMPT_LEASE_SECONDS=${APO_ATTEMPT_LEASE_SECONDS:-600}
       - TASK_SOURCE_CACHE_DIR=/var/lib/apo/task-sources
@@ -96,7 +96,7 @@ services:
       retries: 5
       start_period: 15s
 
-  # SPEC-144: Bundled Executor. Reuses the backend image as a separate process
+  # Bundled Executor. Reuses the backend image as a separate process
   # that pulls work over HTTP via the SPEC-143 protocol. It mounts NO database or
   # task-source cache, publishes NO port, and is never internet-facing. The
   # supervisor runs as root and drops Task child processes to appuser.

@@ -1,4 +1,4 @@
-"""Task dependency installation service (SPEC-125 hardening).
+"""Task dependency installation service.
 
 Real task sources — synced Git repos or filesystem paths beyond the
 in-repo example-service — almost always need their own dependencies

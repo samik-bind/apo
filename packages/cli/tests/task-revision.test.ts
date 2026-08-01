@@ -9,7 +9,7 @@ import { walkWorkspaceForRevision, TaskRevisionWalkError, DEFAULT_REVISION_LIMIT
 import { buildManifest, contentSha256 } from "@apo/sdk/agent-task";
 
 /**
- * SPEC-142: CLI filesystem walker for a caller workspace.
+ * CLI filesystem walker for a caller workspace.
  *
  * Walks a source root, applies the required exclusions and limits, reads each
  * surviving regular/executable file, and feeds the result to the shared

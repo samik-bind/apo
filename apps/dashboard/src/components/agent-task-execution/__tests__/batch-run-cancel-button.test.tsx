@@ -13,7 +13,7 @@ vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-describe("BatchRunCancelButton (SPEC-162)", () => {
+describe("BatchRunCancelButton", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

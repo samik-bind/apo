@@ -1,5 +1,5 @@
 /**
- * Remote trace projection reader (SPEC-130 Track C).
+ * Remote trace projection reader.
  *
  * Polls the Task-Run-scoped projection endpoint
  * (`GET /v1/agent-task-runs/{task_run_id}/trace-projection`) with bounded

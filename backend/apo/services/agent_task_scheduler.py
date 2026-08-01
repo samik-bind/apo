@@ -149,7 +149,7 @@ def run_due_schedules_once() -> int:
         ).all()
 
         for schedule in schedules:
-            # SPEC-163: source-owned schedules dispatch through the idempotent
+            # source-owned schedules dispatch through the idempotent
             # Occurrence delivery path; legacy bundled schedules keep the
             # pooled path until the retirement spec handles them.
             if schedule.execution_kind == "source_owned":

@@ -1,5 +1,5 @@
 /**
- * SPEC-161: Protocol v2 client for the source-owned Connected Executor.
+ * Protocol v2 client for the source-owned Connected Executor.
  *
  * Provides the typed API calls for bootstrap, enrollment, heartbeat,
  * claims, source attestation, and attempt lifecycle — without ever
@@ -197,7 +197,7 @@ export async function claimWork(opts: {
   return await resp.json() as SourceOwnedAssignment;
 }
 
-/** SPEC-164: structured claim result so the loop can honor server timing. */
+/** structured claim result so the loop can honor server timing. */
 export type ClaimWorkResult =
   | { kind: "assignment"; assignment: SourceOwnedAssignment }
   | { kind: "empty"; retryAfterMs: number }
@@ -334,7 +334,7 @@ export async function submitResult(opts: {
   }
 }
 
-/** SPEC-164: authoritative failure kinds for source-owned execution. */
+/** authoritative failure kinds for source-owned execution. */
 export type SourceOwnedFailureKind =
   | "task_import"
   | "task_runtime"

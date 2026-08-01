@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Fixture corpus loader and contract validation for OTLP tracing (SPEC-129).
+"""Fixture corpus loader and contract validation for OTLP tracing.
 
 Each fixture under ``tests/fixtures/otel/`` is a JSON file with:
   - ``description``: human-readable explanation

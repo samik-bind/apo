@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-describe("Score API (SPEC-129 §5)", () => {
+describe("Score API", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {

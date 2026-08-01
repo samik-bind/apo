@@ -1,5 +1,5 @@
 /**
- * SPEC-131 Milestone 5 tests: TS OTel composition.
+ * TS OTel composition.
  *
  * Proves the invariants the hardening targeted:
  *   - nested spans share a trace and carry the correct parent (Test Case 9)

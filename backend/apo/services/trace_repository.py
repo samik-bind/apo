@@ -1,6 +1,6 @@
 # pyright: reportExplicitAny=false
 
-"""Trace Projection repository (SPEC-130 Track A).
+"""Trace Projection repository.
 
 Reads the physical Trace Projection tables (``RunDB`` / ``LoggedCallDB``,
 supplied by SPEC-129's projector) and returns an immutable
@@ -169,7 +169,7 @@ _ObservationTypeLit = Literal[
 
 def _build_observation(call: LoggedCallDB) -> TraceProjectionObservation:
     # Narrow the free-form DB string to the projection's closed Literal set;
-    # anything unrecognized survives as SPAN (SPEC-130: unknown spans survive).
+    # anything unrecognized survives as SPAN.
     raw_type = call.observation_type
     narrowed = raw_type if raw_type in _OBSERVATION_TYPES else "SPAN"
     typed_type = cast(_ObservationTypeLit, narrowed)
@@ -265,7 +265,7 @@ class NativeTraceRepository:
         observations = tuple(_build_observation(c) for c in calls)
 
         # Projection version: the max version stamped on the trace's canonical
-        # OTel spans (SPEC-129). Falls back to 0 when no canonical spans exist.
+        # OTel spans. Falls back to 0 when no canonical spans exist.
         projection_version = session.exec(
             select(func.max(OtlpSpanDB.projection_version)).where(
                 col(OtlpSpanDB.trace_id) == trace_id,
@@ -294,7 +294,7 @@ class NativeTraceRepository:
         )
 
 
-    # ── Write boundary (SPEC-129 §4) ────────────────────────────────────
+    # ── Write boundary ────────────────────────────────────
 
     def upsert_trace(
         self,

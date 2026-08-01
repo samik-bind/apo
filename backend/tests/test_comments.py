@@ -1,5 +1,5 @@
 """
-Tests for the comments API (SPEC-056).
+Tests for the comments API.
 
 Test cases:
 1. Create comment on trace

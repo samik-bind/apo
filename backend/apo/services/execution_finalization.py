@@ -34,7 +34,7 @@ from apo.services.execution_leases import (
     _require_current,
 )
 
-# Bounded diagnostic tails (SPEC-143 §result/failure): 64 KiB each.
+# Bounded diagnostic tails: 64 KiB each.
 DIAGNOSTIC_TAIL_BYTES = 64 * 1024
 
 _VALID_FAILURE_KINDS = frozenset(
@@ -83,7 +83,7 @@ class AttemptResultBody:
     stdout_tail: str | None = None
     stderr_tail: str | None = None
     error_message: str | None = None
-    # SPEC-148: adapter-reported model/effort.
+    # adapter-reported model/effort.
     run_configuration: AgentTaskRunConfiguration | None = None
 
 
@@ -112,7 +112,7 @@ def _body_digest(payload: object) -> str:
             sort_keys=True,
             ensure_ascii=False,
             separators=(",", ":"),
-            # SPEC-148: the result body can carry an ``AgentTaskRunConfiguration``
+            # the result body can carry an ``AgentTaskRunConfiguration``
             # (an SQLModel). json can't serialize it directly, so fall back to its
             # dict form — this digest is only for completion-id idempotency.
             default=lambda o: o.model_dump() if hasattr(o, "model_dump") else str(o),
@@ -273,7 +273,7 @@ def _finalize_task_run(
     task_run.completed_at = datetime.now(timezone.utc)
     session.add(task_run)
     update_batch_run_status(session, batch)
-    # SPEC-163: when the Batch just became terminal, resolve its pending
+    # when the Batch just became terminal, resolve its pending
     # Schedule Occurrence (delivered vs missed) and clear the active pointer.
     _resolve_schedule_occurrence_if_terminal(session, batch)
 

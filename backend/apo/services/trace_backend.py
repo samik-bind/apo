@@ -47,7 +47,7 @@ class TraceBackend(Protocol):
 
         ``project`` scopes the trace lookup so two task runs in different
         Projects cannot claim each other's trace if they happen to share an
-        OTel id (SPEC-133 M4).
+        OTel id.
 
         Sets ``task_run.trace_persistence_status`` to ``"persisted"`` on
         success or ``"failed"`` (with ``trace_error_message``) otherwise.
@@ -60,7 +60,7 @@ class TraceBackend(Protocol):
         """Sum token usage and cost across every observation in the trace.
 
         ``project`` scopes the observation set so a cross-project trace id
-        collision cannot inflate another run's totals (SPEC-133 M4).
+        collision cannot inflate another run's totals.
 
         Sets ``task_run.total_cost`` / ``task_run.total_tokens``. No-op when
         the task run has no trace.
@@ -102,12 +102,12 @@ class NativeTraceBackend:
         mark_persisted(task_run)
         # Link the task run's single trace for reverse lookup.
         persisted_run.task_run_id = task_run.id
-        # SPEC-140 §Trace linkage: trace-level output carries a compact
+        # trace-level output carries a compact
         # Deliverable manifest (name/kind/size only), never a body. New rows
         # leave ``task_run.deliverables_json`` null; legacy rows still produce
         # a synthesized manifest so the trace row never duplicates a body.
         persisted_run.output = _trace_output_for_task_run(task_run)
-        # SPEC-140: trace-level input comes from the canonical trace projection
+        # trace-level input comes from the canonical trace projection
         # (Generation Observation inputs), not the redundant task transcript.
         # New rows leave ``transcript_json`` null; legacy rows are not rewritten
         # here, so we only derive input when a legacy transcript is present.
@@ -128,7 +128,7 @@ class NativeTraceBackend:
         total_cost = 0.0
         total_tokens = 0
         for call in calls:
-            # SPEC-136: ``cost`` is the single effective total (micro-USD int);
+            # ``cost`` is the single effective total (micro-USD int);
             # fall back to ``provided_cost`` only when cost is unset.
             effective = call.cost if call.cost is not None else call.provided_cost
             if effective is not None:

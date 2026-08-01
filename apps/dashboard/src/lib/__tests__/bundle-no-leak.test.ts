@@ -1,5 +1,5 @@
 /**
- * SPEC-132 Behavior 3 regression guard: client bundles must never embed
+ * client bundles must never embed
  * the Docker-internal backend URL or localhost:8000.
  *
  * `NEXT_PUBLIC_*` env vars are inlined into client chunks at build time.
@@ -18,7 +18,7 @@ const chunksDir = join(process.cwd(), ".next", "static", "chunks");
 
 const skip = !existsSync(chunksDir);
 
-describe.skipIf(skip)("client bundle URL safety (SPEC-132)", () => {
+describe.skipIf(skip)("client bundle URL safety", () => {
   function readAllChunks(): string {
     const files = readdirSync(chunksDir).filter((f) => f.endsWith(".js"));
     return files

@@ -1,10 +1,10 @@
-"""Authenticated ingestion context for the OTLP trace path (SPEC-131 Milestone 3).
+"""Authenticated ingestion context for the OTLP trace path.
 
 A typed context carried from the auth middleware through the receiver and
 projector so that Task Run claims are subject- and project-bound rather than
 trusted from telemetry attributes.
 
-Rules (SPEC-131 §Authenticated ingestion context):
+Rules:
 
 - ``project_id`` always comes from verified request state, never telemetry.
 - A service token may submit a root ``apo.task.run.id`` only when it exactly

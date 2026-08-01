@@ -4,7 +4,7 @@ Langfuse-compatible public API endpoints (legacy adapter — SPEC-129).
 Provides drop-in replacement endpoints for Langfuse SDK integration. Events
 are mirrored into the canonical ``OtlpSpanDB`` store alongside the direct
 ``RunDB``/``LoggedCallDB`` writes, making this route an adapter over the
-canonical path rather than a separate direct writer (SPEC-129 Criterion #7).
+canonical path rather than a separate direct writer.
 """
 
 # pyright: reportCallInDefaultInitializer=false, reportPrivateUsage=false

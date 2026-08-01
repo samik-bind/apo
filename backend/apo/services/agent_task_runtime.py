@@ -1,4 +1,4 @@
-"""Agent task runtime packaging service (SPEC-125).
+"""Agent task runtime packaging service.
 
 Resolves the deployable agent-task runtime that the backend shells out
 to when executing agent tasks. The runtime is an ESM bundle produced by

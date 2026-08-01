@@ -22,7 +22,7 @@ export function settingsHref(item: SettingsNavItem): string {
   return `/settings/${item.segment}`;
 }
 
-// SPEC-122: instance-maintenance screens stay hidden/dev-only. They are
+// instance-maintenance screens stay hidden/dev-only. They are
 // not part of normal product roles. Project member management lives
 // alongside API Keys in the project settings group below.
 export const PERSONAL_ITEMS: SettingsNavItem[] = [

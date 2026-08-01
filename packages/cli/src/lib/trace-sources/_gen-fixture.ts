@@ -20,7 +20,7 @@ const result = convertLangfuseTraceToOtlp({
 
 const out = {
   description:
-    "Deterministic expected OTLP request produced by the Langfuse converter for backend/tests/fixtures/langfuse/single-trace-v2.json. Used by backend scene tests (SPEC-137 #2) and as a regression anchor when the converter changes.",
+    "Deterministic expected OTLP request produced by the Langfuse converter for backend/tests/fixtures/langfuse/single-trace-v2.json. Used by backend scene tests and as a regression anchor when the converter changes.",
   sourceTraceId: "8f38c27a2c4b4bafb87a78e3a3d62b90",
   expectedTraceId: result.traceId,
   spanCount: result.spanCount,

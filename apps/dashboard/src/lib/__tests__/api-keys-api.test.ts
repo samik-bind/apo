@@ -1,5 +1,5 @@
 /**
- * SPEC-149 Acceptance Test #3: the dashboard API helper defaults to the
+ * the dashboard API helper defaults to the
  * least-privileged ``ingest`` scope. The previous default of ``full`` made
  * every dashboard-minted key a management credential, which is unsafe for
  * the common telemetry-producer issuance flow.
@@ -90,7 +90,7 @@ beforeEach(() => {
   });
 });
 
-describe("createApiKey default scope (SPEC-149)", () => {
+describe("createApiKey default scope", () => {
   it("defaults to ingest when scope is omitted", async () => {
     await createApiKey("Production", "example-service");
     const [, init] = mockFetch.mock.calls[0];

@@ -118,7 +118,7 @@ function UsageCell({ metrics, primaryModel, sortedCosts }: { metrics: TraceMetri
   const prompt = getMetric(metrics, "prompt_tokens");
   const completion = getMetric(metrics, "completion_tokens");
   const total = getMetric(metrics, "total_tokens") ?? (prompt != null && completion != null ? prompt + completion : null);
-  // SPEC-136: cost is now a stored micro-USD int (no client-side pricing fetch).
+  // cost is now a stored micro-USD int (no client-side pricing fetch).
   const cost = getMetric(metrics, "total_cost");
 
   if (total == null && cost == null) return <span className="text-muted-foreground/50">{"\u2014"}</span>;

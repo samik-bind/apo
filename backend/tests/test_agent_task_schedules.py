@@ -184,7 +184,7 @@ def test_run_due_schedules_once_creates_batch_run(
 
 
 # ============================================================================
-# SPEC-069: Adaptive (SM-2) scheduling tests
+# Adaptive (SM-2) scheduling tests
 # ============================================================================
 
 

@@ -16,7 +16,7 @@ export function shortModel(model: string): string {
 }
 
 /**
- * SPEC-148: render a Task Run's adapter-reported configuration as a compact
+ * render a Task Run's adapter-reported configuration as a compact
  * `model · effort` string. The model is shown without its provider prefix
  * (see {@link shortModel}); absent effort renders as `—` (em dash); a run that
  * reported no configuration renders as a lone `—`. Monochrome data — never a
@@ -43,7 +43,7 @@ export function formatRunExecutionFull(
 }
 
 /**
- * SPEC-148: render a Batch Run's derived configuration summary.
+ * render a Batch Run's derived configuration summary.
  *
  * - uniform → the single `model · effort` pair;
  * - mixed   → `Mixed · N configs`;

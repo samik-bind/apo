@@ -125,7 +125,7 @@ def _delete_old_batch_runs(session: Session, cutoff: datetime) -> int:
         return result.rowcount or 0
 
     deleted = 0
-    # SPEC-143: attempts FK task_runs; remove them first.
+    # attempts FK task_runs; remove them first.
     if _table_exists(session, "task_execution_attempts"):
         deleted += _exec_in(
             "DELETE FROM task_execution_attempts WHERE task_run_id IN "
@@ -137,7 +137,7 @@ def _delete_old_batch_runs(session: Session, cutoff: datetime) -> int:
             "DELETE FROM agent_task_runs WHERE batch_run_id IN :ids",
             old_batch_ids,
         )
-    # SPEC-142: task_revisions rows go after their bundle objects (removed in
+    # task_revisions rows go after their bundle objects (removed in
     # run_retention_cleanup). Guarded so pre-v12 databases don't break.
     if _table_exists(session, "task_revisions"):
         deleted += _exec_in(
@@ -240,7 +240,7 @@ def run_retention_cleanup() -> dict[str, int]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
     summary: dict[str, int] = {}
     with Session(engine) as session:
-        # SPEC-140: collect the task-run ids whose batch is old, delete their
+        # collect the task-run ids whose batch is old, delete their
         # external Deliverable objects first, then drop the rows. A store
         # failure raises here so the rows are retained for the next cleanup.
         old_run_ids = [
@@ -259,7 +259,7 @@ def run_retention_cleanup() -> dict[str, int]:
             asyncio.run(delete_deliverable_objects_for_runs(session, old_run_ids))
             session.commit()
 
-        # SPEC-142: remove Task Revision bundle objects for old batches BEFORE
+        # remove Task Revision bundle objects for old batches BEFORE
         # their rows go. A store failure raises so the rows are retained for the
         # next cleanup — objects are never orphaned by deleting the manifest first.
         old_batch_ids = _old_batch_ids(session, cutoff)

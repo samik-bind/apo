@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for the Task-Run-scoped Trace Projection endpoint (SPEC-130 Track B).
+"""Tests for the Task-Run-scoped Trace Projection endpoint.
 
 ``GET /v1/agent-task-runs/{task_run_id}/trace-projection`` — an internal
 execution boundary read. A task-run service token reads only its own Task

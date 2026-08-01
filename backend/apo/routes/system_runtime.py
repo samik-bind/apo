@@ -1,4 +1,4 @@
-"""System runtime routes (SPEC-124 / SPEC-125).
+"""System runtime routes.
 
 Exposes the deployment topology descriptor and the deep readiness probe
 that operators (and Compose healthchecks) can rely on beyond the basic

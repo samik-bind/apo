@@ -405,18 +405,18 @@ def finalize_task_run_with_result(
     caller-supplied message preserved — ahead of the Issue #8 precedence,
     which only applies to ``passed``/``failed`` verdicts.
 
-    ``run_configuration`` (SPEC-148): the adapter's resolved model/effort.
+    ``run_configuration``: the adapter's resolved model/effort.
     Validated before any terminal state is mutated — an invalid reported
     configuration is an adapter contract error (``ValueError``) and must not
     partially mutate the row. Persisted as the typed/indexed
     ``configured_model`` / ``configured_effort`` columns.
     """
-    # SPEC-148: validate before mutating terminal state.
+    # validate before mutating terminal state.
     normalized_config = normalize_run_configuration(run_configuration)
     task_run.adapter_name = adapter_name
     task_run.pass_result = pass_result
     task_run.trace_run_id = reconcile_trace_id(task_run, trace_run_id)
-    # SPEC-148: persist the typed, indexed configuration columns. Absent
+    # persist the typed, indexed configuration columns. Absent
     # (None) when the adapter did not report a configuration.
     task_run.configured_model = (
         normalized_config.model if normalized_config else None
@@ -424,12 +424,12 @@ def finalize_task_run_with_result(
     task_run.configured_effort = (
         normalized_config.effort if normalized_config else None
     )
-    # SPEC-140 ticket 03: normalize checks before any persistence or event
+    # normalize checks before any persistence or event
     # emission so a large Deliverable repeated across judge assertions cannot
     # blow up the row or the list/detail query. Direct service calls and tests
     # cannot bypass this — every persisted ``checks_json`` is bounded.
     task_run.checks_json = normalize_checks_for_storage(checks)
-    # SPEC-140: new recorded runs leave ``transcript_json``/``deliverables_json``
+    # new recorded runs leave ``transcript_json``/``deliverables_json``
     # null (the SDK omits transcript; Deliverables persist as rows). Legacy
     # callers may still populate both during the compatibility window.
     task_run.transcript_json = transcript
@@ -544,7 +544,7 @@ def finalize_external_task_run(
     externally-reported failure reason is persisted (Issue #8). ``errored``
     flows through so an executor that threw lands as ``status: error`` with
     that message, ahead of the Issue #8 precedence (Issue #13).
-    ``run_configuration`` (SPEC-148) flows through to the shared finalizer,
+    ``run_configuration`` flows through to the shared finalizer,
     which validates it before persisting; an invalid configuration raises
     ``ValueError`` (mapped to 400 by the route, since the terminal-check above
     has already passed).

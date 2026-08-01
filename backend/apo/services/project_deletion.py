@@ -95,7 +95,7 @@ def delete_project_data(
     """
     deleted: dict[str, int] = {}
 
-    # SPEC-142: Task Revision bundle objects are removed by the async route
+    # Task Revision bundle objects are removed by the async route
     # (delete_task_revision_bundles_for_project) BEFORE this sync function runs,
     # while their keys are still resolvable. Here we only drop relational rows.
 
@@ -123,7 +123,7 @@ def delete_project_data(
             AgentTaskBatchRunDB.project == project_id
         ),
     )
-    # SPEC-143: Attempts FK task_runs/batch_runs/pools; remove before their parents.
+    # Attempts FK task_runs/batch_runs/pools; remove before their parents.
     try:
         deleted["task_execution_attempts"] = _delete_by_column(
             session, TaskExecutionAttemptDB, TaskExecutionAttemptDB.project == project_id
@@ -166,7 +166,7 @@ def delete_project_data(
     deleted["sessions"] = _delete_by_column(
         session, SessionDB, SessionDB.project == project_id
     )
-    # SPEC-142: task_revisions reference batch runs via FK, so they must be
+    # task_revisions reference batch runs via FK, so they must be
     # removed BEFORE agent_task_batch_runs. Their bundle objects were already
     # removed above. Guarded for pre-v12 DBs.
     try:
@@ -181,7 +181,7 @@ def delete_project_data(
     deleted["agent_task_schedules"] = _delete_by_column(
         session, AgentTaskScheduleDB, AgentTaskScheduleDB.project == project_id
     )
-    # SPEC-143: executor enrollment tokens, executors, then pools (pools are
+    # executor enrollment tokens, executors, then pools (pools are
     # referenced by executors/tokens, so they go last of the three).
     try:
         deleted["executor_enrollment_tokens"] = _delete_by_column(
@@ -197,7 +197,7 @@ def delete_project_data(
         deleted.setdefault("executor_enrollment_tokens", 0)
         deleted.setdefault("executors", 0)
         deleted.setdefault("executor_pools", 0)
-    # SPEC-136: per-project model pricing rows (never __global__; globals are
+    # per-project model pricing rows (never __global__; globals are
     # owned by the bundled JSON). Cascading FKs remove the tiers/prices.
     deleted["models"] = _delete_by_column(
         session,

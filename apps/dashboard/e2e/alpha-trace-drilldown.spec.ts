@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * SPEC-126: internal alpha release gate — trace drilldown.
+ * internal alpha release gate — trace drilldown.
  *
  * Validates that the canonical trace navigation surfaces render. The
  * alpha product contract is:

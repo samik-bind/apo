@@ -139,7 +139,7 @@ describe("SPEC-145 task run --executor caller dispatch", () => {
     expect(code).toBe(2);
   });
 
-  // SPEC-165 #89 regression: the BARE command (no --executor flag) must
+  // the BARE command (no --executor flag) must
   // route to caller execution. Every previous iteration fixed the decision
   // but not the routing gate, so the default still hit a deleted endpoint.
   it("bare task run (no flags) posts to the caller create-and-claim endpoint", async () => {

@@ -1,5 +1,5 @@
 /**
- * SPEC-165: the dispatch decision is now caller-vs-unrecorded only.
+ * the dispatch decision is now caller-vs-unrecorded only.
  * Bundled/backend execution is retired; `execution:` and `default_execution`
  * are ignored.
  */

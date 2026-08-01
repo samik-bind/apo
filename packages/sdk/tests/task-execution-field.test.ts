@@ -13,7 +13,7 @@ const stubAdapter = {
   deliverables: {} as Record<string, DeliverableDefinition>,
 } as const;
 
-describe("TaskDefinition.execution field (SPEC-136)", () => {
+describe("TaskDefinition.execution field", () => {
   it("accepts execution: 'local' | 'backend' | 'auto'", () => {
     const local: TaskDefinition = {
       id: "t-local",

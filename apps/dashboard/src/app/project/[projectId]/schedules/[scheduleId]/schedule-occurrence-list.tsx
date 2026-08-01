@@ -9,7 +9,7 @@ interface ScheduleOccurrenceListProps {
   occurrences: ScheduleOccurrenceSummary[];
 }
 
-/** SPEC-163: honest Occurrence history. A missed Occurrence is never shown as
+/** honest Occurrence history. A missed Occurrence is never shown as
  * a failed Task result — it is availability/cadence information. Links appear
  * only when a Batch exists. */
 export function ScheduleOccurrenceList({ occurrences }: ScheduleOccurrenceListProps) {

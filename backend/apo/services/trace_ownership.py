@@ -106,7 +106,7 @@ def claim_trace_in_session(session: Session, task_run_id: str, trace_id: str) ->
 
     Does the conditional ``UPDATE ... WHERE trace_run_id IS NULL``, flushes so
     the row is visible within the current transaction, then validates the
-    one-trace invariant. The caller owns the commit boundary (SPEC-131 M4.4).
+    one-trace invariant. The caller owns the commit boundary.
     Raises ``ValueError`` if the task run does not exist or already owns a
     different trace.
     """

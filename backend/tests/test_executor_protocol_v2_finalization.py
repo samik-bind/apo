@@ -172,7 +172,7 @@ def test_v2_result_rejects_wrong_attempt_token(isolated_engine):
 
 
 # ---------------------------------------------------------------------------
-# SPEC-164: shared claim service — capacity, sequential order, isolation
+# shared claim service — capacity, sequential order, isolation
 # ---------------------------------------------------------------------------
 
 

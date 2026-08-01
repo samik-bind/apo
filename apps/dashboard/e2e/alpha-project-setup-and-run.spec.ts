@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * SPEC-126: internal alpha release gate — project setup + run flow.
+ * internal alpha release gate — project setup + run flow.
  *
  * Validates the canonical operator surfaces render correctly for the
  * agent-testing product. These tests are deliberately structural — they

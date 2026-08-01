@@ -27,7 +27,7 @@ export default async function AgentTasksPage({
   let tasks: Awaited<ReturnType<typeof listAgentTasks>> = [];
   let error: string | null = null;
   let taskSource = null;
-  // SPEC-162: the aggregate Connected Environment state replaces Pool
+  // the aggregate Connected Environment state replaces Pool
   // selection for the native Run path. A status-fetch failure is non-blocking
   // — the run can still be queued.
   let connectedState: ConnectedEnvironmentState | null = null;
@@ -42,9 +42,9 @@ export default async function AgentTasksPage({
       error = e instanceof Error ? e.message : "Failed to load project";
     }
 
-    // SPEC-118: non-demo projects must NOT inherit example-service tasks
+    // non-demo projects must NOT inherit example-service tasks
     // via the legacy DEFAULT_TASK_ROOT fallback. The task list comes from
-    // either the project's configured source (SPEC-119 inventory) or is
+    // either the project's configured source or is
     // empty — which surfaces the setup card on the client.
     if (!isDemo && taskSource !== null && !taskSource.inventory_stale) {
       try {

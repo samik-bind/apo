@@ -28,7 +28,7 @@ export type AgentTaskTraceOptions = {
   tags?: string[];
   runMetadata?: Record<string, unknown>;
   /**
-   * The Task Run ID this trace should claim (SPEC-128/129). Emitted as the
+   * The Task Run ID this trace should claim. Emitted as the
    * `apo.task.run.id` root-span attribute so the backend projector can
    * atomically link this trace to the task run. Omit for local/programmatic
    * runs that don't have a backend task run.

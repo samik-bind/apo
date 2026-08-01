@@ -160,7 +160,7 @@ class TestLangfuseConnectorProjectsFixture:
             assert root.parent_call_id is None
 
             # The generation carries model, tokens, reported cost, and I/O.
-            # SPEC-136: cost is stored as micro-USD int (0.0456 USD -> 45600).
+            # cost is stored as micro-USD int (0.0456 USD -> 45600).
             gen = next(c for c in calls if c.model == "gpt-4o")
             assert gen.prompt_tokens == 220
             assert gen.completion_tokens == 80

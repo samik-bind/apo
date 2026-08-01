@@ -3,7 +3,7 @@ import { defineCheck, resetFlowChecks, runTraceChecks } from "../src/agent-task/
 import type { TraceProjectionSnapshot, TraceProjectionObservation } from "../src/agent-task/trace-projection/types.ts";
 
 /**
- * SPEC-130 Track D, Test 21: every `t.*` assertion behaves correctly against a
+ * every `t.*` assertion behaves correctly against a
  * TraceProjectionSnapshot fixture.
  *
  * Originally this compared the legacy Flow path against the projection path to

@@ -85,7 +85,7 @@ class ResultRequest(BaseModel):
     stdout_tail: str | None = None
     stderr_tail: str | None = None
     error_message: str | None = None
-    # SPEC-148: the adapter's resolved model/effort for this attempt.
+    # the adapter's resolved model/effort for this attempt.
     run_configuration: AgentTaskRunConfiguration | None = None
 
 

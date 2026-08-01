@@ -1,5 +1,5 @@
 /**
- * Bundles the agent-task runtime into a deployable ESM bundle (SPEC-125).
+ * Bundles the agent-task runtime into a deployable ESM bundle.
  *
  * Output layout:
  *

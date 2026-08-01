@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false
 
-"""Versioned normalization registry (SPEC-133 M5).
+"""Versioned normalization registry.
 
 Consumes canonical ``OtlpSpanDB`` rows and produces ``NormalizedSpan`` objects.
 Each convention (apo, gen_ai, openinference, vercel_ai) has its own versioned

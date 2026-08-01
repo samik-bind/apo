@@ -1,5 +1,5 @@
 /**
- * Standalone runner entrypoint for the agent-task runtime (SPEC-125).
+ * Standalone runner entrypoint for the agent-task runtime.
  *
  * The backend launches it as ``node /app/agent-task-runtime/runner.mjs``
  * inside the task workspace. Local development can still use the dev
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
     loaded,
   });
 
-  // SPEC-140: upload file Artifacts through the two-phase endpoint before
+  // upload file Artifacts through the two-phase endpoint before
   // writing the result body. Only JSON Deliverables (and the manifest of
   // uploaded Artifacts) travel through stdout — never file bytes, paths, or
   // the redundant task transcript (the Trace is the conversation source).
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
       })
     : { jsonDeliverables: result.deliverables, artifactUploads: [] };
 
-  // SPEC-144: the result body goes to AGENT_TASK_RESULT_PATH (an atomic, bounded
+  // the result body goes to AGENT_TASK_RESULT_PATH (an atomic, bounded
   // JSON file the Bundled Executor reads) when set; stdout is human diagnostics
   // only and can never replace the file. The dev/legacy path keeps stdout so
   // `apo` CLI capture and tests keep working.
@@ -91,7 +91,7 @@ async function main(): Promise<void> {
     deliverables: recorded.jsonDeliverables,
     artifacts: recorded.artifactUploads,
     traceRunId: result.traceRunId ?? null,
-    // SPEC-148: the adapter's resolved model/effort. The executor parses this
+    // the adapter's resolved model/effort. The executor parses this
     // into the typed run_configuration columns. Absent when the adapter does
     // not report configuration.
     runConfiguration: result.runConfiguration ?? null,

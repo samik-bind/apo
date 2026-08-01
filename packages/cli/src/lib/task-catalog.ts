@@ -1,5 +1,5 @@
 /**
- * SPEC-159: Client-published Task Catalog types.
+ * Client-published Task Catalog types.
  *
  * The CLI scans Tasks locally and publishes only bounded dashboard metadata.
  * Source files, prompts, fixtures, repository credentials, and absolute

@@ -5,6 +5,6 @@ services:
   cloudflared:
     volumes:
       - ./deploy/self-host/cloudflared-config.yml:/etc/cloudflared/config.yml:ro
-      - /home/sami/.cloudflared/8d056d83-a2ae-418a-bf2f-46735f1c91e0.json:/etc/cloudflared/credentials.json:ro
+      - ${CLOUDFLARED_CREDENTIALS_JSON:-./.cloudflared/credentials.json}:/etc/cloudflared/credentials.json:ro
     command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]
     environment: []

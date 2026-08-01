@@ -243,7 +243,7 @@ export interface TraceRunContext {
 }
 
 // ============================================================================
-// Scoring Types (SPEC-019)
+// Scoring Types
 // ============================================================================
 
 export interface CreateScoreParams {

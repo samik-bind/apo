@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportAttributeAccessIssue=false, reportArgumentType=false
 """
-Tests for API key lifecycle: last_used_at, expires_at, scopes, rotation (SPEC-080).
+Tests for API key lifecycle: last_used_at, expires_at, scopes, rotation.
 
 Test cases:
 1. Create key with ingest scope stores scope correctly

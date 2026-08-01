@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC-157: Tunnel Trial live validation orchestrator.
+# Tunnel Trial live validation orchestrator.
 #
 # Executes the full live-validation gate for a Cloudflare Tunnel Trial.
 # Reads secrets only from protected files, never from argv. Produces a
@@ -134,7 +134,7 @@ fi
 # --- Phase 3: AgentCore (optional) ---
 if [[ -n "$AGENTCORE_INVOKER" ]]; then
   echo "Phase 3: AgentCore invocation..."
-  CANARY="spec157-$(openssl rand -hex 8)"
+  CANARY="trial-$(openssl rand -hex 8)"
   if "$AGENTCORE_INVOKER" "$CANARY" >> "$REPORT_PATH" 2>&1; then
     phase_result "agentcore" "PASS" "canary=$CANARY"
     echo "  PASS"

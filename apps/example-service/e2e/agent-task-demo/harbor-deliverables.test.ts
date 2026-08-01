@@ -1,5 +1,5 @@
 /**
- * SPEC-140 ticket 10: Harbor evidence is a durable file Artifact, and no
+ * Harbor evidence is a durable file Artifact, and no
  * absolute host path enters the persisted manifest.
  *
  * The Harbor adapter now declares `harbor_result` as a `fileArtifact` instead
@@ -17,7 +17,7 @@ const FIXTURE = join(
   "fixtures/harbor/pass/result.json",
 );
 
-describe("harbor deliverables — no host path leaks (SPEC-140)", () => {
+describe("harbor deliverables — no host path leaks", () => {
   it("harbor_result is a file artifact, not a path string", () => {
     // Mirror what harbor-adapter.ts produces: fileArtifact(resultPath).
     const artifact = fileArtifact(FIXTURE, {

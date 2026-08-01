@@ -1,5 +1,5 @@
 /**
- * SPEC-161: apo connect — foreground Connected Executor.
+ * apo connect — foreground Connected Executor.
  *
  * Discovers local tasks, connects to the Apo server as a persistent
  * source-owned executor, and executes assigned tasks locally.
@@ -31,7 +31,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** SPEC-164: recompute the local catalog digest from the current Task root so
+/** recompute the local catalog digest from the current Task root so
  * catalog changes stop new claims and recover automatically after publication. */
 function computeLocalDigest(taskRoot: string): string {
   const tasks = discoverTaskMeta(taskRoot);
@@ -119,7 +119,7 @@ export async function run(argv: string[]): Promise<number> {
   process.on("SIGTERM", handleSignal);
 
   while (!shouldStop) {
-    // SPEC-164: recompute the local catalog digest each poll so a Task
+    // recompute the local catalog digest each poll so a Task
     // metadata change is detected without restarting apo connect.
     catalogDigest = computeLocalDigest(taskRoot);
 
@@ -236,7 +236,7 @@ async function executeAssignment(
   cancelSignal: AbortSignal,
 ): Promise<void> {
   const completionId = `${assignment.attempt_id}-${Date.now()}`;
-  // SPEC-166 #85: track finalization explicitly so the catch block never
+  // track finalization explicitly so the catch block never
   // issues a second submitFailure against a terminal Attempt (401).
   let finalized = false;
   const fail = async (
@@ -321,7 +321,7 @@ async function executeAssignment(
     const outcome = await runTaskChild({
       taskDir: task.path,
       envRoot: taskRoot,
-      // SPEC-166 #87: use the configured backend base URL, not the server's
+      // use the configured backend base URL, not the server's
       // trace_endpoint (which is a full path that the SDK would double).
       traceEndpoint: backendUrl,
       project: assignment.project,
@@ -387,7 +387,7 @@ async function executeAssignment(
     finalized = true;
   } catch (err) {
     clearInterval(heartbeatInterval);
-    // SPEC-166 #85: only submit a failure if no finalization has happened.
+    // only submit a failure if no finalization has happened.
     if (!finalized) {
       await fail("task_runtime", (err as Error).message);
     }

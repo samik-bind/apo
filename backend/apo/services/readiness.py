@@ -1,4 +1,4 @@
-"""Shared readiness models (SPEC-124 / SPEC-125).
+"""Shared readiness models.
 
 Lives outside ``runtime_config`` so individual readiness contributors
 (e.g. SPEC-125's task-runtime probe) can return ``ReadinessCheckResult``

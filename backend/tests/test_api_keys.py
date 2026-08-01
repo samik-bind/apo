@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false
 """
-Tests for API key CRUD endpoints (SPEC-065).
+Tests for API key CRUD endpoints.
 
 Test cases:
 1. Create API key returns full key with prefix

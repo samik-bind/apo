@@ -5,7 +5,7 @@ function expectMode(input: Parameters<typeof resolveExecutionMode>[0], expected:
   expect(resolveExecutionMode(input).mode).toBe(expected);
 }
 
-describe("resolveExecutionMode — SPEC-165: caller is the default", () => {
+describe("resolveExecutionMode — caller is the default", () => {
   it("has project, no flags → local-recorded (caller is the default)", () => {
     expectMode({ hasProject: true }, "local-recorded");
   });

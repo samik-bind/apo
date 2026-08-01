@@ -85,7 +85,7 @@ describe("ExecutionAttemptPanel — legacy Pool Runs", () => {
   });
 });
 
-describe("ExecutionAttemptPanel — source-owned Runs (SPEC-162)", () => {
+describe("ExecutionAttemptPanel — source-owned Runs", () => {
   const sourceOwnedQueueExpiry = new Date(Date.now() + 20 * 60 * 60 * 1000).toISOString();
 
   it.each([

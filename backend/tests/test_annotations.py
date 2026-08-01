@@ -1,5 +1,5 @@
 """
-Tests for annotation queue management (SPEC-019).
+Tests for annotation queue management.
 
 Test cases:
 1. Annotation queue creation

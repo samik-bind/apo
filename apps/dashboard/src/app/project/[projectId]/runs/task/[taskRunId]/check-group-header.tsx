@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { formatCostMicro } from "@/lib/format";
 
 /**
- * Collapsible header for one `describe()` group of checks (SPEC-160).
+ * Collapsible header for one `describe()` group of checks.
  * Presentational only — the parent owns open/closed state and renders the
  * member checks. Mirrors the compare view's FlowSection header: chevron +
  * name + passed/total tally + pass bar + aggregate cost + verdict dot.

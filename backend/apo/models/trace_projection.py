@@ -1,4 +1,4 @@
-"""Trace Projection response models (SPEC-130 Track A).
+"""Trace Projection response models.
 
 Immutable transport/read models for the Trace Projection snapshot shared by the
 dashboard and agent-task assertions. These are pure pydantic ``BaseModel``

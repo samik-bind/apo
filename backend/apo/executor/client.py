@@ -172,7 +172,7 @@ class ExecutorProtocolClient:
                 "deliverables": deliverables, "exit_code": exit_code,
                 "stdout_tail": stdout_tail, "stderr_tail": stderr_tail,
                 "error_message": error_message,
-                # SPEC-148: adapter-reported model/effort.
+                # adapter-reported model/effort.
                 "run_configuration": run_configuration,
             },
             # completion_id idempotency makes a 5xx replay safe (no-op on repeat).

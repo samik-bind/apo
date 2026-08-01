@@ -51,7 +51,7 @@ export type HarborDeliverables = {
     n_cache_tokens?: number;
     cost_usd?: number | null;
   };
-  // SPEC-140: the official result.json is a durable file Artifact, not a
+  // the official result.json is a durable file Artifact, not a
   // host-local path string. The runner uploads it; the path never enters the
   // persisted manifest. Absent when no result file was produced (errored run).
   harbor_result?: FileArtifact;
@@ -184,7 +184,7 @@ function buildDeliverables(state: HarborState): HarborDeliverables {
       n_cache_tokens: ar?.n_cache_tokens,
       cost_usd: ar?.cost_usd,
     },
-    // SPEC-140: declare the result file as a durable Artifact instead of a
+    // declare the result file as a durable Artifact instead of a
     // host-local path. The runner uploads it; the absolute path never enters
     // the persisted manifest. Omitted when no result file was produced.
     ...(state.resultPath

@@ -1,4 +1,4 @@
-"""Re-project canonical OTel spans into product tables (SPEC-129 Criterion #2).
+"""Re-project canonical OTel spans into product tables.
 
 The replay capability proves the canonical store (``OtlpSpanDB``) is the source
 of truth: after a mapper change, you can re-project all spans for a trace through
@@ -43,7 +43,7 @@ def reproject_trace(trace_id: str, project_id: str) -> int:
     new values are reflected in the projection.
 
     Note: reproject does NOT re-claim task-run ownership. The claim was
-    established during original ingestion and is immutable (SPEC-128).
+    established during original ingestion and is immutable.
     Reprojecting updates the projection tables but preserves the existing
     ``RunDB.task_run_id`` linkage.
     """

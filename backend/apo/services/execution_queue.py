@@ -1,7 +1,7 @@
 """SPEC-143/145/146: execution queue — Batch + Task Run + Attempt creation.
 
-- SPEC-145 ``create_caller_batch_run``: ephemeral caller Executor.
-- SPEC-146 ``create_pooled_batch_run``: server-initiated runs become durable
+- ephemeral caller Executor.
+- server-initiated runs become durable
   queued Attempts on a Project Pool. The Control Plane never executes customer
   code; it returns immediately after the Revision/Bundle and Attempts are
   durable, and an Executor claims later.
@@ -188,7 +188,7 @@ __all__ = [
 
 
 # ============================================================================
-# SPEC-146: pooled Batch creation
+# pooled Batch creation
 # ============================================================================
 
 
@@ -383,7 +383,7 @@ def _inventory_paths(
 
 
 # ============================================================================
-# SPEC-162: source-owned dashboard Batch creation
+# source-owned dashboard Batch creation
 # ============================================================================
 
 

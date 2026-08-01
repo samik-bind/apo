@@ -107,7 +107,7 @@ def _apply_ingestion_cost(
     *,
     is_update: bool = False,
 ) -> None:
-    """Normalize usage + freeze cost on a legacy-ingested call (SPEC-136 ticket 06).
+    """Normalize usage + freeze cost on a legacy-ingested call.
 
     Shared seam with the canonical projector: build an attribute map from the
     legacy body, then provided-wins-verbatim-else-compute. The body's
@@ -157,7 +157,7 @@ async def process_call_create(body: dict[str, object], session: Session) -> None
     model_name = _get_str(body, "model", "unknown")
     raw_latency_ms = _get_optional_float(body, "latency_ms")
 
-    # SPEC-122 / trace-quality fix: SDK clients (and especially the
+    # SDK clients (and especially the
     # agent-task SDK) historically sent ``latency_ms: 0`` for any span
     # that completed within the same millisecond tick. The SDK uses
     # ``Date.now()`` (ms resolution) so sub-ms operations round to 0.
@@ -212,7 +212,7 @@ async def process_call_create(body: dict[str, object], session: Session) -> None
         meta=_get_optional_json_map(body, "metadata"),
     )
 
-    # SPEC-136 ticket 06: normalize usage + freeze cost (shared seam with the
+    # normalize usage + freeze cost (shared seam with the
     # canonical projector). Provided cost wins verbatim; else compute.
     if call.observation_type == "GENERATION" and model_name and model_name != "unknown":
         _apply_ingestion_cost(session, call, body, created_at)
@@ -250,7 +250,7 @@ async def process_call_update(body: dict[str, object], session: Session) -> None
         call.latency_ms = _get_optional_float(body, "latency_ms")
     if "end_time" in body:
         call.end_time = parse_optional_iso(body["end_time"])
-    # SPEC-122 / trace-quality fix: after applying the SDK-supplied
+    # after applying the SDK-supplied
     # ``latency_ms`` and ``end_time`` above, re-derive latency from
     # timestamps when the SDK omitted it. This catches both:
     #   - SDK sent ``latency_ms: null`` with ``end_time``
@@ -313,7 +313,7 @@ async def process_call_update(body: dict[str, object], session: Session) -> None
     if "tags" in body:
         call.tags = _get_string_list(body, "tags")
 
-    # SPEC-136 ticket 06: re-normalize usage + re-freeze cost on update when
+    # re-normalize usage + re-freeze cost on update when
     # the call is a priced GENERATION. Provided cost still wins verbatim. A
     # partial patch (no usage) must not erase a previously-frozen cost, so the
     # update path only recomputes when the patch actually carries usage.
@@ -391,7 +391,7 @@ async def process_langfuse_score_create(
     """Process a score-create event from Langfuse SDK (camelCase fields).
 
     ``project`` comes from the route's authenticated API key, never from the
-    body, so a caller cannot score another project's trace (SPEC-133 M4).
+    body, so a caller cannot score another project's trace.
     """
     trace_id = _get_optional_str(body, "traceId")
     observation_id = _get_optional_str(body, "observationId")

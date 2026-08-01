@@ -93,8 +93,7 @@ failures.
 ## Tracing — `@apo/sdk/otel`
 
 The canonical tracing path is OpenTelemetry via `@apo/sdk/otel`. The old
-`TraceTracker` / `createClient` custom protocol has been removed (SPEC-129
-complete).
+`TraceTracker` / `createClient` custom protocol has been removed.
 
 ```ts
 import {

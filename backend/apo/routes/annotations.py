@@ -34,7 +34,7 @@ async def create_queue(
     Create a new annotation queue.
     """
     require_project_not_demo(body.project)
-    # SPEC-122: annotation queue creation requires project admin role.
+    # annotation queue creation requires project admin role.
     _ = enforce_project_role_from_request(
         http_request, session, body.project, minimum_role="admin"
     )
@@ -126,7 +126,7 @@ async def complete_annotation(
         raise HTTPException(status_code=404, detail="Queue not found")
 
     require_project_not_demo(queue.project)
-    # SPEC-122: completing an annotation is a write; require member role.
+    # completing an annotation is a write; require member role.
     _ = enforce_project_role_from_request(
         http_request, session, queue.project, minimum_role="member"
     )

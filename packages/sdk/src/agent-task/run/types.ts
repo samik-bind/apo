@@ -2,7 +2,7 @@ import type { FileEntry, TaskDefinition } from "../task/types.ts";
 import type { AgentTaskRunConfiguration } from "../adapter/types.ts";
 
 /**
- * The outcome of a single assertion (SPEC-130).
+ * The outcome of a single assertion.
  *
  * - ``"pass"`` → ``pass=true``
  * - ``"fail"`` → ``pass=false``
@@ -67,7 +67,7 @@ export type AssertionResult = {
   pass: boolean;
   reasoning: string;
   /**
-   * The outcome category (SPEC-130). ``"unsupported"`` means the trace
+   * The outcome category. ``"unsupported"`` means the trace
    * projection lacked the evidence this assertion needed (e.g. timing,
    * errors) — it fails closed (``pass=false``) with an explanatory reason
    * rather than vacuously passing. Absent on legacy results.
@@ -144,20 +144,20 @@ export type EvaluationItemResult = {
    */
   assertions?: AssertionResult[];
   /**
-   * SPEC-130 Track D: the snapshot source the checks ran against. Set to
+   * the snapshot source the checks ran against. Set to
    * ``"legacy-flow"`` by the deprecated {@link runFlowChecks} wrapper so
    * consumers can detect they're on the compatibility path. Absent on
    * projection-first results (the default).
    */
   source?: "canonical" | "local" | "legacy-flow";
   /**
-   * SPEC-160: the id of the `describe()` group this check was declared
+   * the id of the `describe()` group this check was declared
    * inside. Absent for checks declared at the top level (no enclosing
    * describe) and for old results. The dashboard groups checks by this field.
    */
   group_id?: string;
   /**
-   * SPEC-160: the display name of the enclosing `describe()` group.
+   * the display name of the enclosing `describe()` group.
    * Defaults to the group id when the group was declared without a name.
    * Absent when {@link group_id} is absent.
    */
@@ -188,7 +188,7 @@ export type TaskRunResult = {
   deliverables: Record<string, unknown>;
   transcript: TaskTranscript;
   /**
-   * The adapter's resolved model/effort for this run (SPEC-148). Captured and
+   * The adapter's resolved model/effort for this run. Captured and
    * normalized from `AdapterSession.runConfiguration` immediately after the
    * session opens. Absent for adapters that do not report configuration.
    */

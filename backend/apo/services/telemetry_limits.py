@@ -1,4 +1,4 @@
-"""Typed, startup-validated telemetry limits (SPEC-150 + SPEC-151).
+"""Typed, startup-validated telemetry limits.
 
 SPEC-150: hard transport boundaries for the canonical OTLP endpoint.
 SPEC-151: identity-aware admission control policies (token buckets,
@@ -74,7 +74,7 @@ def load_telemetry_transport_limits() -> TelemetryTransportLimits:
 
 
 # ---------------------------------------------------------------------------
-# SPEC-151: Admission control configuration
+# Admission control configuration
 # ---------------------------------------------------------------------------
 
 

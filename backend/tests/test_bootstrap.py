@@ -218,7 +218,7 @@ class TestBootstrapErrorHandling:
         ):
             bootstrap_initial_user(session)
 
-        # SPEC-153: bootstrap reads installation state first; a commit failure
+        # bootstrap reads installation state first; a commit failure
         # surfaces there and is swallowed (logged) rather than reaching the
         # user-creation step. Either way it must not raise.
         assert any(

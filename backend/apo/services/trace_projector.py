@@ -1,11 +1,11 @@
-"""Trace Projector — bridges canonical OTel spans to product tables (SPEC-129 Track 3).
+"""Trace Projector — bridges canonical OTel spans to product tables.
 
 Takes ``OtlpSpanDB`` rows, normalizes them via the Track 2 normalizer, and
 upserts into the existing ``RunDB`` / ``LoggedCallDB`` tables. This is the
 bridge that lets the dashboard query the same tables it always has, while the
 canonical data lives in the OTel-native ``OtlpSpanDB`` store.
 
-Properties (SPEC-129 §4):
+Properties:
   - Tolerates children before parents, roots arriving last, multiple batches.
   - Idempotent: projecting the same span twice doesn't duplicate rows.
   - Root data chosen from actual root spans, not first batch.
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 
 # Module-level singleton — the projector is stateless, so a single instance
-# serves all callers (SPEC-133 architecture follow-up: consolidate recorders).
+# serves all callers.
 _projector_cache: list[TraceProjector] = []
 
 
@@ -74,11 +74,11 @@ class TraceProjector:
         - If the span is a root (no parent), ensures a ``RunDB`` row exists.
         - Upserts a ``LoggedCallDB`` row with normalized fields.
         - Score sentinel spans (``apo.score: true``) route to the metrics
-          tables instead of becoming a fake call (SPEC-129 Track 6).
+          tables instead of becoming a fake call.
         - Idempotent: re-projecting the same span updates, never duplicates.
 
         ``context`` gates Task Run claims: only an authenticated service token
-        whose subject matches the claimed run may link the trace (SPEC-131 M3).
+        whose subject matches the claimed run may link the trace.
         """
         attrs = span.attributes or {}
 
@@ -97,7 +97,7 @@ class TraceProjector:
         normalized = normalize_span(span)
         is_root = span.parent_span_id is None
 
-        # Route writes through the TraceRepository boundary (SPEC-129 §4).
+        # Route writes through the TraceRepository boundary.
         from .trace_repository import NativeTraceRepository
 
         repo = NativeTraceRepository()
@@ -153,7 +153,7 @@ class TraceProjector:
         run = select_run(session, span.trace_id, span.project_id)
 
         if run is None:
-            # SPEC-133 M4: surrogate PKs allow two projects to project the
+            # surrogate PKs allow two projects to project the
             # same OTel trace ID. No cross-project conflict check needed.
             run = RunDB(
                 id=span.trace_id,
@@ -167,7 +167,7 @@ class TraceProjector:
         # Update run-level fields from the root span
         if is_root:
             attrs = span.attributes or {}
-            # SPEC-137: prefer canonical apo.trace.* attributes; fall back to
+            # prefer canonical apo.trace.* attributes; fall back to
             # legacy apo.run.* for compatibility with older senders.
             # If neither is present, use the root span's own name — it is
             # always set in OTLP and prevents the run from rendering as
@@ -207,7 +207,7 @@ class TraceProjector:
                             run.run_metadata = parsed
                 except (json.JSONDecodeError, ValueError, TypeError):
                     pass
-            # SPEC-137: provenance on imported traces augments run metadata.
+            # provenance on imported traces augments run metadata.
             provenance = attrs.get("apo.trace.provenance")
             if isinstance(provenance, dict) and provenance:
                 existing = run.run_metadata if isinstance(run.run_metadata, dict) else {}
@@ -215,7 +215,6 @@ class TraceProjector:
                 merged.setdefault("source", provenance.get("source"))
                 run.run_metadata = merged
             # Run-level scalar fields propagated through canonical attributes
-            # (SPEC-129 Track 6 parity — legacy ingestion wrote these directly).
             if attrs.get("apo.run.user_id"):
                 run.user_id = str(attrs["apo.run.user_id"])
             if attrs.get("apo.run.session_id"):
@@ -225,7 +224,7 @@ class TraceProjector:
             if attrs.get("apo.run.external_id"):
                 run.external_id = str(attrs["apo.run.external_id"])
 
-            # SPEC-131 §Authenticated ingestion context: a Task Run claim is
+            # a Task Run claim is
             # subject- and project-bound. The payload attribute alone is never
             # trusted — it must match the authenticated service-token subject
             # and the claimed run must belong to this project.
@@ -263,7 +262,7 @@ class TraceProjector:
         # didn't extract them (e.g. legacy adapter writes free-form dicts).
         raw_input = _raw_attr(span, "input")
         raw_output = _raw_attr(span, "output")
-        # SPEC-137: also fall back to canonical apo.observation.input/output
+        # also fall back to canonical apo.observation.input/output
         # (used by Trace Source Connectors that emit non-gen_ai.* I/O).
         if raw_input is None:
             raw_input = _raw_attr(span, "apo.observation.input")
@@ -318,7 +317,7 @@ class TraceProjector:
             if completion is not None:
                 call.completion_tokens = int(completion)
 
-        # total_tokens (SPEC-129 Track 6 parity with legacy ingestion.py).
+        # total_tokens.
         if call.prompt_tokens is not None or call.completion_tokens is not None:
             call.total_tokens = (call.prompt_tokens or 0) + (
                 call.completion_tokens or 0
@@ -344,7 +343,7 @@ class TraceProjector:
             call.level = "ERROR"
             call.status_message = normalized.error_message
 
-        # Server-side cost calculation (SPEC-129 Track 6 parity). The legacy
+        # Server-side cost calculation. The legacy
         # ingestion path calls calculate_cost_for_model on every call; the
         # canonical projector must too, or projected rows lose cost data.
         _apply_cost(session, call, span)
@@ -375,7 +374,7 @@ class TraceProjector:
 
 
 # ---------------------------------------------------------------------------
-# Tenant-safe projection lookups + authenticated claim (SPEC-131 M3/M4)
+# Tenant-safe projection lookups + authenticated claim
 #
 # These are module-level helpers so the receiver/projector boundary stays
 # thin and the tenant invariant lives in one place. Every derived-row lookup
@@ -390,7 +389,7 @@ def _claim_task_run(
     task_run_id: str,
     context: TraceIngestionContext | None,
 ) -> bool:
-    """Link a trace to its task run, subject- and project-bound (SPEC-131 M3).
+    """Link a trace to its task run, subject- and project-bound.
 
     Rules:
       - Only an authenticated service token may claim
@@ -418,7 +417,7 @@ def _claim_task_run(
 
 
 # ---------------------------------------------------------------------------
-# Canonical-path feature parity (SPEC-129 Track 6)
+# Canonical-path feature parity
 #
 # Cost calculation, score routing, aggregate metrics, and live SSE
 # broadcasting — the capabilities the legacy ingestion path provided that the
@@ -450,7 +449,7 @@ def _raw_attr(span: OtlpSpanDB, key: str) -> JsonValue | None:
 
 
 def _apply_cost(session: Session, call: LoggedCallDB, span: OtlpSpanDB) -> None:
-    """Normalize usage + freeze cost onto a projected call (SPEC-136 ticket 06).
+    """Normalize usage + freeze cost onto a projected call.
 
     Shared with the legacy ingestion path via ``pricing.apply.apply_cost_to_call``:
     normalize the span's usage to canonical UsageKeys, then either freeze a
@@ -522,7 +521,7 @@ def _compute_run_aggregates(session: Session, trace_id: str, project: str) -> No
     for metric in calculate_and_store_aggregate_metrics(session, trace_id, project):
         session.add(metric)
 
-    # SPEC-166 #92: recompute call_count on every projection (spans arrive
+    # recompute call_count on every projection (spans arrive
     # asynchronously, so a snapshot from the first pass goes stale), and
     # pick primary_model by cost contribution (the model under test, not
     # whichever simulator/judge call happened to arrive first).

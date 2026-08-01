@@ -1,7 +1,7 @@
 import type { AgentTaskRunConfiguration } from "../adapter/types.ts";
 
 /**
- * SPEC-148: validate and normalize an adapter-reported Run Configuration.
+ * validate and normalize an adapter-reported Run Configuration.
  *
  * Mirrors the backend validation contract so the SDK and the shared backend
  * finalizer enforce identical rules. Returns `undefined` when no configuration

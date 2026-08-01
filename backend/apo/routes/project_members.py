@@ -1,4 +1,4 @@
-"""Project members API (SPEC-122).
+"""Project members API.
 
 Endpoints live under ``/v1/projects/{project_id}/members`` and are
 gated by project role checks rather than ``UserDB.is_admin``. Admins
@@ -172,7 +172,7 @@ async def remove_project_member(
 
 
 # ---------------------------------------------------------------------------
-# Project invitations (SPEC-127)
+# Project invitations
 # ---------------------------------------------------------------------------
 
 

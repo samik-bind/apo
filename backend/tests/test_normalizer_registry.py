@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for the versioned normalizer registry (SPEC-133 M5)."""
+"""Tests for the versioned normalizer registry."""
 
 from datetime import datetime, timezone
 from apo.services.otel_normalization import normalize_span, NORMALIZER_VERSION

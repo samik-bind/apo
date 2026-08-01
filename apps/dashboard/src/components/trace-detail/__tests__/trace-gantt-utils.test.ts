@@ -178,7 +178,7 @@ describe("getInlineMetrics", () => {
     expect(metrics).toContain("2.5k tok");
   });
 
-  // call.cost is micro-USD (SPEC-136), so 10_000 micro-USD = $0.01.
+  // call.cost is micro-USD, so 10_000 micro-USD = $0.01.
   it("includes cost when > 0", () => {
     const call = makeCall({ id: "1", latency_ms: 100, cost: 10_000 });
     const metrics = getInlineMetrics(call);

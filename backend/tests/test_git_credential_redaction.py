@@ -1,4 +1,4 @@
-"""Tests for git credential redaction in task source sync (SPEC-132, Behavior 6).
+"""Tests for git credential redaction in task source sync.
 
 Git clone URLs may carry embedded credentials — either operator-supplied
 (`https://user:password@host/...`) or injected by

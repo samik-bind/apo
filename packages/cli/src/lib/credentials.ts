@@ -11,14 +11,14 @@ export type StoredCredentials = {
   created_at?: string;
   /**
    * Project-level default for where `apo task run` executes
-   * (SPEC-136). Stored per credential set so different backends can have
+   *. Stored per credential set so different backends can have
    * different defaults. Lower priority than a task's own `execution`
    * declaration; overrideable per-invocation by `--local` / `--remote`.
    * Old credential files lack the field → treated as unset.
    */
   default_execution?: "local" | "backend";
   /**
-   * SPEC-145: preferred executor for `apo task run` — either `"caller"` or a
+   * preferred executor for `apo task run` — either `"caller"` or a
    * Pool ID. Takes precedence over the legacy `default_execution` field.
    * Old credential files lack the field → treated as unset.
    */

@@ -4,7 +4,16 @@ from datetime import datetime, timezone
 from typing import ClassVar, final, override
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, Index, String, TypeDecorator, UniqueConstraint, Text
+from sqlalchemy import (
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    TypeDecorator,
+    UniqueConstraint,
+    Text,
+)
 from sqlalchemy.engine import Dialect
 from sqlalchemy.sql import func, text
 from sqlmodel import JSON, Field, SQLModel
@@ -218,7 +227,7 @@ class RunMetricDB(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     run_id: str = Field(index=True)  # trace ID, not a FK (surrogate PK migration)
-    # SPEC-133 M4: project scope so metrics can be resolved without a join through
+    # project scope so metrics can be resolved without a join through
     # RunDB, mirroring the projection-table identity (ADR-0002).
     project: str = Field(
         default="default",
@@ -267,7 +276,7 @@ class CallMetricDB(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     call_id: str = Field(index=True)  # span ID, not a FK (surrogate PK migration)
-    # SPEC-133 M4: project scope so metrics can be resolved without a join through
+    # project scope so metrics can be resolved without a join through
     # LoggedCallDB, mirroring the projection-table identity (ADR-0002).
     project: str = Field(
         default="default",
@@ -350,7 +359,7 @@ class LoggedCallDB(LoggedCallBase, table=True):
     prompt_id: str | None = Field(default=None, index=True)
     prompt_version: int | None = Field(default=None)
 
-    # Cost (SPEC-136 ticket 06): micro-USD int totals + per-call frozen storage.
+    # Cost: micro-USD int totals + per-call frozen storage.
     provided_cost: int | None = Field(default=None)
     cost_breakdown: dict[str, int] | None = Field(
         default=None, sa_column=Column("cost_breakdown", JSON)
@@ -426,14 +435,14 @@ class AgentTaskBatchRunDB(SQLModel, table=True):
     )
     trace_persistence_status: str = Field(default="pending", index=True)
     trace_error_message: str | None = None
-    # SPEC-119: snapshot of the task source used when the batch was created.
+    # snapshot of the task source used when the batch was created.
     # Stored on the batch so historical runs stay explainable even if the
     # source is later re-synced to a different commit or removed entirely.
     task_source_type: str | None = None
     task_source_ref: str | None = None
     task_source_commit_sha: str | None = None
     task_source_subpath: str | None = None
-    # SPEC-143: pooled execution target (resolved once at Batch creation) and
+    # pooled execution target (resolved once at Batch creation) and
     # cancelled-task rollup. execution_target_json never retargets.
     execution_target_json: dict[str, object] | None = Field(
         default=None, sa_column=Column("execution_target_json", JSON)
@@ -444,7 +453,7 @@ class AgentTaskBatchRunDB(SQLModel, table=True):
 class AgentTaskRunDB(SQLModel, table=True):
     __tablename__: ClassVar[str] = "agent_task_runs"
     __table_args__: ClassVar[tuple[object, ...]] = (
-        # SPEC-148: composite index for the model/effort filtering and
+        # composite index for the model/effort filtering and
         # comparison dimensions across a batch's children.
         Index(
             "ix_agent_task_runs_configuration",
@@ -458,7 +467,7 @@ class AgentTaskRunDB(SQLModel, table=True):
     batch_run_id: str = Field(foreign_key="agent_task_batch_runs.id", index=True)
     task_id: str = Field(index=True)
     task_path: str
-    # SPEC-143: ordered position within a sequential Batch. Lower index must
+    # ordered position within a sequential Batch. Lower index must
     # be terminal before a higher-index Attempt becomes claim-eligible.
     sequence_index: int = 0
     adapter_name: str | None = None
@@ -479,6 +488,14 @@ class AgentTaskRunDB(SQLModel, table=True):
     checks_json: list[dict[str, object]] | None = Field(
         default=None, sa_column=Column("checks_json", JSON)
     )
+    # SPEC-167: scalar verdict projection of the Check Report. The hot list/stats
+    # path reads these and never touches the evidence document. ``checks_json``
+    # above is the legacy inline copy — NULL after the backfill migration, dropped
+    # in a follow-up release; new runs never populate it (``persist_check_report``
+    # writes ``None``). Kept readable for the compatibility window.
+    total_checks: int = Field(default=0)
+    passed_checks: int = Field(default=0)
+    failed_checks: int = Field(default=0)
     transcript_json: dict[str, object] | None = Field(
         default=None, sa_column=Column("transcript_json", JSON)
     )
@@ -487,16 +504,48 @@ class AgentTaskRunDB(SQLModel, table=True):
     )
     total_cost: float | None = Field(default=None)
     total_tokens: int | None = Field(default=None)
-    # SPEC-148: adapter-reported Run Configuration. Typed, indexed product
+    # adapter-reported Run Configuration. Typed, indexed product
     # dimensions — never backfilled from adapter name, env, or trace data.
     # Both columns nullable so legacy rows remain readable as "unknown".
     configured_model: str | None = Field(default=None)
     configured_effort: str | None = Field(default=None)
-    # SPEC-119: link the run back to the exact inventory row and resolved
+    # link the run back to the exact inventory row and resolved
     # commit SHA it executed against. ``task_inventory_id`` is nullable so
     # legacy runs (created before inventory existed) keep rendering.
     task_inventory_id: str | None = Field(default=None, index=True)
     task_source_commit_sha: str | None = None
+
+
+class AgentTaskCheckReportDB(SQLModel, table=True):
+    """SPEC-167: a Task Run's full check evidence, stored off the hot row.
+
+    The run row carries only the scalar verdict (``total_checks`` /
+    ``passed_checks`` / ``failed_checks``); the per-check reasoning, judge
+    segments, and assertions live here and are loaded only by the detail /
+    compare / CLI path via ``check_report_storage.load_check_report``. Always
+    inline JSON — checks are bounded by per-field hygiene, not file artifacts,
+    so they do not use the ArtifactStore (unlike Deliverables).
+
+    Cleanup is belt-and-suspenders: retention's ``_delete_old_batch_runs``
+    pre-deletes report rows explicitly (mirroring attempts / task_revisions),
+    and the FK is ``ON DELETE CASCADE`` as defense when SQLite
+    ``foreign_keys=ON`` (set at ``db.py`` connect time). Either path alone is
+    sufficient; both keep purge robust and testable without pragma gymnastics.
+    """
+
+    __tablename__: ClassVar[str] = "agent_task_check_reports"
+
+    run_id: str = Field(
+        sa_column=Column(
+            "run_id",
+            ForeignKey("agent_task_runs.id", ondelete="CASCADE"),
+            primary_key=True,
+        )
+    )
+    value_json: list[dict[str, object]] | None = Field(
+        default=None, sa_column=Column("value_json", JSON)
+    )
+    created_at: datetime
 
 
 class AgentTaskDeliverableDB(SQLModel, table=True):
@@ -563,7 +612,7 @@ class AgentTaskScheduleDB(SQLModel, table=True):
     minute: int = 0
     day_of_week: int | None = None
     day_of_month: int | None = None
-    # SPEC-069: adaptive (SM-2) scheduling bounds. Used only when
+    # adaptive (SM-2) scheduling bounds. Used only when
     # ``cadence_type == "adaptive"``; ignored for fixed-cadence schedules.
     min_interval_days: float = 1.0
     max_interval_days: float = 30.0
@@ -574,19 +623,19 @@ class AgentTaskScheduleDB(SQLModel, table=True):
     run_metadata: dict[str, object] | None = Field(
         default=None, sa_column=Column("run_metadata", JSON)
     )
-    # SPEC-119: schedule provenance. Stored without commit_sha on purpose
+    # schedule provenance. Stored without commit_sha on purpose
     # so the schedule stays valid against the moving ref; the batch run
     # created at trigger time captures the resolved SHA.
     task_source_type: str | None = None
     task_source_ref: str | None = None
     task_source_subpath: str | None = None
-    # SPEC-146: schedule target Pool + queue policy + disabled reason. Pool is
+    # schedule target Pool + queue policy + disabled reason. Pool is
     # nullable only for migration/historical rows; new validation requires it.
     # archived Pool disables with disabled_reason="executor_pool_archived".
     executor_pool_id: str | None = Field(default=None, foreign_key="executor_pools.id", index=True)
     queue_ttl_seconds: int = 86_400
     disabled_reason: str | None = None
-    # SPEC-163: source-owned scheduled delivery. ``execution_kind`` distinguishes
+    # source-owned scheduled delivery. ``execution_kind`` distinguishes
     # native source-owned schedules from legacy bundled ones. The authenticated
     # creator becomes the fixed Execution Owner; only their Connected Executors
     # may claim. ``active_batch_run_id`` enforces at-most-one non-terminal Batch
@@ -649,7 +698,7 @@ class AgentTaskScheduleOccurrenceDB(SQLModel, table=True):
 
 
 class AdaptiveTaskStateDB(SQLModel, table=True):
-    """Per-task adaptive scheduling state (SPEC-069).
+    """Per-task adaptive scheduling state.
 
     Each row tracks one task's SM-2 interval/ease within a single adaptive
     schedule. The schedule's ``next_run_at`` is the min of all its states'
@@ -806,7 +855,7 @@ class ApiKeyDB(SQLModel, table=True):
     id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:20])
     name: str = Field(default="Default")
 
-    # Two-key model (SPEC-092). Nullable for backward compat with legacy keys.
+    # Two-key model. Nullable for backward compat with legacy keys.
     public_key: str | None = Field(default=None, unique=True, index=True)
     hashed_secret_key: str | None = Field(default=None, unique=True, index=True)
     display_secret_key: str = Field(default="")
@@ -886,7 +935,7 @@ class ProjectDB(SQLModel, table=True):
     id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:12])
     name: str = Field(index=True)
     trace_content_policy: str = Field(default="full")
-    # SPEC-143: default Pool for dashboard/schedule runs. Deliberately NOT a
+    # default Pool for dashboard/schedule runs. Deliberately NOT a
     # hard DB foreign key (that would form a projects <-> executor_pools cycle
     # that breaks CREATE/DROP ordering); the service validates that the Pool
     # belongs to this Project. Never retargets after Batch creation.
@@ -903,7 +952,7 @@ class ProjectDB(SQLModel, table=True):
 
 
 class ProjectMembershipDB(SQLModel, table=True):
-    """Project-scoped membership row (SPEC-122).
+    """Project-scoped membership row.
 
     Replaces the use of ``ProjectDB.created_by`` and ``UserDB.is_admin``
     for product authorization. Each non-demo project has at least one
@@ -935,7 +984,7 @@ class ProjectMembershipDB(SQLModel, table=True):
 
 
 class ProjectInvitationDB(SQLModel, table=True):
-    """Pending project-scoped invitation (SPEC-127).
+    """Pending project-scoped invitation.
 
     Lets project admins/owners invite a user by email even when no
     account exists yet. The raw token is never persisted — only its
@@ -986,12 +1035,12 @@ class ProjectInvitationDB(SQLModel, table=True):
 
 
 class ProjectTaskSourceDB(SQLModel, table=True):
-    """Project-owned task source configuration (SPEC-118).
+    """Project-owned task source configuration.
 
     Each project owns exactly one task source row that determines where
     its task inventory comes from. New non-demo projects start without a
     row (backend returns ``null``); configuring the source creates a row
-    with ``status="pending_sync"``. Later specs (SPEC-119) move status
+    with ``status="pending_sync"``. Later specs move status
     to ``ready`` once inventory has been synced.
     """
 
@@ -1002,7 +1051,7 @@ class ProjectTaskSourceDB(SQLModel, table=True):
     source_type: str = Field(index=True)  # "git" | "filesystem" | "demo" | "published"
     display_name: str = ""
 
-    # SPEC-159: Task Catalog columns
+    # Task Catalog columns
     catalog_digest: str | None = None
     task_count: int | None = None
     published_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
@@ -1031,7 +1080,7 @@ class ProjectTaskSourceDB(SQLModel, table=True):
 
 
 class ProjectTaskInventoryDB(SQLModel, table=True):
-    """Persisted task inventory row (SPEC-119).
+    """Persisted task inventory row.
 
     Inventory is the source of truth for "what tasks exist" on a project
     once its task source has been synced. Rows are replaced in-place on
@@ -1074,7 +1123,7 @@ class ProjectTaskInventoryDB(SQLModel, table=True):
 
 
 class TaskRevisionDB(SQLModel, table=True):
-    """Immutable Task Revision identity for a Batch Run (SPEC-142).
+    """Immutable Task Revision identity for a Batch Run.
 
     A Revision pins the exact source bytes a Batch was recorded against. It is
     either ``bundled`` (the Control Plane stored a verified immutable Execution
@@ -1114,12 +1163,12 @@ class TaskRevisionDB(SQLModel, table=True):
 
 
 # ============================================================================
-# SPEC-143: Execution Control Plane — Pools, Executors, Attempts
+# Execution Control Plane — Pools, Executors, Attempts
 # ============================================================================
 
 
 class ExecutorPoolDB(SQLModel, table=True):
-    """Project-owned Executor Pool (SPEC-143): a stable execution/trust target.
+    """Project-owned Executor Pool: a stable execution/trust target.
 
     Schedules and dashboard runs target a Pool rather than one transient
     machine. Instances in a Pool are expected to have equivalent network,
@@ -1153,7 +1202,7 @@ class ExecutorPoolDB(SQLModel, table=True):
 
 
 class ExecutorDB(SQLModel, table=True):
-    """A process that pulls work from the Control Plane (SPEC-143).
+    """A process that pulls work from the Control Plane.
 
     Persistent Executors enroll with a one-time token and authenticate with a
     long-lived ``apo_ex_`` credential whose raw value is returned once and only
@@ -1180,7 +1229,7 @@ class ExecutorDB(SQLModel, table=True):
         default=None, sa_column=Column(JSON)
     )
     max_concurrency: int = 1
-    # SPEC-162: latest protocol-v2 heartbeat observations. Observations used
+    # latest protocol-v2 heartbeat observations. Observations used
     # for UI freshness only; persisted ``max_concurrency`` plus active leased/
     # running Attempts remain the capacity authority.
     reported_catalog_digest: str | None = Field(default=None, index=True)
@@ -1202,7 +1251,7 @@ class ExecutorDB(SQLModel, table=True):
 
 
 class ExecutorEnrollmentTokenDB(SQLModel, table=True):
-    """One-time token exchanged for a persistent Executor credential (SPEC-143)."""
+    """One-time token exchanged for a persistent Executor credential."""
 
     __tablename__: ClassVar[str] = "executor_enrollment_tokens"
 
@@ -1225,7 +1274,7 @@ class ExecutorEnrollmentTokenDB(SQLModel, table=True):
 
 
 class TaskExecutionAttemptDB(SQLModel, table=True):
-    """One operational execution attempt of a Task Run (SPEC-143).
+    """One operational execution attempt of a Task Run.
 
     Owns queue/lease/Executor state, phase, operational failure, bounded
     diagnostics, and cancellation/loss — distinct from the Task Run which owns
@@ -1296,7 +1345,7 @@ class TaskExecutionAttemptDB(SQLModel, table=True):
 
 
 class GithubConnectionDB(SQLModel, table=True):
-    """Per-project GitHub OAuth connection (SPEC-121).
+    """Per-project GitHub OAuth connection.
 
     Stores the encrypted access token and the GitHub user identity so
     project task sources can clone from private GitHub repositories
@@ -1328,12 +1377,12 @@ class GithubConnectionDB(SQLModel, table=True):
 
 
 # ============================================================================
-# SPEC-129: OTel-Native Tracing — Canonical OTLP span store + durable inbox
+# OTel-Native Tracing — Canonical OTLP span store + durable inbox
 # ============================================================================
 
 
 class OtlpIngestBatchDB(SQLModel, table=True):
-    """Durable inbox record for a received OTLP batch (SPEC-129 Track 1).
+    """Durable inbox record for a received OTLP batch.
 
     Persisted before any derived processing so convention changes, transient
     projection failures, and newly supported frameworks can be replayed from
@@ -1363,7 +1412,7 @@ class OtlpIngestBatchDB(SQLModel, table=True):
 
 
 class OtlpSpanDB(SQLModel, table=True):
-    """Canonical lossless OTel span store (SPEC-129 Track 2).
+    """Canonical lossless OTel span store.
 
     One row per ``(project_id, trace_id, span_id)`` — the immutable source of
     truth. Typed OTel values are retained as JSON for replayability.
@@ -1408,7 +1457,7 @@ class OtlpSpanDB(SQLModel, table=True):
 
 
 class InstallationStateDB(SQLModel, table=True):
-    """Singleton durable state for one Self-Hosted Installation (SPEC-153).
+    """Singleton durable state for one Self-Hosted Installation.
 
     ``id`` has exactly one supported value: ``"installation"``. The singleton
     records whether Installation Initialization has occurred, independent of

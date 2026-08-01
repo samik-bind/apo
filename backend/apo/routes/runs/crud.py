@@ -708,7 +708,7 @@ def bulk_delete_runs(
         require_project_not_demo(run.project)
 
     # Scope cascade deletes by project so a shared OTel id cannot delete another
-    # project's metrics/calls (SPEC-133 M4).
+    # project's metrics/calls.
     deleted_metrics = session.exec(
         delete(RunMetricDB).where(
             _as_column(cast(object, RunMetricDB.run_id)).in_(request.run_ids),

@@ -17,7 +17,7 @@ from sqlmodel import SQLModel
 
 
 # ============================================================================
-# SPEC-142: Task Revision transport schemas
+# Task Revision transport schemas
 # ============================================================================
 
 
@@ -38,7 +38,7 @@ class TaskRevisionSummary(SQLModel):
 
 
 class CallerSourceAttestation(SQLModel):
-    """Caller-reported source identity without uploading source bytes (SPEC-145).
+    """Caller-reported source identity without uploading source bytes.
 
     Authenticated self-reported provenance, not a source backup. apo stores the
     digest, bounded summary, base commit, and dirty state; it has no bundle
@@ -109,7 +109,7 @@ __all__ = [
 
 
 # ============================================================================
-# SPEC-143: Execution Control Plane domain types
+# Execution Control Plane domain types
 # ============================================================================
 
 EXECUTOR_PROTOCOL_VERSION = 1
@@ -207,7 +207,7 @@ class AttemptSummary(SQLModel):
 
 @dataclass(frozen=True)
 class ProjectActor:
-    """A verified Project member acting on a request (SPEC-143).
+    """A verified Project member acting on a request.
 
     Unlike the legacy batch path (which trusted ``request.project`` from the
     body), pooled Batch creation requires the caller to resolve a real

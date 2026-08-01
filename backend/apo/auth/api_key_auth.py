@@ -1,4 +1,4 @@
-"""Two-key API authentication helpers (SPEC-092 + SPEC-149).
+"""Two-key API authentication helpers.
 
 Provides validation functions for the supported wire formats:
     - Basic auth (public_key:secret_key) — grants the key's stored scope
@@ -12,7 +12,7 @@ self-documenting.
 
 Also provides ``generate_key_pair`` for creating new pk-apo/sk-apo pairs.
 
-Each validation function consults the in-memory ``api_key_cache`` (SPEC-093)
+Each validation function consults the in-memory ``api_key_cache``
 before hitting the database. Both positive (valid key) and negative (not found)
 results are cached.
 """

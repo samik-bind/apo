@@ -12,13 +12,13 @@ export type Config = {
   ci: boolean;
   /**
    * Project-level default for `apo task run` execution
-   * (SPEC-136). Populated from `StoredCredentials.default_execution`.
+   *. Populated from `StoredCredentials.default_execution`.
    * Lower priority than a task's own `execution` declaration; overrideable
    * per-invocation by `--local` / `--remote`.
    */
-  // SPEC-165: default_execution retired
+  // default_execution retired
   /**
-   * SPEC-145: preferred executor — `"caller"` or a Pool ID. Populated from
+   * preferred executor — `"caller"` or a Pool ID. Populated from
    * `StoredCredentials.default_executor`; takes precedence over the legacy
    * `defaultExecution` field.
    */
@@ -59,7 +59,7 @@ export function resolveConfig(
     ) ?? stored?.api_key,
     json: flags.json === true,
     ci: flags.ci === true || process.env.CI === "true",
-    // SPEC-165: default_execution retired — ignored
+    // default_execution retired — ignored
     defaultExecutor: stored?.default_executor,
     _rawFlags: flags,
   };

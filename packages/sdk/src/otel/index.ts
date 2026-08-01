@@ -1,5 +1,5 @@
 /**
- * OTel-native tracing setup for the apo SDK (SPEC-129 Track 4).
+ * OTel-native tracing setup for the apo SDK.
  *
  * This module provides the standard OpenTelemetry setup path for apo:
  *   - ``configureApoTelemetry`` creates a tracer provider with an OTLP exporter
@@ -51,7 +51,7 @@ import {
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { getRegisteredApoProcessor } from "../agent-task/integrations/register.ts";
 
-// ── public types (SPEC-129 §6) ───────────────────────────────────────────
+// ── public types ───────────────────────────────────────────
 
 export interface ConfigureApoTelemetryOptions {
   /** Explicit permission for this standalone helper to own OTel lifecycle. */
@@ -531,7 +531,7 @@ export async function traceRetriever<T>(
   );
 }
 
-// ── Score API (SPEC-129 §5: Scores are domain records, not spans) ─────────
+// ── Score API ─────────
 
 export interface ScoreOptions {
   name: string;
@@ -545,7 +545,7 @@ export interface ScoreOptions {
 /**
  * Record a score for a trace (or a specific observation within a trace).
  *
- * SPEC-129 §5: "A Score is an apo domain record attached to a Trace or
+ * "A Score is an apo domain record attached to a Trace or
  * Observation. It is not encoded as a fake span."
  *
  * This calls the native score API (`POST /api/v1/traces/{id}/scores` or
@@ -594,7 +594,7 @@ export async function score(
   }
 }
 
-// ── W3C trace context propagation (SPEC-129 Test Case #10) ───────────────
+// ── W3C trace context propagation ───────────────
 
 /**
  * Inject the current span's trace context into a headers dict for outbound

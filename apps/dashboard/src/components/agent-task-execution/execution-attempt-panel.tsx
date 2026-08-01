@@ -102,7 +102,7 @@ type Presentation = {
 };
 
 // ============================================================================
-// Source-owned presentation (SPEC-162)
+// Source-owned presentation
 // ============================================================================
 
 /** Stable copy for a queued source-owned Attempt's dynamic waiting reason. */

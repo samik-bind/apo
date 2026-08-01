@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * SPEC-140 ticket 07: lazy-loading Deliverables panel.
+ * lazy-loading Deliverables panel.
  *
  * Receives only the manifest initially — names, kinds, sizes — so opening the
  * Deliverables tab issues no body request. Expanding one JSON row fetches

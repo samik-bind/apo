@@ -1,5 +1,5 @@
 """
-Tests for observation-level scoring and evaluation (SPEC-019).
+Tests for observation-level scoring and evaluation.
 
 Test cases:
 1. Create observation-level score via ingestion

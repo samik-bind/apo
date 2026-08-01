@@ -39,7 +39,7 @@ export const NO_CHECKS_REGISTERED_MESSAGE =
  * which fetches the content once instead of re-dumping it per check (#22).
  */
 export function formatChecks(checks: CheckResult[], verbose = false): string {
-  // SPEC-160: nest checks declared inside a describe() under a roll-up header.
+  // nest checks declared inside a describe() under a roll-up header.
   // Bare checks (no group_id) render as before, so old output is unchanged.
   const segments = groupChecks(checks);
   const lines: string[] = [];

@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# SPEC-140 ticket 09: optional S3-compatible ArtifactStore. Install with
+# optional S3-compatible ArtifactStore. Install with
 # `uv sync --extra s3` (or `pip install apo-backend[s3]`). The default Local
 # topology never needs it.
 s3 = ["boto3>=1.34"]

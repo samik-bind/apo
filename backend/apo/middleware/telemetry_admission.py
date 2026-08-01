@@ -77,7 +77,7 @@ class TelemetryAdmissionMiddleware(BaseHTTPMiddleware):
         if identity is None:
             return _service_unavailable()
 
-        # Store for downstream route-level byte/unit consumption (SPEC-151).
+        # Store for downstream route-level byte/unit consumption.
         setattr(request.state, "telemetry_identity", identity)
 
         rejection = self._controller.consume_request(identity)

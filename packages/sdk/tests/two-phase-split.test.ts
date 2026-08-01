@@ -1,5 +1,5 @@
 /**
- * SPEC-130 Test 14 + 15: two-phase execution split.
+ * two-phase execution split.
  *
  * Test 14: root span end + flush completes BEFORE the first check executes.
  * Test 15: the evaluated trace contains no `checks.run` or `deliverables.validate`

@@ -7,7 +7,7 @@ import {
   RunCostBreakdownTooltip,
 } from "../DimensionBreakdownTooltip";
 
-// Critical regression guard (SPEC-136 ticket 11): the tooltip must NOT fetch
+// Critical regression guard: the tooltip must NOT fetch
 // pricing client-side. If anything imports the deleted model-pricing module,
 // this test file would fail to load.
 vi.mock("@/lib/model-pricing", () => {

@@ -1,4 +1,4 @@
-"""Project task source service (SPEC-118).
+"""Project task source service.
 
 Encapsulates reading, validating, and mutating a project's task source
 configuration. The task source determines where a project's task
@@ -195,7 +195,7 @@ def upsert_task_source(
 
 
 def mark_syncing(session: Session, row: ProjectTaskSourceDB) -> None:
-    """Mark a task source as mid-sync. Used by the sync endpoint (SPEC-119)."""
+    """Mark a task source as mid-sync. Used by the sync endpoint."""
     if row.status not in VALID_STATUSES:
         return
     row.status = "syncing"
@@ -211,7 +211,7 @@ def mark_ready(
     *,
     resolved_commit_sha: str | None = None,
 ) -> None:
-    """Mark a task source as ready after a successful sync (SPEC-119)."""
+    """Mark a task source as ready after a successful sync."""
     row.status = "ready"
     row.last_synced_at = datetime.now(timezone.utc)
     row.last_error = None

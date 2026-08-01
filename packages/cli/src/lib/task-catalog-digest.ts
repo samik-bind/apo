@@ -1,5 +1,5 @@
 /**
- * SPEC-161: Canonical catalog digest for TypeScript.
+ * Canonical catalog digest for TypeScript.
  *
  * Must produce the exact same digest as the Python compute_catalog_digest,
  * which uses ``json.dumps(doc, sort_keys=True, separators=(",", ":"))``.

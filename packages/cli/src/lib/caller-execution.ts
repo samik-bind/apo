@@ -1,5 +1,5 @@
 /**
- * SPEC-145: CLI caller-execution client.
+ * CLI caller-execution client.
  *
  * Drives the caller create-and-claim protocol: POST /agent-task-batch-runs/caller
  * (Project API key) to atomically create the Batch + attested Revision + leased

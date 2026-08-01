@@ -105,7 +105,7 @@ class SessionSummary(SQLModel):
     trace_count: int
     first_trace_at: str
     last_trace_at: str
-    total_cost: float = 0  # micro-USD (SPEC-136 cost unit), summed over the session's calls
+    total_cost: float = 0  # micro-USD, summed over the session's calls
     total_tokens: int = 0
 
 
@@ -186,7 +186,7 @@ class UpdateRunRequest(SQLModel):
 
 
 class LoggedCallBase(SQLModel):
-    # SPEC-133 M4: id is the OTel span ID (not the PK). Surrogate row_id is the PK.
+    # id is the OTel span ID (not the PK). Surrogate row_id is the PK.
     id: str = Field(index=True)
     project: str = Field(index=True)
     task_id: str = Field(index=True)
@@ -198,7 +198,7 @@ class LoggedCallBase(SQLModel):
     created_at: datetime = Field(index=True)
     model: str
     latency_ms: float | None = Field(default=None, index=True)
-    cost: int | None = Field(default=None, index=True)  # micro-USD int (SPEC-136 ticket 06)
+    cost: int | None = Field(default=None, index=True)  # micro-USD int
 
     # === Langfuse-style observability fields ===
     parent_call_id: str | None = Field(
@@ -232,11 +232,11 @@ class LoggedCallBase(SQLModel):
     prompt_id: str | None = Field(default=None, index=True)  # Legacy prompt identifier
     prompt_version: int | None = Field(default=None)  # Legacy prompt version metadata
 
-    # Cost (SPEC-136 ticket 06). Effective total in micro-USD int. Provided by
+    # Cost. Effective total in micro-USD int. Provided by
     # the SDK (verbatim) or computed from the frozen breakdown (sum of dims).
     provided_cost: int | None = Field(default=None)  # micro-USD int; SDK-reported
 
-    # Per-call cost storage (SPEC-136 ticket 06): the frozen per-dimension
+    # Per-call cost storage: the frozen per-dimension
     # breakdown, normalized raw usage, the matched model/tier, and provenance.
     cost_breakdown: dict[str, int] | None = None  # JSON: {UsageKey: micro-USD}
     raw_usage: dict[str, int] | None = None  # JSON: normalized usage map
@@ -248,7 +248,7 @@ class LoggedCallBase(SQLModel):
     time_to_first_token_ms: float | None = Field(default=None)
 
     # Model tracking (user-provided vs internal). internal_model_id is now the
-    # FK to the matched models row (SPEC-136 ticket 06).
+    # FK to the matched models row.
     provided_model_name: str | None = Field(default=None)  # What user specified
     internal_model_id: int | None = Field(
         default=None
@@ -384,7 +384,7 @@ class FailureBreakdownItem(SQLModel):
 
 
 # ============================================================================
-# SPEC-140: Task Run Deliverables and Artifacts
+# Task Run Deliverables and Artifacts
 # ============================================================================
 
 
@@ -454,7 +454,7 @@ class TruncatedCheckValue(SQLModel):
 
 
 # ============================================================================
-# Task Run Configuration (SPEC-148)
+# Task Run Configuration
 # ============================================================================
 
 # The adapter-reported identity of the agent under test for one Task Run.
@@ -534,7 +534,7 @@ class AgentTaskRunSummary(SQLModel):
     failed_checks: int = 0
     trigger: AgentTaskRunTrigger | None = None
     error_category: str | None = None
-    # SPEC-148: adapter-reported model/effort for this Task Run. Absent when
+    # adapter-reported model/effort for this Task Run. Absent when
     # the adapter does not report configuration. Distinct from the trace's
     # observed ``primary_model``.
     run_configuration: AgentTaskRunConfiguration | None = None
@@ -566,10 +566,10 @@ class AgentTaskRunDetail(SQLModel):
     transcript_json: dict[str, object] | None = None
     deliverables_json: dict[str, object] | None = None
     error_category: str | None = None
-    # SPEC-148: adapter-reported configuration. Same nested shape as the
+    # adapter-reported configuration. Same nested shape as the
     # summary projection.
     run_configuration: AgentTaskRunConfiguration | None = None
-    # SPEC-140: manifest projection returned with Task Run detail. Safe to
+    # manifest projection returned with Task Run detail. Safe to
     # render without loading any Deliverable body. Legacy rows with only
     # ``deliverables_json`` synthesize a manifest on read.
     deliverables: list[DeliverableSummary] = Field(default_factory=list)
@@ -597,7 +597,7 @@ class AgentTaskBatchRunSummary(SQLModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     trigger: AgentTaskRunTrigger | None = None
-    # SPEC-148: derived configuration summary. Projected from child Task
+    # derived configuration summary. Projected from child Task
     # Runs on read — never stored on the batch row.
     configuration: AgentTaskBatchRunConfigurationSummary = Field(
         default_factory=lambda: AgentTaskBatchRunConfigurationSummary(
@@ -636,7 +636,7 @@ class AgentTaskBatchRunDetail(SQLModel):
     execution_target: ExecutionTarget | None = None
     executor_pool_name: str | None = None
     attempts: list[AttemptSummary] = Field(default_factory=list)
-    # SPEC-148: derived configuration summary (uniform/mixed/partial/unknown).
+    # derived configuration summary (uniform/mixed/partial/unknown).
     configuration: AgentTaskBatchRunConfigurationSummary = Field(
         default_factory=lambda: AgentTaskBatchRunConfigurationSummary(
             state="unknown"
@@ -647,7 +647,7 @@ class AgentTaskBatchRunDetail(SQLModel):
 class CreateAgentTaskBatchRunRequest(SQLModel):
     model_config = {"extra": "forbid"}
     project: str
-    # SPEC-165: exact catalog Task IDs. Source-owned by definition — no
+    # exact catalog Task IDs. Source-owned by definition — no
     # Pool, path, root, grep, selection_type, or execution_target accepted.
     task_ids: list[str] = Field(default_factory=list)
     environment: str = "default"
@@ -700,13 +700,13 @@ class ReportAgentTaskRunResultRequest(SQLModel):
     # produced a verdict) from ``status: failed`` (the judge ran and said no),
     # mirroring the in-process ``except Exception`` path. Issue #13.
     errored: bool = False
-    # SPEC-148: the adapter's resolved model/effort for this run. Absent for
+    # the adapter's resolved model/effort for this run. Absent for
     # old executors/SDKs. Validated before mutating terminal state.
     run_configuration: AgentTaskRunConfiguration | None = None
 
 
 # ============================================================================
-# Scoring (SPEC-019)
+# Scoring
 # ============================================================================
 
 
@@ -766,7 +766,7 @@ class ScoreConfigResponse(SQLModel):
 
 
 # ============================================================================
-# Annotation Queues (SPEC-019)
+# Annotation Queues
 # ============================================================================
 
 
@@ -876,7 +876,7 @@ class AgentTaskScheduleSummary(SQLModel):
     updated_at: datetime
     last_batch: ScheduleLastBatchSummary | None = None
     consecutive_failures: int = 0
-    # SPEC-163: source-owned scheduled delivery projection.
+    # source-owned scheduled delivery projection.
     execution_kind: Literal["source_owned", "bundled"] = "bundled"
     execution_owner: ScheduleExecutionOwnerSummary | None = None
     connected_environment_state: str | None = None
@@ -907,7 +907,7 @@ class CreateAgentTaskScheduleRequest(SQLModel):
     project: str
     name: str
     selection_type: str = "tasks"
-    # SPEC-163: typed catalog selection for source-owned schedules. When
+    # typed catalog selection for source-owned schedules. When
     # present, the authenticated admin becomes the fixed Execution Owner and
     # the Schedule is ``source_owned`` (no Pool/path/root/grep accepted).
     selection: dict[str, object] | None = None
@@ -992,7 +992,7 @@ class ApiKeyResponse(SQLModel):
     created_at: str
     last_used_at: str | None
     expires_at: str | None
-    # SPEC-092: Two-key model fields
+    # Two-key model fields
     public_key: str | None = None
     display_secret_key: str | None = None
 
@@ -1001,7 +1001,7 @@ class ApiKeyCreateResponse(ApiKeyResponse):
     """Response for key creation. Includes the full key for legacy keys,
     or public_key + secret_key for two-key model keys."""
     key: str | None = None
-    # SPEC-092: Two-key model — secret_key shown once at creation
+    # Two-key model — secret_key shown once at creation
     secret_key: str | None = None
 
 
@@ -1009,7 +1009,7 @@ class ApiKeyRotateResponse(SQLModel):
     id: str
     key: str | None = None
     message: str
-    # SPEC-092: Two-key model fields
+    # Two-key model fields
     public_key: str | None = None
     secret_key: str | None = None
 
@@ -1040,7 +1040,7 @@ class UpdateUserRequest(SQLModel):
 
 
 # ============================================================================
-# Projects & Project Task Sources (SPEC-118)
+# Projects & Project Task Sources
 # ============================================================================
 
 
@@ -1106,7 +1106,7 @@ class ProjectDetail(ProjectSummary):
 
 
 # ============================================================================
-# Task Catalog (SPEC-159)
+# Task Catalog
 # ============================================================================
 
 
@@ -1136,7 +1136,7 @@ class TaskCatalog(SQLModel):
 
 
 class ProjectPermissionSummary(SQLModel):
-    """Computed permissions for the current user on a project (SPEC-122).
+    """Computed permissions for the current user on a project.
 
     ``role`` is ``None`` for the demo project, which has no memberships
     but remains world-readable. The boolean flags are derived from the
@@ -1175,7 +1175,7 @@ class UpdateProjectMemberRequest(SQLModel):
 
 
 # ---------------------------------------------------------------------------
-# Project invitations (SPEC-127)
+# Project invitations
 # ---------------------------------------------------------------------------
 
 

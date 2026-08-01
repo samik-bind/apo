@@ -283,12 +283,12 @@ async def create_agent_task_schedule(
     session: Session = Depends(get_session),
 ):
     require_project_not_demo(request.project)
-    # SPEC-122: schedule creation requires project admin role.
+    # schedule creation requires project admin role.
     membership = enforce_project_role_from_request(
         http_request, session, request.project, minimum_role="admin"
     )
 
-    # SPEC-163: a typed catalog ``selection`` creates a source-owned Schedule
+    # a typed catalog ``selection`` creates a source-owned Schedule
     # bound to the authenticated admin as fixed Execution Owner. Legacy
     # bundled schedules keep the Pool/path path when ``selection`` is absent.
     if request.selection is not None:
@@ -312,7 +312,7 @@ async def create_agent_task_schedule(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     now = datetime.now(timezone.utc)
-    # SPEC-119: snapshot the project's current task source so the
+    # snapshot the project's current task source so the
     # schedule stays explainable after later syncs. ``commit_sha`` is
     # intentionally not stored — schedules run against the moving ref
     # and the per-batch run captures the resolved SHA at trigger time.
@@ -536,7 +536,7 @@ async def update_agent_task_schedule(
         raise HTTPException(status_code=404, detail="Schedule not found")
 
     require_project_not_demo(schedule.project)
-    # SPEC-122: schedule updates require project admin role.
+    # schedule updates require project admin role.
     _ = enforce_project_role_from_request(
         http_request, session, schedule.project, minimum_role="admin"
     )
@@ -570,7 +570,7 @@ async def update_agent_task_schedule(
     if request.max_interval_days is not None:
         schedule.max_interval_days = request.max_interval_days
     if request.enabled is not None:
-        # SPEC-163: pausing a source-owned Schedule cancels its never-started
+        # pausing a source-owned Schedule cancels its never-started
         # active Batch; started work is left intact to finish.
         if schedule.execution_kind == "source_owned" and not request.enabled and schedule.enabled:
             from apo.services.execution_leases import cancel_active_batch_on_pause
@@ -660,12 +660,12 @@ async def trigger_schedule(
         raise HTTPException(status_code=404, detail="Schedule not found")
 
     require_project_not_demo(schedule.project)
-    # SPEC-122: triggering a schedule is a write operation; requires admin.
+    # triggering a schedule is a write operation; requires admin.
     _ = enforce_project_role_from_request(
         http_request, session, schedule.project, minimum_role="admin"
     )
 
-    # SPEC-163: source-owned Run Now delivers a manual Occurrence (or returns
+    # source-owned Run Now delivers a manual Occurrence (or returns
     # the active Batch) without shifting the cadence. Legacy bundled keeps
     # the pooled create-and-trigger path.
     if schedule.execution_kind == "source_owned":
@@ -879,7 +879,7 @@ async def delete_agent_task_schedule(
     if schedule is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
     require_project_not_demo(schedule.project)
-    # SPEC-122: schedule deletion requires project admin role.
+    # schedule deletion requires project admin role.
     _ = enforce_project_role_from_request(
         http_request, session, schedule.project, minimum_role="admin"
     )

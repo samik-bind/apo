@@ -747,7 +747,7 @@ export function ProjectMembersSection() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [resendingId, setResendingId] = useState<string | null>(null)
 
-  // SPEC-122: members management is admin-scoped. Hide the demo project — it
+  // members management is admin-scoped. Hide the demo project — it
   // has no memberships.
   useEffect(() => {
     listProjects()

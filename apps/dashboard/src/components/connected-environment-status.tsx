@@ -11,7 +11,7 @@ interface StatusCopy {
   guidance: string | null;
 }
 
-/** SPEC-162: stable, actionable copy for each Connected Environment state.
+/** stable, actionable copy for each Connected Environment state.
  * Never implies Apo owns, clones, deploys, or remotely commands the Task. */
 function copyForState(state: ConnectedEnvironmentState): StatusCopy {
   switch (state) {

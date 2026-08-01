@@ -62,7 +62,7 @@ class TestListUsers:
 
     def test_list_users_non_admin_blocked(self, client: TestClient) -> None:
         resp = client.get("/auth/users")
-        # SPEC-122: unauthenticated requests are blocked at the auth
+        # unauthenticated requests are blocked at the auth
         # middleware (401) before reaching the admin check (403). Either
         # status is acceptable for "blocked".
         assert resp.status_code in (401, 403)
@@ -126,7 +126,7 @@ class TestInviteUser:
             "/auth/users",
             json={"email": "new@test.com", "name": "New", "password": "Pass1234"},
         )
-        # SPEC-122: blocked at middleware (401) or admin check (403).
+        # blocked at middleware (401) or admin check (403).
         assert resp.status_code in (401, 403)
 
 
@@ -209,7 +209,7 @@ class TestUpdateUser:
             "/auth/users/some-id",
             json={"name": "Hacked"},
         )
-        # SPEC-122: blocked at middleware (401) or admin check (403).
+        # blocked at middleware (401) or admin check (403).
         assert resp.status_code in (401, 403)
 
 
@@ -249,7 +249,7 @@ class TestDeactivateUser:
 
     def test_deactivate_non_admin_blocked(self, client: TestClient) -> None:
         resp = client.delete("/auth/users/some-id")
-        # SPEC-122: blocked at middleware (401) or admin check (403).
+        # blocked at middleware (401) or admin check (403).
         assert resp.status_code in (401, 403)
 
 

@@ -1,12 +1,12 @@
 /**
- * SPEC-142: canonical Task Revision manifest.
+ * canonical Task Revision manifest.
  *
  * Pure, dependency-free canonicalizer. Both this module and its Python twin
  * (`backend/apo/execution/task_revision_manifest.py`) MUST produce
  * byte-identical canonical JSON and digests for every fixture under
  * `specs/contracts/task-revision/v1/cases/`.
  *
- * Canonicalization rules (SPEC-142 §Canonical Task Revision manifest):
+ * Canonicalization rules:
  *   - `/` path separators (caller `\` normalized to `/`);
  *   - Unicode NFC normalization of the path;
  *   - bytewise lexical ordering of normalized UTF-8 paths (NOT UTF-16 —

@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for the Trace Projector (SPEC-129 Track 3).
+"""Tests for the Trace Projector.
 
 The projector takes canonical ``OtlpSpanDB`` rows, normalizes them via the
 Track 2 normalizer, and upserts into the existing ``RunDB``/``LoggedCallDB``
@@ -394,7 +394,7 @@ class TestTraceProjectorTaskRunCostRefresh:
             task_run = session.get(AgentTaskRunDB, "run-cost-1")
             assert task_run is not None
             assert task_run.total_cost is not None
-            # 0.2568 USD → 256800 micro-USD (SPEC-136 storage unit)
+            # 0.2568 USD → 256800 micro-USD
             assert task_run.total_cost == 256800.0
 
     def test_multiple_costed_spans_accumulate(self):

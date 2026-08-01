@@ -1,5 +1,5 @@
 /**
- * SPEC-145: caller workspace Git provenance for the CallerSourceAttestation.
+ * caller workspace Git provenance for the CallerSourceAttestation.
  *
  * Shells out to `git` (never trusts env-only hints) for the base commit, the
  * sanitized remote URL (user-info/tokens stripped), and dirty state. Missing

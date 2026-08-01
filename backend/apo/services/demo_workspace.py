@@ -34,7 +34,7 @@ DEMO_READ_ONLY_STATUS = 403
 
 DEMO_READ_ONLY_ENV = "DEMO_READ_ONLY"
 
-# SPEC-122: separate flag for demo authoring. Demo authoring is a
+# separate flag for demo authoring. Demo authoring is a
 # deployment-local concern and must not be granted by project role.
 # When unset, we fall back to the legacy ``DEMO_READ_ONLY=false`` check
 # so existing local workflows keep working.
@@ -100,8 +100,8 @@ def require_run_not_demo(session: Session, run_id: str, project: str | None = No
     """Fetch a run and reject if it belongs to the demo project.
 
     When ``project`` is given, the lookup is scoped by ``(id, project)`` so two
-    Projects sharing an OTel trace id cannot resolve to each other's run
-    (SPEC-133 M4). Callers with an authenticated Project should always pass it.
+    Projects sharing an OTel trace id cannot resolve to each other's run.
+    Callers with an authenticated Project should always pass it.
     """
     statement = select(RunDB).where(RunDB.id == run_id)
     if project is not None:
@@ -119,8 +119,8 @@ def require_call_not_demo(
     """Fetch a call and reject if its trace belongs to the demo project.
 
     When ``project`` is given, the lookup is scoped by ``(id, project)`` so two
-    Projects sharing an OTel span id cannot resolve to each other's call
-    (SPEC-133 M4). Callers with an authenticated Project should always pass it.
+    Projects sharing an OTel span id cannot resolve to each other's call.
+    Callers with an authenticated Project should always pass it.
     """
     statement = select(LoggedCallDB).where(LoggedCallDB.id == call_id)
     if project is not None:
@@ -205,7 +205,7 @@ def seed_demo_workspace(force: bool = False) -> str | None:
     Args:
         force: If True, clear existing demo data before seeding.
     """
-    # SPEC-122: demo authoring (seeding actual task runs) is a
+    # demo authoring (seeding actual task runs) is a
     # deployment-local concern, gated by ``DEMO_AUTHORING_ENABLED``.
     # Project role does not grant demo authoring rights.
     if not is_demo_authoring_enabled():
@@ -225,7 +225,7 @@ def seed_demo_workspace(force: bool = False) -> str | None:
             _clear_demo_workspace(session)
 
         # Ensure the demo project advertises an explicit task source row
-        # (SPEC-118) instead of relying on the legacy DEFAULT_TASK_ROOT
+        # instead of relying on the legacy DEFAULT_TASK_ROOT
         # fallback. Safe to call repeatedly; no-op when already present.
         from .project_task_sources import ensure_demo_task_source
 

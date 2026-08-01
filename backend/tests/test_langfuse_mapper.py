@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for Langfuse event mapping (SPEC-016)."""
+"""Tests for Langfuse event mapping."""
 
 import pytest
 

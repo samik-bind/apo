@@ -186,7 +186,7 @@ def init_db():
     SQLModel.metadata.create_all(engine)
     _run_migrations()
     _migrate_task_catalog_columns()
-    # SPEC-136 ticket 07: the bundled JSON is the sole source of truth for
+    # the bundled JSON is the sole source of truth for
     # __global__ pricing. Replaces the old seed_default_models call.
     from .services.pricing.loader import load_default_prices
 
@@ -537,7 +537,7 @@ def _migrate_to_baseline():
 
         _add_column_if_missing(conn, "api_keys", "scope", "VARCHAR DEFAULT 'full'")
 
-        # SPEC-092: Two-key model columns (public_key + hashed_secret_key + display_secret_key)
+        # Two-key model columns (public_key + hashed_secret_key + display_secret_key)
         _add_column_if_missing(conn, "api_keys", "public_key", "VARCHAR")
         _add_column_if_missing(conn, "api_keys", "hashed_secret_key", "VARCHAR")
         _add_column_if_missing(conn, "api_keys", "display_secret_key", "VARCHAR DEFAULT ''")
@@ -548,7 +548,7 @@ def _migrate_to_baseline():
             conn, "ix_api_keys_hashed_secret_key", "api_keys", "hashed_secret_key"
         )
 
-        # SPEC-119: Task source provenance on execution tables. All
+        # Task source provenance on execution tables. All
         # columns nullable so legacy rows keep rendering unchanged.
         _add_column_if_missing(conn, "agent_task_batch_runs", "task_source_type", "VARCHAR")
         _add_column_if_missing(conn, "agent_task_batch_runs", "task_source_ref", "VARCHAR")
@@ -568,7 +568,7 @@ def _migrate_to_baseline():
         _add_column_if_missing(conn, "agent_task_schedules", "task_source_ref", "VARCHAR")
         _add_column_if_missing(conn, "agent_task_schedules", "task_source_subpath", "VARCHAR")
 
-        # SPEC-069: Adaptive (SM-2) scheduling bounds. Defaults match the
+        # Adaptive (SM-2) scheduling bounds. Defaults match the
         # model so legacy daily/weekly/monthly schedules are unaffected.
         _add_column_if_missing(
             conn, "agent_task_schedules", "min_interval_days", "REAL DEFAULT 1.0"
@@ -589,7 +589,7 @@ def _migrate_to_baseline():
             "next_run_at",
         )
 
-        # SPEC-122: backfill owner memberships for non-demo projects.
+        # backfill owner memberships for non-demo projects.
         # The ``project_memberships`` table itself is created by
         # ``SQLModel.metadata.create_all`` once ``ProjectMembershipDB``
         # is registered; this block only handles the legacy-data
@@ -924,7 +924,7 @@ def _drop_sqlite_named_indexes(conn: Connection, table_name: str) -> None:
 
 
 def _migrate_to_v9() -> None:
-    """Version 9: add Project scope to metric tables (SPEC-133 M4).
+    """Version 9: add Project scope to metric tables.
 
     RunMetricDB/CallMetricDB previously referenced runs/logged_calls by the public
     OTel ID only. Post-v8 that ID is no longer globally unique, so every metric
@@ -943,7 +943,7 @@ def _migrate_to_v9() -> None:
 
 
 def _migrate_to_v10() -> None:
-    """Version 10: cost system redesign (SPEC-136 ticket 09, big-bang).
+    """Version 10: cost system redesign.
 
     Thin wrapper that opens the module engine transaction; the real work is in
     ``_migrate_cost_schema(conn)`` so the migration is directly testable
@@ -954,7 +954,7 @@ def _migrate_to_v10() -> None:
 
 
 def _migrate_to_v11() -> None:
-    """Version 11: Task Run Deliverables table (SPEC-140 ticket 01).
+    """Version 11: Task Run Deliverables table.
 
     Thin wrapper that opens the module engine transaction; the real work is in
     ``_migrate_deliverable_schema(conn)`` so the migration is directly testable
@@ -965,7 +965,7 @@ def _migrate_to_v11() -> None:
 
 
 def _migrate_to_v12() -> None:
-    """Version 12: Task Revisions table (SPEC-142).
+    """Version 12: Task Revisions table.
 
     Thin wrapper that opens the module engine transaction; the real work is in
     ``_migrate_task_revision_schema(conn)`` so the migration is directly
@@ -976,7 +976,7 @@ def _migrate_to_v12() -> None:
 
 
 def _migrate_to_v13() -> None:
-    """Version 13: Execution Control Plane tables (SPEC-143).
+    """Version 13: Execution Control Plane tables.
 
     Pools, Executors, enrollment tokens, Execution Attempts, plus
     execution_target_json/cancelled_tasks/sequence_index/default_executor_pool_id.
@@ -987,7 +987,7 @@ def _migrate_to_v13() -> None:
 
 
 def _migrate_to_v14() -> None:
-    """Version 14: schedule Pool target + queue policy (SPEC-146).
+    """Version 14: schedule Pool target + queue policy.
 
     Adds ``executor_pool_id`` / ``queue_ttl_seconds`` / ``disabled_reason`` to
     ``agent_task_schedules``. No backfill body here — Bundled Pool/default
@@ -999,7 +999,7 @@ def _migrate_to_v14() -> None:
 
 
 def _migrate_to_v15() -> None:
-    """Version 15: Task Run Configuration columns (SPEC-148 ticket 01).
+    """Version 15: Task Run Configuration columns.
 
     Thin wrapper that opens the module engine transaction; the real work is in
     ``_migrate_run_configuration_schema(conn)`` so the migration is directly
@@ -1010,7 +1010,7 @@ def _migrate_to_v15() -> None:
 
 
 def _migrate_source_owned_executor_schema(conn: Connection) -> None:
-    """The v16 source-owned executor migration (SPEC-161), runnable against any connection.
+    """The v16 source-owned executor migration, runnable against any connection.
 
     Adds columns for member-owned executor identity, system-managed pools,
     source-owned assignment routing, and per-attempt revisions.
@@ -1057,7 +1057,7 @@ def _migrate_source_owned_executor_schema(conn: Connection) -> None:
 
 
 def _migrate_to_v16() -> None:
-    """Version 16: Source-Owned Connected Executor (SPEC-161).
+    """Version 16: Source-Owned Connected Executor.
 
     Adds executor ownership, system-managed pools, assignment routing,
     and per-attempt revision columns.
@@ -1067,7 +1067,7 @@ def _migrate_to_v16() -> None:
 
 
 def _migrate_executor_heartbeat_observations(conn: Connection) -> None:
-    """The v17 source-owned heartbeat observations migration (SPEC-162).
+    """The v17 source-owned heartbeat observations migration.
 
     Persists the latest protocol-v2 catalog digest and reported available
     slots. Existing Executors backfill to NULL. Idempotent.
@@ -1080,13 +1080,13 @@ def _migrate_executor_heartbeat_observations(conn: Connection) -> None:
 
 
 def _migrate_to_v17() -> None:
-    """Version 17: persist source-owned heartbeat observations (SPEC-162)."""
+    """Version 17: persist source-owned heartbeat observations."""
     with engine.begin() as conn:
         _migrate_executor_heartbeat_observations(conn)
 
 
 def _migrate_schedule_source_owned_schema(conn: Connection) -> None:
-    """The v18 source-owned scheduled delivery migration (SPEC-163).
+    """The v18 source-owned scheduled delivery migration.
 
     Adds schedule execution kind/owner/active-batch columns, backfills every
     existing row to ``bundled`` (no inferred owner), and creates the durable
@@ -1164,7 +1164,7 @@ def _migrate_schedule_source_owned_schema(conn: Connection) -> None:
 
 
 def _migrate_to_v18() -> None:
-    """Version 18: source-owned scheduled delivery (SPEC-163)."""
+    """Version 18: source-owned scheduled delivery."""
     with engine.begin() as conn:
         _migrate_schedule_source_owned_schema(conn)
 
@@ -1243,7 +1243,7 @@ def _make_attempt_task_revision_nullable(conn: Connection) -> None:
 
 
 def _migrate_to_v19() -> None:
-    """Version 19: make Attempt task_revision_id nullable (SPEC-166, issues #83/#84)."""
+    """Version 19: make Attempt task_revision_id nullable."""
     with engine.begin() as conn:
         _make_attempt_task_revision_nullable(conn)
 

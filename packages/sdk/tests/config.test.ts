@@ -102,7 +102,7 @@ describe("readConfig", () => {
 
   describe("authentication configuration", () => {
     it("should read public (server-only) and secret keys from environment", () => {
-      // SPEC-149: only APO_PUBLIC_KEY is read — NEXT_PUBLIC_APO_PUBLIC_KEY
+      // only APO_PUBLIC_KEY is read — NEXT_PUBLIC_APO_PUBLIC_KEY
       // is intentionally ignored because the public identifier does not
       // authorize ingestion by itself and must never be embedded in a
       // browser bundle as a credential.

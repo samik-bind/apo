@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { join, relative } from "path";
 import { listTaskCandidateDirs, type ScanOptions } from "./scanner.ts";
-// SPEC-165: execution property retired
+// execution property retired
 
 export type TaskMeta = {
   /**
@@ -22,7 +22,7 @@ export type TaskMeta = {
   deliverables: string[];
   files: string[];
   /**
-   * The task's declared execution preference (SPEC-136), read statically
+   * The task's declared execution preference, read statically
    * from the `.eval.ts` file. `undefined` when absent or `"auto"` — both
    * mean "no preference, defer to project default / reachability". Read
    * without loading the task module so we don't pay for double registration
@@ -221,7 +221,7 @@ function extractArrayField(content: string, field: string): string[] {
 }
 
 /**
- * Read a task's `execution` preference statically (SPEC-136). Mirrors the
+ * Read a task's `execution` preference statically. Mirrors the
  * other `extract*` helpers so `task-run` can pick a dispatch mode without
  * executing the user's module (which would re-register checks). Strips `//`
  * line comments first so a documented example doesn't get mistaken for a

@@ -1,4 +1,4 @@
-"""Task-Run-scoped Trace Projection read endpoint (SPEC-130 Track B).
+"""Task-Run-scoped Trace Projection read endpoint.
 
 ``GET /v1/agent-task-runs/{task_run_id}/trace-projection``
 
@@ -6,7 +6,7 @@ An internal execution boundary: the agent-task runner polls this after
 flushing its execution Trace to read back the immutable projection snapshot it
 will evaluate against. It is NOT the dashboard's canonical Trace detail API.
 
-Security (SPEC-130 §Task-Run-scoped projection endpoint):
+Security:
   - The service-token subject MUST equal ``{task_run_id}``.
   - Project comes from the verified token (``request.state.project``), never
     query parameters or telemetry.

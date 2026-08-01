@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for Langfuse-compatible public API (SPEC-016)."""
+"""Tests for Langfuse-compatible public API."""
 
 import asyncio
 from datetime import datetime

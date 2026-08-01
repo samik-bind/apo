@@ -387,7 +387,7 @@ function buildHierarchy(items: Item[]): Item[] {
 - Use **Effect-TS** for complex logic and error handling
 - Ensure type safety for all prompt contexts using **Zod**
 
-### Agent Task Runtime Bundle (SPEC-125)
+### Agent Task Runtime Bundle
 
 The Executor runs agent tasks by spawning
 `node /app/agent-task-runtime/runner.mjs`. The backend image and Bundled

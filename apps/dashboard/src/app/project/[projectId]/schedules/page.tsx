@@ -39,9 +39,9 @@ export default async function AgentTaskSchedulesPage({
       listExecutorPools(projectId),
     ]);
 
-    // SPEC-118: non-demo projects must NOT inherit example-service tasks
+    // non-demo projects must NOT inherit example-service tasks
     // via the legacy DEFAULT_TASK_ROOT fallback. The task list comes
-    // from the project's configured source (SPEC-119 inventory) or is
+    // from the project's configured source or is
     // empty. Demo keeps legacy discovery (its source is seeded from the
     // bundled workspace).
     if (projectId === "demo") {

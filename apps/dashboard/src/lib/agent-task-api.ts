@@ -63,7 +63,7 @@ export interface FailureBreakdownItem {
   count: number;
 }
 
-// SPEC-148: adapter-reported Run Configuration (typed, indexed dimensions).
+// adapter-reported Run Configuration (typed, indexed dimensions).
 export interface AgentTaskRunConfiguration {
   model: string;
   effort: string | null;
@@ -119,13 +119,13 @@ export interface AgentTaskRunSummary {
   trace_persistence_status: TracePersistenceStatus;
   trace_error_message: string | null;
   error_category: string | null;
-  /** SPEC-148: adapter-reported model/effort. Absent when not reported. */
+  /** adapter-reported model/effort. Absent when not reported. */
   run_configuration: AgentTaskRunConfiguration | null;
 }
 
 export type EvaluatorType = "llm" | "code" | "regex";
 
-/** SPEC-163: typed catalog selection stored on a source-owned Schedule. */
+/** typed catalog selection stored on a source-owned Schedule. */
 export type ScheduleSelection =
   | { kind: "tasks"; task_ids: string[] }
   | { kind: "folder"; folder_id: string }
@@ -177,9 +177,9 @@ export interface CheckResult {
   source_file?: string;
   /** Individual soft assertions recorded inside this check. */
   assertions?: CheckAssertionResult[];
-  /** SPEC-160: id of the describe() group this check was declared inside. */
+  /** id of the describe() group this check was declared inside. */
   group_id?: string;
-  /** SPEC-160: display name of the enclosing describe() group. */
+  /** display name of the enclosing describe() group. */
   group_name?: string;
 }
 
@@ -213,7 +213,7 @@ export interface AgentTaskBatchRunSummary {
   trigger: AgentTaskRunTrigger | null;
   trace_persistence_status: TracePersistenceStatus;
   trace_error_message: string | null;
-  /** SPEC-148: derived configuration summary (uniform/mixed/partial/unknown). */
+  /** derived configuration summary (uniform/mixed/partial/unknown). */
   configuration: AgentTaskBatchRunConfigurationSummary;
 }
 
@@ -233,14 +233,14 @@ export interface PoolExecutionTarget {
   pool_id: string;
 }
 
-/** SPEC-162: target for a dashboard Run through the User's Connected Executors. */
+/** target for a dashboard Run through the User's Connected Executors. */
 export interface SourceOwnedExecutionTarget {
   kind: "source_owned";
 }
 
 export type ExecutionTarget = PoolExecutionTarget | SourceOwnedExecutionTarget;
 
-/** SPEC-162: aggregate state of one member's Connected Executors. */
+/** aggregate state of one member's Connected Executors. */
 export type ConnectedEnvironmentState =
   | "ready"
   | "busy"
@@ -277,7 +277,7 @@ export interface ExecutionAttemptSummary {
 export interface CreateAgentTaskBatchRunRequest {
   project: string;
   selection_type: string;
-  /** SPEC-162: exact catalog Task IDs for source-owned execution. */
+  /** exact catalog Task IDs for source-owned execution. */
   task_ids?: string[];
   /** Legacy bundled path: filesystem-relative selection. */
   task_paths?: string[];
@@ -356,7 +356,7 @@ export interface AgentTaskScheduleSummary {
   updated_at: string;
   last_batch: ScheduleLastBatchSummary | null;
   consecutive_failures: number;
-  // SPEC-163: source-owned scheduled delivery projection.
+  // source-owned scheduled delivery projection.
   execution_kind: "source_owned" | "bundled";
   execution_owner: ScheduleExecutionOwnerSummary | null;
   connected_environment_state: ConnectedEnvironmentState | null;
@@ -369,7 +369,7 @@ export interface AgentTaskScheduleDetail extends AgentTaskScheduleSummary {
   run_metadata: Record<string, unknown> | null;
 }
 
-/** SPEC-163: the fixed User whose Connected Executors run a source-owned Schedule. */
+/** the fixed User whose Connected Executors run a source-owned Schedule. */
 export interface ScheduleExecutionOwnerSummary {
   id: string;
   name: string;
@@ -397,7 +397,7 @@ export interface ScheduleOccurrenceSummary {
   resolved_at: string | null;
 }
 
-/** SPEC-163 Run Now result: the active Batch (existing or newly created). */
+/** the active Batch (existing or newly created). */
 export interface TriggerScheduleResponse {
   batch_run_id: string | null;
   occurrence_id: string | null;
@@ -409,7 +409,7 @@ export interface CreateAgentTaskScheduleRequest {
   project: string;
   name: string;
   selection_type?: string;
-  /** SPEC-163: typed catalog selection for source-owned schedules. */
+  /** typed catalog selection for source-owned schedules. */
   selection?: ScheduleSelection;
   task_paths?: string[];
   task_root?: string | null;
@@ -487,7 +487,7 @@ export const getAgentTask = (
   });
 
 /**
- * SPEC-119: canonical project-scoped task list backed by persisted
+ * canonical project-scoped task list backed by persisted
  * inventory. Use this in place of `listAgentTasks(taskRoot, ..., project)`
  * whenever the project's task source is configured. Returns an empty
  * array when the source is configured but has no tasks yet (a valid
@@ -652,7 +652,7 @@ export const triggerSchedule = (
     { method: "POST" },
   );
 
-/** SPEC-163: bounded newest-first Occurrence history (membership-scoped). */
+/** bounded newest-first Occurrence history (membership-scoped). */
 export const listScheduleOccurrences = (
   scheduleId: string,
   limit = 20,
@@ -670,7 +670,7 @@ export const getAdaptiveStates = (
     NO_CACHE,
   );
 
-/** SPEC-162: idempotently cancel a Batch's Attempts. Reused by source-owned
+/** idempotently cancel a Batch's Attempts. Reused by source-owned
  * and legacy Pool Runs. Returns the number of Attempts touched. */
 export const cancelAgentTaskBatchRun = (
   batchRunId: string,

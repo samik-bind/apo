@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnusedParameter=false, reportExplicitAny=false, reportUnusedFunction=false, reportAttributeAccessIssue=false, reportAssignmentType=false
 
-"""Tests for the API key auth cache (SPEC-093).
+"""Tests for the API key auth cache.
 
 Covers:
 - ``ApiKeyCache`` class behavior (TTL, eviction, invalidation, thread safety)

@@ -83,7 +83,7 @@ AdmissionResult = Union[AdmissionRejection, IngestionLease]
 
 
 class TelemetryAdmissionController:
-    """Process-local admission controller (SPEC-151).
+    """Process-local admission controller.
 
     All consume methods are atomic across the paired identity + global
     buckets: if the global bucket rejects, the identity bucket is unchanged.
@@ -256,7 +256,7 @@ class TelemetryAdmissionController:
 
 
 # ---------------------------------------------------------------------------
-# Identity derivation (SPEC-151 §Admission identity)
+# Identity derivation
 # ---------------------------------------------------------------------------
 
 

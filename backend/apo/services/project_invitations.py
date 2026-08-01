@@ -1,4 +1,4 @@
-"""Project invitation service (SPEC-127).
+"""Project invitation service.
 
 Owns every state transition for ``ProjectInvitationDB`` rows so routes
 stay thin. Token material is generated and hashed here — the raw token

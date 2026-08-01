@@ -38,7 +38,7 @@ export const realAgentAdapter = defineAdapter({
 
   async startSession(ctx) {
     const state = (ctx.state ?? EMPTY_STATE) as AgentState;
-    // SPEC-148: report the same resolved model the agent uses (service.ts
+    // report the same resolved model the agent uses (service.ts
     // getModel() reads OPENROUTER_MODEL with the same default).
     const model = process.env.OPENROUTER_MODEL ?? "google/gemini-2.5-flash-lite";
     return {

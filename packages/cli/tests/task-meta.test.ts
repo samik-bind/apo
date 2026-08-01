@@ -315,7 +315,7 @@ describe("findTaskMetaById", () => {
   });
 });
 
-describe("task execution preference (SPEC-136)", () => {
+describe("task execution preference", () => {
 
 
 

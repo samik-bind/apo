@@ -6,7 +6,7 @@ import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { writeResultAtomically, RESULT_MAX_BYTES } from "../src/agent-task/runner-result.ts";
 
 /**
- * SPEC-144: the Bundled Executor reads the result only from the result file;
+ * the Bundled Executor reads the result only from the result file;
  * this writer is atomic (temp + fsync + rename), bounded to 10 MiB, and creates
  * the parent directory.
  */

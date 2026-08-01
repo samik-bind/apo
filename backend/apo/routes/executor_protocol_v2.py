@@ -183,7 +183,7 @@ async def enroll_v2(
             detail={"kind": exc.kind, "message": str(exc)},
         )
 
-    # SPEC-161: copy the bootstrap token's created_by_user_id to enrolled_by_user_id
+    # copy the bootstrap token's created_by_user_id to enrolled_by_user_id
     token_row = session.exec(
         select(ExecutorEnrollmentTokenDB).where(
             col(ExecutorEnrollmentTokenDB.executor_pool_id) == executor.executor_pool_id,
@@ -409,7 +409,7 @@ async def attempt_start_v2(
     if attempt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "attempt not found")
 
-    # SPEC-161: source-owned attempts require attestation before start
+    # source-owned attempts require attestation before start
     if attempt.assignment_kind == "source_owned" and attempt.task_revision_id is None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,

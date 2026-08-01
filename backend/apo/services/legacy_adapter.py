@@ -3,7 +3,7 @@
 The legacy ``/api/v1/ingestion`` route translates each event into a canonical
 ``OtlpSpanDB`` row and projects it through ``TraceProjector`` (which derives
 ``RunDB``/``LoggedCallDB``). This makes the legacy route an adapter over the
-canonical path (SPEC-129 Track 6) rather than a separate direct writer.
+canonical path rather than a separate direct writer.
 
 Legacy IDs (arbitrary strings) are preserved as-is in the canonical store —
 the canonical ``OtlpSpanDB`` uniqueness is ``(project_id, trace_id, span_id)``
@@ -289,7 +289,7 @@ def _find_span(session: Session, span_id: str, project_id: str) -> OtlpSpanDB | 
 
     ``project_id`` is required: the OTel span id is not globally unique once two
     projects can share one, so an unscoped lookup could resolve another project's
-    span (SPEC-133 M4).
+    span.
     """
     return session.exec(
         select(OtlpSpanDB).where(

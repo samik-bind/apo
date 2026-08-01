@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPEC-157: Contract tests for the tunnel-trial validation harness.
+# Contract tests for the tunnel-trial validation harness.
 #
 # These tests use temporary files, fake commands, and sentinel secrets to
 # verify the harness's preflight, secrecy, and structure without needing

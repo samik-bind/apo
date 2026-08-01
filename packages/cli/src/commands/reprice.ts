@@ -6,7 +6,7 @@ import type { Config } from "../lib/config.ts";
 /**
  * apo reprice — re-compute stored costs against current pricing.
  *
- * A history-rewriting operator action (SPEC-136 ticket 12). Kicks off a
+ * A history-rewriting operator action. Kicks off a
  * backend reprice job over the admin endpoint, then polls until done — the
  * kick-off/poll pattern dodges the 15s HTTP timeout (mirrors task-run.ts).
  *

@@ -39,7 +39,7 @@ PUBLIC_PATHS: tuple[str, ...] = (
     "/docs",
     "/openapi.json",
     "/redoc",
-    # SPEC-153: detail-free public readiness probe.
+    # detail-free public readiness probe.
     "/api/public/health",
     "/auth/verify-password",
     "/auth/setup",
@@ -48,7 +48,7 @@ PUBLIC_PATHS: tuple[str, ...] = (
     "/auth/reset-password",
     "/auth/verify-email",
     "/auth/resend-verification",
-    # SPEC-127: invitation preview + create-account acceptance must be
+    # invitation preview + create-account acceptance must be
     # reachable before the invitee has a session. The existing-account
     # acceptance path stays authenticated.
     "/auth/invitations/preview",
@@ -59,24 +59,24 @@ PUBLIC_PATHS: tuple[str, ...] = (
     # session/API key, otherwise the middleware 401-blocks it before the
     # handler runs and `apo project create` can never succeed.
     "/v1/projects/bootstrap",
-    # SPEC-143: the executor protocol authenticates itself (one-time enrollment
+    # the executor protocol authenticates itself (one-time enrollment
     # token, long-lived apo_ex_ credential, or task_execution_attempt JWT) inside
     # each handler via Depends. Keeping it out of the user/api-key auth path
     # isolates the protocol's own credential model.
     "/v1/executor-protocol/v1",
-    # SPEC-161: protocol v2 (source-owned connected executors) uses the same
+    # protocol v2 (source-owned connected executors) uses the same
     # self-authenticating model with its own enrollment token and executor credential.
     "/v1/executor-protocol/v2",
 )
 
 _COOKIE_NAMES = ("authjs.session-token", "__Secure-authjs.session-token")
 _RUN_PATCH_RE = re.compile(r"^/v1/runs/[^/]+$")
-# SPEC-130 Track B: a task-run service token may read its own projection.
+# a task-run service token may read its own projection.
 # The route enforces sub == task_run_id; this guard only allows the path shape.
 _TASK_RUN_TRACE_PROJECTION_RE = re.compile(
     r"^/v1/agent-task-runs/[^/]+/trace-projection$"
 )
-# SPEC-140: a task-run service token may upload/read its own Deliverables.
+# a task-run service token may upload/read its own Deliverables.
 # Routes enforce sub == task_run_id and Project ownership; these guards only
 # allow the path shapes. The PUT upload route resolves the Task Run through
 # the upload row, so it is matched by the opaque upload-id segment.
@@ -106,7 +106,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             _add_no_cache_headers(response, path)
             return response
 
-        # SPEC-132 Behavior 2: the open-dev bypass is development-only.
+        # the open-dev bypass is development-only.
         # Release profiles (local/server) with a missing or weak secret
         # fall through to authentication, which fails closed (401).
         if _is_open_dev_bypass_allowed():
@@ -178,7 +178,7 @@ def _authenticate(request: Request) -> AuthContext | None:
         return _authenticate_basic(basic_credentials[0], basic_credentials[1])
 
     # 3. Bearer auth (legacy single-key, service token, or attempt token).
-    # SPEC-149: a Bearer value beginning with ``pk-apo-`` is a public
+    # a Bearer value beginning with ``pk-apo-`` is a public
     # identifier, not secret material. It is rejected here — before any DB
     # lookup, before ``last_used_at`` updates, and before auth-state
     # population — so that the response is indistinguishable from any other
@@ -369,7 +369,7 @@ def _authenticate_bearer(token: str) -> AuthContext | None:
                 "auth_method": "attempt_token",
             }
 
-        # SPEC-149 security invariant #2: a public identifier (``pk-apo-*``)
+        # a public identifier (``pk-apo-*``)
         # is not a credential. Reject it before the legacy secret-token
         # lookup so it does not query by ``public_key``, record
         # ``last_used_at``, or populate authentication state. Returning
@@ -416,10 +416,10 @@ def _service_token_allows_request(request: Request) -> bool:
         return True
     if method == "PATCH" and _RUN_PATCH_RE.match(path) is not None:
         return True
-    # SPEC-130 Track B: let a task-run token read its own trace projection.
+    # let a task-run token read its own trace projection.
     if method == "GET" and _TASK_RUN_TRACE_PROJECTION_RE.match(path) is not None:
         return True
-    # SPEC-140: let a task-run token manage its own Deliverables and report its
+    # let a task-run token manage its own Deliverables and report its
     # final result. The routes enforce sub == task_run_id and Project ownership;
     # this regex allow-list is not authorization.
     if _TASK_RUN_DELIVERABLES_RE.match(path) is not None:
@@ -437,7 +437,7 @@ def _attempt_token_allows_request(request: Request) -> bool:
     method = request.method.upper()
     if method == "POST" and path == "/api/public/otel/v1/traces":
         return True
-    # SPEC-130 Track B/C: let a live attempt token read its own trace
+    # let a live attempt token read its own trace
     # projection — the canonical read-back path the bundled executor's runner
     # polls after flushing its trace. The route enforces sub == task_run_id.
     if method == "GET" and _TASK_RUN_TRACE_PROJECTION_RE.match(path) is not None:

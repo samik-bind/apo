@@ -1,5 +1,5 @@
 /**
- * SPEC-144: atomic, bounded Task result writer.
+ * atomic, bounded Task result writer.
  *
  * The Bundled Executor reads the result ONLY from `AGENT_TASK_RESULT_PATH`
  * (stdout JSON is diagnostic and can never replace it). This writer is

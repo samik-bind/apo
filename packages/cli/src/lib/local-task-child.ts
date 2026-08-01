@@ -133,7 +133,7 @@ export function runTaskChild(opts: TaskChildOptions): Promise<TaskChildSuccess |
     let timedOut = false;
     let settled = false;
 
-    // SPEC-166 #86: use tsx (not bare --experimental-strip-types) so the child
+    // use tsx (not bare --experimental-strip-types) so the child
     // can resolve extensionless TypeScript imports (e.g. `from '../../helpers'`).
     // --experimental-strip-types does not add TS extension resolution; tsx does.
     const child = spawn(process.execPath, ["--import", "tsx", CHILD_SCRIPT], {

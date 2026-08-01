@@ -413,7 +413,7 @@ class TestQueueRecovery:
         session.add(source)
         session.commit()
 
-        # SPEC-161 queue maintenance: an attempt whose task is no longer in the
+        # an attempt whose task is no longer in the
         # catalog fails with task_not_in_catalog. We simulate the maintenance
         # step the spec references.
         from apo.services.execution_leases import fail_attempt

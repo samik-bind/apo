@@ -19,7 +19,7 @@ MAPPER_VERSION = 2
 
 def try_map(attrs: dict[str, Any], span_name: str) -> str | None:
     """Return observation_type if gen_ai.* attributes are present."""
-    # SPEC-134 M2: the Vercel per-request children (doGenerate/doStream) are the
+    # the Vercel per-request children (doGenerate/doStream) are the
     # observed GENERATION, not duplicates to skip. If they carry gen_ai.* attrs
     # (mixed standard+vendor instrumentation), classify them as GENERATION here
     # rather than falling through. The lifecycle wrappers are handled by the

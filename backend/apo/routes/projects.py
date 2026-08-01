@@ -384,7 +384,7 @@ async def delete_project(
     _project, _role = _load_project_with_role(
         session, project_id, user_id, minimum_role="owner"
     )
-    # SPEC-142: remove Task Revision bundle objects BEFORE their rows go, while
+    # remove Task Revision bundle objects BEFORE their rows go, while
     # their keys are still resolvable (objects live outside the relational DB).
     from apo.services.task_revisions import delete_task_revision_bundles_for_project
 
@@ -399,7 +399,7 @@ async def delete_project(
 
 
 # ---------------------------------------------------------------------------
-# Task source (SPEC-118)
+# Task source
 # ---------------------------------------------------------------------------
 
 
@@ -412,7 +412,7 @@ def _assert_not_demo(project_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Project-scoped agent tasks (SPEC-119)
+# Project-scoped agent tasks
 # ---------------------------------------------------------------------------
 #
 # Canonical task list/detail endpoints, reading from the persisted
@@ -472,7 +472,7 @@ async def list_project_agent_tasks(
             detail="Project has no task source configured.",
         )
 
-    # SPEC-159: published catalogs are already in inventory; no lazy refresh.
+    # published catalogs are already in inventory; no lazy refresh.
     rows = list_inventory_for_project(session, project_id, grep=grep)
     summaries = [to_summary(row) for row in rows]
     if not summaries:
@@ -551,7 +551,7 @@ async def reset_project_data(
     _project, _role = _load_project_with_role(
         session, project_id, user_id, minimum_role="owner"
     )
-    # SPEC-142: remove Task Revision bundle objects BEFORE their rows go.
+    # remove Task Revision bundle objects BEFORE their rows go.
     from apo.services.task_revisions import delete_task_revision_bundles_for_project
 
     await delete_task_revision_bundles_for_project(session, project_id)
@@ -566,7 +566,7 @@ async def reset_project_data(
 
 
 # ============================================================================
-# Task Catalog (SPEC-159)
+# Task Catalog
 # ============================================================================
 
 

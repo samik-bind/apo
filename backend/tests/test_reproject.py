@@ -1,6 +1,6 @@
 # pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
 
-"""Tests for the reproject endpoint (SPEC-129 Criterion #2).
+"""Tests for the reproject endpoint.
 
 The replay capability lets you re-project canonical spans through an updated
 normalizer without re-ingesting the raw OTLP payload. This proves the canonical

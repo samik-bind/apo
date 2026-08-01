@@ -121,7 +121,7 @@ export async function runTask(
     );
   }
 
-  // SPEC-130 two-phase split: Phase 1 (capture) runs inside the traceRun
+  // Phase 1 (capture) runs inside the traceRun
   // callback; Phase 2 (evaluate) runs AFTER the root span ends and the trace
   // flushes, so checks/deliverable-validation cannot contaminate the trace.
   const phase1 = await trace.client.traceRun(
@@ -129,7 +129,7 @@ export async function runTask(
     async (traceContext) => captureExecution(loaded, options, traceContext),
   );
 
-  // SPEC-130 Track C: when this run is backend-launched (has a taskRunId),
+  // when this run is backend-launched (has a taskRunId),
   // read the canonical projection snapshot back from the backend instead of
   // the local tee. The backend's projection is the single source of truth —
   // it includes spans the subprocess exported natively over OTLP (which the
@@ -282,7 +282,7 @@ async function executeLoadedTask(
         }),
     );
 
-    // SPEC-148: capture the adapter's resolved model/effort immediately after
+    // capture the adapter's resolved model/effort immediately after
     // the session opens and validate it before the first Task Turn. An invalid
     // reported configuration is an adapter contract error and fails the run.
     const runConfiguration = normalizeRunConfiguration(session.runConfiguration);
@@ -490,7 +490,7 @@ async function executeLoadedTask(
 }
 
 /**
- * Phase 1 (SPEC-130 two-phase split): capture the execution inside the trace.
+ * Phase 1: capture the execution inside the trace.
  * Runs adapter init → session → turns → deliverable collection → cleanup.
  * Excludes deliverable validation and checks — those run in Phase 2, after the
  * root span ends and the trace flushes, so they cannot contaminate the trace.
@@ -538,7 +538,7 @@ async function captureExecution(
           async () => adapter.startSession({ task, taskDir: absoluteDir, files, state, trace }),
         );
 
-        // SPEC-148: validate the adapter-reported configuration before the first
+        // validate the adapter-reported configuration before the first
         // Task Turn. An invalid configuration fails the run inside the trace body.
         const runConfiguration = normalizeRunConfiguration(session.runConfiguration);
 
@@ -622,7 +622,7 @@ async function captureExecution(
 }
 
 /**
- * Phase 2 (SPEC-130 two-phase split): evaluate deliverables and run checks
+ * Phase 2: evaluate deliverables and run checks
  * AFTER the trace has closed and flushed. The snapshot is the frozen Phase-1
  * trace — checks cannot contaminate it because they run outside the trace body.
  */
