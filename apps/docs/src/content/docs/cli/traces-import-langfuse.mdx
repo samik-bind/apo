@@ -123,7 +123,8 @@ The command never returns `1`. Exit `75` mirrors `sysexits.h` `EX_TEMPFAIL` so c
 
 ## Notes
 
-- The destination project's **trace content policy** remains authoritative. A project configured as `redacted` or `off` will intentionally not retain all source I/O/metadata.
+- Apo stores the mapped source Trace in full as private Project data. Remove or
+  suppress sensitive content at the source before importing it.
 - Imported traces carry the root tags `imported` and `source:langfuse` plus any tags from the Langfuse trace itself, so they are filterable in the dashboard alongside native runs.
 - Task checks cannot be run against imported traces in this release — that requires the **Task Evaluation** model, which is a separate spec. The connector does not synthesize Task Runs, verdicts, Scores, or deliverables.
 

@@ -124,9 +124,12 @@ Every span carries `apo.trace.source.system="langfuse"`. Root spans additionally
 }
 ```
 
-## Content policy still applies
+## Full-fidelity import
 
-The connector sends canonical OTLP to apo's existing authenticated receiver. The destination project's **trace content policy** is authoritative before durable storage — the connector does not pre-redact or bypass it. A project configured as `redacted` or `off` will intentionally not retain all Langfuse I/O/metadata.
+The connector sends canonical OTLP through Apo's authenticated receiver, which
+stores the mapped content in full. The connector does not upload Langfuse
+credentials, but imported inputs, outputs, metadata, and provenance become
+private Project Trace data.
 
 :::note[No new backend storage for Langfuse]
 apo does not store Langfuse credentials, do not open a Langfuse-specific database table, and do not branch the projector for vendor data. The connector is a caller-side translator onto the canonical OTLP boundary.

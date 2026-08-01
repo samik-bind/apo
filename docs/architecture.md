@@ -104,12 +104,12 @@ The write path has explicit ownership boundaries:
    `TracerProvider` unless it explicitly asks an apo bootstrap helper to do so.
 2. Auth middleware derives the Project from an API key or short-lived service
    token. Telemetry attributes never select a tenant or authorize a Task Run.
-3. The OTLP route resolves the Project's `trace_content_policy`. New, migrated,
-   and legacy-without-row Projects fail closed to `redacted`; `full` is an
-   explicit Project setting.
-4. The receiver sanitizes the decoded OTLP graph once, including resource,
-   scope, span, event, and link attributes. Both the durable inbox and canonical
-   span store derive from that same sanitized graph.
+3. The OTLP route binds the authenticated producer to one Project. Apo stores
+   accepted Trace Content in full; instrumentation decides what is emitted and
+   there is no Project-level redaction mode.
+4. The receiver validates and persists the decoded OTLP graph once, including
+   resource, scope, span, event, and link attributes. Both the durable inbox and
+   canonical span store derive from that same full-fidelity graph.
 5. A verified Task Run claim is reserved in the request transaction and only
    its verified ID is retained with the batch. Raw credentials are never queued.
 6. The durable worker claims the exact batch, uses an expiring processing lease,

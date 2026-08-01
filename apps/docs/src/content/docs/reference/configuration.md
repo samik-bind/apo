@@ -173,8 +173,8 @@ token, database DSN, source OAuth token, or ArtifactStore credentials.
 | `INIT_USER_EMAIL` | — | First-run admin email (seeds an account on startup). |
 | `INIT_USER_PASSWORD` | — | First-run admin password. |
 | `INIT_USER_NAME` | — | First-run admin display name. |
-| `APO_RETENTION_DAYS` | — | Days to keep runs/traces before deletion. Unset = keep forever. |
-| `APO_MAX_DB_PAGES` | — | Soft cap on DB pages for maintenance. |
+| `APO_RETENTION_DAYS` | `0` | Days to keep runs/traces. `0` disables automatic age-based deletion. |
+| `APO_MAX_DB_PAGES` | `0` | SQLite page cap. `0` disables the cap. |
 | `PROJECT_INVITATION_TTL_HOURS` | `168` | How long project invitations stay valid (7 days). |
 
 ## Task Run Deliverables and Artifacts

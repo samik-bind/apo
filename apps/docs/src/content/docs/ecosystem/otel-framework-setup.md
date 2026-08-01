@@ -245,8 +245,8 @@ OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental
 OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=span_only
 ```
 
-:::note[Server policy wins]
-Those variables decide what instrumentation emits. The Project's
-`trace_content_policy` still decides what apo stores. Projects default to
-`redacted`; `full` storage is an explicit Project setting.
+:::note[Apo stores what you send]
+Those variables decide what instrumentation emits. Apo stores accepted Trace
+Content in full; there is no Project-level redaction mode. Reduce or omit
+sensitive content at the instrumentation source before exporting it.
 :::

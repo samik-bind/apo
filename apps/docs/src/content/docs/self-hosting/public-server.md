@@ -25,6 +25,13 @@ You need one Linux host with Docker Compose, a domain name, and inbound TCP port
 Caddy is the supported reference ingress, not an Apo dependency. If your organization already terminates TLS with nginx, Traefik, Cloudflare Tunnel, or a load balancer, forward that origin to the frontend on port 3000 instead.
 :::
 
+:::caution[Trace data during the trial]
+Apo stores received Trace Content in full and keeps it indefinitely by
+default. Automatic backups are not included. Configure retention deliberately,
+protect the persistent data volume, and remember that deleting Apo data cannot
+erase copies in VM snapshots or operator-created backups.
+:::
+
 ## 1. Configure the public origin
 
 Create `.env` from the template and generate the shared signing secret:

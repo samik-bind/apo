@@ -1055,8 +1055,7 @@ class ProjectSummary(SQLModel):
 
 
 class UpdateProjectRequest(SQLModel):
-    """Mutable Project settings. Trace content defaults to ``full``; switch to
-    ``redacted`` for production deployments handling sensitive data."""
+    """Mutable Project settings. Trace Content is always stored in full."""
 
     name: str | None = None
 

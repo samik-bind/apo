@@ -1,12 +1,15 @@
 ---
 title: "apo project"
-description: "Switch projects, configure task sources, and sync the task inventory."
+description: "Create projects and choose which project the CLI uses."
 ---
 
 import TerminalDemo from '../../../components/demos/TerminalDemo.astro';
 import TerminalOutput from '../../../components/demos/TerminalOutput.astro';
 
-Project commands manage which project you're operating against and where its tasks come from. Every command respects the global `--project` flag (or the saved project from `apo login`).
+Projects are the authorization and data boundary for Runs, Traces, schedules,
+and Task metadata. They do not connect Apo to your repository. Every command
+uses the global `--project` flag or the active project saved by `apo login` and
+`apo project use`.
 
 ## `apo project create`
 
@@ -15,7 +18,7 @@ Create the first project on a fresh instance and mint an API key for it in one c
 ### Synopsis
 
 ```bash
-apo project create <name> --email <addr> --password <pw> [--trace-content-policy <off|redacted|full>] [--scope <full|ingest>]
+apo project create <name> --email <addr> --password <pw> [--scope <full|ingest>]
 ```
 
 ### What it does
@@ -32,7 +35,6 @@ Because a real project row is committed before the key is minted, the new strict
   lines={[
     { text: "✓ Created project acme-evals (a1b2c3d4).", tone: "success" },
     { text: "  API key: sk-apo_abc… (saved to ~/.apo/credentials)" },
-    { text: "  Trace content policy: redacted" },
     { text: "  Run `apo task list` to verify task discovery." },
   ]}
 />
@@ -42,13 +44,12 @@ Because a real project row is committed before the key is minted, the new strict
 ```bash
 # First project on a fresh backend
 apo project create acme-evals --email me@example.com --password '*****'
-
-# Full-trace policy for an internal staging project
-apo project create staging --email me@example.com --password '*****' --trace-content-policy full
 ```
 
 :::tip[First-run flow]
-On a brand-new backend: `apo project create <name>` → `apo project init-tasks --repo …`. You never need to touch the dashboard to get going.
+On a brand-new backend: create the Project, enter your local Task workspace,
+run `apo task publish`, then start `apo connect`. The repository stays on your
+machine.
 :::
 
 ## `apo project list`
@@ -104,127 +105,9 @@ apo project use staging    # unique prefix
 apo project use            # interactive picker
 ```
 
-## `apo project init-tasks`
-
-Configure and sync a GitHub-backed task source in one step. This is the fastest path from zero to runnable tasks: it sets the source, triggers a sync, and — if GitHub isn't connected yet — opens the browser for OAuth and retries.
-
-### Synopsis
-
-```bash
-apo project init-tasks --repo <owner/repo | url> [--branch <name>] [--subpath <path>] [--name <text>]
-```
-
-### Options
-
-| Option | Default | Description |
-|---|---|---|
-| `--repo <owner/repo \| url>` | (required) | GitHub repository. Accepts `owner/repo` or a full `github.com/...` URL. |
-| `--branch <name>` | `main` | Branch to clone. |
-| `--subpath <path>` | repo root | Subdirectory within the repo where tasks live. |
-| `--name <text>` | `owner/repo` | Display name for the task source. |
-
-### What it does
-
-1. Normalizes the repo input to a clone URL.
-2. `PATCH`es the project's task source to type `git`.
-3. Attempts a sync. If it fails and GitHub OAuth isn't connected, opens the browser for authorization, polls until connected (up to 3 minutes), then retries.
-4. Lists the discovered task count.
-
-```bash
-apo project init-tasks --repo acme/agent-evals --branch main --subpath e2e/tasks
-```
-
-## `apo project source`
-
-Manage the task source — where tasks come from. Three subcommands:
-
-### `apo project source show`
-
-Prints the configured source: type (git/filesystem/demo), repository, ref, subpath, status, last synced commit, and any error.
-
-#### Synopsis
-
-```bash
-apo project source show
-```
-
-#### Output
-
-<TerminalOutput
-  lines={[
-    { text: "Project task source: acme-evals", tone: "default" },
-    { text: "  Type:          git" },
-    { text: "  Name:          acme/agent-evals" },
-    { text: "  Status:        synced" },
-    { text: "  Repository:    https://github.com/acme/agent-evals" },
-    { text: "  Ref:           main" },
-    { text: "  Subpath:       e2e/tasks" },
-    { text: "  Filesystem:    -" },
-    { text: "  Demo seed:     -" },
-    { text: "  Last synced:   7/4/2026, 4:15 PM" },
-    { text: "  Commit:        a1b2c3d" },
-  ]}
-/>
-
-### `apo project source set`
-
-Create or replace the task source.
-
-```bash
-apo project source set --type <git|filesystem|demo> [options]
-```
-
-| Option | Required for | Description |
-|---|---|---|
-| `--type <git\|filesystem\|demo>` | all | Source type. |
-| `--repo <url>` | git | Clone URL. |
-| `--ref <branch>` | git | Branch (default `main`). |
-| `--subpath <path>` | — | Subdirectory where tasks live. |
-| `--path <dir>` | filesystem | Local directory to scan. |
-| `--name <text>` | — | Display name. |
-| `--seed <id>` | demo | Demo seed id (default `default`). |
-
-### `apo project source sync`
-
-Sync the configured source into the task inventory without listing the tasks. Use [`apo project sync-tasks`](#apo-project-sync-tasks) if you also want the count.
-
-#### Synopsis
-
-```bash
-apo project source sync
-```
-
-#### Output
-
-<TerminalOutput
-  lines={[
-    { text: "Synced project task source: acme-evals", tone: "default" },
-    { text: "  Status:      synced" },
-    { text: "  Commit:      a1b2c3d" },
-    { text: "  Last synced: 7/16/2026, 9:42 AM" },
-  ]}
-/>
-
-## `apo project sync-tasks`
-
-Sync the task inventory and report the count. Combines `source sync` with a task listing so you see what landed.
-
-### Synopsis
-
-```bash
-apo project sync-tasks
-```
-
-<TerminalOutput
-  lines={[
-    { text: "Synced project tasks: acme-evals", tone: "default" },
-    { text: "  Status:  synced" },
-    { text: "  Commit:  a1b2c3d" },
-    { text: "  Tasks:   10", tone: "default" },
-  ]}
-/>
-
 ## See also
 
-- [`apo task list`](/cli/task-list/) — list the tasks the source produces.
+- [`apo task publish`](/cli/task-publish/) — publish bounded Task metadata without source.
+- [`apo connect`](/cli/connect/) — execute dashboard and scheduled assignments locally.
+- [`apo task list`](/cli/task-list/) — inspect local or published Tasks.
 - [CLI overview](/cli/) — the full command surface.
