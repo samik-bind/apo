@@ -16,7 +16,7 @@ export type Config = {
    * Lower priority than a task's own `execution` declaration; overrideable
    * per-invocation by `--local` / `--remote`.
    */
-  defaultExecution: "local" | "backend" | undefined;
+  // SPEC-165: default_execution retired
   /**
    * SPEC-145: preferred executor — `"caller"` or a Pool ID. Populated from
    * `StoredCredentials.default_executor`; takes precedence over the legacy
@@ -59,7 +59,7 @@ export function resolveConfig(
     ) ?? stored?.api_key,
     json: flags.json === true,
     ci: flags.ci === true || process.env.CI === "true",
-    defaultExecution: stored?.default_execution,
+    // SPEC-165: default_execution retired — ignored
     defaultExecutor: stored?.default_executor,
     _rawFlags: flags,
   };

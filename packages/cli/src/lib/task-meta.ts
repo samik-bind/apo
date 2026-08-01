@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { join, relative } from "path";
 import { listTaskCandidateDirs, type ScanOptions } from "./scanner.ts";
-type TaskExecutionPreference = "local" | "backend" | "auto";
+// SPEC-165: execution property retired
 
 export type TaskMeta = {
   /**
@@ -28,7 +28,6 @@ export type TaskMeta = {
    * without loading the task module so we don't pay for double registration
    * of checks at dispatch time.
    */
-  execution?: TaskExecutionPreference;
 };
 
 export type DiscoverOptions = Omit<ScanOptions, "rootDir">;
@@ -115,7 +114,6 @@ function parseTaskMeta(taskDir: string, rootDir: string): TaskMeta | undefined {
   const deliverables = extractArrayField(content, "deliverables");
   const hasChecks = extractHasChecks(content, taskDir);
   const hasSimulator = /simulator\s*:/.test(content);
-  const execution = extractExecution(content);
 
   // Folder-scope the id so the CLI and the backend inventory agree on ids
   // (issue #12). Mirrors backend agent_task_discovery._parse_task_file:
@@ -143,7 +141,6 @@ function parseTaskMeta(taskDir: string, rootDir: string): TaskMeta | undefined {
     path: taskDir,
     deliverables,
     files,
-    execution,
   };
 }
 
@@ -231,9 +228,3 @@ function extractArrayField(content: string, field: string): string[] {
  * real declaration. `"auto"` and unknown values collapse to `undefined`
  * (== "no preference"), matching the semantics of `resolveExecutionMode`.
  */
-function extractExecution(content: string): TaskExecutionPreference | undefined {
-  const withoutComments = content.replace(/^[ \t]*\/\/.*$/gm, "");
-  const value = extractStringField(withoutComments, "execution");
-  if (value === "local" || value === "backend") return value;
-  return undefined;
-}

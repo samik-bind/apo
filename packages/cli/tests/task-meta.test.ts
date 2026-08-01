@@ -316,33 +316,8 @@ describe("findTaskMetaById", () => {
 });
 
 describe("task execution preference (SPEC-136)", () => {
-  it("extracts execution: 'local'", () => {
-    writeTaskFile(join(testDir, "local-task"), `
-      task("local-task", {
-        adapter: myAdapter,
-        deliverables: ["result"],
-        execution: "local",
-      });
-    `);
-    const tasks = discoverTaskMeta(testDir);
-    expect(tasks[0].execution).toBe("local");
-  });
 
-  it("extracts execution: 'backend'", () => {
-    writeTaskFile(join(testDir, "backend-task"), `
-      task("backend-task", { adapter: a, execution: "backend" });
-    `);
-    const tasks = discoverTaskMeta(testDir);
-    expect(tasks[0].execution).toBe("backend");
-  });
 
-  it("extracts execution: 'auto' as undefined (auto == no preference)", () => {
-    writeTaskFile(join(testDir, "auto-task"), `
-      task("auto-task", { adapter: a, execution: "auto" });
-    `);
-    const tasks = discoverTaskMeta(testDir);
-    expect(tasks[0].execution).toBeUndefined();
-  });
 
   it("execution is undefined when the field is absent (legacy tasks)", () => {
     writeTaskFile(join(testDir, "legacy"), `
@@ -352,13 +327,6 @@ describe("task execution preference (SPEC-136)", () => {
     expect(tasks[0].execution).toBeUndefined();
   });
 
-  it("supports single-quoted values", () => {
-    writeTaskFile(join(testDir, "single-q"), `
-      task("single-q", { adapter: a, execution: 'local' });
-    `);
-    const tasks = discoverTaskMeta(testDir);
-    expect(tasks[0].execution).toBe("local");
-  });
 
   it("ignores unknown execution values (undefined, not propagated)", () => {
     writeTaskFile(join(testDir, "typo"), `

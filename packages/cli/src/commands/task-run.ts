@@ -146,93 +146,20 @@ export async function run(argv: string[]): Promise<number> {
  * is set), degrade to an unrecorded local run with a warning. The implicit
  * task/project paths (SPEC-136) inherit the exact same fallback.
  */
-async function runLocalRecordedDispatch(
-  config: Config,
-  resolved: ResolvedTask,
-  reason: ExecutionReason,
-): Promise<number> {
-  if (!config.projectId || !(await isBackendReachable(config.backendUrl))) {
-    if (reason === "flag") {
-      // Today's exact wording for the explicit --local fallback.
-      console.warn(
-        dim("--local: backend not reachable or no project set; running unrecorded."),
-      );
-    } else {
-      console.warn(
-        dim(
-          `Local execution requested but backend not reachable; running unrecorded.`,
-        ),
-      );
-    }
-    return runLocally(config, resolved.taskDir);
-  }
-
-  printImplicitLocalNotice(resolved, reason);
-  return runLocallyRecorded(config, resolved);
-}
-
-/**
- * Dispatch to the backend-subprocess path. Reachability gates it the same way
- * it always has: backend down (or no project) → unrecorded local fallback.
- */
-async function runBackendDispatch(
-  config: Config,
-  resolved: ResolvedTask,
-  reason: ExecutionReason,
-): Promise<number> {
-  if (!config.projectId || !(await isBackendReachable(config.backendUrl))) {
-    return runLocally(config, resolved.taskDir);
-  }
-  void reason; // backend dispatch has no implicit notice to print.
-  return runViaBackend(config, resolved);
-}
-
-/**
- * Print the one-line notice explaining *why* local execution was chosen
- * implicitly (SPEC-136 §"CLI output"). Only for task/project reasons —
- * the explicit `--local` path keeps today's output unchanged.
- */
-function printImplicitLocalNotice(resolved: ResolvedTask, reason: ExecutionReason): void {
-  if (reason === "task") {
-    console.log(
-      dim(`Running locally: task '${resolved.taskId}' declares execution=local`),
-    );
-    return;
-  }
-  if (reason === "project") {
-    console.log(dim(`Running locally: project default is local-execution`));
-  }
-}
-
 type ResolvedTask = {
-  taskDir: string;
-  /** The task id, when the ref resolved via discovery; undefined for raw paths. */
   taskId: string | undefined;
-  execution: TaskExecutionPreference | undefined;
+  taskDir: string;
 };
 
-/**
- * Resolve a user-provided task ref (id or filesystem path) to its directory,
- * id, and declared execution preference. Falls back to the raw path when the
- * ref isn't in the task root so existing path-based invocations keep working.
- *
- * The id branch goes through `findTaskMetaById` so a folder-scoped id
- * (`chat/cost-inquiry`) resolves exactly, and a bare name (`cost-inquiry`)
- * resolves when unique (issue #12). The resolved `taskId` is always the
- * folder-scoped id — the form the backend inventory keys on.
- */
 function resolveTask(ref: string, taskRoot: string): ResolvedTask | null {
   const asPath = resolve(ref);
   if (existsSync(asPath)) {
-    // Path given directly: try to attach discovery metadata (id + execution),
-    // but always honor the explicit path.
     const meta = discoverTaskMeta(taskRoot).find(
       (t) => resolve(t.path) === asPath,
     );
     return {
       taskDir: asPath,
       taskId: meta?.id,
-      execution: meta?.execution,
     };
   }
 
@@ -241,7 +168,6 @@ function resolveTask(ref: string, taskRoot: string): ResolvedTask | null {
   return {
     taskDir: match.path,
     taskId: match.id,
-    execution: match.execution,
   };
 }
 
@@ -408,6 +334,13 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
       trace_run_id: summary.traceRunId ?? null,
       checks: summary.checks as unknown,
     });
+    // SPEC-166 #90: render the result so the CLI shows PASS/FAIL + checks,
+    // just like the local and backend paths it replaced.
+    if (config.json) {
+      console.log(JSON.stringify(summary));
+    } else {
+      printLocalRunSummary(summary as LocalRunSummary);
+    }
     exitCode = summary.pass ? 0 : 1;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -425,278 +358,6 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
     delete process.env.APO_AUTH_TOKEN;
   }
   return exitCode;
-}
-
-async function runLocallyRecorded(config: Config, task: ResolvedTask): Promise<number> {
-  // Issue #4: run on the dev machine (where credentials / VPC / stage live)
-  // but still create a backend task run + link the trace, so the dashboard
-  // records history, trends, and trace drill-down.
-  const ciTrigger = resolveCiTrigger(config._rawFlags);
-  const trigger = ciTrigger ?? {
-    source: "cli-local",
-    actor: config.actor ?? process.env.USER ?? process.env.LOGNAME ?? null,
-    hostname: hostname(),
-    entrypoint: "apo task run --local",
-    initiated_at: new Date().toISOString(),
-  };
-
-  const createBody = {
-    project: config.projectId,
-    selection_type: "task",
-    // Prefer the task id for the backend's task-path resolution; fall back
-    // to the raw path when discovery couldn't attach an id.
-    task_paths: [task.taskId ?? task.taskDir],
-    task_root: resolve(config.taskRoot),
-    run_metadata: { trigger },
-  };
-
-  let batch: ExternalBatchDetail;
-  try {
-    batch = await apiPost<ExternalBatchDetail>(
-      config.backendUrl,
-      "/v1/agent-task-batch-runs/external",
-      createBody,
-      config,
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(red(message.startsWith("Backend error") ? message : `Cannot connect to backend at ${config.backendUrl}`));
-    if (!message.startsWith("Backend error")) {
-      console.error(dim(message));
-    }
-    return 2;
-  }
-
-  const externalRun = batch.task_runs[0];
-  if (!externalRun) {
-    console.error(red(`Backend created batch ${batch.id} with no task runs`));
-    return 2;
-  }
-
-  // Thread the minted token + run id to the SDK so the trace claims the run
-  // via the existing SPEC-128/129 path (stamps apo.task.run.id on the root
-  // span; token sub authorizes the atomic link).
-  process.env.AGENT_TASK_TRACE_ENDPOINT = config.backendUrl;
-  process.env.AGENT_TASK_PROJECT = config.projectId!;
-  process.env.AGENT_TASK_RUN_ID = externalRun.id;
-  process.env.AGENT_TASK_TRACE_REQUIRED = "true";
-  process.env.APO_AUTH_TOKEN = externalRun.trace_token;
-
-  loadEnvFiles(task.taskDir);
-
-  const { runTaskDir, AgentTaskRunError } = await import("@apo/sdk/agent-task");
-  let summary: LocalRunSummary;
-  try {
-    console.log(dim(`Running task locally from ${task.taskDir} (run ${externalRun.id})...`));
-    summary = await runTaskDir(task.taskDir);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(red(`Error: ${message}`));
-    // Report the failure so the dashboard row reflects reality, not a hang.
-    // `errored: true` tells the backend the executor threw before producing
-    // a verdict — it finalizes as status: error, not failed (Issue #13).
-    // Issue #40: forward the resolved run_configuration when the SDK branded
-    // the error — model/effort is most valuable on the row that failed.
-    const runConfiguration =
-      error instanceof AgentTaskRunError ? error.runConfiguration : undefined;
-    await reportResultSafely(config, externalRun.id, {
-      pass_result: false,
-      errored: true,
-      error_message: message,
-      ...(runConfiguration ? { run_configuration: runConfiguration } : {}),
-    });
-    return 2;
-  }
-
-  // SPEC-140: upload file Artifacts through the backend's two-phase endpoint
-  // before reporting the final result. The result body carries only JSON
-  // Deliverables (and the manifest of uploaded Artifacts), never file bytes or
-  // the redundant task transcript (the Trace is the conversation source).
-  const { persistFileArtifacts } = await import("@apo/sdk/agent-task");
-  let recordedDeliverables = summary.deliverables ?? {};
-  try {
-    const prepared = await persistFileArtifacts(summary.deliverables ?? {}, {
-      taskRunId: externalRun.id,
-      authToken: externalRun.trace_token,
-      baseUrl: config.backendUrl.replace(/\/$/, ""),
-    });
-    recordedDeliverables = prepared.jsonDeliverables;
-  } catch (uploadError) {
-    // Upload failure finalizes the run as errored so it is not stuck running.
-    const message = uploadError instanceof Error ? uploadError.message : String(uploadError);
-    await reportResultSafely(config, externalRun.id, {
-      pass_result: false,
-      errored: true,
-      error_message: `Artifact upload failed: ${message}`,
-    });
-    return 2;
-  }
-
-  const reported = await reportResultSafely(config, externalRun.id, {
-    pass_result: summary.pass,
-    adapter_name: summary.adapterName,
-    trace_run_id: summary.traceRunId,
-    checks: summary.checks,
-    deliverables: recordedDeliverables,
-    run_configuration: summary.runConfiguration,
-  });
-
-  if (config.json) {
-    console.log(formatJson(reported ?? summary));
-  } else {
-    printLocalRecordedSummary(externalRun, batch, summary, reported);
-  }
-
-  return summary.pass ? 0 : 1;
-}
-
-async function reportResultSafely(
-  config: Config,
-  taskRunId: string,
-  body: {
-    pass_result: boolean;
-    adapter_name?: string;
-    trace_run_id?: string;
-    checks?: CheckResult[];
-    transcript?: Record<string, unknown>;
-    deliverables?: Record<string, unknown>;
-    errored?: boolean;
-    error_message?: string;
-    run_configuration?: { model: string; effort?: string };
-  },
-): Promise<TaskRunSummary | null> {
-  try {
-    return await apiPost<TaskRunSummary>(
-      config.backendUrl,
-      `/v1/agent-task-runs/${taskRunId}/result`,
-      body,
-      config,
-    );
-  } catch (error) {
-    // The local run already succeeded/failed — a reporting failure must not
-    // mask that. Surface it but keep the verdict from the run itself.
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(red(`Failed to report result for ${taskRunId}: ${message}`));
-    return null;
-  }
-}
-
-function printLocalRecordedSummary(
-  externalRun: ExternalTaskRun,
-  batch: ExternalBatchDetail,
-  summary: LocalRunSummary,
-  reported: TaskRunSummary | null,
-): void {
-  console.log("");
-  console.log(`${passFail(summary.pass)} ${bold(summary.taskId)}`);
-  console.log(`  Run:       ${externalRun.id} ${dim("(apo runs show " + externalRun.id + ")")}`);
-  console.log(`  Batch:     ${batch.id} ${dim("(apo batch show " + batch.id + ")")}`);
-  if (reported?.trace_run_id ?? summary.traceRunId) {
-    console.log(`  Trace:     ${reported?.trace_run_id ?? summary.traceRunId}`);
-  }
-  const cfg = reported?.run_configuration ?? summary.runConfiguration;
-  if (cfg) {
-    console.log(`  Model:     ${cfg.model}`);
-    console.log(`  Effort:    ${cfg.effort ?? "-"}`);
-  }
-  if (summary.checks.length > 0) {
-    console.log(bold("  Checks:"));
-    console.log(formatChecks(summary.checks));
-  } else if (!summary.pass) {
-    console.log(`  ${NO_CHECKS_REGISTERED_MESSAGE}`);
-  }
-}
-
-async function runViaBackend(config: Config, task: ResolvedTask): Promise<number> {
-  const ciTrigger = resolveCiTrigger(config._rawFlags);
-  const trigger = ciTrigger ?? {
-    source: "cli",
-    actor: config.actor ?? process.env.USER ?? process.env.LOGNAME ?? null,
-    hostname: hostname(),
-    entrypoint: "apo task run",
-    initiated_at: new Date().toISOString(),
-  };
-
-  const body = {
-    project: config.projectId,
-    selection_type: "task",
-    // Prefer the task id for the backend's task-path resolution; fall back
-    // to the raw path when discovery couldn't attach an id. Same rule as
-    // runLocallyRecorded — the backend inventory keys on the folder-scoped
-    // id, so sending the absolute path misses for nested trees (issue #12).
-    task_paths: [task.taskId ?? task.taskDir],
-    task_root: resolve(config.taskRoot),
-    run_metadata: { trigger },
-  };
-
-  let batch: BatchDetail;
-  try {
-    batch = await apiPost<BatchDetail>(
-      config.backendUrl,
-      "/v1/agent-task-batch-runs",
-      body,
-      config,
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(red(message.startsWith("Backend error") ? message : `Cannot connect to backend at ${config.backendUrl}`));
-    if (!message.startsWith("Backend error")) {
-      console.error(dim(message));
-    }
-    return 2;
-  }
-
-  const taskRun = await waitForTaskRun(config, batch);
-  if (!taskRun) {
-    console.error(red(`Timed out waiting for batch ${batch.id} to finish`));
-    return 2;
-  }
-
-  if (config.json) {
-    console.log(formatJson(taskRun));
-  } else {
-    printTaskRunDetail(taskRun);
-    console.log(dim(`\n  Inspect: apo runs show ${taskRun.id}`));
-  }
-
-  if (config.ci) {
-    if (taskRun.pass_result === true) return 0;
-    if (taskRun.pass_result === false) return 1;
-    return 2;
-  }
-
-  return taskRun.pass_result === false ? 1 : taskRun.status === "passed" ? 0 : 2;
-}
-
-async function waitForTaskRun(
-  config: Config,
-  initialBatch: BatchDetail,
-): Promise<TaskRunDetail | null> {
-  let batch = initialBatch;
-
-  const maxAttempts = Math.ceil(TASK_RUN_MAX_WAIT_MS / TASK_RUN_POLL_INTERVAL_MS);
-
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const runSummary = batch.task_runs[0];
-    if (runSummary && isTerminalStatus(runSummary.status)) {
-      return apiGet<TaskRunDetail>(
-        config.backendUrl,
-        `/v1/agent-task-runs/${runSummary.id}`,
-        undefined,
-        config,
-      );
-    }
-
-    await sleep(TASK_RUN_POLL_INTERVAL_MS);
-    batch = await apiGet<BatchDetail>(
-      config.backendUrl,
-      `/v1/agent-task-batch-runs/${batch.id}`,
-      undefined,
-      config,
-    );
-  }
-
-  return null;
 }
 
 function isTerminalStatus(status: string): boolean {
