@@ -8,15 +8,14 @@ topology: ``single-node``, exposed under two release profiles
 (``local`` and ``server``) plus the existing ``development`` mode.
 
 This module also provides the readiness checks used by the
-``/health/ready`` endpoint: database reachability, task-source cache
-writability, artifact-store readiness, and auth-secret presence in non-dev
-mode. Executor availability is operational state, not API readiness.
+``/health/ready`` endpoint: database reachability, artifact-store readiness,
+and auth-secret presence in non-dev mode. Executor availability is operational
+state, not API readiness.
 """
 
 from __future__ import annotations
 
 import os
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -281,39 +280,6 @@ def _check_database() -> ReadinessCheckResult:
         )
 
 
-def _check_task_source_cache(path: str) -> ReadinessCheckResult:
-    cache_path = Path(path)
-    try:
-        _ = cache_path.mkdir(parents=True, exist_ok=True)
-        probe = cache_path / ".readiness-probe"
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            dir=str(cache_path),
-            prefix=".readiness-",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            _ = handle.write("ok")
-            probe_path = Path(handle.name)
-        try:
-            probe_path.unlink()
-        except OSError:
-            pass
-        # Clean up any leftover probe file from a previous failed run.
-        if probe.exists():
-            try:
-                probe.unlink()
-            except OSError:
-                pass
-        return ReadinessCheckResult(name="task_source_cache", ok=True)
-    except Exception as error:  # noqa: BLE001
-        return ReadinessCheckResult(
-            name="task_source_cache",
-            ok=False,
-            detail=f"task-source cache dir not writable: {error}",
-        )
-
-
 def _check_auth_secret(dev_mode: bool) -> ReadinessCheckResult:
     if dev_mode:
         return ReadinessCheckResult(
@@ -334,22 +300,6 @@ def _check_auth_secret(dev_mode: bool) -> ReadinessCheckResult:
             detail=problem,
         )
     return ReadinessCheckResult(name="auth_secret", ok=True)
-
-
-def _check_task_runtime() -> ReadinessCheckResult:
-    """Check whether the agent-task subprocess runtime is usable.
-
-    Delegates to the runtime resolver. Resolution order:
-
-    1. Packaged bundle at ``$AGENT_TASK_RUNTIME_DIR/runner.mjs``
-       (container / self-hosted alpha).
-    2. Dev fallback using the repo's ``tsx`` binary against the live
-       TypeScript entrypoint (local development).
-    3. Unavailable.
-    """
-    from .agent_task_runtime import probe_task_runtime
-
-    return probe_task_runtime()
 
 
 def _check_artifact_store() -> ReadinessCheckResult:
@@ -397,7 +347,6 @@ def run_readiness_checks() -> ReadinessReport:
 
     checks = [
         _check_database(),
-        _check_task_source_cache(cfg.task_source_cache_dir),
         _check_auth_secret(cfg.dev_mode),
         _check_artifact_store(),
     ]

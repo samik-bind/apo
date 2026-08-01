@@ -473,8 +473,8 @@ backends remain unsupported. See
 
 Operator-visible runtime state is exposed via:
 
-- `GET /health/ready` — Control Plane readiness (database, task-source cache,
-  ArtifactStore, auth secret). Executor availability is Pool health, not API
+- `GET /health/ready` — Control Plane readiness (database, ArtifactStore, auth
+  secret). Executor availability is Pool health, not API
   readiness.
 - `GET /v1/system/runtime-config` — admin-only descriptor of the running topology (backend URL, frontend URL, database URL, cache dir, scheduler state, supported topology).
 

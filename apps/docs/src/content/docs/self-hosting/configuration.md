@@ -57,7 +57,6 @@ the alpha topology.
 `GET /health/ready` is the operator-grade probe. It returns 200 when the deployment is actually usable and 503 otherwise. Checks include:
 
 - **database**: can the backend reach the configured `DATABASE_URL`?
-- **task_source_cache**: is `TASK_SOURCE_CACHE_DIR` writable?
 - **auth_secret**: present, non-placeholder, and at least 16 characters when not in dev mode.
 - **artifact_store**: the Control Plane can persist Revision bundles and Artifacts.
 
@@ -154,7 +153,6 @@ Alpha defaults are intentionally cheap across the rest of the stack too:
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| `/health/ready` returns 503 with `task_source_cache` failing | The cache dir is inside the container rootfs or read-only. | Mount the `task_source_cache` volume and set `TASK_SOURCE_CACHE_DIR=/var/lib/apo/task-sources`. |
 | `/health/ready` returns 503 with `auth_secret` failing | `AUTH_SECRET` is the placeholder or unset in non-dev mode. | Generate a strong secret with `openssl rand -hex 32`. |
 | Schedules visible but never fire | `SCHEDULER_ENABLED=false`. | Set it to `true` (one backend process only). |
 | Pool stays offline | Executor identity volume is missing, bootstrap failed, or the Executor cannot reach the Control Plane. | Inspect `docker compose logs executor`, preserve `apo_executor_state`, and verify the configured Control Plane URL. |

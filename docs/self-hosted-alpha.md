@@ -92,7 +92,7 @@ This is the canonical alpha deploy path. It assumes Docker and Docker Compose on
    override below when you want Postgres; it is not required to try apo or run
    a small alpha team.
 
-3. **Wait for readiness** — the backend healthcheck uses `/health/ready`, which verifies the database, task-source cache, and auth secret are actually usable:
+3. **Wait for readiness** — the backend healthcheck uses `/health/ready`, which verifies the database, artifact store, and auth secret are actually usable:
 
    ```bash
    curl -fsS http://localhost:8000/health/ready | jq
@@ -182,7 +182,6 @@ Turning it on instantly lights up all senders: invitation emails, verification c
 `GET /health/ready` is the operator-grade probe. It returns 200 when the deployment is actually usable and 503 otherwise. Checks include:
 
 - **database** — can the backend reach the configured `DATABASE_URL`?
-- **task_source_cache** — is `TASK_SOURCE_CACHE_DIR` writable? (A non-persistent rootfs path will fail this and should be relocated to a volume.)
 - **auth_secret** — present, non-placeholder, and at least 16 characters when not in dev mode.
 - **artifact_store** — Revision Bundles and Artifacts can be persisted.
 
@@ -278,7 +277,6 @@ Alpha defaults are intentionally cheap:
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| `/health/ready` returns 503 with `task_source_cache` failing | The cache dir is inside the container rootfs or read-only. | Mount the `task_source_cache` volume and set `TASK_SOURCE_CACHE_DIR=/var/lib/apo/task-sources`. |
 | `/health/ready` returns 503 with `auth_secret` failing | You left `AUTH_SECRET` set to the placeholder or unset in non-dev mode. | Generate a strong secret with `openssl rand -hex 32`. |
 | `executor` service restart-loops; backend logs `Bundled executor is enabled but the bootstrap token file could not be written` | The `apo_executor_bootstrap` named volume was created root-owned (a stack created before the Dockerfile seeded the mountpoint as `appuser`). | Run `docker compose run --rm --user 0:0 backend chown -R 1000:1000 /var/lib/apo/executor-bootstrap`, or remove the volume (`docker volume rm apo_executor_bootstrap`) and recreate the stack. Fresh stacks built from the current image are unaffected. |
 | Schedules visible but never fire | `SCHEDULER_ENABLED=false`. | Either set it to `true` (one backend process only) or run an external dispatcher. |
