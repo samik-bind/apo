@@ -485,6 +485,8 @@ def create_source_owned_batch_run(
             task_id=inventory.task_id,
             task_path=inventory.task_path,
             task_inventory_id=inventory.id,
+            # SPEC-169: pin the published Definition Revision from inventory.
+            task_definition_revision_id=inventory.task_definition_revision_id,
             sequence_index=index,
             adapter_name=inventory.adapter_name,
             status="pending",

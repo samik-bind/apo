@@ -46,6 +46,8 @@ export interface CreateCallerRunInput {
   runMetadata: Record<string, unknown> | null;
   attestation: CallerSourceAttestation;
   identity: CallerIdentity;
+  /** SPEC-169: canonical Task Definition document. */
+  taskDefinition?: { schema_version: 1; files: [{ path: string; content: string }] } | null;
 }
 
 export interface CreatedCallerRun {
@@ -97,6 +99,7 @@ export async function createCallerRun(input: CreateCallerRunInput): Promise<Crea
       run_metadata: input.runMetadata ?? {},
       source_attestation: input.attestation,
       caller_identity: input.identity,
+      ...(input.taskDefinition ? { task_definition: input.taskDefinition } : {}),
     }),
   });
   if (!resp.ok) {

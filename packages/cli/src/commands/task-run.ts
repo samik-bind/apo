@@ -15,6 +15,7 @@ import {
 } from "../lib/execution-mode.ts";
 import { resolveExecutionTarget } from "../lib/execution-target.ts";
 import { walkWorkspaceForRevision } from "../lib/task-revision.ts";
+import { prepareTaskDefinition } from "../lib/task-definition.ts";
 import { readGitProvenance, buildCallerIdentity } from "../lib/git-provenance.ts";
 import {
   createCallerRun,
@@ -248,6 +249,19 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   const git = readGitProvenance(config.taskRoot);
   const identity = buildCallerIdentity({ clientVersion: "0.1.0" });
 
+  // SPEC-169: prepare the canonical Task Definition from the local .eval.ts.
+  let taskDefinition: { schema_version: 1; files: [{ path: string; content: string }] } | null = null;
+  try {
+    const allMeta = discoverTaskMeta(config.taskRoot);
+    const taskMeta = allMeta.find((m) => m.id === taskId) ?? allMeta.find((m) => m.path === taskDir);
+    if (taskMeta) {
+      const prepared = prepareTaskDefinition(taskMeta);
+      taskDefinition = prepared.document;
+    }
+  } catch {
+    // Definition preparation is best-effort; the run still records without it.
+  }
+
   // 2. Create-and-claim.
   let created;
   try {
@@ -269,6 +283,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
         uncompressed_size_bytes: walked.manifest.summary.uncompressedSizeBytes,
       },
       identity,
+      taskDefinition,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
