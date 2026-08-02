@@ -183,6 +183,20 @@ export interface CheckResult {
   group_name?: string;
 }
 
+export interface TaskDefinitionFileSummary {
+  path: string;
+  language: "typescript";
+  size_bytes: number;
+  lines: number;
+}
+
+export interface TaskDefinitionRevisionSummary {
+  id: string;
+  digest: string;
+  files: TaskDefinitionFileSummary[];
+  created_at: string | null;
+}
+
 export interface AgentTaskRunDetail extends AgentTaskRunSummary {
   total_tokens?: number | null;
   checks_json: CheckResult[] | null;
@@ -190,6 +204,8 @@ export interface AgentTaskRunDetail extends AgentTaskRunSummary {
   deliverables_json: Record<string, unknown> | null;
   deliverables?: DeliverableSummary[];
   error_category: string | null;
+  /** SPEC-169: pinned Task Definition for CodeMirror source display. */
+  task_definition?: TaskDefinitionRevisionSummary | null;
 }
 
 export interface AgentTaskBatchRunSummary {
@@ -669,6 +685,20 @@ export const getAdaptiveStates = (
     `/v1/agent-task-schedules/${encodeURIComponent(scheduleId)}/adaptive-states`,
     NO_CACHE,
   );
+
+/** SPEC-169: read the pinned Task Definition source for CodeMirror display.
+ * Run-bound: authorization resolves from task_run_id → batch.project. */
+export function readTaskDefinitionSource(
+  taskRunId: string,
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<TaskFileContentResponse> {
+  return apiClient("/v1/task-definition-source", {
+    ...NO_CACHE,
+    query: { task_run_id: taskRunId, file_path: filePath },
+    signal,
+  });
+}
 
 /** idempotently cancel a Batch's Attempts. Reused by source-owned
  * and legacy Pool Runs. Returns the number of Attempts touched. */

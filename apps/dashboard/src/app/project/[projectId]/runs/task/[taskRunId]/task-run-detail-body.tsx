@@ -24,7 +24,7 @@ import { ExpandableJson } from "@/components/ExpandableJson";
 import { Markdown } from "@/components/trace-detail/Markdown";
 import type { ChatMessage } from "@/lib/conversation-from-trace";
 import type { DeliverableSummary } from "@/lib/agent-task-deliverables-api";
-import { readTaskFile, type TaskFileContentResponse } from "@/lib/agent-task-api";
+import { readTaskFile, readTaskDefinitionSource, type TaskFileContentResponse, type TaskDefinitionRevisionSummary } from "@/lib/agent-task-api";
 import { extractJudgeReasoning } from "@/lib/judge-reasoning";
 import type { CheckAssertionResult, CheckResult, JudgeMetadata } from "@/lib/agent-task-api";
 import { buildCheckDiagnostics } from "@/lib/check-diagnostics";
@@ -730,6 +730,8 @@ export function TaskRunDetailBody({
   commitSha,
   taskId,
   sourceType,
+  taskDefinition,
+  taskRunId,
 }: {
   checks: CheckResult[];
   conversation: ChatMessage[];
@@ -740,6 +742,8 @@ export function TaskRunDetailBody({
   commitSha?: string | null;
   taskId: string;
   sourceType?: string | null;
+  taskDefinition?: TaskDefinitionRevisionSummary | null;
+  taskRunId?: string | null;
 }) {
   // Active tab lives in the URL (?tab=) so a shared link lands the reader on
   // the same view (checks / transcript / deliverables).
@@ -794,10 +798,24 @@ export function TaskRunDetailBody({
   );
 
   useEffect(() => {
-    if (checks.length === 0 || !projectId) return;
-    // Published task catalogs are metadata-only: the check source lives on the
-    // machine that executed the task, not on the backend. Don't request it.
-    if (sourceType === "published") return;
+    if (checks.length === 0) return;
+    // SPEC-169: when a Task Definition is pinned, load source through the
+    // Run-bound endpoint instead of the retired project-source resolver.
+    if (taskDefinition && taskRunId && taskDefinition.files[0]) {
+      const controller = new AbortController();
+      setSourceState({ data: null, error: null });
+      readTaskDefinitionSource(taskRunId, taskDefinition.files[0].path, controller.signal)
+        .then((source) => setSourceState({ data: source, error: null }))
+        .catch((err) => {
+          if (!controller.signal.aborted) {
+            setSourceState({ data: null, error: err instanceof Error ? err.message : "Failed to load definition source" });
+          }
+        });
+      return () => controller.abort();
+    }
+    // No definition: fall back to the legacy project-source path (or skip
+    // for published catalogs where source is metadata-only).
+    if (!projectId || sourceType === "published") return;
     const controller = new AbortController();
 
     setSourceState({ data: null, error: null });

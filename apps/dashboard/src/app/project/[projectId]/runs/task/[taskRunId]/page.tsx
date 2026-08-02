@@ -305,6 +305,8 @@ export default async function TaskRunDetailPage({
             commitSha={taskRun.task_source_commit_sha ?? null}
             taskId={taskRun.task_id}
             sourceType={sourceType}
+            taskDefinition={taskRun.task_definition ?? null}
+            taskRunId={taskRun.id}
           />
         </Suspense>
       </div>
