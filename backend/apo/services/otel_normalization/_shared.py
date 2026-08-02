@@ -351,12 +351,17 @@ def extract_input(attrs: dict[str, Any]) -> dict[str, Any] | None:
     if messages_raw is None:
         return langfuse_payload(attrs, "langfuse.observation.input")
     if isinstance(messages_raw, list):
-        # Keep the full conversation, including prior assistant tool-calls and
-        # tool results. Each round of an agent tool loop receives the growing
-        # conversation; stripping the tool messages collapsed every round's
-        # input to the identical [system, user] prefix and hid what the agent
-        # actually did. The dashboard's collapsible history handles the length.
-        messages = [normalize_genai_message(m) for m in messages_raw if isinstance(m, dict)]
+        # Drop tool-only assistant messages and tool-result messages from the
+        # generation's INPUT. Each round of an agent loop literally receives
+        # the whole accumulated conversation (system + user + every prior
+        # tool call/result), but showing that in every GEN node is pure noise
+        # — the per-round actions live in that generation's OUTPUT (toolCalls)
+        # and in the sibling TOOL observations. Keep only the task context.
+        messages = [
+            normalize_genai_message(m)
+            for m in messages_raw
+            if isinstance(m, dict) and not _is_tool_only_message(m)
+        ]
         return {"messages": messages}
     return {"messages": messages_raw}
 

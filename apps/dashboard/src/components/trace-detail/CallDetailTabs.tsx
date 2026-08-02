@@ -36,6 +36,7 @@ export function CallDetailTabs({
   const isChatML = detectChatML(data);
   const traceEventKind = detectTraceEventKind(data);
   const hasTypedEventPreview = traceEventKind !== "unknown";
+  const hasToolCalls = Array.isArray(data?.toolCalls) && data.toolCalls.length > 0;
   const normalized = normalizeData(data);
   const readableText = extractReadableText(normalized);
   const flatEntries = getFlatKeyValueEntries(normalized);
@@ -53,6 +54,8 @@ export function CallDetailTabs({
           <ChatMessagePreview data={data} />
         ) : hasTypedEventPreview ? (
           <TraceEventPreview data={data} />
+        ) : hasToolCalls ? (
+          <ToolCallsPreview toolCalls={data.toolCalls} />
         ) : readableText ? (
           <ReadableTextPreview text={readableText} />
         ) : flatEntries ? (
@@ -216,4 +219,50 @@ function humanizeKey(key: string) {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^./, (c) => c.toUpperCase());
+}
+
+
+function ToolCallsPreview({ toolCalls }: { toolCalls: Array<Record<string, unknown>> }) {
+  // A generation round that produced tool calls (no text) is rendered with the
+  // tool names + inputs visible by default. ExpandableJson auto-collapses the
+  // tool-call objects, which made every tool-call round in an agent loop render
+  // as the identical ``{finishReason, toolCalls: [{...}]}`` and hid what each
+  // round actually did.
+  return (
+    <div className="space-y-1.5">
+      {toolCalls.map((tc, i) => {
+        const name = typeof tc.toolName === "string" ? tc.toolName : "tool";
+        const id = typeof tc.toolCallId === "string" ? tc.toolCallId : null;
+        const rawInput = tc.input;
+        const inputText =
+          typeof rawInput === "string"
+            ? rawInput
+            : rawInput === undefined || rawInput === null
+              ? ""
+              : JSON.stringify(rawInput);
+        return (
+          <div
+            key={id ?? i}
+            className="rounded-md border border-border/60 bg-muted/10 px-3 py-2"
+          >
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                {name}
+              </span>
+              {id ? (
+                <span className="text-[10px] text-muted-foreground">
+                  {id.slice(0, 12)}
+                </span>
+              ) : null}
+            </div>
+            {inputText && inputText !== "{}" ? (
+              <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[12px] text-foreground/80">
+                {inputText}
+              </pre>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
