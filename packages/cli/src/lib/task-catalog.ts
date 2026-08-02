@@ -3,8 +3,12 @@
  *
  * The CLI scans Tasks locally and publishes only bounded dashboard metadata.
  * Source files, prompts, fixtures, repository credentials, and absolute
- * paths never cross the publication boundary.
+ * paths never cross the publication boundary — except the canonical
+ * ``*.eval.ts`` definition itself (SPEC-169), which is private Project data
+ * like traces and Deliverables.
  */
+
+import type { TaskDefinitionDocument } from "./task-definition.ts";
 
 export type PublishedTask = {
   task_id: string;
@@ -15,16 +19,18 @@ export type PublishedTask = {
   has_checks: boolean;
   has_user_simulator: boolean;
   tags: string[];
+  /** SPEC-169: the canonical eval source. */
+  definition?: TaskDefinitionDocument;
 };
 
 export type PublishTaskCatalogRequest = {
-  schema_version: 1;
+  schema_version: 1 | 2;
   tasks: PublishedTask[];
 };
 
 export type TaskCatalog = {
   project: string;
-  schema_version: 1;
+  schema_version: 1 | 2;
   task_count: number;
   catalog_digest: string;
   published_at: string;

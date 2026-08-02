@@ -793,6 +793,15 @@ async def get_agent_task_run(
         task_run.batch_run_id
     )
 
+    # SPEC-169: resolve Task Definition summary for CodeMirror display.
+    task_definition_summary: dict[str, object] | None = None
+    if task_run.task_definition_revision_id:
+        from apo.models.db import TaskDefinitionRevisionDB
+        from apo.services.task_definition_revisions import to_definition_summary
+        def_rev = session.get(TaskDefinitionRevisionDB, task_run.task_definition_revision_id)
+        if def_rev is not None:
+            task_definition_summary = to_definition_summary(def_rev)
+
     return AgentTaskRunDetail(
         id=task_run.id,
         batch_run_id=task_run.batch_run_id,
@@ -825,6 +834,7 @@ async def get_agent_task_run(
         run_configuration=configuration_from_row(
             task_run.configured_model, task_run.configured_effort
         ),
+        task_definition=task_definition_summary,
     )
 
 

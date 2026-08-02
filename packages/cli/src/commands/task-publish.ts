@@ -10,6 +10,7 @@ import { parseArgs, getFlagValue, getBoolFlag } from "../lib/args.ts";
 import { resolveConfig } from "../lib/config.ts";
 import { discoverTaskMeta } from "../lib/task-meta.ts";
 import { toPublishedTask, type PublishTaskCatalogRequest, type TaskCatalog } from "../lib/task-catalog.ts";
+import { prepareTaskDefinition } from "../lib/task-definition.ts";
 import { apiPut } from "../lib/api.ts";
 
 export async function run(argv: string[]): Promise<number> {
@@ -38,9 +39,14 @@ export async function run(argv: string[]): Promise<number> {
     return 2;
   }
 
-  // 2. Map to publication allowlist (strips source data)
+  // 2. Map to publication allowlist + prepare Task Definition source (SPEC-169)
   const published = tasks
-    .map(toPublishedTask)
+    .map((meta) => {
+      const task = toPublishedTask(meta);
+      const prepared = prepareTaskDefinition(meta);
+      task.definition = prepared.document;
+      return task;
+    })
     .sort((a, b) => a.task_id.localeCompare(b.task_id));
 
   // Sort tags within each task
@@ -49,7 +55,7 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   const request: PublishTaskCatalogRequest = {
-    schema_version: 1 as const,
+    schema_version: 2 as const,
     tasks: published,
   };
 

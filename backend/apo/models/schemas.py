@@ -573,6 +573,8 @@ class AgentTaskRunDetail(SQLModel):
     # render without loading any Deliverable body. Legacy rows with only
     # ``deliverables_json`` synthesize a manifest on read.
     deliverables: list[DeliverableSummary] = Field(default_factory=list)
+    # SPEC-169: Task Definition summary for CodeMirror source display.
+    task_definition: dict[str, object] | None = None
 
 
 class AgentTaskBatchRunSummary(SQLModel):

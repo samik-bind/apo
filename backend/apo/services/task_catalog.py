@@ -130,9 +130,30 @@ def publish_catalog(
 ) -> dict[str, Any]:
     """Atomically replace a Project's task catalog.
 
+    SPEC-169: when tasks carry a ``definition`` document (schema v2), the
+    canonical source is validated, deduplicated into immutable
+    TaskDefinitionRevisionDB rows, and pinned on the inventory pointer.
+    The catalog digest commits to the definition digest.
     Returns the TaskCatalog response dict.
     """
-    digest = compute_catalog_digest(normalized_tasks)
+    from apo.services.task_definition_revisions import (
+        ensure_task_definition_revision,
+    )
+
+    # Build the digest projection: for v2 tasks, substitute definition_digest
+    # for the source-bearing definition object.
+    digest_tasks: list[dict[str, Any]] = []
+    for task in normalized_tasks:
+        dt = {k: v for k, v in task.items() if k != "definition"}
+        definition = task.get("definition")
+        if isinstance(definition, dict):
+            rev = ensure_task_definition_revision(
+                session, project_id=project_id, task_id=task["task_id"], document=definition,
+            )
+            dt["definition_digest"] = rev.content_sha256
+        digest_tasks.append(dt)
+
+    digest = compute_catalog_digest_v2(digest_tasks)
     now = datetime.now(timezone.utc)
 
     # Check for idempotent re-publish (same digest → no-op)
@@ -143,7 +164,7 @@ def publish_catalog(
     if existing and existing.catalog_digest == digest and existing.source_type == "published":
         return {
             "project": project_id,
-            "schema_version": 1,
+            "schema_version": 2,
             "task_count": existing.task_count or len(normalized_tasks),
             "catalog_digest": digest,
             "published_at": existing.published_at.isoformat() if existing.published_at else now.isoformat(),
@@ -163,6 +184,7 @@ def publish_catalog(
     existing.catalog_digest = digest
     existing.task_count = len(normalized_tasks)
     existing.published_at = now
+    existing.catalog_schema_version = 2
     if user_id:
         existing.published_by_user_id = user_id
     session.add(existing)
@@ -178,6 +200,13 @@ def publish_catalog(
         session.delete(row)
 
     for task in normalized_tasks:
+        definition = task.get("definition")
+        rev_id: str | None = None
+        if isinstance(definition, dict):
+            rev = ensure_task_definition_revision(
+                session, project_id=project_id, task_id=task["task_id"], document=definition,
+            )
+            rev_id = rev.id
         inv = ProjectTaskInventoryDB(
             project=project_id,
             task_source_id=existing.id,
@@ -189,6 +218,7 @@ def publish_catalog(
             has_checks=task["has_checks"],
             has_user_simulator=task["has_user_simulator"],
             source_type="published",
+            task_definition_revision_id=rev_id,
         )
         session.add(inv)
 
@@ -197,12 +227,28 @@ def publish_catalog(
 
     return {
         "project": project_id,
-        "schema_version": 1,
+        "schema_version": 2,
         "task_count": len(normalized_tasks),
         "catalog_digest": digest,
         "published_at": now.isoformat(),
         "execution_mode": "caller",
     }
+
+
+def compute_catalog_digest_v2(digest_tasks: list[dict[str, Any]]) -> str:
+    """Compute the canonical SHA-256 digest of the v2 catalog.
+
+    Uses schema_version 2 and includes ``definition_digest`` instead of
+    source-bearing ``definition`` objects. Falls back to schema v1 shape
+    when no task carries a definition_digest.
+    """
+    has_definitions = any("definition_digest" in t for t in digest_tasks)
+    doc = {
+        "schema_version": 2 if has_definitions else 1,
+        "tasks": digest_tasks,
+    }
+    payload = json.dumps(doc, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
 def get_catalog_status(session: Session, project_id: str) -> dict[str, Any] | None:
