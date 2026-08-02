@@ -443,6 +443,7 @@ class CallerCreateRequest(BaseModel):
     run_metadata: dict[str, object] | None = None
     source_attestation: "CallerSourceAttestationBody"
     caller_identity: "CallerIdentityBody"
+    task_definition: dict[str, object] | None = None
 
 
 class CallerTaskDescriptorBody(BaseModel):
@@ -548,6 +549,7 @@ async def create_caller_batch_run_route(
                 os=request.caller_identity.os,
                 architecture=request.caller_identity.architecture,
             ),
+            task_definition=request.task_definition,
         )
     except CallerExecutionError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
