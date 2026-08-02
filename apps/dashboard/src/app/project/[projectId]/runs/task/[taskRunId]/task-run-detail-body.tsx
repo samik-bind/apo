@@ -729,6 +729,7 @@ export function TaskRunDetailBody({
   projectId,
   commitSha,
   taskId,
+  sourceType,
 }: {
   checks: CheckResult[];
   conversation: ChatMessage[];
@@ -738,6 +739,7 @@ export function TaskRunDetailBody({
   projectId?: string | null;
   commitSha?: string | null;
   taskId: string;
+  sourceType?: string | null;
 }) {
   // Active tab lives in the URL (?tab=) so a shared link lands the reader on
   // the same view (checks / transcript / deliverables).
@@ -793,6 +795,9 @@ export function TaskRunDetailBody({
 
   useEffect(() => {
     if (checks.length === 0 || !projectId) return;
+    // Published task catalogs are metadata-only: the check source lives on the
+    // machine that executed the task, not on the backend. Don't request it.
+    if (sourceType === "published") return;
     const controller = new AbortController();
 
     setSourceState({ data: null, error: null });
@@ -821,6 +826,7 @@ export function TaskRunDetailBody({
     commitSha,
     projectId,
     recordedSourceFile,
+    sourceType,
     taskId,
   ]);
 
@@ -914,9 +920,9 @@ export function TaskRunDetailBody({
                 Expand a code check to see its source with the failing line marked.
               </p>
             )}
-            {sourceState.error && (
-              <p className="border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
-                Check source unavailable: {sourceState.error}
+            {!checksSource && checks.length > 0 && sourceType === "published" && (
+              <p className="text-[11px] text-muted-foreground/70">
+                Check source remains on the machine that executed this task — published task catalogs carry metadata only.
               </p>
             )}
 

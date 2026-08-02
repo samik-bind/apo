@@ -24,6 +24,7 @@ import { TaskRunDetailBody } from "./task-run-detail-body";
 import { TaskRunAutoRefresh } from "@/components/agent-task-execution/task-run-auto-refresh";
 import { OutcomeSummary } from "@/components/run-outcome";
 import { formatTokenTotal, formatCostMicro } from "@/lib/format";
+import { getProject } from "@/lib/projects-api";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +90,17 @@ export default async function TaskRunDetailPage({
     taskRun = await getAgentTaskRun(taskRunId);
   } catch (e: unknown) {
     error = e instanceof Error ? e.message : "Failed to fetch task run";
+  }
+
+  // Source-type awareness is a progressive enhancement: published task sources
+  // are metadata-only, so the dashboard should not attempt to fetch their check
+  // source files (see TaskRunDetailBody). A fetch failure here is non-fatal.
+  let sourceType: string | null = null;
+  try {
+    const project = await getProject(projectId);
+    sourceType = project.task_source?.source_type ?? null;
+  } catch {
+    // Fall through with sourceType=null; the body will attempt source load.
   }
 
   // Derive the conversation view from the linked trace when one exists. A fetch
@@ -292,6 +304,7 @@ export default async function TaskRunDetailPage({
             projectId={projectId}
             commitSha={taskRun.task_source_commit_sha ?? null}
             taskId={taskRun.task_id}
+            sourceType={sourceType}
           />
         </Suspense>
       </div>

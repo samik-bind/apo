@@ -18,7 +18,7 @@ export interface Project {
   current_user_role: ProjectRole | null;
 }
 
-export type ProjectTaskSourceType = "git" | "filesystem" | "demo";
+export type ProjectTaskSourceType = "git" | "filesystem" | "demo" | "published";
 
 export type ProjectTaskSourceStatus =
   | "unconfigured"
