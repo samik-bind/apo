@@ -441,7 +441,7 @@ class CallerCreateRequest(BaseModel):
     run_metadata: dict[str, object] | None = None
     source_attestation: "CallerSourceAttestationBody"
     caller_identity: "CallerIdentityBody"
-    task_definition: dict[str, object] | None = None
+    task_definition: dict[str, object]
 
 
 class CallerTaskDescriptorBody(BaseModel):

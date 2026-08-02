@@ -13,7 +13,9 @@ from datetime import datetime, timezone
 
 import pytest
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskRunDB, TaskExecutionAttemptDB, TaskRevisionDB
+from apo.routes.agent_task_runs import CallerCreateRequest
 from apo.services import executor_auth
+from pydantic import ValidationError
 from sqlmodel import Session
 
 
@@ -52,6 +54,15 @@ def _caller_body(project_id: str = "proj-caller", *, content_sha: str = "a" * 64
             "ci_provider": "github-actions",
             "os": "linux",
             "architecture": "x64",
+        },
+        "task_definition": {
+            "schema_version": 1,
+            "files": [
+                {
+                    "path": "code-review.eval.ts",
+                    "content": "task('code-review', { adapter: 'real-agent' });\n",
+                }
+            ],
         },
     }
 
@@ -104,6 +115,7 @@ def test_caller_create_and_claim_then_run_lifecycle(
     assert rev.content_sha256 == "a" * 64
     run = session.get(AgentTaskRunDB, body["task_run_id"])
     assert run is not None and run.status == "passed"
+    assert run.task_definition_revision_id is not None
     batch = session.get(AgentTaskBatchRunDB, body["batch_run_id"])
     assert batch is not None and batch.passed_tasks == 1 and batch.total_tasks == 1
 
@@ -128,6 +140,14 @@ def test_caller_create_rejects_unknown_project(
 ) -> None:
     r = client.post("/v1/agent-task-batch-runs/caller", json=_caller_body("nope-proj"))  # type: ignore[attr-defined]
     assert r.status_code == 422
+
+
+def test_caller_create_rejects_missing_task_definition() -> None:
+    body = _caller_body()
+    del body["task_definition"]
+
+    with pytest.raises(ValidationError):
+        CallerCreateRequest.model_validate(body)
 
 
 def test_caller_create_rejects_oversized_identity(

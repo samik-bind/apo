@@ -249,17 +249,23 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   const git = readGitProvenance(config.taskRoot);
   const identity = buildCallerIdentity({ clientVersion: "0.1.0" });
 
-  // SPEC-169: prepare the canonical Task Definition from the local .eval.ts.
-  let taskDefinition: { schema_version: 1; files: [{ path: string; content: string }] } | null = null;
+  // SPEC-169: every recorded run carries its canonical local Task Definition.
+  // Fail before creating the Run if source cannot be prepared: a source-less
+  // recorded Run cannot render its Tests and violates the caller contract.
+  let taskDefinition;
   try {
     const allMeta = discoverTaskMeta(config.taskRoot);
     const taskMeta = allMeta.find((m) => m.id === taskId) ?? allMeta.find((m) => m.path === taskDir);
-    if (taskMeta) {
-      const prepared = prepareTaskDefinition(taskMeta);
-      taskDefinition = prepared.document;
+    if (!taskMeta) {
+      throw new Error(
+        `Task '${taskId}' has no canonical *.eval.ts definition under ${config.taskRoot}`,
+      );
     }
-  } catch {
-    // Definition preparation is best-effort; the run still records without it.
+    taskDefinition = prepareTaskDefinition(taskMeta).document;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(red(`Error: could not prepare Task definition: ${message}`));
+    return 2;
   }
 
   // 2. Create-and-claim.

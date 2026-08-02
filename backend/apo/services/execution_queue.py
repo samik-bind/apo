@@ -62,14 +62,14 @@ def create_caller_batch_run(
     run_metadata: dict[str, object] | None,
     attestation: CallerSourceAttestation,
     caller_identity: CallerIdentity,
-    task_definition: dict[str, object] | None = None,
+    task_definition: dict[str, object],
 ) -> CallerClaimResult:
     """Atomically create one Batch + Task Run + attested Revision + leased caller
     Attempt, and mint the Attempt JWT. Supports exactly one Task.
 
-    SPEC-169: when ``task_definition`` is provided, ensures an immutable
-    run-only Definition Revision and pins it on the Run. Does not move the
-    published Catalog inventory pointer.
+    SPEC-169: ensures an immutable run-only Definition Revision and pins it on
+    the Run. Does not move the published Catalog inventory pointer. Recorded
+    caller Runs never exist without their canonical Task definition.
 
     The caller owns execution; the backend marks the Task Run ``running`` only
     when the CLI later calls ``/start`` (the Attempt is created ``leased``).
@@ -107,12 +107,15 @@ def create_caller_batch_run(
         status="pending",
     )
     # SPEC-169: pin the Task Definition Revision (run-only, does not publish).
-    if task_definition is not None:
-        from apo.services.task_definition_revisions import ensure_task_definition_revision
-        def_rev = ensure_task_definition_revision(
-            session, project_id=project_id, task_id=task.task_id, document=task_definition,
-        )
-        task_run.task_definition_revision_id = def_rev.id
+    from apo.services.task_definition_revisions import ensure_task_definition_revision
+
+    def_rev = ensure_task_definition_revision(
+        session,
+        project_id=project_id,
+        task_id=task.task_id,
+        document=task_definition,
+    )
+    task_run.task_definition_revision_id = def_rev.id
     session.add(task_run)
     session.flush()
 

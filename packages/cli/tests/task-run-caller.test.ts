@@ -58,11 +58,13 @@ describe("task run --executor caller dispatch", () => {
 
   it("--executor caller + reachable posts to the caller create route and submits result", async () => {
     const calls: string[] = [];
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    let callerBody: Record<string, unknown> | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       calls.push(url);
       if (url.includes("/health")) return new Response("ok", { status: 200 });
       if (url.includes("/agent-task-batch-runs/caller")) {
+        callerBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
         return mockResp({
           batch_run_id: "b1", task_run_id: "r1", attempt_id: "a1", lease_generation: 1,
           lease_expires_at: "2026-01-01T00:00:00Z", attempt_jwt: "jwt-1",
@@ -81,6 +83,13 @@ describe("task run --executor caller dispatch", () => {
     ]);
 
     expect(calls.some((u) => u.includes("/v1/agent-task-batch-runs/caller"))).toBe(true);
+    expect(callerBody?.task_definition).toEqual({
+      schema_version: 1,
+      files: [{
+        path: "caller-task.eval.ts",
+        content: `import { task } from "@apo/sdk/agent-task";\ntask("caller-task", { adapter: "a" });`,
+      }],
+    });
     expect(calls.some((u) => u.includes("/executor-protocol/v1/attempts/a1/start"))).toBe(true);
     expect(calls.some((u) => u.includes("/executor-protocol/v1/attempts/a1/result"))).toBe(true);
     expect(code).toBe(0);
@@ -137,6 +146,30 @@ describe("task run --executor caller dispatch", () => {
       "--project", "proj-test", "--api-key", "sk-apo-test", "--executor", "caller",
     ]);
     expect(code).toBe(2);
+  });
+
+  it("fails before creating a recorded run when the eval definition is invalid", async () => {
+    writeFileSync(
+      join(testDir, taskId, `${taskId}.eval.ts`),
+      `task("${taskId}", { adapter: "a" });\0`,
+    );
+    const calls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.includes("/health")) return new Response("ok", { status: 200 });
+      return mockResp({}, 500);
+    });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const code = await run([
+      taskId, "--dir", testDir, "--backend", "http://backend.test",
+      "--project", "proj-test", "--api-key", "sk-apo-test",
+    ]);
+
+    expect(code).toBe(2);
+    expect(calls.some((url) => url.includes("/agent-task-batch-runs/caller"))).toBe(false);
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("could not prepare Task definition"));
   });
 
   // the BARE command (no --executor flag) must

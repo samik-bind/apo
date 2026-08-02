@@ -18,6 +18,13 @@ const lease: CallerLease = {
   attemptId: "att-1", generation: 1, token: "jwt-1", expiresAt: "2026-01-01T00:00:00Z",
 };
 
+const taskDefinition = {
+  schema_version: 1 as const,
+  files: [{ path: "task.eval.ts", content: "task('task');\n" }] as [
+    { path: string; content: string },
+  ],
+};
+
 afterEach(() => vi.restoreAllMocks());
 
 describe("caller-execution client", () => {
@@ -40,6 +47,7 @@ describe("caller-execution client", () => {
       },
       identity: { client: "apo-cli", client_version: "0.1.0", hostname_hash: null,
         ci_provider: null, ci_job_id: null, git_branch: null, os: "linux", architecture: "x64" },
+      taskDefinition,
     });
     expect(out.lease.token).toBe("jwt-1");
     expect(out.batchRunId).toBe("b1");
@@ -83,6 +91,7 @@ describe("caller-execution client", () => {
         dirty: false, content_sha256: "b".repeat(64), task_root_label: "t", file_count: 1, uncompressed_size_bytes: 1 },
       identity: { client: "apo-cli", client_version: "0", hostname_hash: null,
         ci_provider: null, ci_job_id: null, git_branch: null, os: "l", architecture: "x" },
+      taskDefinition,
     })).rejects.toThrow(/caller create failed: 422/);
   });
 });
