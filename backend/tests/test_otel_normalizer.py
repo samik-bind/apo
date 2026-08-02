@@ -244,11 +244,15 @@ class TestInputOutputContent:
         assert result.tool_parameters == {"path": "x"}
         assert result.tool_result == {"content": "hello"}
 
-    def test_tool_messages_stripped_from_generation_input(self):
-        """Tool-call and tool-result messages are dropped from a generation's
-        input — they have a canonical home as their own TOOL observation in
-        the trace tree, so keeping them duplicates data and clutters every
-        later step's input with the accumulated tool history.
+    def test_tool_messages_kept_in_generation_input(self):
+        """Tool-call and tool-result messages are KEPT in a generation's input.
+
+        Each round of an agent tool loop receives the growing conversation
+        (system + user + prior assistant tool-calls + tool results). Stripping
+        those made every generation's input collapse to the identical
+        [system, user] prefix, hiding the per-round progression and the "things
+        the agent did". They are kept here so each generation shows its real
+        prompt; the dashboard's collapsible history handles the length.
         """
         span = _make_span(
             attributes={
@@ -274,8 +278,8 @@ class TestInputOutputContent:
         result = normalize_span(span)
         assert result.input is not None
         roles = [m["role"] for m in result.input["messages"]]
-        # system + user kept; assistant tool-call + tool result stripped.
-        assert roles == ["system", "user"]
+        # Full conversation retained: system + user + assistant tool-call + tool result.
+        assert roles == ["system", "user", "assistant", "tool"]
 
     def test_assistant_with_text_and_tool_call_is_kept(self):
         """An assistant message that carries BOTH text and a tool call is not

@@ -351,11 +351,12 @@ def extract_input(attrs: dict[str, Any]) -> dict[str, Any] | None:
     if messages_raw is None:
         return langfuse_payload(attrs, "langfuse.observation.input")
     if isinstance(messages_raw, list):
-        messages = [
-            normalize_genai_message(m)
-            for m in messages_raw
-            if isinstance(m, dict) and not _is_tool_only_message(m)
-        ]
+        # Keep the full conversation, including prior assistant tool-calls and
+        # tool results. Each round of an agent tool loop receives the growing
+        # conversation; stripping the tool messages collapsed every round's
+        # input to the identical [system, user] prefix and hid what the agent
+        # actually did. The dashboard's collapsible history handles the length.
+        messages = [normalize_genai_message(m) for m in messages_raw if isinstance(m, dict)]
         return {"messages": messages}
     return {"messages": messages_raw}
 
