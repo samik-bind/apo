@@ -118,6 +118,7 @@ def to_task_run_summary(
         trace_persistence_status=tr.trace_persistence_status,
         trace_error_message=tr.trace_error_message,
         total_cost=tr.total_cost,
+        unpriced_call_count=tr.unpriced_call_count,
         total_checks=total_checks,
         passed_checks=passed_checks,
         failed_checks=max(total_checks - passed_checks, 0),

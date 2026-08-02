@@ -504,6 +504,11 @@ class AgentTaskRunDB(SQLModel, table=True):
     )
     total_cost: float | None = Field(default=None)
     total_tokens: int | None = Field(default=None)
+    # Count of calls whose model had no matching pricing era (issue #94). When
+    # non-zero, ``total_cost`` is a partial sum and must not be presented as a
+    # complete total — the unpriced calls silently contributed 0. Rolled up by
+    # ``NativeTraceBackend.aggregate_costs`` from per-call ``cost_provenance``.
+    unpriced_call_count: int = Field(default=0)
     # adapter-reported Run Configuration. Typed, indexed product
     # dimensions — never backfilled from adapter name, env, or trace data.
     # Both columns nullable so legacy rows remain readable as "unknown".

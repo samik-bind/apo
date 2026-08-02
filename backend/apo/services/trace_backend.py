@@ -127,6 +127,7 @@ class NativeTraceBackend:
         ).all()
         total_cost = 0.0
         total_tokens = 0
+        unpriced_count = 0
         for call in calls:
             # ``cost`` is the single effective total (micro-USD int);
             # fall back to ``provided_cost`` only when cost is unset.
@@ -135,11 +136,16 @@ class NativeTraceBackend:
                 total_cost += effective
             if call.total_tokens is not None:
                 total_tokens += call.total_tokens
+            # Issue #94: carry unpriced provenance up so the total is not
+            # presented as complete when a model had no pricing pattern.
+            if call.cost_provenance == "unpriced":
+                unpriced_count += 1
         has_any_cost = any(
             call.cost is not None or call.provided_cost is not None for call in calls
         )
         task_run.total_cost = round(total_cost, 6) if has_any_cost else None
         task_run.total_tokens = total_tokens if total_tokens > 0 else None
+        task_run.unpriced_call_count = unpriced_count
 
 
 def _extract_task_input(transcript: object) -> str | None:

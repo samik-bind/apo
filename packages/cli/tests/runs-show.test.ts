@@ -287,6 +287,36 @@ describe("runs show command", () => {
     expect(stripAnsi(errors.join("\n"))).toContain("No runs found");
   });
 
+  // Issue #94: an unpriced call must not let a run total masquerade as
+  // complete. The CLI marks the cost line "(partial — N unpriced calls)".
+  it("marks the cost total as partial when unpriced calls are present", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(makeRun({ total_cost: 279, unpriced_call_count: 2 })),
+    );
+    const { logs, restore } = captureLog();
+
+    await run([FULL_ID, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("partial");
+    expect(out).toContain("2 unpriced calls");
+  });
+
+  it("does not mark the cost as partial when all calls are priced", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(makeRun({ total_cost: 5831, unpriced_call_count: 0 })),
+    );
+    const { logs, restore } = captureLog();
+
+    await run([FULL_ID, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).not.toContain("partial");
+    expect(out).not.toContain("unpriced");
+  });
+
   it("returns exit code 1 with --exit-status on failed run", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       mockResponse(makeRun({ pass_result: false })),

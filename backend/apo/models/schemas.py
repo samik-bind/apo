@@ -527,6 +527,9 @@ class AgentTaskRunSummary(SQLModel):
     trace_persistence_status: str = "pending"
     trace_error_message: str | None = None
     total_cost: float | None = None
+    # Issue #94: calls whose model had no pricing pattern. Non-zero means
+    # ``total_cost`` is a partial sum, not a complete total.
+    unpriced_call_count: int = 0
     total_checks: int = 0
     passed_checks: int = 0
     failed_checks: int = 0
@@ -555,6 +558,9 @@ class AgentTaskRunDetail(SQLModel):
     trace_persistence_status: str = "pending"
     trace_error_message: str | None = None
     total_cost: float | None = None
+    # Issue #94: calls whose model had no pricing pattern. Non-zero means
+    # ``total_cost`` is a partial sum, not a complete total.
+    unpriced_call_count: int = 0
     total_tokens: int | None = None
     total_checks: int = 0
     passed_checks: int = 0

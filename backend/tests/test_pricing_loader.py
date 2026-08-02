@@ -263,6 +263,24 @@ class TestBundledCurrentModels:
             assert cost is not None, f"{name} should be priced, not unpriced"
             assert cost.total > 0, f"{name} should produce a non-zero cost"
 
+    def test_prices_evaluation_models_issue_94(self, session: Session) -> None:
+        """Issue #94: deepseek-v4-flash-0731, glm-5.2, kimi-k3 were arriving
+        ``cost_provenance='unpriced'``, silently zeroing their run totals."""
+        load_default_prices(session)
+        usage = {"input": 1_000_000, "output": 1_000_000}
+        for name in ("deepseek-v4-flash-0731", "glm-5.2", "kimi-k3"):
+            cost = compute_cost(session, name, usage, "__global__", NOW)
+            assert cost is not None, f"{name} should be priced, not unpriced"
+            assert cost.total > 0, f"{name} should produce a non-zero cost"
+
+    def test_deepseek_flash_anchored_to_exact_revision(self, session: Session) -> None:
+        """Issue #94: ``deepseek-v4-flash-0731`` is a dated revision. Its rates
+        must NOT silently inherit to a later revision (e.g. ``-0901``)."""
+        load_default_prices(session)
+        usage = {"input": 1_000_000, "output": 1_000_000}
+        assert compute_cost(session, "deepseek-v4-flash-0731", usage, "__global__", NOW) is not None
+        assert compute_cost(session, "deepseek-v4-flash-0901", usage, "__global__", NOW) is None
+
 
 class TestMultipleErasPerPattern:
     def test_two_eras_for_same_pattern_coexist(self, session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

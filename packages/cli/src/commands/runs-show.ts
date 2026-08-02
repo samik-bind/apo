@@ -20,6 +20,7 @@ type RunDetail = {
   trace_run_id: string | null;
   error_message: string | null;
   total_cost: number | null;
+  unpriced_call_count?: number;
   total_tokens: number | null;
   total_checks: number;
   passed_checks: number;
@@ -177,7 +178,7 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
     console.log(`  Completed: ${formatTime(run.completed_at)}`);
   }
   console.log(`  Source:   ${formatTriggerOpt(run.trigger)}`);
-  console.log(`  Cost:     ${formatCost(run.total_cost)}`);
+  console.log(`  Cost:     ${formatCost(run.total_cost)}${formatUnpricedSuffix(run.unpriced_call_count)}`);
   if (run.total_tokens != null && run.total_tokens > 0) {
     console.log(`  Tokens:   ${run.total_tokens.toLocaleString()}`);
   }
@@ -248,6 +249,13 @@ function printTranscript(transcript: Record<string, unknown>): void {
     const preview = JSON.stringify(transcript, null, 0).slice(0, 500);
     console.log(dim(`    ${preview}`));
   }
+}
+
+function formatUnpricedSuffix(unpricedCallCount?: number): string {
+  if (!unpricedCallCount || unpricedCallCount <= 0) return "";
+  return dim(
+    ` (partial — ${unpricedCallCount} unpriced call${unpricedCallCount === 1 ? "" : "s"})`,
+  );
 }
 
 function formatTriggerOpt(trigger: RunDetail["trigger"]): string {

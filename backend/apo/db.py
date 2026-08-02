@@ -1304,6 +1304,19 @@ def _migrate_to_v22() -> None:
         _drop_column_if_exists(conn, "project_task_inventory", "has_user_simulator")
 
 
+def _migrate_to_v23() -> None:
+    """Version 23 (issue #94): add ``unpriced_call_count`` to task runs.
+
+    Existing rows backfill to 0 (the honest value for a run whose calls were all
+    priced). The column lets the CLI/dashboard mark a total as partial instead
+    of silently under-reporting spend when a model has no pricing pattern.
+    """
+    with engine.begin() as conn:
+        _add_column_if_missing(
+            conn, "agent_task_runs", "unpriced_call_count", "INTEGER NOT NULL DEFAULT 0"
+        )
+
+
 def _migrate_check_report_schema(conn: Connection) -> None:
     """The v20 check-report migration, runnable against any connection.
 
@@ -1852,7 +1865,7 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
     )
 
 
-LATEST_SCHEMA_VERSION = 22
+LATEST_SCHEMA_VERSION = 23
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -1877,6 +1890,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     20: _migrate_to_v20,
     21: _migrate_to_v21,
     22: _migrate_to_v22,
+    23: _migrate_to_v23,
 }
 
 
