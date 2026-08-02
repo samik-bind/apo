@@ -514,6 +514,10 @@ class AgentTaskRunDB(SQLModel, table=True):
     # legacy runs (created before inventory existed) keep rendering.
     task_inventory_id: str | None = Field(default=None, index=True)
     task_source_commit_sha: str | None = None
+    # SPEC-169: pinned Task Definition Revision for this Run.
+    task_definition_revision_id: str | None = Field(
+        default=None, foreign_key="task_definition_revisions.id", index=True
+    )
 
 
 class AgentTaskCheckReportDB(SQLModel, table=True):
@@ -1065,6 +1069,8 @@ class ProjectTaskSourceDB(SQLModel, table=True):
     demo_seed_id: str | None = None
 
     status: str = Field(index=True)  # "unconfigured" | "pending_sync" | "ready" | "error"
+    # SPEC-169: catalog schema version (1 = metadata-only, 2 = with definitions).
+    catalog_schema_version: int = 1
     last_synced_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
     last_resolved_commit_sha: str | None = None
     last_error: str | None = None
@@ -1116,7 +1122,45 @@ class ProjectTaskInventoryDB(SQLModel, table=True):
     source_ref: str | None = None
     source_commit_sha: str | None = None
     source_subpath: str | None = None
+    # SPEC-169: pointer to the current published Task Definition Revision.
+    task_definition_revision_id: str | None = Field(
+        default=None, foreign_key="task_definition_revisions.id", index=True
+    )
     discovered_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+
+
+class TaskDefinitionRevisionDB(SQLModel, table=True):
+    """SPEC-169: immutable, content-addressed Task Definition source.
+
+    Stores the exact canonical ``*.eval.ts`` text that defines a Task and
+    its Tests. Private Project data (like traces and Deliverables); never
+    executed, transpiled, or imported by the backend. Deduplicated by
+    ``(project, task_id, content_sha256)``.
+    """
+
+    __tablename__: ClassVar[str] = "task_definition_revisions"
+    __table_args__: ClassVar[tuple[object, ...]] = (
+        UniqueConstraint(
+            "project",
+            "task_id",
+            "content_sha256",
+            name="uq_task_definition_revision_identity",
+        ),
+    )
+
+    id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:16])
+    project: str = Field(foreign_key="projects.id", index=True)
+    task_id: str = Field(index=True)
+    schema_version: int = 1
+    content_sha256: str = Field(index=True)
+    source_files_json: list[dict[str, object]] = Field(
+        default_factory=list, sa_column=Column(JSON)
+    )
+    source_size_bytes: int
+    created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(UTCDateTime, server_default=func.now()),
     )

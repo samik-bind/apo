@@ -1243,9 +1243,42 @@ def _make_attempt_task_revision_nullable(conn: Connection) -> None:
 
 
 def _migrate_to_v19() -> None:
-    """Version 19: make Attempt task_revision_id nullable."""
+    """Version 19: make Attempt task_revision_id nullable (SPEC-166, issues #83/#84)."""
     with engine.begin() as conn:
         _make_attempt_task_revision_nullable(conn)
+
+
+def _migrate_task_definition_revisions(conn: Connection) -> None:
+    """SPEC-169: Task Definition Revisions table + nullable FK pointers."""
+    ts = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    conn.exec_driver_sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS task_definition_revisions (
+            id VARCHAR PRIMARY KEY,
+            project VARCHAR NOT NULL,
+            task_id VARCHAR NOT NULL,
+            schema_version INTEGER NOT NULL DEFAULT 1,
+            content_sha256 VARCHAR NOT NULL,
+            source_files_json JSON,
+            source_size_bytes INTEGER NOT NULL,
+            created_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    _create_index_if_not_exists(conn, "ix_task_def_rev_project", "task_definition_revisions", "project")
+    _create_index_if_not_exists(conn, "ix_task_def_rev_task_id", "task_definition_revisions", "task_id")
+    _create_index_if_not_exists(conn, "ix_task_def_rev_digest", "task_definition_revisions", "content_sha256")
+    _create_unique_index_if_not_exists(
+        conn, "uq_task_definition_revision_identity",
+        "task_definition_revisions", "project, task_id, content_sha256",
+    )
+
+    # Nullable FK pointers on existing tables
+    _add_column_if_missing(conn, "agent_task_runs", "task_definition_revision_id", "VARCHAR")
+    _create_index_if_not_exists(conn, "ix_agent_task_runs_task_def_rev", "agent_task_runs", "task_definition_revision_id")
+    _add_column_if_missing(conn, "project_task_inventory", "task_definition_revision_id", "VARCHAR")
+    _create_index_if_not_exists(conn, "ix_project_task_inv_task_def_rev", "project_task_inventory", "task_definition_revision_id")
+    _add_column_if_missing(conn, "project_task_sources", "catalog_schema_version", "INTEGER NOT NULL DEFAULT 1")
 
 
 def _migrate_to_v20() -> None:

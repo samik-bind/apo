@@ -164,6 +164,8 @@ def create_app() -> FastAPI:
     app.include_router(agent_task_files.router)
     app.include_router(agent_task_schedules.router)
     app.include_router(agent_task_trace_projection.router)
+    from .routes import task_definition_sources
+    app.include_router(task_definition_sources.router)
     app.include_router(models.router)
     app.include_router(analytics.router)
     app.include_router(scores.router)

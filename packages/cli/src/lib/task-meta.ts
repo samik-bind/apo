@@ -19,6 +19,8 @@ export type TaskMeta = {
   hasChecks: boolean;
   hasSimulator: boolean;
   path: string;
+  /** The canonical eval filename (e.g. `code-review.eval.ts`). */
+  evalFileName: string;
   deliverables: string[];
   files: string[];
   /**
@@ -97,10 +99,14 @@ export function bareTaskName(folderScopedId: string): string {
 }
 
 function parseTaskMeta(taskDir: string, rootDir: string): TaskMeta | undefined {
-  const evalFile = readdirSync(taskDir).find((f) => f.endsWith(".eval.ts"));
-  if (!evalFile) {
+  const evalFiles = readdirSync(taskDir).filter((f) => f.endsWith(".eval.ts"));
+  if (evalFiles.length === 0) {
     return undefined;
   }
+  if (evalFiles.length > 1) {
+    return undefined;
+  }
+  const evalFile = evalFiles[0]!;
   const taskFilePath = join(taskDir, evalFile);
 
   const content = readFileSync(taskFilePath, "utf-8");
@@ -139,6 +145,7 @@ function parseTaskMeta(taskDir: string, rootDir: string): TaskMeta | undefined {
     hasChecks,
     hasSimulator,
     path: taskDir,
+    evalFileName: evalFile,
     deliverables,
     files,
   };
