@@ -77,20 +77,25 @@ Always use timezone-aware UTC datetimes.
 
 ### Database Migrations
 
-Add migrations to `_apply_lightweight_migrations()` in `db.py` to run automatically on app startup.
+Add a new, immutable version to `_SCHEMA_MIGRATIONS` in `db.py` and bump
+`LATEST_SCHEMA_VERSION`. Migrations run automatically on app startup. Never add
+new schema work to a version that an existing installation may already have
+recorded.
 
 ```python
-# Pattern for adding columns to existing tables
-def _apply_lightweight_migrations():
+# Define the idempotent schema change against a supplied connection.
+def _migrate_feature_schema(conn: Connection) -> None:
+    _add_column_if_missing(conn, "table_name", "new_column", "TYPE")
+
+
+# Give it a new version. Do not edit an already-released migration.
+def _migrate_to_v21() -> None:
     with engine.begin() as conn:
-        columns = conn.exec_driver_sql("PRAGMA table_info('table_name')").fetchall()
-        column_names = {col[1] for col in columns}
+        _migrate_feature_schema(conn)
 
-        if "new_column" not in column_names:
-            conn.exec_driver_sql("ALTER TABLE table_name ADD COLUMN new_column TYPE;")
 
-        # Create index
-        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_table_column ON table_name(column);")
+LATEST_SCHEMA_VERSION = 21
+_SCHEMA_MIGRATIONS[21] = _migrate_to_v21
 ```
 
 ### JSON Fields Pattern

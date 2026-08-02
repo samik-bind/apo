@@ -11,6 +11,7 @@ idempotency and the retention purge of report rows.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -71,9 +72,9 @@ def _report_value(conn, run_id: str):
     return json.loads(raw) if isinstance(raw, str) else raw
 
 
-def test_v20_is_registered_and_latest() -> None:
+def test_v20_remains_registered() -> None:
     assert 20 in _SCHEMA_MIGRATIONS
-    assert LATEST_SCHEMA_VERSION == 20
+    assert LATEST_SCHEMA_VERSION == 21
 
 
 def test_migration_backfills_counts_and_evidence_and_nulls_legacy() -> None:
@@ -198,7 +199,7 @@ def test_migration_is_a_noop_on_fresh_schema() -> None:
 
 
 @pytest.fixture
-def session() -> Session:
+def session() -> Iterator[Session]:
     eng = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
