@@ -34,7 +34,7 @@ describe("listLocalTaskFiles", () => {
       `export default defineTask(adapter, { id: "meeting-summary" });`,
     );
     writeFileSync(join(taskDir, "checks.ts"), "export {}");
-    writeFileSync(join(taskDir, "user-simulator.ts"), "export {}");
+    writeFileSync(join(taskDir, "helpers.ts"), "export {}");
     mkdirSync(join(taskDir, "files"), { recursive: true });
     writeFileSync(join(taskDir, "files", "instructions.md"), "# hi");
 
@@ -43,7 +43,7 @@ describe("listLocalTaskFiles", () => {
 
     expect(paths).toContain("meeting-summary.eval.ts");
     expect(paths).toContain("checks.ts");
-    expect(paths).toContain("user-simulator.ts");
+    expect(paths).toContain("helpers.ts");
     expect(paths).toContain("files");
     expect(paths).toContain("files/instructions.md");
   });

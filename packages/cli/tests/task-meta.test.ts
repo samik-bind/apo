@@ -131,15 +131,6 @@ describe("discoverTaskMeta", () => {
     ]);
   });
 
-  it("detects simulator in task content", () => {
-    writeTaskFile(join(testDir, "sim"), `
-      const t = { id: "sim", simulator: mySimulator };
-    `);
-
-    const tasks = discoverTaskMeta(testDir);
-    expect(tasks[0].hasSimulator).toBe(true);
-  });
-
   it("lists files in files/ subdirectory", () => {
     const taskDir = join(testDir, "files-task");
     writeTaskFile(taskDir, `const t = { id: "files-task" };`);

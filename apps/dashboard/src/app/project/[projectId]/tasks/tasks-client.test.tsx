@@ -40,7 +40,6 @@ function task(overrides: Partial<AgentTaskSummary> = {}): AgentTaskSummary {
     display_name: "refund",
     adapter_name: "claude-code",
     has_checks: false,
-    has_user_simulator: false,
     tags: [],
     run_stats: null,
     ...overrides,

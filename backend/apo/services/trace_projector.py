@@ -524,7 +524,7 @@ def _compute_run_aggregates(session: Session, trace_id: str, project: str) -> No
     # recompute call_count on every projection (spans arrive
     # asynchronously, so a snapshot from the first pass goes stale), and
     # pick primary_model by cost contribution (the model under test, not
-    # whichever simulator/judge call happened to arrive first).
+    # whichever judge call happened to arrive first).
     run = select_run(session, trace_id, project)
     if run is not None:
         calls = session.exec(
@@ -646,9 +646,9 @@ def _call_sse_body(span: OtlpSpanDB, normalized: NormalizedSpan) -> dict[str, ob
 def _primary_model_by_cost(calls: Sequence[LoggedCallDB]) -> str | None:
     """Pick the model with the highest total cost contribution.
 
-    The model under test (e.g. claude-opus-5) dominates cost, while the
-    user-simulator and judge calls are negligible. This naturally selects
-    the agent's model rather than whichever harness call arrived first.
+    The model under test (e.g. claude-opus-5) dominates cost, while judge
+    calls are negligible. This naturally selects the agent's model rather
+    than whichever harness call arrived first.
     Falls back to the first call with a model when no call has cost data.
     """
     if not calls:

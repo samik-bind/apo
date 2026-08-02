@@ -339,7 +339,6 @@ class AgentTaskSummary(SQLModel):
     display_name: str
     adapter_name: str
     has_checks: bool
-    has_user_simulator: bool
     tags: list[str] = Field(default_factory=list)
     run_stats: AgentTaskRunStats | None = None
 
@@ -351,7 +350,6 @@ class AgentTaskDetail(SQLModel):
     display_name: str
     adapter_name: str
     has_checks: bool
-    has_user_simulator: bool
     tags: list[str] = Field(default_factory=list)
     latest_run: "AgentTaskRunSummary | None" = None
     run_stats: AgentTaskRunStats | None = None
@@ -1119,7 +1117,6 @@ class PublishedTask(SQLModel):
     folder_path: str = ""
     adapter_name: str
     has_checks: bool = False
-    has_user_simulator: bool = False
     tags: list[str] = []
 
 

@@ -101,7 +101,6 @@ def _format_task_summary(task: object) -> AgentTaskSummary:
         display_name=t.display_name,
         adapter_name=t.adapter_name,
         has_checks=t.has_checks,
-        has_user_simulator=t.has_user_simulator,
         tags=t.tags,
     )
 
@@ -174,7 +173,7 @@ def _load_primary_models(
     if missing:
         # Prefer GENERATION calls (actual LLM invocations) and order by
         # created_at so the first real model wins. Structural spans like
-        # the "agent-task" simulator-loop CHAIN are not LLM models, and
+        # the "agent-task" run-loop CHAIN are not LLM models, and
         # "unknown" means the SDK never captured a model — both skipped.
         calls = session.exec(
             select(LoggedCallDB)
@@ -268,7 +267,6 @@ async def get_agent_task(
         display_name=task.display_name,
         adapter_name=task.adapter_name,
         has_checks=task.has_checks,
-        has_user_simulator=task.has_user_simulator,
         tags=task.tags,
         latest_run=latest_run,
     )

@@ -2,7 +2,7 @@
 Agent Task Files API endpoints.
 
 Provides endpoints for browsing and reading task source files
-(the ``*.eval.ts`` task file, checks.ts, user-simulator.ts, etc.) from the filesystem.
+(the ``*.eval.ts`` task file, checks.ts, etc.) from the filesystem.
 """
 
 # pyright: reportCallInDefaultInitializer=false

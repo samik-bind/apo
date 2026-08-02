@@ -29,7 +29,6 @@ export function computeCatalogDigest(tasks: PublishedTask[]): string {
       folder_path: t.folder_path,
       adapter_name: t.adapter_name,
       has_checks: t.has_checks,
-      has_user_simulator: t.has_user_simulator,
       tags: [...t.tags].sort(),
     }))
     .sort((a, b) => a.task_id.localeCompare(b.task_id));

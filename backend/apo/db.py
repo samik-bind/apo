@@ -1288,9 +1288,20 @@ def _migrate_to_v21() -> None:
 
 
 def _migrate_to_v20() -> None:
-    """Version 20: move check evidence off the hot run row."""
+    """Version 20 (SPEC-167): move check evidence off the hot run row."""
     with engine.begin() as conn:
         _migrate_check_report_schema(conn)
+
+
+def _migrate_to_v22() -> None:
+    """Version 22: drop the dead ``has_user_simulator`` inventory column.
+
+    The user-simulator feature was never built (``turn()`` replaced it), so the
+    flag was always ``False``. Drops the column from ``project_task_inventory``;
+    guarded so re-running on an already-clean schema is a no-op.
+    """
+    with engine.begin() as conn:
+        _drop_column_if_exists(conn, "project_task_inventory", "has_user_simulator")
 
 
 def _migrate_check_report_schema(conn: Connection) -> None:
@@ -1841,7 +1852,7 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
     )
 
 
-LATEST_SCHEMA_VERSION = 21
+LATEST_SCHEMA_VERSION = 22
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -1865,6 +1876,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     19: _migrate_to_v19,
     20: _migrate_to_v20,
     21: _migrate_to_v21,
+    22: _migrate_to_v22,
 }
 
 

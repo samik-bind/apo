@@ -15,7 +15,6 @@ Show a task's details — adapter, whether it has checks, and (with a backend pr
     { text: "Task: extract-parties" },
     { text: "  Adapter:     real-agent" },
     { text: "  Checks:      yes" },
-    { text: "  Simulator:   no" },
     { text: "  Path:        real-agent/extract-parties/extract-parties.eval.ts" },
     { text: "  Folder:      real-agent/extract-parties" },
     { text: "  Latest run:", tone: "default" },
@@ -44,7 +43,6 @@ With a backend project, the task comes from the synced inventory and includes th
     { text: "Task: extract-parties" },
     { text: "  Adapter:     real-agent" },
     { text: "  Checks:      yes" },
-    { text: "  Simulator:   no" },
     { text: "  Path:        real-agent/extract-parties/extract-parties.eval.ts" },
     { text: "  Folder:      real-agent/extract-parties" },
     { text: "  Latest run:", tone: "default" },
@@ -52,7 +50,7 @@ With a backend project, the task comes from the synced inventory and includes th
   ]}
 />
 
-`Checks` and `Simulator` are `yes`/`no` flags. The `Latest run:` line (when one exists) gives the run id and its status.
+`Checks` is a `yes`/`no` flag. The `Latest run:` line (when one exists) gives the run id and its status.
 
 Without a backend project, the task is read from the local filesystem — it shows `Deliverables:` (comma-joined) and a `Files:` list instead, and no latest run:
 
@@ -61,7 +59,6 @@ Without a backend project, the task is read from the local filesystem — it sho
     { text: "Task: extract-parties" },
     { text: "  Adapter:      real-agent" },
     { text: "  Checks:       yes" },
-    { text: "  Simulator:    no" },
     { text: "  Path:         extract-parties/extract-parties.eval.ts" },
     { text: "  Deliverables: parties, amounts, dates" },
     { text: "  Files:", tone: "default" },

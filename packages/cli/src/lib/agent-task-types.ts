@@ -20,7 +20,6 @@ export type AgentTaskSummary = {
   display_name: string;
   adapter_name: string;
   has_checks: boolean;
-  has_user_simulator: boolean;
   tags: string[];
   run_stats: AgentTaskRunStats | null;
 };

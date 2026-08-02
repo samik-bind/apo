@@ -107,7 +107,6 @@ def validate_catalog_request(tasks: list[dict[str, Any]]) -> list[dict[str, Any]
             "folder_path": folder_path,
             "adapter_name": adapter_name,
             "has_checks": bool(task.get("has_checks", False)),
-            "has_user_simulator": bool(task.get("has_user_simulator", False)),
             "tags": sorted(tags),
         })
 
@@ -216,7 +215,6 @@ def publish_catalog(
             folder_path=task["folder_path"],
             task_path=task["task_path"],
             has_checks=task["has_checks"],
-            has_user_simulator=task["has_user_simulator"],
             source_type="published",
             task_definition_revision_id=rev_id,
         )

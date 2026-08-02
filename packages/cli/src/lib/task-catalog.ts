@@ -17,7 +17,6 @@ export type PublishedTask = {
   folder_path: string;
   adapter_name: string;
   has_checks: boolean;
-  has_user_simulator: boolean;
   tags: string[];
   /** SPEC-169: the canonical eval source. */
   definition?: TaskDefinitionDocument;
@@ -46,7 +45,6 @@ export function toPublishedTask(meta: {
   folderPath: string;
   adapter: string;
   hasChecks: boolean;
-  hasSimulator: boolean;
 }): PublishedTask {
   const segments = meta.id.split("/");
   const displayName = segments[segments.length - 1];
@@ -57,7 +55,6 @@ export function toPublishedTask(meta: {
     folder_path: meta.folderPath,
     adapter_name: meta.adapter,
     has_checks: meta.hasChecks,
-    has_user_simulator: meta.hasSimulator,
     tags: [],
   };
 }

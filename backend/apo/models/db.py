@@ -1113,7 +1113,6 @@ class ProjectTaskInventoryDB(SQLModel, table=True):
     task_path: str
 
     has_checks: bool = False
-    has_user_simulator: bool = False
     tags_json: list[str] | None = Field(
         default=None, sa_column=Column("tags_json", JSON)
     )

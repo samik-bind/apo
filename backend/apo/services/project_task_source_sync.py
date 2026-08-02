@@ -430,7 +430,6 @@ def _rewrite_paths(task: DiscoveredAgentTask, *, scan_root: str) -> DiscoveredAg
         display_name=task.display_name,
         adapter_name=task.adapter_name,
         has_checks=task.has_checks,
-        has_user_simulator=task.has_user_simulator,
         tags=task.tags,
     )
 

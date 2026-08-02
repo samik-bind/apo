@@ -17,7 +17,6 @@ export type TaskMeta = {
   folderPath: string;
   adapter: string;
   hasChecks: boolean;
-  hasSimulator: boolean;
   path: string;
   /** The canonical eval filename (e.g. `code-review.eval.ts`). */
   evalFileName: string;
@@ -119,7 +118,6 @@ function parseTaskMeta(taskDir: string, rootDir: string): TaskMeta | undefined {
 
   const deliverables = extractArrayField(content, "deliverables");
   const hasChecks = extractHasChecks(content, taskDir);
-  const hasSimulator = /simulator\s*:/.test(content);
 
   // Folder-scope the id so the CLI and the backend inventory agree on ids
   // (issue #12). Mirrors backend agent_task_discovery._parse_task_file:
@@ -143,7 +141,6 @@ function parseTaskMeta(taskDir: string, rootDir: string): TaskMeta | undefined {
     folderPath,
     adapter,
     hasChecks,
-    hasSimulator,
     path: taskDir,
     evalFileName: evalFile,
     deliverables,

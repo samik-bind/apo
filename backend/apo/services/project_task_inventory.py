@@ -139,7 +139,6 @@ def _build_inventory_row(
         folder_path=task.folder_path,
         task_path=task.task_path,
         has_checks=task.has_checks,
-        has_user_simulator=task.has_user_simulator,
         tags_json=list(task.tags) if task.tags else None,
         source_type=source.source_type,
         source_ref=_source_ref(source),
@@ -208,7 +207,6 @@ def to_summary(row: ProjectTaskInventoryDB) -> AgentTaskSummary:
         display_name=row.display_name,
         adapter_name=row.adapter_name or "unknown",
         has_checks=row.has_checks,
-        has_user_simulator=row.has_user_simulator,
         tags=list(row.tags_json) if row.tags_json else [],
         run_stats=None,
     )
@@ -227,7 +225,6 @@ def to_detail(row: ProjectTaskInventoryDB) -> AgentTaskDetail:
         display_name=row.display_name,
         adapter_name=row.adapter_name or "unknown",
         has_checks=row.has_checks,
-        has_user_simulator=row.has_user_simulator,
         tags=list(row.tags_json) if row.tags_json else [],
         latest_run=None,
         run_stats=None,

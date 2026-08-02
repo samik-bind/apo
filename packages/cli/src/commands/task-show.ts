@@ -33,7 +33,6 @@ export async function run(argv: string[]): Promise<number> {
   if (isRemoteTask(task)) {
     console.log(`  Adapter:     ${task.adapter_name}`);
     console.log(`  Checks:      ${task.has_checks ? "yes" : "no"}`);
-    console.log(`  Simulator:   ${task.has_user_simulator ? "yes" : "no"}`);
     console.log(`  Path:        ${task.task_path}`);
     console.log(`  Folder:      ${task.folder_path}`);
     if (task.tags.length > 0) {
@@ -46,7 +45,6 @@ export async function run(argv: string[]): Promise<number> {
   } else {
     console.log(`  Adapter:     ${task.adapter}`);
     console.log(`  Checks:      ${task.hasChecks ? "yes" : "no"}`);
-    console.log(`  Simulator:   ${task.hasSimulator ? "yes" : "no"}`);
     console.log(`  Path:        ${task.path}`);
 
     if (task.deliverables.length > 0) {

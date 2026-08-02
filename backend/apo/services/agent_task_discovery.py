@@ -32,7 +32,6 @@ class DiscoveredAgentTask:
     display_name: str
     adapter_name: str
     has_checks: bool
-    has_user_simulator: bool
     tags: list[str]
 
 
@@ -180,7 +179,6 @@ def _parse_task_file(
         folder_path = ""
 
     has_checks = _detect_checks(content, task_dir)
-    has_user_simulator = os.path.isfile(os.path.join(task_dir, "user-simulator.ts"))
     tags: list[str] = []
     display_name = task_id
 
@@ -198,7 +196,6 @@ def _parse_task_file(
         display_name=display_name,
         adapter_name=adapter,
         has_checks=has_checks,
-        has_user_simulator=has_user_simulator,
         tags=tags,
     )
 

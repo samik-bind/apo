@@ -652,7 +652,7 @@ export const testAdapter = defineAdapter({
   },
 });
 `,
-      taskContent: buildTypedTaskModule({ simulator: true }),
+      taskContent: buildTypedTaskModule(),
       files: {
         "instructions.md": "Summarize the attached source.",
       },

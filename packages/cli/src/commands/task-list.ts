@@ -37,16 +37,14 @@ export async function run(argv: string[]): Promise<number> {
       t.id,
       t.adapter_name,
       t.has_checks ? "yes" : "-",
-      t.has_user_simulator ? "yes" : "-",
     ]
     : [
       t.id,
       t.adapter,
       t.hasChecks ? "yes" : "-",
-      t.hasSimulator ? "yes" : "-",
     ]);
   console.log(
-    formatTable(["ID", "Adapter", "Checks", "Simulator"], rows),
+    formatTable(["ID", "Adapter", "Checks"], rows),
   );
   console.log("");
   console.log(dim(`${tasks.length} task${tasks.length === 1 ? "" : "s"} found`));
@@ -63,7 +61,6 @@ function taskToJson(t: TaskMeta | AgentTaskSummary): Record<string, unknown> {
     id: t.id,
     adapter: t.adapter,
     hasChecks: t.hasChecks,
-    hasSimulator: t.hasSimulator,
     path: t.path,
     deliverables: t.deliverables,
   };

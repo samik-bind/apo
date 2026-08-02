@@ -21,7 +21,6 @@ function writeTask(root: string, name: string, content: string): { meta: TaskMet
       folderPath: "",
       adapter: "test",
       hasChecks: false,
-      hasSimulator: false,
       path: dir,
       evalFileName: `${name}.eval.ts`,
       deliverables: [],
@@ -43,7 +42,7 @@ describe("SPEC-169: Task Definition preparation", () => {
     writeFileSync(join(dirB, "demo.eval.ts"), content);
     const meta: TaskMeta = {
       id: "demo", folderPath: "", adapter: "test", hasChecks: false,
-      hasSimulator: false, path: "", evalFileName: "demo.eval.ts",
+      path: "", evalFileName: "demo.eval.ts",
       deliverables: [], files: [],
     };
 
@@ -99,7 +98,7 @@ describe("SPEC-169: Task Definition preparation", () => {
 
     expect(() => prepareTaskDefinition({
       id: "link-task", folderPath: "", adapter: "test", hasChecks: false,
-      hasSimulator: false, path: linkDir, evalFileName: "link-task.eval.ts",
+      path: linkDir, evalFileName: "link-task.eval.ts",
       deliverables: [], files: [],
     })).toThrow(/symlink/i);
   });

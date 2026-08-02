@@ -17,7 +17,6 @@ const tasks: PublishedTask[] = [
     folder_path: "",
     adapter_name: "x",
     has_checks: true,
-    has_user_simulator: false,
     tags: [],
   },
 ];
@@ -25,7 +24,7 @@ const tasks: PublishedTask[] = [
 describe("cross-language catalog digest", () => {
   it("matches the Python compute_catalog_digest for a single task", () => {
     expect(computeCatalogDigest(tasks)).toBe(
-      "sha256:628bd058a9ceeccbda0a04817dd9233e5370aa5031b3d6f218113ecc67ef8f3c",
+      "sha256:bd8001ea07d09cae7acddc06ecf372f4309c95880fcc1ed91532b7475f3a7e14",
     );
   });
 
@@ -40,7 +39,6 @@ describe("cross-language catalog digest", () => {
     const shuffled = computeCatalogDigest([
       {
         adapter_name: "x",
-        has_user_simulator: false,
         tags: [],
         has_checks: true,
         task_path: "connect-fixture",

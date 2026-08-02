@@ -160,8 +160,7 @@ export default async function TaskDetailPage({
 
   if (!task) return null;
 
-  const fileCount = (task.has_checks ? 1 : 0) +
-    (task.has_user_simulator ? 1 : 0) + 1;
+  const fileCount = (task.has_checks ? 1 : 0) + 1;
 
   return (
     <div className="mx-auto w-full max-w-6xl flex flex-col">
