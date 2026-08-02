@@ -10,6 +10,7 @@ Covers acceptance tests 1 (preserves installation), 2 (only bundled terminalized
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -156,7 +157,7 @@ class TestBundlePurgeNarrow:
         ))
         session.commit()
 
-        count = purge_legacy_bundle_objects(session)
+        count = asyncio.run(purge_legacy_bundle_objects(session))
 
         assert count == 2
         for i in range(2):
@@ -178,8 +179,8 @@ class TestBundlePurgeNarrow:
         ))
         session.commit()
 
-        assert purge_legacy_bundle_objects(session) == 1
-        assert purge_legacy_bundle_objects(session) == 0
+        assert asyncio.run(purge_legacy_bundle_objects(session)) == 1
+        assert asyncio.run(purge_legacy_bundle_objects(session)) == 0
 
 
 class TestSourceOwnedPoolSurvives:

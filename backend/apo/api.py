@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
         from datetime import datetime, timezone
 
         retire_legacy_execution_rows(session, now=datetime.now(timezone.utc))
-        purge_legacy_bundle_objects(session)
+        await purge_legacy_bundle_objects(session)
     # ensure the demo project exists at startup so it shows
     # up in project lists and users can browse it read-only.
     from .services.demo_workspace import _ensure_demo_project_exists  # pyright: ignore[reportPrivateUsage]

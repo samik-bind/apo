@@ -14,7 +14,6 @@ Two idempotent startup operations called in ``api.py::lifespan`` after
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import cast
@@ -70,7 +69,7 @@ def retire_legacy_execution_rows(session: Session, *, now: datetime | None = Non
     return changed
 
 
-def purge_legacy_bundle_objects(session: Session) -> int:
+async def purge_legacy_bundle_objects(session: Session) -> int:
     """Narrowly delete every Bundle object from the shared ArtifactStore.
 
     Selects only ``TaskRevisionDB`` rows with a non-null ``bundle_storage_key``,
@@ -91,9 +90,7 @@ def purge_legacy_bundle_objects(session: Session) -> int:
             break
         for revision in rows:
             try:
-                asyncio.run(
-                    delete_task_revision_bundle(revision)
-                )
+                await delete_task_revision_bundle(revision)
             except Exception as exc:  # noqa: BLE001 — fail closed with context
                 raise RuntimeError(
                     f"Failed to purge bundle object for revision {revision.id}: {exc}"
