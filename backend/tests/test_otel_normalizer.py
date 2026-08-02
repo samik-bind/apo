@@ -187,6 +187,52 @@ class TestInputOutputContent:
         assert result.output is not None
         assert result.output.get("text") == "hello"
 
+    def test_tool_call_round_surfaces_toolcalls_as_output(self):
+        """A generation round that produced tool calls (not text) must surface
+        ``ai.response.toolCalls`` as its output, not collapse to ``{}``.
+
+        Without this, every tool-call round in an agent loop projects to an
+        identical empty output, so the trace shows a wall of indistinguishable
+        generations and the actual per-round tool calls vanish from the
+        dashboard. The tool history still lives in TOOL observations; the
+        generation's own output is what THAT round produced.
+        """
+        span = _make_span(
+            attributes={
+                "ai.response.finishReason": "tool-calls",
+                "ai.response.toolCalls": json.dumps([
+                    {"toolCallId": "c1", "toolName": "list_files", "input": "{}"},
+                    {
+                        "toolCallId": "c2",
+                        "toolName": "read_file",
+                        "input": '{"path": "source.py"}',
+                    },
+                ]),
+            }
+        )
+        result = normalize_span(span)
+        assert result.output is not None
+        assert result.output.get("finishReason") == "tool-calls"
+        tool_calls = result.output.get("toolCalls")
+        assert isinstance(tool_calls, list) and len(tool_calls) == 2
+        assert tool_calls[0]["toolName"] == "list_files"
+        assert tool_calls[1]["toolName"] == "read_file"
+
+    def test_text_wins_over_tool_calls_when_both_present(self):
+        span = _make_span(
+            attributes={
+                "ai.response.text": "Here is the answer.",
+                "ai.response.finishReason": "tool-calls",
+                "ai.response.toolCalls": json.dumps(
+                    [{"toolCallId": "c1", "toolName": "list_files", "input": "{}"}]
+                ),
+            }
+        )
+        result = normalize_span(span)
+        assert result.output is not None
+        assert result.output.get("text") == "Here is the answer."
+        assert "toolCalls" not in result.output
+
     def test_tool_parameters_and_result(self):
         span = _make_span(
             attributes={

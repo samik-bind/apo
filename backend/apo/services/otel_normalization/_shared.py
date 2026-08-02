@@ -373,6 +373,15 @@ def extract_output(attrs: dict[str, Any]) -> dict[str, Any] | None:
             text = get_str(attrs, key)
             if text:
                 return {"text": text}
+        # A generation round that produced tool calls (no text) still has a
+        # meaningful output: the calls it made. The Vercel AI SDK records them
+        # as ai.response.toolCalls. Without this branch every tool-call round
+        # in an agent loop collapses to {} and the per-round tool calls vanish
+        # from the dashboard. Text wins above when both are present.
+        tool_calls = get_json(attrs, "ai.response.toolCalls")
+        if isinstance(tool_calls, list) and tool_calls:
+            finish = get_str(attrs, "ai.response.finishReason") or "tool-calls"
+            return {"finishReason": finish, "toolCalls": tool_calls}
         return langfuse_payload(attrs, "langfuse.observation.output")
     messages = [
         normalize_genai_message(m)
