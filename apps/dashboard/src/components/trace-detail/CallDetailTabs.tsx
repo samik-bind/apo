@@ -51,7 +51,7 @@ export function CallDetailTabs({
 
       {viewMode === "preview" ? (
         isChatML ? (
-          <ChatMessagePreview data={data} />
+          <ChatMessagePreview data={data} preview={title === "Input" ? "last" : "history"} />
         ) : hasTypedEventPreview ? (
           <TraceEventPreview data={data} />
         ) : hasToolCalls ? (

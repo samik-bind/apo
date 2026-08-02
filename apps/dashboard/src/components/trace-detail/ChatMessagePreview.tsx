@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { Sparkles, User, Wrench, Cpu } from "lucide-react";
-import { useMemo, useRef, useCallback } from "react";
+import { useMemo, useRef, useCallback, useState } from "react";
 import { ToolDefinitionsSection } from "./ToolDefinitionsSection";
 import { extractTools, countToolInvocations } from "./tool-utils";
 import { ThinkingBlock } from "./ThinkingBlock";
@@ -33,9 +33,18 @@ type ContentPart =
 
 interface ChatMessagePreviewProps {
   data: unknown;
+  /**
+   * "history" (default): show the first 3 + last 3 messages with a collapsible
+   * middle. "last": show ONLY the newest message by default (the delta — e.g.
+   * the tool result that triggered this generation) with a "Show full prompt"
+   * toggle that expands the whole accumulated prompt. Used for generation
+   * inputs so each step shows what's new that round, not the entire repeated
+   * conversation history.
+   */
+  preview?: "history" | "last";
 }
 
-export function ChatMessagePreview({ data }: ChatMessagePreviewProps) {
+export function ChatMessagePreview({ data, preview = "history" }: ChatMessagePreviewProps) {
   const messages = useMemo(() => parseMessages(data), [data]);
   const tools = useMemo(() => extractTools(data), [data]);
   const invocationCounts = useMemo(
@@ -43,6 +52,7 @@ export function ChatMessagePreview({ data }: ChatMessagePreviewProps) {
     [messages],
   );
   const toolCallCounter = useRef(0);
+  const [showFullPrompt, setShowFullPrompt] = useState(false);
 
   const getNextToolCallNumber = useCallback(() => {
     toolCallCounter.current += 1;
@@ -57,10 +67,6 @@ export function ChatMessagePreview({ data }: ChatMessagePreviewProps) {
     );
   }
 
-  const firstThree = messages.slice(0, 3);
-  const lastThree = messages.length > 6 ? messages.slice(-3) : [];
-  const middleMessages = messages.length > 6 ? messages.slice(3, -3) : [];
-
   const renderMessage = (msg: ChatMessage, idx: number) => (
     <MessageBubble
       key={msg.role === "user" ? `user-${idx}` : `msg-${idx}`}
@@ -69,6 +75,37 @@ export function ChatMessagePreview({ data }: ChatMessagePreviewProps) {
     />
   );
 
+  // Delta mode: a generation's input is the whole accumulated prompt, but
+  // re-displaying it in every node is noise. Show only the newest message
+  // (the turn that triggered this generation) by default; the full prompt is
+  // one click away. Falls back to full view when there's only one message.
+  if (preview === "last" && messages.length > 1 && !showFullPrompt) {
+    const lastIndex = messages.length - 1;
+    const last = messages[lastIndex];
+    return (
+      <div className="space-y-3">
+        {tools.length > 0 && (
+          <ToolDefinitionsSection
+            tools={tools}
+            invocationCounts={invocationCounts}
+          />
+        )}
+        {renderMessage(last, lastIndex)}
+        <button
+          type="button"
+          onClick={() => setShowFullPrompt(true)}
+          className="text-xs text-muted-foreground underline hover:text-foreground"
+        >
+          Show full prompt ({messages.length} messages)
+        </button>
+      </div>
+    );
+  }
+
+  const firstThree = messages.slice(0, 3);
+  const lastThree = messages.length > 6 ? messages.slice(-3) : [];
+  const middleMessages = messages.length > 6 ? messages.slice(3, -3) : [];
+
   return (
     <div className="space-y-3">
       {tools.length > 0 && (
@@ -76,6 +113,15 @@ export function ChatMessagePreview({ data }: ChatMessagePreviewProps) {
           tools={tools}
           invocationCounts={invocationCounts}
         />
+      )}
+      {preview === "last" && showFullPrompt && (
+        <button
+          type="button"
+          onClick={() => setShowFullPrompt(false)}
+          className="text-xs text-muted-foreground underline hover:text-foreground"
+        >
+          Collapse to latest message
+        </button>
       )}
       <CollapsibleHistory
         totalMessages={messages.length}

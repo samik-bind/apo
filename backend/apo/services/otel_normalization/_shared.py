@@ -351,17 +351,14 @@ def extract_input(attrs: dict[str, Any]) -> dict[str, Any] | None:
     if messages_raw is None:
         return langfuse_payload(attrs, "langfuse.observation.input")
     if isinstance(messages_raw, list):
-        # Drop tool-only assistant messages and tool-result messages from the
-        # generation's INPUT. Each round of an agent loop literally receives
-        # the whole accumulated conversation (system + user + every prior
-        # tool call/result), but showing that in every GEN node is pure noise
-        # — the per-round actions live in that generation's OUTPUT (toolCalls)
-        # and in the sibling TOOL observations. Keep only the task context.
-        messages = [
-            normalize_genai_message(m)
-            for m in messages_raw
-            if isinstance(m, dict) and not _is_tool_only_message(m)
-        ]
+        # Keep the full prompt verbatim — the complete message array sent to
+        # the model this round (system + accumulated history + new turn). This
+        # matches the GenAI/OTel convention and Langfuse: a generation's input
+        # is the whole prompt. The accumulated history is NOT stripped here;
+        # the dashboard renders it as a delta (last message) by default with a
+        # "show full prompt" expand, so the data is complete without the noise
+        # of re-displaying the whole conversation in every generation node.
+        messages = [normalize_genai_message(m) for m in messages_raw if isinstance(m, dict)]
         return {"messages": messages}
     return {"messages": messages_raw}
 
