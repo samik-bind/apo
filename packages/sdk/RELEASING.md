@@ -25,6 +25,11 @@ maintainer. Do not silently rename the package or bulk-rewrite imports.
 
 ## One-time bootstrap
 
+> **Status: DONE on 2026-08-03.** `@apo-ai/sdk@0.2.0` was published manually
+> and `@apo-ai/sdk@0.2.1` followed via the OIDC workflow. The steps below
+> are kept as the historical record and the recipe if the package ever
+> needs to be bootstrapped again (e.g. a new scope).
+
 The first `@apo-ai/sdk` publication cannot use trusted publishing yet — the
 trusted publisher configuration on npm is created *after* the package
 exists. Do this once manually:
@@ -58,7 +63,7 @@ exists. Do this once manually:
    ```bash
    cd packages/sdk
    pnpm pack --pack-destination ../../release
-   tar -tzf release/apo-sdk-0.2.0.tgz | less
+   tar -tzf release/apo-ai-sdk-0.2.0.tgz | less
    ```
 
    Confirm: only `dist/`, `LICENSE`, `README.md`, `package.json`. No `src/`,
@@ -66,10 +71,27 @@ exists. Do this once manually:
 
 4. **Publish the tarball as public.**
 
+   If the publishing account has TOTP 2FA configured, the CLI prompts for
+   the code:
+
    ```bash
-   npm publish --access public release/apo-sdk-0.2.0.tgz
+   npm publish --access public release/apo-ai-sdk-0.2.0.tgz
    # complete the npm 2FA prompt
    ```
+
+   If the account does not have TOTP 2FA (e.g. npm's current enrollment
+   only offers WebAuthn/passkey, which may not work on Linux desktops),
+   use a short-lived granular access token instead. Create one at
+   `npmjs.com/settings/<user>/tokens/granular-access-tokens/new` scoped
+   to `@apo-ai` with Read+Write, 7-day expiry, then:
+
+   ```bash
+   npm publish --access public release/apo-ai-sdk-0.2.0.tgz \
+     --//registry.npmjs.org/:_authToken=npm_xxxxxxxxx
+   ```
+
+   Delete the token on the tokens page immediately after. This is the
+   path that was used for the initial `0.2.0` bootstrap.
 
 5. **Smoke-test the registry copy.**
 

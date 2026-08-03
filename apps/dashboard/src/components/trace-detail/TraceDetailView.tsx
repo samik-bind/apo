@@ -165,7 +165,7 @@ function TraceDetailRootView({
           {run.run.task_id && (
             <Link
               href={taskDetailHref(run.run.project, run.run.task_id)}
-              className="inline-flex items-center border border-border/70 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+              className="inline-flex items-center border border-border/70 px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
             >
               {run.run.task_id}
             </Link>
@@ -300,7 +300,7 @@ function CallDetailView({ call, readOnly = false }: { call: any; readOnly?: bool
           <span>Back</span>
         </button>
         {ancestorPath.length > 1 && (
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground flex-wrap">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
             {ancestorPath.map((node: any, i: number) => (
               <Fragment key={node.id}>
                 {i > 0 && <ChevronRight className="h-2.5 w-2.5 shrink-0" />}
@@ -362,7 +362,7 @@ function CallDetailView({ call, readOnly = false }: { call: any; readOnly?: bool
             </>
           )}
           {modelParams && Object.entries(modelParams).map(([key, value]) => (
-            <span key={key} className="inline-flex items-center bg-muted/50 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            <span key={key} className="inline-flex items-center bg-muted/50 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
               {key}: {formatParamValue(value)}
             </span>
           ))}
@@ -457,7 +457,7 @@ function CallDetailView({ call, readOnly = false }: { call: any; readOnly?: bool
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="text-[11px] font-medium text-muted-foreground">
+                  <div className="text-xs font-medium text-muted-foreground">
                     Output
                   </div>
                   {canCorrect && previewMode === "preview" && !readOnly && (
@@ -509,9 +509,9 @@ function CallDetailView({ call, readOnly = false }: { call: any; readOnly?: bool
               <MetadataRow label="Cost" value={call.cost != null ? <CallCostBreakdownTooltip breakdown={call.cost_breakdown} rawUsage={call.raw_usage} modelName={call.model} provenance={call.cost_provenance} cost={call.cost}><span className="font-mono">{formatCostMicro(call.cost)}</span></CallCostBreakdownTooltip> : "\u2014"} />
               {call.end_time ? <MetadataRow label="Ended" value={formatDate(call.end_time)} /> : null}
               {call.status_message ? <MetadataRow label="Status" value={<span className={call.level === "ERROR" ? "text-destructive font-medium" : ""}>{call.status_message}</span>} /> : null}
-              {call.environment && call.environment !== "default" ? <MetadataRow label="Environment" value={<span className="inline-flex items-center border border-border/70 bg-muted/10 px-1.5 py-0.5 text-[11px]">{call.environment}</span>} /> : null}
+              {call.environment && call.environment !== "default" ? <MetadataRow label="Environment" value={<span className="inline-flex items-center border border-border/70 bg-muted/10 px-1.5 py-0.5 text-xs">{call.environment}</span>} /> : null}
               {call.session_id ? <MetadataRow label="Session" value={<span className="font-mono text-xs">{call.session_id}</span>} /> : null}
-              {call.tags?.length ? <MetadataRow label="Tags" value={<div className="flex flex-wrap gap-1 justify-end">{call.tags.map((tag: string) => <span key={tag} className="inline-flex items-center border border-border/70 bg-muted/10 px-1.5 py-0.5 text-[11px]">{tag}</span>)}</div>} /> : null}
+              {call.tags?.length ? <MetadataRow label="Tags" value={<div className="flex flex-wrap gap-1 justify-end">{call.tags.map((tag: string) => <span key={tag} className="inline-flex items-center border border-border/70 bg-muted/10 px-1.5 py-0.5 text-xs">{tag}</span>)}</div>} /> : null}
               {call.version ? <MetadataRow label="Version" value={<span className="font-mono text-xs">{call.version}</span>} /> : null}
             </div>
           </TabsContent>
@@ -538,7 +538,7 @@ function HeaderPill({
   mono?: boolean;
 }) {
   return (
-    <span className={`inline-flex items-center border border-border/70 bg-muted/10 px-1.5 py-0.5 text-[11px] text-muted-foreground ${mono ? "font-mono" : ""}`}>
+    <span className={`inline-flex items-center border border-border/70 bg-muted/10 px-1.5 py-0.5 text-xs text-muted-foreground ${mono ? "font-mono" : ""}`}>
       {children}
     </span>
   );
@@ -547,7 +547,7 @@ function HeaderPill({
 function ItemTypeBadge({ type }: { type?: string | null }) {
   const label = typeof type === "string" && type.length > 0 ? type.toUpperCase() : "SPAN";
   return (
-    <span className="inline-flex items-center border border-border/70 bg-muted/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <span className="inline-flex items-center border border-border/70 bg-muted/10 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
       {label}
     </span>
   );
@@ -562,7 +562,7 @@ function MetadataRow({
 }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-border/60 py-2 last:border-b-0">
-      <div className="text-[11px] text-muted-foreground">
+      <div className="text-xs text-muted-foreground">
         {label}
       </div>
       <div className="text-right text-sm text-foreground">{value}</div>
@@ -607,8 +607,8 @@ function PreviewModeButton({
       type="button"
       onClick={onClick}
       className={active
-        ? "border border-border/80 bg-muted/10 px-1.5 py-0.5 text-[11px] text-foreground"
-        : "px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"}
+        ? "border border-border/80 bg-muted/10 px-1.5 py-0.5 text-xs text-foreground"
+        : "px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"}
     >
       {children}
     </button>

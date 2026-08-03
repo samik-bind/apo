@@ -146,7 +146,7 @@ function MessageBubble({
 
   return (
     <div className="hover:bg-muted/20">
-      <div className={`px-3 py-1.5 text-[11px] font-medium ${roleInfo.headerClass}`}>
+      <div className={`px-3 py-1.5 text-xs font-medium ${roleInfo.headerClass}`}>
         {roleInfo.label}
         {message.name && <span className="ml-1 opacity-60">({message.name})</span>}
       </div>
@@ -167,7 +167,7 @@ function MessageBubble({
                   key={`tc-${call.function?.name ?? callNumber}`}
                   className="rounded border border-border/60 bg-muted/30 px-3 py-2"
                 >
-                  <div className="mb-1 text-[11px] font-mono text-muted-foreground">
+                  <div className="mb-1 text-xs font-mono text-muted-foreground">
                     {call.function?.name || "unknown"}
                   </div>
                   {call.function?.arguments && (
@@ -210,7 +210,7 @@ function MessageContent({ parts }: { parts: ContentPart[] }) {
 function ImageReference({ url }: { url: string }) {
   if (!url || url.startsWith("/")) {
     return (
-      <span className="inline-flex items-center gap-1.5 border border-border/60 bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground">
+      <span className="inline-flex items-center gap-1.5 border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
         <span className="text-xs">[Image]</span>
         {url && <span className="font-mono">{url}</span>}
       </span>
@@ -228,7 +228,7 @@ function ImageReference({ url }: { url: string }) {
           const target = e.currentTarget;
           target.style.display = "none";
           const placeholder = document.createElement("span");
-          placeholder.className = "inline-flex items-center gap-1.5 border border-border/60 bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground";
+          placeholder.className = "inline-flex items-center gap-1.5 border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground";
           placeholder.textContent = "[Image: failed to load]";
           target.parentNode?.appendChild(placeholder);
         }}
@@ -239,7 +239,7 @@ function ImageReference({ url }: { url: string }) {
 
 function AudioReference({ url }: { url: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 border border-border/60 bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground">
+    <span className="inline-flex items-center gap-1.5 border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
       <span className="text-xs">[Audio]</span>
       {url && <span className="font-mono">{url}</span>}
     </span>
@@ -307,11 +307,11 @@ function ToolCallArguments({ arguments: args }: { arguments: string }) {
   return (
     <div className="mt-1 max-w-full">
       {label ? (
-        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">
           {label}
         </div>
       ) : null}
-      <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-all text-[11px] font-mono text-muted-foreground">
+      <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-all text-xs font-mono text-muted-foreground">
         {visible}
         {tooLong && !expanded ? "…" : ""}
       </pre>
@@ -319,7 +319,7 @@ function ToolCallArguments({ arguments: args }: { arguments: string }) {
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="text-[11px] text-muted-foreground underline hover:text-foreground"
+          className="text-xs text-muted-foreground underline hover:text-foreground"
         >
           {expanded ? "Collapse" : `Expand (${body.length} chars)`}
         </button>

@@ -44,7 +44,7 @@ export function CallDetailTabs({
   return (
     <section className="border-t border-border/60 pt-3 first:border-t-0 first:pt-0">
       <header className="pb-2">
-        <div className="text-[11px] font-medium text-muted-foreground">
+        <div className="text-xs font-medium text-muted-foreground">
           {title}
         </div>
       </header>
@@ -93,7 +93,7 @@ function FlatKeyValuePreview({
           key={key}
           className="flex items-start justify-between gap-4 border-b border-border/60 px-3 py-2.5 last:border-b-0"
         >
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {humanizeKey(key)}
           </span>
           <span className="font-mono text-sm text-foreground">{String(value)}</span>
@@ -246,17 +246,17 @@ function ToolCallsPreview({ toolCalls }: { toolCalls: Array<Record<string, unkno
             className="rounded-md border border-border/60 bg-muted/10 px-3 py-2"
           >
             <div className="flex items-center gap-2">
-              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
                 {name}
               </span>
               {id ? (
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {id.slice(0, 12)}
                 </span>
               ) : null}
             </div>
             {inputText && inputText !== "{}" ? (
-              <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[12px] text-foreground/80">
+              <pre className="mt-1 overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs text-foreground/80">
                 {inputText}
               </pre>
             ) : null}
