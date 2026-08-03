@@ -26,7 +26,7 @@ function teardown(): void {
 // startActiveSpan("ai.generateText"), then startActiveSpan("ai.toolCall") per tool.
 const ADAPTER_SOURCE = `
 import { z } from "zod";
-import { defineAdapter, createApoTracer } from "@apo/sdk/agent-task";
+import { defineAdapter, createApoTracer } from "@apo-ai/sdk/agent-task";
 
 // Mocked generateText: simulates what the Vercel AI SDK does when telemetry is enabled.
 // It calls the tracer's startActiveSpan with the same span names and attributes.
@@ -102,7 +102,7 @@ export const mockAdapter = defineAdapter({
 `;
 
 const TASK_SOURCE = `
-import { task, test } from "@apo/sdk/agent-task";
+import { task, test } from "@apo-ai/sdk/agent-task";
 import { mockAdapter } from "./adapter.ts";
 
 task("demo-task", {

@@ -5,7 +5,7 @@ import { TEST_METHOD_NAMES as DASHBOARD_METHODS } from "../t-api-methods";
 // the browser bundle. The SDK is the single source of truth; the dashboard
 // keeps a local copy (see t-api-methods.ts) only to avoid bundling the SDK's
 // server runtime. This assertion is the drift guard.
-import { TEST_METHOD_NAMES as SDK_METHODS } from "@apo/sdk/agent-task";
+import { TEST_METHOD_NAMES as SDK_METHODS } from "@apo-ai/sdk/agent-task";
 
 /**
  * Regression tests for the colorizer drift bug: the dashboard used to keep its

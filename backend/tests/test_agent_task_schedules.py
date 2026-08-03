@@ -68,7 +68,7 @@ def test_run_due_schedules_once_creates_batch_run(
     task_dir = tmp_path / "flows" / "nightly-security"
     task_dir.mkdir(parents=True)
     _ = (task_dir / "nightly-security.eval.ts").write_text(
-        'import { task } from "@apo/sdk/agent-task";\ntask("nightly-security", { adapter: "a" });\n'
+        'import { task } from "@apo-ai/sdk/agent-task";\ntask("nightly-security", { adapter: "a" });\n'
     )
 
     schedule_id = uuid4().hex[:16]

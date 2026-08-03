@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// @apo/sdk clean-consumer package gate.
+// @apo-ai/sdk clean-consumer package gate.
 //
 // Runs the full release-scene boundary against the package the registry
 // would actually receive:
@@ -15,7 +15,7 @@
 // Never publishes. Never logs in. Always removes its temporary directory.
 //
 // Run with:
-//   pnpm --filter @apo/sdk package:check
+//   pnpm --filter @apo-ai/sdk package:check
 
 import { execFileSync } from "node:child_process";
 import {
@@ -129,7 +129,7 @@ function installTarball(tempDir, tarball) {
   mkdirSync(consumerDir, { recursive: true });
   // Minimal real package.json so Node treats the dir as ESM. Save the SDK
   // and the test-only tools (typescript, publint) into this package.json so
-  // NodeNext resolution can walk from consumer/ to find @apo/sdk.
+  // NodeNext resolution can walk from consumer/ to find @apo-ai/sdk.
   writeFileSync(
     join(consumerDir, "package.json"),
     JSON.stringify(
@@ -164,7 +164,7 @@ function installTarball(tempDir, tarball) {
     ],
     { cwd: consumerDir },
   );
-  const installedPkgDir = join(consumerDir, "node_modules", "@apo", "sdk");
+  const installedPkgDir = join(consumerDir, "node_modules", "@apo-ai", "sdk");
   if (!existsSync(installedPkgDir)) {
     fail(`installed package missing at ${installedPkgDir}`);
   }
@@ -256,12 +256,12 @@ function verifyNodeImports(installedPkgDir, consumerDir) {
   // Write a tiny ESM module that imports every entry point under ordinary
   // Node resolution (no --conditions=development, no tsx).
   const probe = `
-import { readConfig, ClientError } from "@apo/sdk";
-import { configureApoTelemetry, withApoTrace, score } from "@apo/sdk/otel";
-import { task, defineAdapter, runTask, includes, matches } from "@apo/sdk/agent-task";
-import { createApoTracer } from "@apo/sdk/agent-task/integrations/ai-sdk";
-import { createApoOpenAI } from "@apo/sdk/agent-task/integrations/openai";
-import { createApoAnthropic } from "@apo/sdk/agent-task/integrations/anthropic";
+import { readConfig, ClientError } from "@apo-ai/sdk";
+import { configureApoTelemetry, withApoTrace, score } from "@apo-ai/sdk/otel";
+import { task, defineAdapter, runTask, includes, matches } from "@apo-ai/sdk/agent-task";
+import { createApoTracer } from "@apo-ai/sdk/agent-task/integrations/ai-sdk";
+import { createApoOpenAI } from "@apo-ai/sdk/agent-task/integrations/openai";
+import { createApoAnthropic } from "@apo-ai/sdk/agent-task/integrations/anthropic";
 
 if (typeof readConfig !== "function") throw new Error("readConfig not a function");
 if (typeof ClientError !== "function") throw new Error("ClientError not a function");
@@ -301,7 +301,7 @@ console.log(JSON.stringify({
 function verifyTypeScriptConsumer(installedPkgDir, consumerDir) {
   step("Compile TypeScript consumer under NodeNext");
   // consumer.ts lives directly in consumer/ so NodeNext walks up to
-  // consumer/node_modules/@apo/sdk without crossing into the Apo repo.
+  // consumer/node_modules/@apo-ai/sdk without crossing into the Apo repo.
   writeFileSync(
     join(consumerDir, "tsconfig.json"),
     JSON.stringify(
@@ -328,12 +328,12 @@ function verifyTypeScriptConsumer(installedPkgDir, consumerDir) {
   writeFileSync(
     join(consumerDir, "consumer.ts"),
     `
-import { readConfig, type EnvConfig, ClientError } from "@apo/sdk";
-import { configureApoTelemetry, type ApoTelemetryHandle } from "@apo/sdk/otel";
-import { task, defineAdapter, runTask, includes, matches } from "@apo/sdk/agent-task";
-import { createApoTracer } from "@apo/sdk/agent-task/integrations/ai-sdk";
-import { createApoOpenAI } from "@apo/sdk/agent-task/integrations/openai";
-import { createApoAnthropic } from "@apo/sdk/agent-task/integrations/anthropic";
+import { readConfig, type EnvConfig, ClientError } from "@apo-ai/sdk";
+import { configureApoTelemetry, type ApoTelemetryHandle } from "@apo-ai/sdk/otel";
+import { task, defineAdapter, runTask, includes, matches } from "@apo-ai/sdk/agent-task";
+import { createApoTracer } from "@apo-ai/sdk/agent-task/integrations/ai-sdk";
+import { createApoOpenAI } from "@apo-ai/sdk/agent-task/integrations/openai";
+import { createApoAnthropic } from "@apo-ai/sdk/agent-task/integrations/anthropic";
 
 const config: EnvConfig = readConfig();
 const err = new ClientError({ code: "HTTP", message: "boom", cause: new Error("x") });
@@ -381,7 +381,7 @@ function verifyPublint(installedPkgDir, consumerDir) {
 
 function main() {
   const sourceManifest = readJson(join(PKG_DIR, "package.json"));
-  console.log(`Verifying @apo/sdk@${sourceManifest.version} from ${PKG_DIR}`);
+  console.log(`Verifying @apo-ai/sdk@${sourceManifest.version} from ${PKG_DIR}`);
 
   const tempDir = createTempDir();
   let summary = null;
@@ -418,7 +418,7 @@ function main() {
     process.exit(process.exitCode);
   }
 
-  console.log(`\n✓ @apo/sdk@${summary.version} verified`);
+  console.log(`\n✓ @apo-ai/sdk@${summary.version} verified`);
   console.log(`  tarball:    ${summary.tarball} (${summary.compressedKb} KB compressed)`);
   console.log(`  files:      ${summary.files} in installed package`);
   console.log(`  exports:    ${summary.exports.length} public entry points`);

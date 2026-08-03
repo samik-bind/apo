@@ -1,7 +1,7 @@
 /**
- * @apo/sdk — public entry point.
+ * @apo-ai/sdk — public entry point.
  *
- * The canonical tracing path is OpenTelemetry via `@apo/sdk/otel`.
+ * The canonical tracing path is OpenTelemetry via `@apo-ai/sdk/otel`.
  * The old TraceTracker custom protocol has been removed.
  */
 

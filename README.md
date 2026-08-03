@@ -67,7 +67,7 @@ data-extraction/
 A real task from this repo, lightly trimmed. It layers three kinds of test: a deterministic trajectory check, a deterministic fact check, and an LLM judge.
 
 ```typescript
-import { task, test, includes, satisfies, filePaths } from "@apo/sdk/agent-task";
+import { task, test, includes, satisfies, filePaths } from "@apo-ai/sdk/agent-task";
 import { invoiceAgentAdapter } from "./adapter";
 
 task("data-extraction", {

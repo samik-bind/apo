@@ -13,7 +13,7 @@
  * @example
  * ```ts
  * import { generateText } from "ai";
- * import { createApoTracer } from "@apo/sdk/agent-task";
+ * import { createApoTracer } from "@apo-ai/sdk/agent-task";
  *
  * async sendUserTurn(turn, { trace, parentSpanId }) {
  *   const result = await generateText({

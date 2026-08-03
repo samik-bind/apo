@@ -49,12 +49,12 @@ const SIX_PUBLIC_EXPORTS = [
   "./agent-task/integrations/anthropic",
 ] as const;
 
-describe("@apo/sdk package manifest", () => {
+describe("@apo-ai/sdk package manifest", () => {
   describe("public metadata", () => {
     const pkg = readSdkManifest();
 
-    it("is named @apo/sdk", () => {
-      expect(pkg.name).toBe("@apo/sdk");
+    it("is named @apo-ai/sdk", () => {
+      expect(pkg.name).toBe("@apo-ai/sdk");
     });
 
     it("declares a non-empty description", () => {

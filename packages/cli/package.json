@@ -12,7 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@apo/sdk": "github:samikuikka/apo#path:packages/sdk"
+    "@apo-ai/sdk": "github:samikuikka/apo#path:packages/sdk"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

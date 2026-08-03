@@ -9,7 +9,7 @@ def test_discovery_uses_parent_folder_for_grouping():
         task_dir = os.path.join(tmp, "adapter-a", "tasks", "meeting-summary")
         os.makedirs(task_dir, exist_ok=True)
         with open(os.path.join(task_dir, "meeting-summary.eval.ts"), "w") as f:
-            _ = f.write('import { task } from "@apo/sdk/agent-task";\ntask("meeting-summary", { adapter: "a" });\n')
+            _ = f.write('import { task } from "@apo-ai/sdk/agent-task";\ntask("meeting-summary", { adapter: "a" });\n')
 
         tasks = discover_agent_tasks(tmp)
 
@@ -28,7 +28,7 @@ def test_discovery_reads_single_file_task_metadata_and_checks():
         with open(os.path.join(task_dir, "code-review.eval.ts"), "w") as task_file:
             _ = task_file.write(
                 """
-import { task, test } from "@apo/sdk/agent-task";
+import { task, test } from "@apo-ai/sdk/agent-task";
 import { realAgentAdapter } from "./adapter";
 
 task("code-review", {

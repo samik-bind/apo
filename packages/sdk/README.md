@@ -3,18 +3,18 @@
 TypeScript/JavaScript SDK for the [apo](.) backend — an agent testing and
 observability platform. The SDK has three entry points:
 
-- **`@apo/sdk`** — config + error types shared across the surface.
-- **`@apo/sdk/otel`** — OpenTelemetry-native tracing. Wrap your LLM calls and
+- **`@apo-ai/sdk`** — config + error types shared across the surface.
+- **`@apo-ai/sdk/otel`** — OpenTelemetry-native tracing. Wrap your LLM calls and
   agent steps so they land in apo as structured spans, then attach scores.
-- **`@apo/sdk/agent-task`** — the agent-task evaluation framework. Define tasks,
+- **`@apo-ai/sdk/agent-task`** — the agent-task evaluation framework. Define tasks,
   adapters, and checks; run them against an agent and collect structured
   results.
 
 ## Installation
 
 ```bash
-pnpm add @apo/sdk
-# or: npm install @apo/sdk / yarn add @apo/sdk
+pnpm add @apo-ai/sdk
+# or: npm install @apo-ai/sdk / yarn add @apo-ai/sdk
 ```
 
 Requires Node.js ≥ 20. The package ships compiled ESM + `.d.ts` (built via
@@ -60,15 +60,15 @@ Basic (`base64("pk-apo-…:sk-apo-…")`); the SDK never synthesizes partial
 Basic credentials from only one half.
 
 ```ts
-import { readConfig, type EnvConfig } from "@apo/sdk";
+import { readConfig, type EnvConfig } from "@apo-ai/sdk";
 
 const config: EnvConfig = readConfig();
 ```
 
-## API reference — `@apo/sdk`
+## API reference — `@apo-ai/sdk`
 
 The root entry is intentionally thin: shared types + config + errors. The
-actual tracing surface lives at `@apo/sdk/otel`.
+actual tracing surface lives at `@apo-ai/sdk/otel`.
 
 ### Types
 
@@ -88,9 +88,9 @@ Read endpoint/project/keys from environment variables (table above).
 `ClientErrorCode`. `ClientError` carries a `code` field for categorising
 failures.
 
-## Tracing — `@apo/sdk/otel`
+## Tracing — `@apo-ai/sdk/otel`
 
-The canonical tracing path is OpenTelemetry via `@apo/sdk/otel`. The old
+The canonical tracing path is OpenTelemetry via `@apo-ai/sdk/otel`. The old
 `TraceTracker` / `createClient` custom protocol has been removed.
 
 ```ts
@@ -103,7 +103,7 @@ import {
   score,
   injectTraceparent,
   extractTraceparent,
-} from "@apo/sdk/otel";
+} from "@apo-ai/sdk/otel";
 ```
 
 ### `configureApoTelemetry(options)`
@@ -172,7 +172,7 @@ versioning, and edge cases) — for bridging spans across service boundaries.
 `ApoTelemetryHandle`, `ApoTraceExporterOptions`, `ApoSpanProcessorOptions`,
 `ApoTraceOptions`, `ScoreOptions`).
 
-## Agent-task evaluation — `@apo/sdk/agent-task`
+## Agent-task evaluation — `@apo-ai/sdk/agent-task`
 
 The product's primary surface: define an agent task and its checks, wire an
 adapter to the agent under test, then run it and collect structured results.
@@ -185,7 +185,7 @@ import {
   runTask,
   turn,
   includes,
-} from "@apo/sdk/agent-task";
+} from "@apo-ai/sdk/agent-task";
 ```
 
 ### Core building blocks
@@ -216,7 +216,7 @@ to assert. Every assertion is recorded (no die-on-first), so each check reports
 all of its failures.
 
 ```ts
-import { task, includes, satisfies } from "@apo/sdk/agent-task";
+import { task, includes, satisfies } from "@apo-ai/sdk/agent-task";
 import { myAdapter } from "./adapter";
 
 const { test } = task("review-output", {
@@ -290,8 +290,8 @@ response, token usage, and latency metadata.
 framework's own output with a normalizer, then run the same checks:
 
 ```ts
-import { runFlowChecks, test } from "@apo/sdk/agent-task";
-import { fromAISDK } from "@apo/sdk/agent-task";        // or fromOpenAIMessages / fromAnthropicMessages
+import { runFlowChecks, test } from "@apo-ai/sdk/agent-task";
+import { fromAISDK } from "@apo-ai/sdk/agent-task";        // or fromOpenAIMessages / fromAnthropicMessages
 
 const flow = fromAISDK(myGenerateTextResult);          // their framework → Flow
 test("used-tools", (t) => { t.calledTool("read_file"); });

@@ -9,7 +9,7 @@ This section is the exact API surface: every import, its signature, its fields, 
 
 apo ships two import paths. Most work happens in the first.
 
-### `@apo/sdk/agent-task` — define and run tasks
+### `@apo-ai/sdk/agent-task` — define and run tasks
 
 The package you import when writing `.eval.ts` files, adapters, and assertions.
 
@@ -19,7 +19,7 @@ import {
   createApoTracer, createApoOpenAI, createApoAnthropic, registerApoTracing,
   runTask, loadTask, discoverAgentTaskDirs,
   includes, equals, matches, satisfies, similarity,
-} from "@apo/sdk/agent-task";
+} from "@apo-ai/sdk/agent-task";
 ```
 
 | Page | What it covers |
@@ -31,12 +31,12 @@ import {
 | [Running tasks](/reference/running/) | `runTask`, `loadTask`, `discoverAgentTaskDirs`, `runTaskDir` |
 | [Flow normalizers](/reference/flow-normalizers/) | `fromOpenAIMessages`, `fromAnthropicMessages`, `fromAISDK` — inspect a recorded log with `FlowView` (deprecated; prefer OTel) |
 
-### `@apo/sdk/otel` — standalone OTel tracing
+### `@apo-ai/sdk/otel` — standalone OTel tracing
 
 Send OpenTelemetry traces to apo from any application — not just tasks. The lower-level tracing layer, using standard OTLP and semantic conventions.
 
 ```typescript
-import { configureApoTelemetry, withApoTrace } from "@apo/sdk/otel";
+import { configureApoTelemetry, withApoTrace } from "@apo-ai/sdk/otel";
 ```
 
 See [Standalone OTel tracing](/reference/tracing/).

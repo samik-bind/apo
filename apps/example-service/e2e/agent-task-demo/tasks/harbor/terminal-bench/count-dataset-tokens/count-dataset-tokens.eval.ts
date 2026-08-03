@@ -28,7 +28,7 @@ import {
   task,
   equals,
   satisfies,
-} from "@apo/sdk/agent-task";
+} from "@apo-ai/sdk/agent-task";
 import { harborAdapter } from "../../../../harbor-adapter.ts";
 
 const { test: check } = task("count-dataset-tokens", {

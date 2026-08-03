@@ -10,7 +10,7 @@
  * MUST be called inside `sendUserTurn` while the active OTel span
  * (`task.turn`) is on the context — `injectTraceparent()` reads it.
  */
-import { injectTraceparent } from "@apo/sdk/otel";
+import { injectTraceparent } from "@apo-ai/sdk/otel";
 
 /** Build the OTLP export endpoint for the apo backend's OTel receiver. */
 export function otelEndpoint(): string {

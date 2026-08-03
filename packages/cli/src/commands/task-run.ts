@@ -212,7 +212,7 @@ function resolveFlagOrEnv(
 
 async function runLocally(config: Config, taskDir: string): Promise<number> {
   loadEnvFiles(taskDir);
-  const { runTaskDir } = await import("@apo/sdk/agent-task");
+  const { runTaskDir } = await import("@apo-ai/sdk/agent-task");
 
   let summary: LocalRunSummary;
   try {
@@ -345,7 +345,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   const completionId = `${created.lease.attemptId}-${created.lease.generation}`;
   let exitCode = 0;
   try {
-    const { runTaskDir } = await import("@apo/sdk/agent-task");
+    const { runTaskDir } = await import("@apo-ai/sdk/agent-task");
     const summary = await runTaskDir(taskDir);
     await heartbeat.stop();
     await submitCallerResult(backendUrl, created.lease, {

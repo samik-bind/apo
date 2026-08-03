@@ -4,7 +4,7 @@
 Each fixture under ``contracts/task-revision/v1/cases/`` carries inputs and an
 ``expected.contentSha256`` derived independently from the canonical algorithm.
 The Python canonicalizer MUST reproduce the exact digest and summary for every
-case, byte-for-byte with its TypeScript twin in @apo/sdk.
+case, byte-for-byte with its TypeScript twin in @apo-ai/sdk.
 """
 
 from __future__ import annotations

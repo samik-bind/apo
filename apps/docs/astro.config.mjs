@@ -59,7 +59,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Overview', slug: 'reference/overview' },
 						{
-							label: '@apo/sdk/agent-task',
+							label: '@apo-ai/sdk/agent-task',
 							collapsed: false,
 							items: [
 								{ label: 'Task API', slug: 'reference/task' },
@@ -71,7 +71,7 @@ export default defineConfig({
 							],
 						},
 						{
-							label: '@apo/sdk',
+							label: '@apo-ai/sdk',
 							collapsed: false,
 							items: [
 								{ label: 'Tracing', slug: 'reference/tracing' },

@@ -24,7 +24,7 @@ One adapter, wired to a real agent. This is the shape — `initialize` loads inp
 ```typescript
 import { readFileSync } from "fs";
 import { z } from "zod";
-import { defineAdapter } from "@apo/sdk/agent-task";
+import { defineAdapter } from "@apo-ai/sdk/agent-task";
 
 export const realAgentAdapter = defineAdapter({
   name: "real-agent",

@@ -1,4 +1,4 @@
-import { task, includes, filePaths } from "@apo/sdk/agent-task";
+import { task, includes, filePaths } from "@apo-ai/sdk/agent-task";
 import { aiSdkAdapter } from "../../../ai-sdk-adapter.ts";
 
 // Runs against the AI SDK adapter (Vercel AI SDK + registerApoTracing, pointed

@@ -1,5 +1,5 @@
 {
-  "name": "@apo/sdk",
+  "name": "@apo-ai/sdk",
   "version": "0.2.0",
   "description": "TypeScript SDK for testing and observing AI agents with Apo",
   "type": "module",

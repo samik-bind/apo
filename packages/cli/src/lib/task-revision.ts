@@ -3,7 +3,7 @@
  *
  * Walks a source root, applies the required exclusions and limits, reads each
  * surviving regular/executable file, and feeds the result to the shared
- * canonicalizer exported from ``@apo/sdk/agent-task``. The walker never
+ * canonicalizer exported from ``@apo-ai/sdk/agent-task``. The walker never
  * maintains a second digest algorithm and never follows links.
  *
  * This module is consumed by the caller executor CLI migration. For
@@ -18,7 +18,7 @@ import {
   contentSha256,
   type ManifestFileInput,
   type TaskRevisionManifestV1,
-} from "@apo/sdk/agent-task";
+} from "@apo-ai/sdk/agent-task";
 
 /** Limits enforced before a Batch is persisted. */
 export interface RevisionLimits {

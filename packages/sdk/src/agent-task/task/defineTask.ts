@@ -15,7 +15,7 @@ import type { TaskConfig, TaskDefinition } from "./types.ts";
 const TASK_ADAPTER_SYMBOL = Symbol.for("agent-task.adapter-definition");
 
 // ── Task registry (same Symbol.for pattern as the check registry) ─────────
-const TASK_REGISTRY_KEY = Symbol.for("@apo/sdk/agent-task/task-registry");
+const TASK_REGISTRY_KEY = Symbol.for("@apo-ai/sdk/agent-task/task-registry");
 const taskRegistryStore = globalThis as typeof globalThis & {
   [key: symbol]: unknown;
 };

@@ -9,8 +9,8 @@ const _captured: { env?: NodeJS.ProcessEnv } = {};
 
 // Partially mock the SDK: keep the real manifest canonicalizer (used by the
 // caller attestation) but stub runTaskDir so the test needs no importable task.
-vi.mock("@apo/sdk/agent-task", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@apo/sdk/agent-task")>();
+vi.mock("@apo-ai/sdk/agent-task", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@apo-ai/sdk/agent-task")>();
   return {
     ...actual,
     runTaskDir: async () => {
@@ -32,7 +32,7 @@ function writeTask(root: string): string {
   mkdirSync(taskDir, { recursive: true });
   writeFileSync(
     join(taskDir, "caller-task.eval.ts"),
-    `import { task } from "@apo/sdk/agent-task";\ntask("caller-task", { adapter: "a" });`,
+    `import { task } from "@apo-ai/sdk/agent-task";\ntask("caller-task", { adapter: "a" });`,
   );
   return "caller-task";
 }
@@ -87,7 +87,7 @@ describe("task run --executor caller dispatch", () => {
       schema_version: 1,
       files: [{
         path: "caller-task.eval.ts",
-        content: `import { task } from "@apo/sdk/agent-task";\ntask("caller-task", { adapter: "a" });`,
+        content: `import { task } from "@apo-ai/sdk/agent-task";\ntask("caller-task", { adapter: "a" });`,
       }],
     });
     expect(calls.some((u) => u.includes("/executor-protocol/v1/attempts/a1/start"))).toBe(true);

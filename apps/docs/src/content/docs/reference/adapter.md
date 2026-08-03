@@ -6,7 +6,7 @@ description: "The exact interface an adapter implements — lifecycle methods, s
 The adapter interface — every lifecycle method, the session shape, and the context fields. For *why* adapters exist and how to think about them, see [Adapters](/concepts/adapters/).
 
 ```typescript title="adapter.ts"
-import { defineAdapter } from "@apo/sdk/agent-task";
+import { defineAdapter } from "@apo-ai/sdk/agent-task";
 
 defineAdapter({
   name: "my-agent",
@@ -43,7 +43,7 @@ The `state` object you return from `initialize` flows through every subsequent s
 The four lifecycle methods wired together — a minimal adapter you can copy and adapt:
 
 ```typescript title="adapter.ts"
-import { defineAdapter } from "@apo/sdk/agent-task";
+import { defineAdapter } from "@apo-ai/sdk/agent-task";
 import { z } from "zod";
 
 export const myAdapter = defineAdapter({

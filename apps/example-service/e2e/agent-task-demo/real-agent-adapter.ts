@@ -12,7 +12,7 @@
  * Tracing is automatic via `registerApoTracing()` + `handleChat`'s
  * `experimental_telemetry` (same process).
  */
-import { defineAdapter, registerApoTracing } from "@apo/sdk/agent-task";
+import { defineAdapter, registerApoTracing } from "@apo-ai/sdk/agent-task";
 import { handleChat, type ChatRequest } from "../../app/lib/agent/service.ts";
 import type { AgentState } from "./agent/types.ts";
 import { loadFiles } from "./lib/files.ts";

@@ -14,7 +14,7 @@
  * the User API key or Executor Credential.
  */
 
-import { runTaskDir } from "@apo/sdk/agent-task";
+import { runTaskDir } from "@apo-ai/sdk/agent-task";
 import { writeSync } from "node:fs";
 
 const taskDir = process.env.APO_CHILD_TASK_DIR;

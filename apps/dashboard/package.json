@@ -18,7 +18,7 @@
     "e2e:report": "playwright show-report"
   },
   "dependencies": {
-    "@apo/sdk": "workspace:*",
+    "@apo-ai/sdk": "workspace:*",
     "@base-ui/react": "latest",
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-python": "^6.2.1",

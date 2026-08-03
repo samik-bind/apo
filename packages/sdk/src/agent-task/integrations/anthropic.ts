@@ -8,7 +8,7 @@
  * @example
  * ```ts
  * import Anthropic from "@anthropic-ai/sdk";
- * import { createApoAnthropic } from "@apo/sdk/agent-task";
+ * import { createApoAnthropic } from "@apo-ai/sdk/agent-task";
  *
  * async sendUserTurn(turn, { trace, parentSpanId }) {
  *   const client = createApoAnthropic(

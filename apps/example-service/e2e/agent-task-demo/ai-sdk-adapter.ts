@@ -16,7 +16,7 @@
  * For a full-featured example (multi-turn conversation, custom prompt, richer
  * deliverable parsing), see `real-agent-adapter.ts`.
  */
-import { defineAdapter, registerApoTracing } from "@apo/sdk/agent-task";
+import { defineAdapter, registerApoTracing } from "@apo-ai/sdk/agent-task";
 import { handleChat, type ChatRequest } from "../../app/lib/agent/service.ts";
 import { loadFiles } from "./lib/files.ts";
 import { deliverableSchemas, collectDeliverablesFromState } from "./lib/deliverables.ts";

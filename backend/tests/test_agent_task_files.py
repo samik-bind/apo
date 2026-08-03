@@ -30,7 +30,7 @@ def _create_task_folder(
     # scans for. Uses the real API (task(...)/test(...)), not the retired
     # `defineTask`/`task.ts` shape.
     with open(os.path.join(task_dir, f"{task_id}.eval.ts"), "w") as f:
-        f.write('import { task, test } from "@apo/sdk/agent-task";\n')
+        f.write('import { task, test } from "@apo-ai/sdk/agent-task";\n')
         f.write(
             f'task("{task_id}", {{ adapter: "test-adapter" }});\n'
         )
@@ -181,7 +181,7 @@ def test_list_files_skips_hidden_and_ignored():
         task_dir = os.path.join(tmp, "hidden-task")
         os.makedirs(task_dir)
         with open(os.path.join(task_dir, "hidden-task.eval.ts"), "w") as f:
-            f.write('import { task } from "@apo/sdk/agent-task";\ntask("hidden-task", { adapter: "a" });')
+            f.write('import { task } from "@apo-ai/sdk/agent-task";\ntask("hidden-task", { adapter: "a" });')
         with open(os.path.join(task_dir, ".hidden"), "w") as f:
             f.write("hidden")
         os.makedirs(os.path.join(task_dir, "node_modules"))

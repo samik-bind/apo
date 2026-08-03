@@ -6,7 +6,7 @@
  * it points the SDK at a real `files/` cwd instead.
  */
 import { readFileSync } from "fs";
-import type { FileEntry } from "@apo/sdk/agent-task";
+import type { FileEntry } from "@apo-ai/sdk/agent-task";
 
 export function loadFiles(files: FileEntry[]): Record<string, string> {
   const out: Record<string, string> = {};

@@ -6,7 +6,7 @@ description: "task(), turn(), test() — the three calls that make up a .eval.ts
 The three calls that make up a `.eval.ts` file: `task()`, `turn()`, `test()`. Together they define *what* to run, *what the agent sees* each turn, and *what good means*. For the folder convention and writing flow, see [Tasks](/concepts/tasks/) and [Define a Task](/guides/define-a-task/).
 
 ```typescript title="my-task.eval.ts"
-import { task, turn } from "@apo/sdk/agent-task";
+import { task, turn } from "@apo-ai/sdk/agent-task";
 ```
 
 ## `task(name, config)`

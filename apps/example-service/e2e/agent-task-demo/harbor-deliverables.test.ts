@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
-import { fileArtifact, isFileArtifact, persistFileArtifacts } from "@apo/sdk/agent-task";
+import { fileArtifact, isFileArtifact, persistFileArtifacts } from "@apo-ai/sdk/agent-task";
 
 const FIXTURE = join(
   import.meta.dirname,

@@ -11,7 +11,7 @@
     "prototype:apo-connect": "node --experimental-strip-types packages/cli/prototypes/apo-connect/tui.ts",
     "lint": "oxlint --ignore-pattern=\"**/*.astro\" apps/ packages/",
     "lint:fix": "oxlint --fix --ignore-pattern=\"**/*.astro\" apps/ packages/",
-    "typecheck": "pnpm --filter dashboard --filter @apo/sdk --filter @apo/example-service --filter @apo/cli run typecheck",
+    "typecheck": "pnpm --filter dashboard --filter @apo-ai/sdk --filter @apo/example-service --filter @apo/cli run typecheck",
     "doctor": "npx react-doctor@latest",
     "test:alpha": "pnpm test:alpha:backend && pnpm test:alpha:ui",
     "test:alpha:ui": "pnpm --filter dashboard exec playwright test --grep @alpha --project=chromium",

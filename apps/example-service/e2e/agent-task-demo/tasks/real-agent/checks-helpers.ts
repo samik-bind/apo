@@ -1,4 +1,4 @@
-import type { TestContext } from "@apo/sdk/agent-task";
+import type { TestContext } from "@apo-ai/sdk/agent-task";
 
 // Anti-flail ceilings shared by every task's trajectory check.
 // These are loose safety bounds — the task's own `maxTurns` config is what

@@ -1,6 +1,6 @@
-# Releasing `@apo/sdk`
+# Releasing `@apo-ai/sdk`
 
-This is the maintainer runbook for publishing `@apo/sdk` to npm. There are
+This is the maintainer runbook for publishing `@apo-ai/sdk` to npm. There are
 two release paths:
 
 - **One-time bootstrap** — the very first publication, done manually from a
@@ -25,7 +25,7 @@ maintainer. Do not silently rename the package or bulk-rewrite imports.
 
 ## One-time bootstrap
 
-The first `@apo/sdk` publication cannot use trusted publishing yet — the
+The first `@apo-ai/sdk` publication cannot use trusted publishing yet — the
 trusted publisher configuration on npm is created *after* the package
 exists. Do this once manually:
 
@@ -33,7 +33,7 @@ exists. Do this once manually:
 
    ```bash
    npm whoami                       # must be the publishing account
-   npm view @apo/sdk                # must 404 — confirm nobody squatted it
+   npm view @apo-ai/sdk                # must 404 — confirm nobody squatted it
    ```
 
    If `npm view` returns an existing package owned by somebody else, this
@@ -44,9 +44,9 @@ exists. Do this once manually:
    ```bash
    git fetch && git checkout main && git pull
    pnpm install --frozen-lockfile
-   pnpm --filter @apo/sdk test
-   pnpm --filter @apo/sdk typecheck
-   pnpm --filter @apo/sdk package:check
+   pnpm --filter @apo-ai/sdk test
+   pnpm --filter @apo-ai/sdk typecheck
+   pnpm --filter @apo-ai/sdk package:check
    ```
 
    `package:check` packs the exact tarball npm would receive, installs it
@@ -76,8 +76,8 @@ exists. Do this once manually:
    In a brand-new empty directory:
 
    ```bash
-   pnpm add @apo/sdk@0.2.0
-   node -e "import('@apo/sdk').then(m => console.log(Object.keys(m)))"
+   pnpm add @apo-ai/sdk@0.2.0
+   node -e "import('@apo-ai/sdk').then(m => console.log(Object.keys(m)))"
    ```
 
    This must resolve from the registry, not from any local cache or workspace
@@ -85,7 +85,7 @@ exists. Do this once manually:
 
 6. **Configure trusted publishing for later releases.**
 
-   In the npm package settings for `@apo/sdk`:
+   In the npm package settings for `@apo-ai/sdk`:
 
    - Repository: `samikuikka/apo`
    - Workflow: `publish-sdk.yml`
@@ -126,9 +126,9 @@ maintainer never types npm credentials:
 
 6. **Verify the result.**
 
-   - The job summary links to `https://www.npmjs.com/package/@apo/sdk/v/<version>`.
+   - The job summary links to `https://www.npmjs.com/package/@apo-ai/sdk/v/<version>`.
    - The npm page shows a provenance badge (signed by GitHub OIDC).
-   - `npm view @apo/sdk@<version>` returns the new version.
+   - `npm view @apo-ai/sdk@<version>` returns the new version.
 
 ## What the workflow enforces
 
