@@ -16,6 +16,17 @@ extract-parties/
 
 The `.eval.ts` registers the task and imports the adapter from wherever it lives in your codebase. The adapter is the bridge to your application — apo doesn't know how to run your agent, so you give it a method that does. If that's unfamiliar, read [Adapters](/concepts/adapters/) first; this guide assumes you understand what the adapter is for.
 
+### Install the SDK
+
+Tasks are authored in TypeScript against `@apo/sdk`. Install it in your application's repository:
+
+```bash
+pnpm add @apo/sdk
+# or: npm install @apo/sdk
+```
+
+Requires Node.js ≥ 20. TypeScript consumers also install `@types/node`. No special tsconfig is required — the package ships compiled ESM + `.d.ts`.
+
 ## 1. Register the definition
 
 The `.eval.ts` imports your adapter and registers the task:

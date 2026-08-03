@@ -27,18 +27,13 @@ jobs:
         # on every PR — previously no CI step built the SDK, which is how the
         # broken `build: tsc` script survived unnoticed.
         run: pnpm --filter @apo/sdk build
-      - name: Verify SDK dist entry points
-        # Belt-and-suspenders: assert each declared exports target actually
-        # exists on disk after the build.
-        run: |
-          for f in index.js index.d.ts otel/index.js otel/index.d.ts \
-                   agent-task/public.js agent-task/public.d.ts \
-                   agent-task/integrations/ai-sdk.js agent-task/integrations/ai-sdk.d.ts \
-                   agent-task/integrations/openai.js agent-task/integrations/openai.d.ts \
-                   agent-task/integrations/anthropic.js agent-task/integrations/anthropic.d.ts; do
-            test -f "packages/sdk/dist/$f" || { echo "MISSING dist/$f"; exit 1; }
-          done
-          echo "All SDK dist entry points present."
+      - name: Clean consumer package gate
+        # The single source of truth for the publish boundary: pack the SDK
+        # exactly as a registry release would, install it into a clean
+        # directory, import/compile every entry point, and run publint.
+        # Replaces the handwritten dist-file loop below — the gate already
+        # asserts every export target exists on disk plus the manifest parity.
+        run: pnpm --filter @apo/sdk package:check
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test:public-ingress

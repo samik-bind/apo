@@ -13,28 +13,26 @@ observability platform. The SDK has three entry points:
 ## Installation
 
 ```bash
-npm install @apo/sdk
+pnpm add @apo/sdk
+# or: npm install @apo/sdk / yarn add @apo/sdk
 ```
 
 Requires Node.js ≥ 20. The package ships compiled ESM + `.d.ts` (built via
 `tsup`), so no TypeScript-transpiling runtime and no `allowImportingTsExtensions`
 tsconfig flag are required on the consumer side.
 
-### Consuming outside the monorepo
-
-The package is not yet on npm. Install it from git:
+For TypeScript consumers, also install `@types/node` (the SDK's emitted
+declarations reference Node globals like `Buffer`):
 
 ```bash
-# pnpm (subdir install via the #path: prefix)
-pnpm add 'samikuikka/apo#path:packages/sdk'
-
-# or npm/yarn equivalent
-npm install 'samikuikka/apo#path:packages/sdk'
+pnpm add -D @types/node
 ```
 
-The git install resolves to the same compiled `dist/` and works under plain
-`node` + plain `tsc --noEmit` — verified against a clean consumer with no
-special tsconfig.
+## Releases
+
+See [RELEASING.md](./RELEASING.md) for the maintainer runbook. The package
+is published to npm via GitHub OIDC trusted publishing from `sdk-v*` tags —
+no long-lived npm token is stored in the repository.
 
 ## Configuration
 

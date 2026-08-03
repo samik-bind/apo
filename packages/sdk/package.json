@@ -1,12 +1,28 @@
 {
   "name": "@apo/sdk",
   "version": "0.2.0",
+  "description": "TypeScript SDK for testing and observing AI agents with Apo",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "README.md"
   ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/samikuikka/apo.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/samikuikka/apo#readme",
+  "bugs": {
+    "url": "https://github.com/samikuikka/apo/issues"
+  },
   "exports": {
     ".": {
       "development": "./src/index.ts",
@@ -39,11 +55,49 @@
       "default": "./dist/agent-task/integrations/anthropic.js"
     }
   },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js",
+        "default": "./dist/index.js"
+      },
+      "./otel": {
+        "types": "./dist/otel/index.d.ts",
+        "import": "./dist/otel/index.js",
+        "default": "./dist/otel/index.js"
+      },
+      "./agent-task": {
+        "types": "./dist/agent-task/public.d.ts",
+        "import": "./dist/agent-task/public.js",
+        "default": "./dist/agent-task/public.js"
+      },
+      "./agent-task/integrations/ai-sdk": {
+        "types": "./dist/agent-task/integrations/ai-sdk.d.ts",
+        "import": "./dist/agent-task/integrations/ai-sdk.js",
+        "default": "./dist/agent-task/integrations/ai-sdk.js"
+      },
+      "./agent-task/integrations/openai": {
+        "types": "./dist/agent-task/integrations/openai.d.ts",
+        "import": "./dist/agent-task/integrations/openai.js",
+        "default": "./dist/agent-task/integrations/openai.js"
+      },
+      "./agent-task/integrations/anthropic": {
+        "types": "./dist/agent-task/integrations/anthropic.d.ts",
+        "import": "./dist/agent-task/integrations/anthropic.js",
+        "default": "./dist/agent-task/integrations/anthropic.js"
+      }
+    }
+  },
   "scripts": {
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.type-tests.json",
     "build": "tsup",
     "build:watch": "tsup --watch",
     "build:agent-task-runtime": "node scripts/build-agent-task-runtime.mjs",
+    "prepack": "pnpm run build",
+    "package:check": "node scripts/verify-package.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
@@ -52,6 +106,7 @@
     "@types/node": "^20.0.0",
     "@vitest/coverage-v8": "^4.1.9",
     "esbuild": "^0.21.5",
+    "publint": "^0.3.22",
     "tsup": "^8.5.1",
     "typescript": "^5.0.0",
     "vitest": "^4.1.9",
