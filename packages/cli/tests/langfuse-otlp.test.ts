@@ -101,11 +101,25 @@ describe("langfuse-otlp identity mapping", () => {
 
   it("exposes mapApoTraceId / mapApoSpanId as stable primitives", () => {
     const t = mapApoTraceId(HOST, TRACE_ID);
-    const s = mapApoSpanId(HOST, "obs-1");
+    const s = mapApoSpanId("obs-1");
     expect(t).toMatch(/^[0-9a-f]{32}$/);
     expect(s).toMatch(/^[0-9a-f]{16}$/);
     expect(mapApoTraceId(HOST, TRACE_ID)).toBe(t);
-    expect(mapApoSpanId(HOST, "obs-1")).toBe(s);
+    expect(mapApoSpanId("obs-1")).toBe(s);
+  });
+
+  it("derives a span id from the observation id alone, not the host (issue #104)", () => {
+    // Re-importing the same langfuse trace must produce the same span ids
+    // regardless of host config drift, or the projector treats each re-import
+    // as new observations and appends duplicates. Observation ids are globally
+    // unique UUIDs, so they are a safe sole identity.
+    const o = obs({ id: "obs-1" });
+    const cloudHost = convertLangfuseTraceToOtlp(graph([o], "https://cloud.langfuse.com"));
+    const usHost = convertLangfuseTraceToOtlp(graph([o], "https://us.langfuse.com"));
+    expect(cloudHost.traceId).not.toBe(usHost.traceId); // trace id stays host-scoped
+    const cloudSpan = (allSpans(cloudHost)[0] as { spanId: string }).spanId;
+    const usSpan = (allSpans(usHost)[0] as { spanId: string }).spanId;
+    expect(cloudSpan).toBe(usSpan); // span id stable across hosts → re-import dedups
   });
 
   it("replaces an all-zero prefix deterministically (theoretical safeguard)", () => {

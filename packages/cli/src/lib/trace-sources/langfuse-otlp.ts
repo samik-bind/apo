@@ -100,10 +100,14 @@ export function mapApoTraceId(sourceHost: string, sourceTraceId: string): string
   return finalizeHex(digest.slice(0, 32));
 }
 
-export function mapApoSpanId(sourceHost: string, observationId: string): string {
-  const digest = sha256Hex(
-    `apo-trace-source-span\0langfuse\0${sourceHost}\0${observationId}`,
-  );
+export function mapApoSpanId(observationId: string): string {
+  // Derive the span id from the observation id ALONE, not the source host.
+  // Langfuse observation ids are globally-unique UUIDs, so they are a safe
+  // sole identity. Including the host made re-imports (the documented repair
+  // for a partial import) append duplicates whenever the host differed from
+  // the original import — the projector upserts by span id, so a drifting
+  // host defeated dedup (issue #104). The trace id below stays host-scoped.
+  const digest = sha256Hex(`apo-trace-source-span\0langfuse\0${observationId}`);
   return finalizeHex(digest.slice(0, 16));
 }
 
@@ -169,7 +173,7 @@ function buildSpan(
   presentIds: Set<string>,
   mergeMode: boolean,
 ): OtlpSpan {
-  const spanId = mapApoSpanId(graph.sourceHost, observation.id);
+  const spanId = mapApoSpanId(observation.id);
   const attributes: OtlpAttribute[] = [];
   const parentId = observation.parentObservationId ?? null;
 
@@ -206,7 +210,7 @@ function buildSpan(
     span.endTimeUnixNano = isoToUnixNanos(observation.endTime);
   }
   if (parentId && presentIds.has(parentId)) {
-    span.parentSpanId = mapApoSpanId(graph.sourceHost, parentId);
+    span.parentSpanId = mapApoSpanId(parentId);
   } else if (parentId && mergeMode) {
     // Merge mode (--trace-id): the parent lives in the target trace, not
     // the imported set. Keep the raw link so the imported subtree nests
