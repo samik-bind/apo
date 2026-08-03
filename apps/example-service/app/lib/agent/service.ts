@@ -27,7 +27,7 @@ function getClient() {
 }
 
 function getModel() {
-  return process.env.OPENROUTER_MODEL ?? "google/gemini-2.5-flash-lite";
+  return process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash-0731";
 }
 
 const SYSTEM_PROMPT =
