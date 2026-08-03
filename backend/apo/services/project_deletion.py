@@ -62,6 +62,7 @@ from ..models.db import (
     ScoreConfigDB,
     SessionDB,
     TaskExecutionAttemptDB,
+    TaskDefinitionRevisionDB,
     TaskRevisionDB,
     WebhookDB,
 )
@@ -115,6 +116,12 @@ def delete_project_data(
             AgentTaskScheduleDB.project == project_id
         ),
     )
+    # SPEC-166 #96: Attempts must be deleted BEFORE their parent task runs
+    # (task_execution_attempts.task_run_id → agent_task_runs.id).
+    # Previously runs were deleted first, which FK-violated on attempts.
+    deleted["task_execution_attempts"] = _delete_by_column(
+        session, TaskExecutionAttemptDB, TaskExecutionAttemptDB.project == project_id
+    )
     deleted["agent_task_runs"] = _delete_transitive(
         session,
         AgentTaskRunDB,
@@ -123,13 +130,6 @@ def delete_project_data(
             AgentTaskBatchRunDB.project == project_id
         ),
     )
-    # Attempts FK task_runs/batch_runs/pools; remove before their parents.
-    try:
-        deleted["task_execution_attempts"] = _delete_by_column(
-            session, TaskExecutionAttemptDB, TaskExecutionAttemptDB.project == project_id
-        )
-    except Exception:
-        deleted["task_execution_attempts"] = 0
 
     # --- Direct soft references (``project`` / ``project_id`` column, no FK).
     # These don't block the project delete but would orphan if left behind.
@@ -177,6 +177,12 @@ def delete_project_data(
         deleted["task_revisions"] = 0
     deleted["agent_task_batch_runs"] = _delete_by_column(
         session, AgentTaskBatchRunDB, AgentTaskBatchRunDB.project == project_id
+    )
+    # SPEC-169 #96: task_definition_revisions FK projects, and
+    # agent_task_runs.task_definition_revision_id FKs them. Runs are already
+    # gone above, so this is safe.
+    deleted["task_definition_revisions"] = _delete_by_column(
+        session, TaskDefinitionRevisionDB, TaskDefinitionRevisionDB.project == project_id
     )
     deleted["agent_task_schedules"] = _delete_by_column(
         session, AgentTaskScheduleDB, AgentTaskScheduleDB.project == project_id
