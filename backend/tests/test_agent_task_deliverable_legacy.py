@@ -68,6 +68,29 @@ class TestLegacyReadability:
             assert "storage_key" not in item
             assert "inline_value_json" not in item
 
+    def test_legacy_body_round_trips_from_manifest_id(self, client: TestClient, session: Session):
+        """Issue #105: the manifest mints ``legacy:<name>`` ids advertised as
+        ``status: "ready"``; the body endpoint must resolve that scheme back to
+        the inline ``deliverables_json`` body, not 404."""
+        _seed_legacy_run(session)
+        manifest = client.get("/v1/agent-task-runs/legacy-1/deliverables").json()
+        verdict_item = next(i for i in manifest["items"] if i["name"] == "verdict")
+        assert verdict_item["id"] == "legacy:verdict"
+        assert verdict_item["status"] == "ready"
+
+        body_resp = client.get(
+            f"/v1/agent-task-runs/legacy-1/deliverables/{verdict_item['id']}"
+        )
+        assert body_resp.status_code == 200
+        assert body_resp.headers["content-type"] == "application/json; charset=utf-8"
+        assert body_resp.json() == {"reward": 1}
+
+    def test_legacy_body_404_for_unknown_name(self, client: TestClient, session: Session):
+        _seed_legacy_run(session)
+        resp = client.get("/v1/agent-task-runs/legacy-1/deliverables/legacy:missing")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Deliverable not found"
+
     def test_new_rows_leave_legacy_columns_null(self, client: TestClient, session: Session):
         session.add(
             AgentTaskBatchRunDB(

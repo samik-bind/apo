@@ -40,6 +40,7 @@ from ..services.agent_task_deliverables import (
     create_artifact_upload_intent,
     load_deliverable_for_download,
     read_json_deliverable_value,
+    read_legacy_deliverable_body,
     synthesize_legacy_manifest,
 )
 from ..services.agent_task_run_access import require_task_run_access
@@ -102,6 +103,18 @@ async def get_deliverable_body(
     """
     task_run = _load_task_run_or_404(session, task_run_id)
     project = require_task_run_access(request, session, task_run, write=False)
+
+    # Issue #105: ``legacy:<name>`` ids are minted by the manifest from the
+    # inline ``deliverables_json`` column; resolve them there, not against the
+    # new ``agent_task_deliverables`` table (legacy rows have no such row).
+    if deliverable_id.startswith("legacy:"):
+        try:
+            body, sha256 = read_legacy_deliverable_body(
+                task_run.deliverables_json, deliverable_id
+            )
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Deliverable not found")
+        return _json_response(body, sha256)
 
     try:
         row = load_deliverable_for_download(

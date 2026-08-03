@@ -114,7 +114,7 @@ async function fetchOne(
   const path = `/v1/agent-task-runs/${runId}/deliverables/${item.id}`;
 
   if (item.kind === "artifact") {
-    return downloadArtifact(item, path, config, outputPath);
+    return downloadArtifact(item, path, config, outputPath, runId);
   }
 
   // JSON deliverable: stream the body, parse, print.
@@ -128,7 +128,7 @@ async function fetchOne(
     }
     return 0;
   } catch (error) {
-    reportFetchError(error);
+    reportFetchError(error, runId, item.id);
     return 2;
   }
 }
@@ -138,6 +138,7 @@ async function downloadArtifact(
   path: string,
   config: ReturnType<typeof resolveConfig>,
   outputPath: string | undefined,
+  runId: string,
 ): Promise<number> {
   if (!outputPath && (process.stdout.isTTY === true || isatty(1))) {
     // Refuse to dump binary bytes to an interactive terminal.
@@ -181,7 +182,7 @@ async function downloadArtifact(
     }
     return 0;
   } catch (error) {
-    reportFetchError(error);
+    reportFetchError(error, runId, item.id);
     return 2;
   }
 }
@@ -199,10 +200,12 @@ function printManifest(runId: string, items: DeliverableSummary[]): void {
   console.log(dim(`\nRead one: apo runs deliverable <run-id> <name>`));
 }
 
-function reportFetchError(error: unknown): void {
+function reportFetchError(error: unknown, runId: string, deliverableId: string): void {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("404")) {
-    console.error(`Deliverable not found.`);
+    console.error(
+      `Deliverable ${deliverableId} not found on run ${runId}.`,
+    );
   } else {
     console.error(message);
   }

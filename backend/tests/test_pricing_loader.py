@@ -248,6 +248,40 @@ class TestBundledCurrentModels:
             assert cost is not None, f"{name} should be priced, not unpriced"
             assert cost.total > 0, f"{name} should produce a non-zero cost"
 
+    def test_opus_46_and_5_use_reduced_rates_not_45_rates(self, session: Session) -> None:
+        """Issue #102: Opus 4.6+ cut per-dimension pricing 3x vs Opus 4.5
+        ($5/$25 per MTok, not $15/$75). The bundled entries had inherited the
+        4.5 rates, inflating every Opus 4.6/5 run's cost by exactly 3x."""
+        load_default_prices(session)
+        usage = {"input": 1_000_000, "output": 1_000_000}
+        for name in ("claude-opus-5", "claude-opus-5-2025", "claude-opus-4-6", "claude-opus-4-7"):
+            cost = compute_cost(session, name, usage, "__global__", NOW)
+            assert cost is not None, f"{name} should be priced"
+            # Correct Opus 4.6/5 rates: input $5 + output $25 per MTok →
+            # 5_000_000 + 25_000_000 = 30_000_000 micro-USD for 1M+1M tokens.
+            # The bug priced them at 90_000_000 (3x too high).
+            assert cost.total == 30_000_000, (
+                f"{name} should total 30M micro-USD at the reduced Opus 4.6/5 "
+                f"rates, got {cost.total} (3x inflation if 90M)"
+            )
+            assert cost.breakdown["input"] == 5_000_000
+            assert cost.breakdown["output"] == 25_000_000
+
+    def test_opus_45_rates_are_unchanged(self, session: Session) -> None:
+        """Issue #102: only the 4.6/5 entries were wrong; Opus 4.5 really was
+        $15/$75 and must stay that way."""
+        load_default_prices(session)
+        cost = compute_cost(
+            session,
+            "claude-opus-4-5",
+            {"input": 1_000_000, "output": 1_000_000},
+            "__global__",
+            NOW,
+        )
+        assert cost is not None
+        assert cost.breakdown["input"] == 15_000_000
+        assert cost.breakdown["output"] == 75_000_000
+
     def test_prices_current_gemini_models_bare_and_prefixed(self, session: Session) -> None:
         load_default_prices(session)
         usage = {"input": 1_000_000, "output": 1_000_000}
