@@ -54,13 +54,13 @@
       ]
     },
     {
-      "_doc": "Issue #76: current-generation Opus was arriving unpriced. Pattern allows a date suffix (e.g. claude-opus-4-6-20260701). Anthropic has kept Opus per-dimension pricing stable across the 4.5/4.6/5 generations; reuse the 4.5 rates until Google/Anthropic publish otherwise.",
+      "_doc": "Issue #102: Opus 4.6+ cut per-dimension pricing 3x vs Opus 4.5 ($5/$25 per MTok, not $15/$75). Pattern allows a date suffix (e.g. claude-opus-4-6-20260701). The earlier 'reuse the 4.5 rates' heuristic inflated every Opus 4.6/5 run by exactly 3x.",
       "match_pattern": "(?i)^claude-opus-4-6.*$",
       "provider": "anthropic",
       "display_name": "Claude Opus 4.6",
       "start_date": null,
-      "updated_at": "2026-07-30T00:00:00Z",
-      "last_reviewed": "2026-07",
+      "updated_at": "2026-08-03T00:00:00Z",
+      "last_reviewed": "2026-08",
       "pricing_tiers": [
         {
           "name": "default",
@@ -68,23 +68,23 @@
           "priority": 0,
           "conditions": [],
           "prices": {
-            "input": 15.00,
-            "cache_read": 1.50,
-            "cache_write_5m": 18.75,
-            "cache_write_1h": 30.00,
-            "output": 75.00
+            "input": 5.00,
+            "cache_read": 0.50,
+            "cache_write_5m": 6.25,
+            "cache_write_1h": 10.00,
+            "output": 25.00
           }
         }
       ]
     },
     {
-      "_doc": "Issue #76: current-generation Opus was arriving unpriced. Pattern allows a date suffix.",
+      "_doc": "Issue #102: Opus 5 uses the same reduced rates as 4.6 ($5/$25 per MTok), not the legacy 4.5 rates. Pattern allows a date suffix.",
       "match_pattern": "(?i)^claude-opus-5.*$",
       "provider": "anthropic",
       "display_name": "Claude Opus 5",
       "start_date": null,
-      "updated_at": "2026-07-30T00:00:00Z",
-      "last_reviewed": "2026-07",
+      "updated_at": "2026-08-03T00:00:00Z",
+      "last_reviewed": "2026-08",
       "pricing_tiers": [
         {
           "name": "default",
@@ -92,11 +92,11 @@
           "priority": 0,
           "conditions": [],
           "prices": {
-            "input": 15.00,
-            "cache_read": 1.50,
-            "cache_write_5m": 18.75,
-            "cache_write_1h": 30.00,
-            "output": 75.00
+            "input": 5.00,
+            "cache_read": 0.50,
+            "cache_write_5m": 6.25,
+            "cache_write_1h": 10.00,
+            "output": 25.00
           }
         }
       ]

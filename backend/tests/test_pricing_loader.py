@@ -254,7 +254,7 @@ class TestBundledCurrentModels:
         4.5 rates, inflating every Opus 4.6/5 run's cost by exactly 3x."""
         load_default_prices(session)
         usage = {"input": 1_000_000, "output": 1_000_000}
-        for name in ("claude-opus-5", "claude-opus-5-2025", "claude-opus-4-6", "claude-opus-4-7"):
+        for name in ("claude-opus-5", "claude-opus-5-2025", "claude-opus-4-6", "claude-opus-4-6-20260701"):
             cost = compute_cost(session, name, usage, "__global__", NOW)
             assert cost is not None, f"{name} should be priced"
             # Correct Opus 4.6/5 rates: input $5 + output $25 per MTok →
