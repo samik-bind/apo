@@ -156,7 +156,7 @@ function MessageBubble({
         {roleInfo.icon}
       </div>
 
-      <div className={`flex-1 space-y-2 ${message.role === "user" ? "items-end" : "items-start"} flex flex-col`}>
+      <div className={`flex-1 min-w-0 space-y-2 ${message.role === "user" ? "items-end" : "items-start"} flex flex-col`}>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className={`text-xs ${roleInfo.textColor}`}>
             {roleInfo.label}
@@ -200,7 +200,7 @@ function MessageBubble({
                     </span>
                   </div>
                   {call.function?.arguments && (
-                    <pre className="mt-1 overflow-x-auto text-[11px] font-mono text-muted-foreground">
+                    <pre className="mt-1 max-w-full overflow-x-auto whitespace-pre-wrap break-all text-[11px] font-mono text-muted-foreground">
                       {call.function.arguments}
                     </pre>
                   )}
