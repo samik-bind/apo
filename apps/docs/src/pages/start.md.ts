@@ -339,8 +339,7 @@ test("answer-is-accurate", async (t, { deliverables }) => {
 
 ## Step 5: Run and verify
 
-**The CLI runs from the cloned repo** (apo isn't on npm yet). After cloning
-in Step 2, use the repo's \`pnpm apo\` script or run the CLI directly:
+**The CLI runs from the cloned repo** (the apo CLI itself isn't published to npm — only the @apo-ai/sdk SDK is). After cloning in Step 2, use the repo's \`pnpm apo\` script or run the CLI directly:
 
 \`\`\`bash
 # From the apo repo root:

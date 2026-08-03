@@ -50,9 +50,9 @@ describe(".github/workflows/publish-sdk.yml contract", () => {
   });
 
   it("runs SDK tests, typecheck, and package:check before publishing", () => {
-    expect(yaml).toMatch(/pnpm --filter @apo\/sdk test/);
-    expect(yaml).toMatch(/pnpm --filter @apo\/sdk typecheck/);
-    expect(yaml).toMatch(/pnpm --filter @apo\/sdk package:check/);
+    expect(yaml).toMatch(/pnpm --filter @apo-ai\/sdk test/);
+    expect(yaml).toMatch(/pnpm --filter @apo-ai\/sdk typecheck/);
+    expect(yaml).toMatch(/pnpm --filter @apo-ai\/sdk package:check/);
   });
 
     it("publishes a tarball produced by pnpm pack", () => {

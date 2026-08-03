@@ -1,6 +1,6 @@
 name: Publish SDK
 
-# Releases the @apo/sdk npm package. Decoupled from the Docker release
+# Releases the @apo-ai/sdk npm package. Decoupled from the Docker release
 # workflow (.github/workflows/release.yml, triggered by `v*` tags): SDK
 # versions follow their own cadence under `sdk-v*` tags.
 #
@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   publish:
-    name: Publish @apo/sdk
+    name: Publish @apo-ai/sdk
     runs-on: ubuntu-latest
     environment: npm-sdk-release
     defaults:
@@ -66,13 +66,13 @@ jobs:
           fi
 
       - name: SDK tests
-        run: pnpm --filter @apo/sdk test
+        run: pnpm --filter @apo-ai/sdk test
 
       - name: SDK typecheck
-        run: pnpm --filter @apo/sdk typecheck
+        run: pnpm --filter @apo-ai/sdk typecheck
 
       - name: Clean consumer package gate
-        run: pnpm --filter @apo/sdk package:check
+        run: pnpm --filter @apo-ai/sdk package:check
 
       - name: Build release tarball
         # `pnpm pack` is the only correct artifact source — it applies the
@@ -106,9 +106,9 @@ jobs:
         run: |
           PKG_VERSION=$(node -p "require('./packages/sdk/package.json').version")
           {
-            echo "## @apo/sdk published"
+            echo "## @apo-ai/sdk published"
             echo ""
-            echo "- **Package**: [\`@apo/sdk@${PKG_VERSION}\`](https://www.npmjs.com/package/@apo/sdk/v/${PKG_VERSION})"
+            echo "- **Package**: [\`@apo-ai/sdk@${PKG_VERSION}\`](https://www.npmjs.com/package/@apo-ai/sdk/v/${PKG_VERSION})"
             echo "- **Tag**: \`$GITHUB_REF_NAME\`"
             echo "- **Tarball**: \`${TARBALL_PATH}\`"
             echo "- **Auth**: GitHub OIDC trusted publishing (no \`NPM_TOKEN\` secret)"

@@ -16,7 +16,7 @@ version** — publish a corrected patch version instead.
 Code cannot establish these. The maintainer must verify them before the
 first release:
 
-- Owns or has publishing membership in the npm `apo` organization.
+- Owns or has publishing membership in the npm `apo-ai` organization.
 - Has npm two-factor authentication enabled.
 - `npm whoami` returns the publishing account.
 

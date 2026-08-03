@@ -20,20 +20,20 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Build @apo/sdk
+      - name: Build @apo-ai/sdk
         # The SDK's exports map points external consumers at dist/. Internal dev
         # routes back to src/ via the `development` condition, but the build must
         # still succeed for any external/publish path. This catches build breakage
         # on every PR — previously no CI step built the SDK, which is how the
         # broken `build: tsc` script survived unnoticed.
-        run: pnpm --filter @apo/sdk build
+        run: pnpm --filter @apo-ai/sdk build
       - name: Clean consumer package gate
         # The single source of truth for the publish boundary: pack the SDK
         # exactly as a registry release would, install it into a clean
         # directory, import/compile every entry point, and run publint.
         # Replaces the handwritten dist-file loop below — the gate already
         # asserts every export target exists on disk plus the manifest parity.
-        run: pnpm --filter @apo/sdk package:check
+        run: pnpm --filter @apo-ai/sdk package:check
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test:public-ingress
