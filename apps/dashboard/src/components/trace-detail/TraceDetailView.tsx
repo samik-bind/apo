@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useTraceData } from "./contexts/TraceDataContext";
 import { useSelection } from "./contexts/SelectionContext";
 import { CallDetailTabs } from "./CallDetailTabs";
+import { GenerationChatPreview } from "./GenerationChatPreview";
 import { TraceDetailTabs } from "./TraceDetailTabs";
 import { CopyIdPopover } from "./CopyIdPopover";
 import { ScoreInputPanel } from "./ScoreInputPanel";
@@ -260,6 +261,16 @@ function CallDetailView({ call, readOnly = false }: { call: any; readOnly?: bool
   const canCorrect = outputText !== null;
   const runId = run?.run?.id ?? "";
 
+  // SPEC: generation I/O as one combined conversation (Langfuse model) when the
+  // input is a ChatML messages array. Skipped when a correction is being shown
+  // (DiffView needs the split output panel) and in JSON mode. Non-generation
+  // observations and non-ChatML inputs keep the legacy split Input/Output panels.
+  const useCombinedGenerationChat =
+    (call.observation_type ?? "").toUpperCase() === "GENERATION"
+    && previewMode === "preview"
+    && !(correctedOutput && outputText)
+    && isChatMlInput(effectiveInput);
+
   const handleSaveCorrection = useCallback(async (text: string | null) => {
     try {
       const result = await saveCorrection(runId, call.id, text);
@@ -427,6 +438,10 @@ function CallDetailView({ call, readOnly = false }: { call: any; readOnly?: bool
                 </PreviewModeButton>
               </div>
 
+              {useCombinedGenerationChat ? (
+                <GenerationChatPreview input={effectiveInput} output={effectiveOutput} />
+              ) : (
+                <>
               <CallDetailTabs
                 data={effectiveInput}
                 title="Input"
@@ -474,6 +489,8 @@ function CallDetailView({ call, readOnly = false }: { call: any; readOnly?: bool
                   />
                 )}
               </div>
+                </>
+              )}
             </div>
           </TabsContent>
 
@@ -623,6 +640,12 @@ function extractOutputText(output: any): string | null {
   } catch {
     return null;
   }
+}
+
+function isChatMlInput(input: unknown): boolean {
+  if (!input || typeof input !== "object") return false;
+  const msgs = (input as Record<string, unknown>).messages;
+  return Array.isArray(msgs) && msgs.length > 0;
 }
 
 function formatParamValue(value: unknown): string {
