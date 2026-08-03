@@ -141,12 +141,9 @@ RUN cd /app/apps/example-service/e2e/agent-task-demo \
 # Create every named-volume mountpoint BEFORE the chown below. Docker seeds a
 # named volume's ownership from the image only when the mountpoint dir exists
 # at build time; a missing mountpoint is created root-owned at runtime and the
-# non-root backend (USER appuser) can never write into it. This bit the bundled
-# executor bootstrap token in issue #38 (executor restart-loops because the
-# backend couldn't write /var/lib/apo/executor-bootstrap).
+# non-root backend (USER appuser) can never write into it.
 RUN mkdir -p /app/data \
         /var/lib/apo/task-sources \
-        /var/lib/apo/executor-bootstrap \
     && chown -R appuser:appuser /app/data /app/agent-task-runtime /app/apps /var/lib/apo
 
 # Pin the runtime location so the backend status probe and the task runner
