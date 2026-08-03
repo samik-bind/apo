@@ -200,9 +200,7 @@ function MessageBubble({
                     </span>
                   </div>
                   {call.function?.arguments && (
-                    <pre className="mt-1 max-w-full overflow-x-auto whitespace-pre-wrap break-all text-[11px] font-mono text-muted-foreground">
-                      {call.function.arguments}
-                    </pre>
+                    <ToolCallArguments arguments={call.function.arguments} />
                   )}
                 </div>
               );
@@ -285,6 +283,78 @@ function parseContentParts(content: string | ContentPart[]): ContentPart[] {
     return content;
   }
   return [];
+}
+
+const TOOL_ARG_COLLAPSE_CHARS = 400;
+
+/**
+ * Render a tool call's arguments readably. The raw value is a JSON string whose
+ * inner text has escaped newlines (e.g. {"text":"import json\\ndef …"}), which
+ * otherwise renders as a single unbroken wall. Parse it: if the argument is an
+ * object carrying a text-like field, show that field with real newlines; fall
+ * back to pretty-printed JSON, then raw text. Long payloads collapse behind an
+ * expand toggle.
+ */
+function ToolCallArguments({ arguments: args }: { arguments: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const rendered = useMemo(() => {
+    let parsed: unknown = args;
+    try {
+      parsed = JSON.parse(args);
+    } catch {
+      return args;
+    }
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const obj = parsed as Record<string, unknown>;
+      const textField = ["text", "content", "source", "code", "input"].find(
+        (k) => typeof obj[k] === "string",
+      );
+      if (textField) {
+        return { label: textField, body: obj[textField] as string };
+      }
+    }
+    try {
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      return args;
+    }
+  }, [args]);
+
+  const label =
+    typeof rendered === "object" && rendered !== null
+      ? (rendered as { label?: string }).label
+      : undefined;
+  const body =
+    typeof rendered === "object" && rendered !== null
+      ? (rendered as { body?: string }).body ?? ""
+      : (rendered as string);
+
+  const tooLong = body.length > TOOL_ARG_COLLAPSE_CHARS;
+  const visible = !expanded && tooLong ? body.slice(0, TOOL_ARG_COLLAPSE_CHARS) : body;
+
+  return (
+    <div className="mt-1 max-w-full">
+      {label ? (
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          {label}
+        </div>
+      ) : null}
+      <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-all text-[11px] font-mono text-muted-foreground">
+        {visible}
+        {tooLong && !expanded ? "…" : ""}
+      </pre>
+      {tooLong ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-[11px] text-muted-foreground underline hover:text-foreground"
+        >
+          {expanded ? "Collapse" : `Expand (${body.length} chars)`}
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function hasContent(content: string | ContentPart[]): boolean {
