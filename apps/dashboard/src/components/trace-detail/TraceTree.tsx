@@ -12,6 +12,8 @@ import { getDisplayName, cleanSpanName } from "./trace-display";
 export { getDisplayName, cleanSpanName };
 import {
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Wrench,
   Boxes,
   BarChart3,
@@ -50,7 +52,7 @@ interface MetricPart {
   title?: string;
 }
 
-const ROW_HEIGHT = 42;
+const ROW_HEIGHT = 37;
 const OVERSCAN = 5;
 
 // Trace type-color tokens (per design.md accent discipline) — hues are
@@ -195,7 +197,6 @@ function SpanContent({
       <div className="flex min-w-0 flex-1 items-center gap-2 py-0.5 pr-2 text-left">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="flex min-w-0 items-center gap-2">
-            <NodeTypeBadge label="TRACE" />
             <span className="truncate text-xs font-medium">{runLabel}</span>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-1 overflow-hidden text-[11px] text-muted-foreground">
@@ -247,45 +248,35 @@ function SpanContent({
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2 py-0.5 pr-2 text-left">
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <NodeTypeBadge label={TYPE_CONFIG[semanticType].label} color={TYPE_CONFIG[semanticType].color} bg={TYPE_CONFIG[semanticType].bg} />
-          <span className="truncate text-xs text-foreground">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-xs text-foreground">
             {highlightMatch(displayName, searchQuery)}
           </span>
           {showComments && commentCount != null && commentCount > 0 && (
             <CommentCountIcon count={commentCount} />
           )}
         </div>
-        <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 overflow-hidden">
           {(metricParts.length > 0 || levelBadge) && (
-            <div className="flex min-w-0 flex-wrap items-center gap-1 overflow-hidden text-[11px] text-muted-foreground">
+            <>
               {levelBadge && (
-                <span className={cn("shrink-0 px-1 py-0.5 text-[10px] font-medium", levelBadge.colorClass)}>
+                <span className={cn("text-xs font-medium", levelBadge.colorClass)}>
                   {levelBadge.label}
                 </span>
               )}
-              {metricParts.map((part, index) => {
+              {metricParts.map((part) => {
                 const colorClass = colorCodeMetrics && part.kind === "duration"
                   ? getHeatmapColor(c.latency_ms ?? 0, timingBounds.spanMs)
                   : colorCodeMetrics && part.kind === "cost"
                     ? getHeatmapColor(displayCost, totalCost)
                     : undefined;
                 return (
-                  <span key={part.text} className="flex shrink-0 items-center gap-1">
-                    {index > 0 || levelBadge ? <span className="text-muted-foreground/60">·</span> : null}
-                    {part.kind === "model" ? (
-                      <span className="max-w-[90px] truncate" title={part.title}>
-                        {highlightMatch(part.text, searchQuery)}
-                      </span>
-                    ) : (
-                      <span className={cn("font-mono", colorClass)} title={part.title}>
-                        {part.text}
-                      </span>
-                    )}
+                  <span key={part.text} className={cn("text-xs text-muted-foreground", colorClass)} title={part.title}>
+                    {part.text}
                   </span>
                 );
               })}
-            </div>
+            </>
           )}
         </div>
       </div>
@@ -398,13 +389,13 @@ function TreeNode({
           ) : null}
         </div>
 
-        <div className="flex w-5 shrink-0 items-start justify-center pt-1.5">
-          <div className={`flex h-4 w-4 items-center justify-center ${TYPE_CONFIG[semanticType].bg} ${TYPE_CONFIG[semanticType].color}`}>
-            <Icon className="h-[10px] w-[10px]" />
+        <div className="flex w-5 shrink-0 items-start justify-center pt-1">
+          <div title={TYPE_CONFIG[semanticType].label} className={`flex h-3.5 w-3.5 items-center justify-center ${TYPE_CONFIG[semanticType].bg} ${TYPE_CONFIG[semanticType].color}`}>
+            <Icon className="h-[9px] w-[9px]" />
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-1 py-1">
+        <div className="flex min-w-0 flex-1 py-0.5">
           <SpanContent
             call={node.call}
             isRun={isRun}
@@ -506,6 +497,15 @@ export function TraceTree({
       if (next.has(id)) { next.delete(id); } else { next.add(id); }
       return next;
     });
+  };
+
+  const allExpanded = expanded.size >= calls.length + 1;
+  const toggleAll = () => {
+    if (allExpanded) {
+      setExpanded(new Set(["root-run"]));
+    } else {
+      setExpanded(new Set(["root-run", ...calls.map((c) => c.id)]));
+    }
   };
 
   const flatTree = useMemo(() => flattenTree(calls, expanded, searchQuery), [calls, expanded, searchQuery]);
@@ -665,6 +665,14 @@ export function TraceTree({
             <span className="tabular-nums text-muted-foreground/60">{opt.count}</span>
           </button>
         ))}
+        <button
+          type="button"
+          onClick={toggleAll}
+          className="ml-auto flex items-center text-muted-foreground hover:text-foreground"
+          title={allExpanded ? "Collapse all" : "Expand all"}
+        >
+          {allExpanded ? <ChevronsDownUp className="h-3.5 w-3.5" /> : <ChevronsUpDown className="h-3.5 w-3.5" />}
+        </button>
       </div>
       <div ref={parentRef} className="min-h-0 flex-1 overflow-auto">
       <div style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>
