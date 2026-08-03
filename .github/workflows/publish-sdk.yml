@@ -78,15 +78,18 @@ jobs:
         # `pnpm pack` is the only correct artifact source — it applies the
         # publishConfig rewrite (strips `development` conditions, locks the
         # six dist-only exports). We pack into a fresh dir to guarantee no
-        # stale local tarball is reused.
+        # stale local tarball is reused. Do NOT capture pnpm's stdout into
+        # $GITHUB_ENV — it carries ANSI color codes that the file command
+        # rejects. Resolve the tarball path from disk instead.
         working-directory: .
         run: |
           set -euo pipefail
+          rm -rf release
           mkdir -p release
-          cd packages/sdk
-          TARBALL=$(pnpm pack --pack-destination ../../release)
-          echo "TARBALL_PATH=$TARBALL" >> "$GITHUB_ENV"
-          echo "Packed $TARBALL"
+          pnpm --filter @apo-ai/sdk pack --pack-destination ./release
+          TARBALL_PATH="$(realpath release/*.tgz)"
+          echo "TARBALL_PATH=$TARBALL_PATH" >> "$GITHUB_ENV"
+          echo "Packed $TARBALL_PATH"
 
       - name: Publish to npm (OIDC, no token)
         # Trusted publishing exchanges the GitHub OIDC JWT for short-lived

@@ -57,14 +57,13 @@ describe(".github/workflows/publish-sdk.yml contract", () => {
 
     it("publishes a tarball produced by pnpm pack", () => {
       expect(yaml).toMatch(/pnpm pack/);
-      // The published artifact must be the tarball captured from pnpm pack,
-      // not a re-pack or a workspace path. Accept either a literal `.tgz`
-      // reference or a shell variable that was assigned from `pnpm pack`.
-      const packCaptured = /(?:TARBALL|TGZ)\w*\s*=\s*[^\n]*pnpm pack/.test(yaml);
-      const publishUsesCaptured = /npm publish[^\n]*\$\{?(?:TARBALL|TGZ)\w*\}?/.test(yaml);
-      const publishUsesLiteralTgz = /npm publish[^\n]*\.tgz/.test(yaml);
-      expect(publishUsesCaptured || publishUsesLiteralTgz).toBe(true);
-      expect(packCaptured).toBe(true);
+      // The tarball must be resolved from the pack destination directory
+      // (reading from disk), NOT captured from pnpm's stdout — pnpm emits
+      // ANSI color codes that $GITHUB_ENV rejects.
+      expect(yaml).toMatch(/--pack-destination/);
+      expect(yaml).toMatch(/realpath.*\.tgz|ls.*release.*\.tgz/);
+      // The publish step must consume that resolved tarball variable.
+      expect(yaml).toMatch(/npm publish[^\n]*TARBALL/);
     });
 
   it("publishes with public access and provenance", () => {
