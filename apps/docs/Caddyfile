@@ -1,0 +1,14 @@
+# Static file server for the docs container (SPEC-171).
+#
+# Serves the prebuilt Astro output at /srv. Markdown routes get the correct
+# text/markdown content type so coding agents fetch clean content. No TLS,
+# no auth, no proxying — the public Caddy in front of this handles ingress.
+
+:8080 {
+	root * /srv
+	encode zstd gzip
+	@markdown path *.md
+	header @markdown Content-Type "text/markdown; charset=utf-8"
+	header @markdown Cache-Control "public, max-age=60"
+	file_server
+}

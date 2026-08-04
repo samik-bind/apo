@@ -18,6 +18,16 @@
 	}
 }
 
+{$APO_DOCS_HOST} {
+	# Public docs host — terminal, unauthenticated, static only.
+	# Every path on this host proxies to the docs container and never
+	# reaches the backend, OTLP handler, readiness probe, or Basic Auth.
+	handle {
+		encode zstd gzip
+		reverse_proxy docs:8080
+	}
+}
+
 {$APO_CADDY_SITE_ADDRESS} {
 	# exact canonical OTLP handler — direct to backend.
 	handle /api/public/otel/v1/traces {

@@ -37,7 +37,7 @@ if [[ -z "$TUNNEL_URL" ]]; then
 fi
 
 COMPOSE_BASE=(-f "$REPO_ROOT/docker-compose.yml")
-COMPOSE_TUNNEL=(-f "$REPO_ROOT/docker-compose.yml" -f "$REPO_ROOT/docker-compose.cloudflare-tunnel.yml" -f "$REPO_ROOT/docker-compose.cloudflare-tunnel.override.yml")
+COMPOSE_TUNNEL=(-f "$REPO_ROOT/docker-compose.yml" -f "$REPO_ROOT/docker-compose.cloudflare-tunnel.yml" -f "$REPO_ROOT/docker-compose.cloudflare-tunnel.override.yml" -f "$REPO_ROOT/docker-compose.public-docs.yml")
 
 stop_all() {
   _ok "stopping containers..."
@@ -68,6 +68,12 @@ case "$MODE" in
     ;;
 
   tunnel)
+    # tunnel --build rebuilds the docs image on a production update.
+    BUILD_FLAG=""
+    if [[ "${2:-}" == "--build" ]]; then
+      BUILD_FLAG="--build"
+    fi
+
     TUNNEL_URL=$(get_env "APO_TUNNEL_PUBLIC_URL")
     if [[ -z "$TUNNEL_URL" ]]; then
       TUNNEL_URL="https://test-apo.online"
@@ -76,14 +82,20 @@ case "$MODE" in
     set_env "APO_DEPLOYMENT_PROFILE" "server"
     set_env "APO_PUBLIC_URL" "$TUNNEL_URL"
     set_env "APO_INGRESS_MODE" "cloudflare-tunnel"
+    # Default the public docs hostname only when absent (SPEC-171).
+    if [[ -z "$(get_env "APO_DOCS_HOST")" ]]; then
+      set_env "APO_DOCS_HOST" "docs.test-apo.online"
+    fi
 
     stop_all
     _ok "starting in TUNNEL mode..."
-    docker compose --env-file "$ENV_FILE" "${COMPOSE_TUNNEL[@]}" up -d 2>&1 | tail -5
+    docker compose --env-file "$ENV_FILE" "${COMPOSE_TUNNEL[@]}" up -d $BUILD_FLAG 2>&1 | tail -5
     sleep 8
     _ok ""
     _ok "✓ Tunnel mode active"
+    DOCS_URL=$(get_env "APO_DOCS_HOST")
     _ok "  Public:    $TUNNEL_URL"
+    _ok "  Docs:      https://$DOCS_URL"
     _ok "  Dashboard: $TUNNEL_URL (username: apo)"
     _ok "  Health:    $TUNNEL_URL/api/public/health"
     ;;
@@ -101,10 +113,11 @@ case "$MODE" in
     ;;
 
   *)
-    _err "usage: scripts/apo-mode <local|tunnel|status>"
+    _err "usage: scripts/apo-mode <local|tunnel|status> [--build]"
     _err ""
     _err "  local    debug at http://localhost:3000 (no tunnel, no auth gate)"
-    _err "  tunnel   public at your tunnel URL (with auth gate + cloudflared)"
+    _err "  tunnel   public at your tunnel URL (with auth gate + cloudflared + docs)"
+    _err "           pass --build to rebuild the docs image on a production update"
     _err "  status   show current mode and running containers"
     exit 2
     ;;

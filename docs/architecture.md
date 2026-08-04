@@ -488,3 +488,28 @@ Frontend and backend diagnostic ports bind to `127.0.0.1`, and the database is
 never published publicly. Caddy is a replaceable reference ingress: an existing
 TLS proxy may forward the same public origin to the frontend without changing
 the application contract.
+
+### Public Documentation Boundary
+
+The project's public documentation (`docs.test-apo.online`) is served from the
+same VPS as the application, but as a **separate, static, secret-free service** —
+not an application feature and not part of every self-host installation. It is
+an optional overlay (`docker-compose.public-docs.yml`) selected only by the
+project operator's tunnel deployment.
+
+- **Physical co-location, logical separation**: the docs container shares the
+  host and the Cloudflare Tunnel, but has no repository mount, no `.env`, no
+  Apo credential, no database access, no host port, and a read-only filesystem
+  with all capabilities dropped. It contains only the built Astro output.
+- **Host-terminal routing**: Caddy routes every request whose `Host` is the docs
+  hostname to the docs container and stops. Docs-host requests can never reach
+  the backend, OTLP, readiness, or Basic Auth paths. The application hostname
+  retains its existing Basic Auth gate unchanged.
+- **Agent-readable first-class**: `/start.md` and every `*.md` route are
+  published and tested, not incidental Astro output. The landing-page Copy
+  Prompt always names the canonical live origin.
+- **Publication gate**: the docs build fails CI on drift — a stale `apo.dev`
+  reference, a broken same-origin link, a missing schema artifact, or a
+  Copy Prompt/origin disagreement.
+
+See `specs/171-public-docs-on-existing-vps.md` for the full contract.

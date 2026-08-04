@@ -471,6 +471,15 @@ entrypoint and can accidentally execute library code as a second CLI.
   Profile and asserts Caddy is the only public ingress, runtime URLs agree, and
   frontend/backend diagnostic ports remain loopback-only. Probe a deployed
   domain from another machine with `scripts/public-ingress-smoke.sh https://apo.example.com`.
+- **Public docs publication + deployment contract**: `pnpm --filter docs build`
+  builds the Astro site, publishes the versioned Task Revision schemas, and runs
+  the publication verifier (no retired `apo.dev` origin, every `start.md` link
+  resolves, Copy Prompt uses the live origin, schema `$id`s map to built paths).
+  `pnpm test:public-docs` renders the tunnel + public-docs Compose stack and
+  asserts the docs service is hardened (read-only, no caps, no secrets, no host
+  port), Caddy routes the docs host terminally, and the Cloudflare Tunnel
+  publishes both hostnames. Probe a live docs origin with
+  `scripts/public-docs-smoke.sh https://docs.test-apo.online`.
 
 ### API Documentation
 

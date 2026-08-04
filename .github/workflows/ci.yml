@@ -45,7 +45,14 @@ jobs:
       - run: pnpm typecheck
       - name: Test dashboard
         run: pnpm --filter dashboard test
+      - name: Build docs + publication gate
+        # Builds the Astro site, publishes versioned schemas, and verifies the
+        # publication invariants (no retired origin, every start.md link
+        # resolves, Copy Prompt uses the live origin, schema $ids map).
+        run: pnpm --filter docs build
       - run: pnpm test:public-ingress
+      - name: Public docs deployment contract
+        run: pnpm test:public-docs
 
   backend:
     name: Typecheck + Test (Backend)
