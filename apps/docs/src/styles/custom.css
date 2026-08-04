@@ -112,12 +112,21 @@
     inset-inline-start: calc((100vw - 81.875rem) / 2);
     border-inline-end: 1px solid var(--sl-color-hairline-shade);
   }
-  /* Header should also sit inside the centered frame, not span the viewport. */
-  .header {
+  /* The header BAR spans the full viewport so its gray background reaches
+     both edges (a floating 1310px strip reads as broken on wide monitors),
+     while the content inside centers in the same frame as the page below.
+     Starlight gives both the <header> element and our inner content <div>
+     the class "header", so scope each rule explicitly. */
+  header.header {
+    max-width: none;
+    inset-inline: 0;
+    width: auto;
+    padding-inline: 0;
+  }
+  header.header > .header {
     max-width: 81.875rem;
     margin-inline: auto;
-    inset-inline-start: calc((100vw - 81.875rem) / 2);
-    width: auto;
+    inset-inline-start: auto;
   }
 }
 
