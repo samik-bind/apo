@@ -59,8 +59,11 @@ services:
     image: cloudflare/cloudflared:2026.7.2
     command: ["tunnel", "--no-autoupdate", "run"]
     environment:
-      # Required: the tunnel token. Never passed as a command-line argument.
-      TUNNEL_TOKEN: ${APO_CLOUDFLARE_TUNNEL_TOKEN:?Set APO_CLOUDFLARE_TUNNEL_TOKEN in the protected environment file}
+      # Token-based mode: set APO_CLOUDFLARE_TUNNEL_TOKEN to run via `--token`.
+      # Locally-managed mode (the override): leave it unset; the override mounts
+      # a credentials.json + config and runs `tunnel run --config`. The token is
+      # unused at runtime in that mode, so it defaults to empty here.
+      TUNNEL_TOKEN: ${APO_CLOUDFLARE_TUNNEL_TOKEN:-}
     restart: unless-stopped
     logging:
       driver: json-file
