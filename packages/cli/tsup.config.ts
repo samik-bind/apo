@@ -37,6 +37,11 @@ const external = [
 const config: Options = {
   entry: {
     main: "src/main.ts",
+    // The Connected Executor spawns this per Attempt by path, so nothing
+    // imports it and the bundler cannot discover it from `main`. It has to be
+    // its own entry or the published package ships without it and every
+    // assignment dies on module resolution (#109).
+    "internal/run-task-child": "src/internal/run-task-child.ts",
   },
   format: ["esm"],
   platform: "node",

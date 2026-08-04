@@ -34,6 +34,11 @@ jobs:
         run: pnpm --filter @apo-ai/sdk package:check
       - name: Build @apo-ai/cli
         run: pnpm --filter @apo-ai/cli build
+      - name: Test @apo-ai/cli
+        # No job ran the CLI's unit suite, so guards on resolution and entry
+        # behaviour could only fail on a user's machine. Same selection the
+        # publish workflow uses (excludes the long connect scene test).
+        run: pnpm --filter @apo-ai/cli test:unit
       - name: Clean consumer package gate (CLI)
         run: pnpm --filter @apo-ai/cli package:check
       - run: pnpm lint

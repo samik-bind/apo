@@ -14,9 +14,34 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const CHILD_SCRIPT = fileURLToPath(
-  new URL("../internal/run-task-child.ts", import.meta.url),
-);
+/**
+ * Resolve the Task child entry relative to the module that spawns it.
+ *
+ * The child is launched by path, never imported, so the bundler cannot follow
+ * it and the layout differs between the two ways this code runs: in the built
+ * package the spawning code is a flat chunk in `dist/` with the child at
+ * `dist/internal/run-task-child.js`, while in the monorepo it is
+ * `src/lib/local-task-child.ts` with the child a directory up and still
+ * TypeScript. Probing candidates keeps both working; a hard-coded path silently
+ * ships an executor that claims work it can never run (#109).
+ */
+export function resolveChildScript(moduleUrl: string): string {
+  const candidates = [
+    "./internal/run-task-child.js", // built package: flat chunk in dist/
+    "../internal/run-task-child.js", // built package, should chunks ever nest
+    "../internal/run-task-child.ts", // monorepo source: src/lib/ → src/internal/
+  ];
+  for (const candidate of candidates) {
+    const path = fileURLToPath(new URL(candidate, moduleUrl));
+    if (existsSync(path)) return path;
+  }
+  throw new Error(
+    `Task child entry not found — looked for internal/run-task-child.{js,ts} near ${fileURLToPath(moduleUrl)}. ` +
+      `This is a packaging fault in @apo-ai/cli, not a Task error.`,
+  );
+}
+
+const CHILD_SCRIPT = resolveChildScript(import.meta.url);
 
 /** Env vars that must never reach Task code. */
 const STRIPPED_ENV_KEYS = [

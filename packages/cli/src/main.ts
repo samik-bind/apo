@@ -1,6 +1,7 @@
 import { parseArgs } from "./lib/args.ts";
 import { bold, dim } from "./lib/format.ts";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { isDirectInvocation } from "./lib/entrypoint.ts";
+import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { readFileSync } from "node:fs";
 
@@ -463,7 +464,7 @@ function printHelp(): void {
 
 // Only run when invoked directly as the entry point (not when imported, e.g.
 // by tests). Without this guard the side-effect below would fire on import.
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isDirectInvocation(import.meta.url, process.argv[1])) {
   main(process.argv.slice(2))
     .then((code) => {
       // Force exit: Node's global fetch (undici) keeps its connection pool

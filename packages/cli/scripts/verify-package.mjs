@@ -7,7 +7,7 @@
 // Run with:
 //   pnpm --filter @apo-ai/cli package:check
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   mkdtempSync,
   readFileSync,
@@ -17,6 +17,7 @@ import {
   existsSync,
   writeFileSync,
   mkdirSync,
+  symlinkSync,
 } from "node:fs";
 import { join, dirname, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -153,6 +154,71 @@ function verifyBinaryRuns(consumerDir, installedPkgDir, sourceVersion) {
   } catch (err) {
     fail(`binary failed to run: ${err.message}`);
   }
+
+  // Real installs reach the entry through a symlink — pnpm's node_modules/.bin
+  // shim, an npx cache, a macOS /var/folders temp dir. Node realpaths
+  // import.meta.url but not process.argv[1], so an entry guard comparing them
+  // literally makes the CLI exit 0 printing nothing. Invoke through a symlink
+  // explicitly so the check does not depend on the platform's temp-dir layout.
+  const linkDir = join(consumerDir, "bin-symlink");
+  try {
+    rmSync(linkDir, { recursive: true, force: true });
+    symlinkSync(join(installedPkgDir, "dist"), linkDir, "dir");
+    const out = run("node", [join(linkDir, "main.js"), "--version"], { cwd: consumerDir });
+    if (!out.includes(sourceVersion)) {
+      fail(
+        `apo --version through a symlinked path returned "${out}" — the entry guard must compare realpaths`,
+      );
+    }
+    console.log(`  via symlink:   ${out.trim()}`);
+  } catch (err) {
+    fail(`binary failed to run through a symlinked path: ${err.message}`);
+  }
+}
+
+function verifyTaskChildSpawns(installedPkgDir, consumerDir) {
+  // `apo connect` spawns the Task child by path rather than importing it, so no
+  // other gate covers it: the CLI can enroll, claim and start an Attempt, then
+  // fail every assignment on module resolution (#109). Prove the shipped child
+  // both exists and loads, and that its fd-3 result contract holds.
+  step("Verify the Task child ships and spawns");
+  const childPath = join(installedPkgDir, "dist", "internal", "run-task-child.js");
+  if (!existsSync(childPath)) {
+    fail(
+      `Task child missing at dist/internal/run-task-child.js — apo connect would fail every assignment with ERR_MODULE_NOT_FOUND`,
+    );
+  }
+
+  // No APO_CHILD_TASK_DIR: the child must still load and report the structured
+  // failure on fd 3, which exercises exactly the path a real Attempt takes.
+  const result = spawnSync(process.execPath, [childPath], {
+    cwd: consumerDir,
+    env: { ...process.env, APO_CHILD_TASK_DIR: "", APO_CHILD_RESULT_FD: "3" },
+    stdio: ["ignore", "pipe", "pipe", "pipe"],
+    encoding: "utf8",
+  });
+
+  const stderr = (result.stderr || "").trim();
+  if (/ERR_MODULE_NOT_FOUND|Cannot find module/.test(stderr)) {
+    fail(`Task child could not resolve its imports:\n${stderr}`);
+  }
+
+  const resultLine = (result.output?.[3] || "").trim();
+  if (!resultLine) {
+    fail(
+      `Task child wrote no result to fd 3 (exit ${result.status})${stderr ? `:\n${stderr}` : ""}`,
+    );
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(resultLine);
+  } catch {
+    fail(`Task child fd 3 output is not JSON: ${resultLine}`);
+  }
+  if (parsed.ok !== false || typeof parsed.error !== "string") {
+    fail(`Task child reported an unexpected result: ${resultLine}`);
+  }
+  console.log(`  task child:   loads and reports on fd 3 ("${parsed.error}")`);
 }
 
 function verifyPublint(installedPkgDir, consumerDir) {
@@ -182,6 +248,7 @@ function main() {
     const { fileCount } = verifyNoSourceShipped(installedPkgDir);
     verifyLicense(installedPkgDir);
     verifyBinaryRuns(consumerDir, installedPkgDir, sourceVersion);
+    verifyTaskChildSpawns(installedPkgDir, consumerDir);
     verifyPublint(installedPkgDir, consumerDir);
     summary = { version: sourceVersion, compressedKb: sizeKb, files: fileCount };
   } finally {
