@@ -179,6 +179,46 @@ class TestRouterPrefixStripping:
         assert result is None
 
 
+class TestGpt56Pricing:
+    """Issue #101: gpt-5.6 terra/luna were arriving unpriced — no entry in
+    the default pricing file meant compute_cost returned None for the entire
+    family. These tests load the bundled defaults and verify both variants
+    resolve to a non-zero cost."""
+
+    def test_gpt_56_luna_priced(self, session: Session) -> None:
+        from apo.services.pricing.loader import load_default_prices
+        load_default_prices(session)
+        result = compute_cost(
+            session, "gpt-5.6-luna",
+            {"input": 1_000_000, "output": 500_000},
+            "__global__", _NOW,
+        )
+        assert result is not None
+        assert result.total > 0
+
+    def test_gpt_56_terra_priced(self, session: Session) -> None:
+        from apo.services.pricing.loader import load_default_prices
+        load_default_prices(session)
+        result = compute_cost(
+            session, "gpt-5.6-terra",
+            {"input": 1_000_000, "output": 500_000},
+            "__global__", _NOW,
+        )
+        assert result is not None
+        assert result.total > 0
+
+    def test_openrouter_prefixed_gpt_56_luna_resolves(self, session: Session) -> None:
+        from apo.services.pricing.loader import load_default_prices
+        load_default_prices(session)
+        result = compute_cost(
+            session, "openai/gpt-5.6-luna",
+            {"input": 1_000_000, "output": 500_000},
+            "__global__", _NOW,
+        )
+        assert result is not None
+        assert result.total > 0
+
+
 class TestRounding:
     def test_round_per_dimension_and_reconcile(self, session: Session) -> None:
         """round-per-dimension to micro-USD int; total == sum(breakdown)."""
