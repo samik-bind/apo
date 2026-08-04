@@ -11,8 +11,9 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 /**
  * Resolve the Task child entry relative to the module that spawns it.
@@ -42,6 +43,22 @@ export function resolveChildScript(moduleUrl: string): string {
 }
 
 const CHILD_SCRIPT = resolveChildScript(import.meta.url);
+
+/** Resolve tsx from the installed CLI package, never from the caller's cwd. */
+export function resolveTsxImportHook(moduleUrl: string): string {
+  try {
+    const loaderPath = createRequire(moduleUrl).resolve("tsx");
+    return pathToFileURL(loaderPath).href;
+  } catch (cause) {
+    const detail = cause instanceof Error ? ` (${cause.message})` : "";
+    throw new Error(
+      "Task TypeScript loader `tsx` is unavailable relative to @apo-ai/cli. " +
+        `Reinstall the CLI; this is a packaging fault, not a Task error.${detail}`,
+    );
+  }
+}
+
+const TSX_IMPORT_HOOK = resolveTsxImportHook(import.meta.url);
 
 /** Env vars that must never reach Task code. */
 const STRIPPED_ENV_KEYS = [
@@ -158,10 +175,11 @@ export function runTaskChild(opts: TaskChildOptions): Promise<TaskChildSuccess |
     let timedOut = false;
     let settled = false;
 
-    // use tsx (not bare --experimental-strip-types) so the child
+    // Use tsx (not bare --experimental-strip-types) so the child
     // can resolve extensionless TypeScript imports (e.g. `from '../../helpers'`).
-    // --experimental-strip-types does not add TS extension resolution; tsx does.
-    const child = spawn(process.execPath, ["--import", "tsx", CHILD_SCRIPT], {
+    // Resolve the hook relative to this installed CLI. Bare `--import tsx`
+    // resolves from the caller's cwd and breaks global/clean installs.
+    const child = spawn(process.execPath, ["--import", TSX_IMPORT_HOOK, CHILD_SCRIPT], {
       env,
       stdio: ["ignore", "pipe", "pipe", "pipe"], // stdin, stdout, stderr, fd3 (IPC)
     });

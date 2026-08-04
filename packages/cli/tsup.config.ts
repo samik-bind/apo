@@ -42,6 +42,11 @@ const config: Options = {
     // its own entry or the published package ships without it and every
     // assignment dies on module resolution (#109).
     "internal/run-task-child": "src/internal/run-task-child.ts",
+    // Package verification imports the real parent spawner from a clean
+    // tarball install. Keeping this stable internal entry makes that gate
+    // exercise the same runTaskChild path used by `apo connect`, including
+    // loader resolution, rather than starting the child directly.
+    "internal/local-task-child": "src/lib/local-task-child.ts",
   },
   format: ["esm"],
   platform: "node",

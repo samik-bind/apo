@@ -186,6 +186,24 @@ The CLI should be able to drive the same project-scoped agent-task model as the 
 
 This keeps agents, dashboard users, and backend execution on the same source-of-truth task inventory.
 
+### Published CLI Task Child
+
+`apo connect` executes each assignment in an isolated Task child. The parent
+spawns that child by filesystem path, so both pieces are explicit entries in
+`packages/cli/tsup.config.ts`; a path-only child is invisible to bundler graph
+discovery and otherwise disappears from the npm tarball.
+
+The child uses `tsx` to load source-owned `*.eval.ts` definitions. Keep `tsx`
+as an `@apo-ai/cli` runtime dependency and resolve its import hook relative to
+the installed CLI module. A bare `node --import tsx` resolves from the caller's
+working directory and makes global or clean installs depend accidentally on
+the application having its own `tsx` dependency.
+
+`pnpm --filter @apo-ai/cli package:check` must install the packed tarball into
+a clean consumer and invoke the real `runTaskChild` parent path. Starting the
+compiled child directly does not cover loader resolution, environment setup,
+or the fd-3 IPC boundary used by Connected Executors.
+
 ### Execution placement
 
 - Dashboard and schedule entry points submit durable pooled work. They never

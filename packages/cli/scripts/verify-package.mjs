@@ -7,7 +7,7 @@
 // Run with:
 //   pnpm --filter @apo-ai/cli package:check
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import {
   mkdtempSync,
   readFileSync,
@@ -20,7 +20,7 @@ import {
   symlinkSync,
 } from "node:fs";
 import { join, dirname, resolve, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -78,8 +78,14 @@ function packCli(tempDir) {
     cwd: PKG_DIR,
   });
   const match = output.match(/([^\s]+\.tgz)\s*$/);
-  if (!match) fail(`pnpm pack did not report a .tgz path:\n${output}`);
-  const tarball = match[1];
+  const packedFiles = readdirSync(tempDir).filter((name) => name.endsWith(".tgz"));
+  if (!match && packedFiles.length !== 1) {
+    fail(`pnpm pack produced ${packedFiles.length} tarballs and reported no unambiguous path`);
+  }
+  // Some pnpm launchers write their informational output, including the final
+  // tarball path, to stderr. The destination is a new empty directory, so one
+  // resulting .tgz is an equally strict and portable source of truth.
+  const tarball = match?.[1] ?? packedFiles[0];
   const absTarball = existsSync(tarball) ? tarball : join(tempDir, tarball);
   if (!existsSync(absTarball)) fail(`packed tarball not found: ${absTarball}`);
   const sizeKb = Math.round(statSync(absTarball).size / 1024);
@@ -177,48 +183,49 @@ function verifyBinaryRuns(consumerDir, installedPkgDir, sourceVersion) {
 }
 
 function verifyTaskChildSpawns(installedPkgDir, consumerDir) {
-  // `apo connect` spawns the Task child by path rather than importing it, so no
-  // other gate covers it: the CLI can enroll, claim and start an Attempt, then
-  // fail every assignment on module resolution (#109). Prove the shipped child
-  // both exists and loads, and that its fd-3 result contract holds.
+  // `apo connect` spawns the Task child through runTaskChild, including the
+  // TypeScript import hook and fd-3 IPC setup. Starting the child directly
+  // misses loader failures that only occur in a clean/global CLI install.
   step("Verify the Task child ships and spawns");
   const childPath = join(installedPkgDir, "dist", "internal", "run-task-child.js");
+  const parentPath = join(installedPkgDir, "dist", "internal", "local-task-child.js");
   if (!existsSync(childPath)) {
     fail(
       `Task child missing at dist/internal/run-task-child.js — apo connect would fail every assignment with ERR_MODULE_NOT_FOUND`,
     );
   }
-
-  // No APO_CHILD_TASK_DIR: the child must still load and report the structured
-  // failure on fd 3, which exercises exactly the path a real Attempt takes.
-  const result = spawnSync(process.execPath, [childPath], {
-    cwd: consumerDir,
-    env: { ...process.env, APO_CHILD_TASK_DIR: "", APO_CHILD_RESULT_FD: "3" },
-    stdio: ["ignore", "pipe", "pipe", "pipe"],
-    encoding: "utf8",
-  });
-
-  const stderr = (result.stderr || "").trim();
-  if (/ERR_MODULE_NOT_FOUND|Cannot find module/.test(stderr)) {
-    fail(`Task child could not resolve its imports:\n${stderr}`);
+  if (!existsSync(parentPath)) {
+    fail("Task child parent missing at dist/internal/local-task-child.js");
   }
 
-  const resultLine = (result.output?.[3] || "").trim();
-  if (!resultLine) {
-    fail(
-      `Task child wrote no result to fd 3 (exit ${result.status})${stderr ? `:\n${stderr}` : ""}`,
-    );
-  }
-  let parsed;
+  // Run a consumer-owned script from the clean consumer cwd. The empty Task
+  // directory intentionally produces a structured child failure after the
+  // module and loader have initialized; a missing loader instead produces the
+  // old opaque "task child produced no result" outcome.
+  const smokePath = join(consumerDir, "task-child-smoke.mjs");
+  writeFileSync(
+    smokePath,
+    `import { runTaskChild } from ${JSON.stringify(pathToFileURL(parentPath).href)};\n` +
+      `const result = await runTaskChild({\n` +
+      `  taskDir: "", envRoot: ${JSON.stringify(consumerDir)},\n` +
+      `  traceEndpoint: "http://127.0.0.1:1", project: "package-check",\n` +
+      `  taskRunId: "package-check", traceRequired: false, attemptJwt: "check",\n` +
+      `  timeoutSeconds: 10,\n` +
+      `});\n` +
+      `if (result.ok || result.error !== "APO_CHILD_TASK_DIR not set") {\n` +
+      `  throw new Error("unexpected Task child result: " + JSON.stringify(result));\n` +
+      `}\n` +
+      `console.log(JSON.stringify(result));\n`,
+  );
+
   try {
-    parsed = JSON.parse(resultLine);
-  } catch {
-    fail(`Task child fd 3 output is not JSON: ${resultLine}`);
+    const output = run("node", [smokePath], { cwd: consumerDir });
+    const resultLine = output.split("\n").at(-1);
+    const parsed = JSON.parse(resultLine);
+    console.log(`  task child:   parent spawned child through loader ("${parsed.error}")`);
+  } catch (err) {
+    fail(`Task child parent-spawn check failed:\n${err.stderr || err.message}`);
   }
-  if (parsed.ok !== false || typeof parsed.error !== "string") {
-    fail(`Task child reported an unexpected result: ${resultLine}`);
-  }
-  console.log(`  task child:   loads and reports on fd 3 ("${parsed.error}")`);
 }
 
 function verifyPublint(installedPkgDir, consumerDir) {

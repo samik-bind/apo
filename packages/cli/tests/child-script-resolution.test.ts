@@ -7,12 +7,15 @@
  * the child is a sibling directory away and still TypeScript.
  */
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { resolveChildScript } from "../src/lib/local-task-child.ts";
+import {
+  resolveChildScript,
+  resolveTsxImportHook,
+} from "../src/lib/local-task-child.ts";
 
 /** A file URL for a module living at `<dir>/<name>`, as `import.meta.url` would be. */
 function moduleUrlIn(dir: string, name: string): string {
@@ -73,6 +76,24 @@ describe("resolveChildScript", () => {
       // ERR_MODULE_NOT_FOUND from the spawned process.
       expect(() => resolveChildScript(moduleUrlIn(dir, "connect-ABCD1234.js"))).toThrow(
         /internal\/run-task-child/,
+      );
+    });
+  });
+});
+
+describe("resolveTsxImportHook", () => {
+  it("resolves the installed tsx loader relative to the CLI module", () => {
+    const hookUrl = resolveTsxImportHook(import.meta.url);
+    const hookPath = fileURLToPath(hookUrl);
+
+    expect(hookPath).toMatch(/[/\\]tsx[/\\].*loader\.mjs$/);
+    expect(existsSync(hookPath)).toBe(true);
+  });
+
+  it("reports a missing loader as a CLI packaging fault", () => {
+    withTempDir((dir) => {
+      expect(() => resolveTsxImportHook(moduleUrlIn(dir, "isolated-cli.js"))).toThrow(
+        /packaging fault, not a Task error/,
       );
     });
   });

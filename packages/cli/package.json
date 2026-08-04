@@ -39,7 +39,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@apo-ai/sdk": "^0.2.1"
+    "@apo-ai/sdk": "^0.2.1",
+    "tsx": "^4.22.4"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
