@@ -644,8 +644,11 @@ function extractOutputText(output: any): string | null {
 
 function isChatMlInput(input: unknown): boolean {
   if (!input || typeof input !== "object") return false;
-  const msgs = (input as Record<string, unknown>).messages;
-  return Array.isArray(msgs) && msgs.length > 0;
+  const obj = input as Record<string, unknown>;
+  if (Array.isArray(obj.messages) && obj.messages.length > 0) return true;
+  // Anthropic-style: { prompt: "..." } is a single user message
+  if (typeof obj.prompt === "string") return true;
+  return false;
 }
 
 function formatParamValue(value: unknown): string {
