@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Clock,
   GitCompare,
+  Hash,
 } from "lucide-react";
 
 import {
@@ -16,7 +17,7 @@ import {
   type AgentTaskSummary,
 } from "@/lib/agent-task-api";
 import { cn } from "@/lib/utils";
-import { formatDuration, formatRelativeTime, runDurationMs, formatCostMicro } from "@/lib/format";
+import { formatDuration, formatRelativeTime, runDurationMs, formatCostMicro, formatTokenTotal } from "@/lib/format";
 import { formatBatchExecution } from "@/lib/run-configuration";
 import { useUrlParamSet } from "@/hooks/use-url-state";
 import { conclusionStyle } from "@/components/run-outcome";
@@ -327,6 +328,12 @@ function BatchSlot({
           })()}
           {batch.total_cost != null && batch.total_cost > 0 && (
             <span>{formatCostMicro(batch.total_cost)}</span>
+          )}
+          {batch.total_tokens != null && batch.total_tokens > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <Hash className="h-3 w-3 text-muted-foreground/50" />
+              {formatTokenTotal(batch.total_tokens)}
+            </span>
           )}
         </div>
       </div>

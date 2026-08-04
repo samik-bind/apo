@@ -111,6 +111,7 @@ export interface AgentTaskRunSummary {
   task_source_commit_sha: string | null;
   error_message: string | null;
   total_cost: number | null;
+  total_tokens: number | null;
   total_checks: number;
   passed_checks: number;
   failed_checks: number;
@@ -197,7 +198,6 @@ export interface TaskDefinitionRevisionSummary {
 }
 
 export interface AgentTaskRunDetail extends AgentTaskRunSummary {
-  total_tokens?: number | null;
   checks_json: CheckResult[] | null;
   transcript_json: Record<string, unknown> | null;
   deliverables_json: Record<string, unknown> | null;
@@ -235,6 +235,7 @@ export interface AgentTaskBatchRunSummary {
 export interface AgentTaskBatchRunDetail extends AgentTaskBatchRunSummary {
   run_metadata: Record<string, unknown> | null;
   total_cost: number | null;
+  total_tokens: number | null;
   cancelled_tasks: number;
   task_runs: AgentTaskRunSummary[];
   failure_breakdown: FailureBreakdownItem[];

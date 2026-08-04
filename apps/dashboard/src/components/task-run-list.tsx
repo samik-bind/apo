@@ -1,12 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ArrowUpRight, Clock, DollarSign, GitCompare } from "lucide-react";
+import { ArrowUpRight, Clock, DollarSign, GitCompare, Hash } from "lucide-react";
 import { type AgentTaskRunSummary } from "@/lib/agent-task-api";
 import { TraceHomeLink } from "@/components/trace-detail";
 import { TriggerBadge } from "@/components/trigger-badge";
 import { cn } from "@/lib/utils";
-import { formatCostMicro } from "@/lib/format";
+import { formatCostMicro, formatTokenTotal } from "@/lib/format";
 import { formatRunExecution, formatRunExecutionFull } from "@/lib/run-configuration";
 import {
   TASK_RUN_STATUS,
@@ -154,6 +154,12 @@ export function TaskRunRow({
             <DollarSign className="h-3 w-3 text-muted-foreground" />
             {run.total_cost != null && run.total_cost > 0 ? formatCostMicro(run.total_cost) : "\u2014"}
           </div>
+          {run.total_tokens != null && run.total_tokens > 0 && (
+            <div className="mt-1 inline-flex items-center justify-end gap-1 font-mono text-[12px] text-muted-foreground">
+              <Hash className="h-3 w-3 text-muted-foreground" />
+              {formatTokenTotal(run.total_tokens)}
+            </div>
+          )}
         </div>
 
         <div className="flex w-36 items-center justify-end gap-2">
@@ -200,7 +206,7 @@ export function TaskRunListHeader({ withCompare = false }: { withCompare?: boole
         <span>Trigger · Batch</span>
         <span>Execution</span>
         <span className="w-32 text-right">Judges</span>
-        <span className="w-28 text-right">Duration · Cost</span>
+        <span className="w-28 text-right">Duration · Cost · Tokens</span>
         <span className="w-36 text-right">{withCompare ? "Started · Compare" : "Started"}</span>
       </div>
     </div>
