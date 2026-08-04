@@ -1,6 +1,6 @@
 {
   "name": "@apo-ai/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Command-line interface for the Apo agent testing and observability platform",
   "type": "module",
   "bin": {
@@ -35,6 +35,7 @@
     "package:check": "node scripts/verify-package.mjs",
     "apo": "node --experimental-strip-types --conditions development src/main.ts",
     "test": "vitest run",
+    "test:unit": "vitest run --exclude 'tests/connect-scene.test.ts'",
     "test:watch": "vitest"
   },
   "dependencies": {

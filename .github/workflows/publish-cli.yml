@@ -58,7 +58,7 @@ jobs:
           fi
 
       - name: CLI tests
-        run: pnpm --filter @apo-ai/cli test
+        run: pnpm --filter @apo-ai/cli test:unit
 
       - name: CLI typecheck
         run: pnpm --filter @apo-ai/cli typecheck

@@ -52,7 +52,6 @@ describe(".github/workflows/publish-cli.yml contract", () => {
     expect(yaml).toMatch(/pnpm --filter @apo-ai\/cli typecheck/);
     expect(yaml).toMatch(/pnpm --filter @apo-ai\/cli package:check/);
   });
-
   it("publishes a tarball resolved from disk via pnpm pack", () => {
     expect(yaml).toMatch(/pnpm.*pack/);
     expect(yaml).toMatch(/--pack-destination/);
