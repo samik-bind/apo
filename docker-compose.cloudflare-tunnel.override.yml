@@ -6,5 +6,3 @@ services:
     volumes:
       - ./deploy/self-host/cloudflared-config.yml:/etc/cloudflared/config.yml:ro
       - ${CLOUDFLARED_CREDENTIALS_JSON:-./.cloudflared/credentials.json}:/etc/cloudflared/credentials.json:ro
-    command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]
-    environment: []
