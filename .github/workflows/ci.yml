@@ -43,6 +43,8 @@ jobs:
         run: pnpm --filter @apo-ai/cli package:check
       - run: pnpm lint
       - run: pnpm typecheck
+      - name: Test dashboard
+        run: pnpm --filter dashboard test
       - run: pnpm test:public-ingress
 
   backend:
