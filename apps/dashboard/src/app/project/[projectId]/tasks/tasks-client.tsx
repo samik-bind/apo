@@ -602,9 +602,7 @@ export function AgentTasksClient({
       const taskIds = selectedTasks.map((t) => t.id);
       const result = await createAgentTaskBatchRun({
         project: projectId,
-        selection_type: taskIds.length === 1 ? "task" : "tasks",
         task_ids: taskIds,
-        execution_target: { kind: "source_owned" },
         run_metadata: {
           trigger: {
             source: "dashboard",
