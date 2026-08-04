@@ -105,13 +105,50 @@ and confirm with the user.
    one input file, one turn, two tests (one code assertion, one judge). Don't
    start with a complex multi-turn workflow.
 
-4. **Is apo already running?** Check if the user has an instance at
-   \`localhost:3000\` (dashboard) and \`localhost:8000\` (backend). If yes,
-   skip to Step 3. If no, proceed to Step 2.
+4. **Does the user have an apo server to connect to?** Ask: "What's your team's
+   apo server URL?" If they don't have one yet, they'll self-host (Path B in
+   Step 2). If they do, they just need the CLI (Path A).
 
 ---
 
-## Step 2: Self-host the apo stack
+## Step 2: Get connected to an apo server
+
+There are two paths. **Path A** is for teams with a shared server. **Path B**
+is for the first person setting up a new server.
+
+### Path A: Connect to an existing server (most teams)
+
+Install the CLI from npm:
+
+\`\`\`bash
+npm install -g @apo-ai/cli
+\`\`\`
+
+Point it at your team's apo server (the backend URL — ask your team lead or
+check your deployment docs):
+
+\`\`\`bash
+export APO_BACKEND_URL=https://your-apo-server.example.com
+\`\`\`
+
+Add this to your shell profile (\`~/.bashrc\`, \`~/.zshrc\`, etc.) so it persists.
+
+Authenticate:
+
+\`\`\`bash
+apo login
+\`\`\`
+
+Confirm the connection:
+
+\`\`\`bash
+apo project list   # should show projects you have access to
+\`\`\`
+
+If \`apo login\` fails, check that \`APO_BACKEND_URL\` is reachable:
+\`curl -fsS $APO_BACKEND_URL/health/ready\`.
+
+### Path B: Self-host a new server (first setup / solo)
 
 apo is source-open and self-hosted. It runs as a Docker Compose stack:
 
@@ -121,12 +158,8 @@ cd apo
 docker compose up -d --build
 \`\`\`
 
-**Why self-host?** apo runs your agent — the real thing, your code, your API
-keys. Hosting it yourself means your data and your agent's behavior never leave
-your infrastructure. You own the runtime.
-
 **Wait for readiness** — the healthcheck confirms the database, task cache, and
-auth are ready, not just that the process booted:
+auth are ready:
 
 \`\`\`bash
 curl -fsS http://localhost:8000/health/ready | jq
@@ -136,8 +169,9 @@ curl -fsS http://localhost:8000/health/ready | jq
 **Create the admin account:**
 1. Open http://localhost:3000 in a browser
 2. Create the first admin account (email + password)
-3. Authenticate the CLI: \`pnpm apo login\`
-4. Confirm: \`pnpm apo project list\` — should show the default project
+3. Install the CLI: \`npm install -g @apo-ai/cli\`
+4. Authenticate: \`apo login\` (defaults to \`http://localhost:8000\`)
+5. Confirm: \`apo project list\` — should show the default project
 
 > **Deeper docs:** https://apo.dev/self-hosting/topology.md (architecture),
 > https://apo.dev/self-hosting/configuration.md (env vars, ports).
@@ -149,6 +183,15 @@ curl -fsS http://localhost:8000/health/ready | jq
 This is the load-bearing step. **apo ships no built-in adapters.** The adapter
 is the only place real code runs during a task — it's the bridge between apo's
 lifecycle and the user's actual agent.
+
+**Install the SDK in the user's project** (where the adapter and .eval.ts files
+will live):
+
+\`\`\`bash
+npm install @apo-ai/sdk
+\`\`\`
+
+Requires Node.js ≥ 20. TypeScript consumers also install \`@types/node\`.
 
 **Why the adapter exists:** apo can't know how to call your agent. Your agent
 might be an OpenAI call, an Anthropic call, a Vercel AI SDK streamText, or a
@@ -339,34 +382,40 @@ test("answer-is-accurate", async (t, { deliverables }) => {
 
 ## Step 5: Run and verify
 
-**The CLI runs from the cloned repo** (the apo CLI itself isn't published to npm — only the @apo-ai/sdk SDK is). After cloning in Step 2, use the repo's \`pnpm apo\` script or run the CLI directly:
+**The CLI is published to npm** as \`@apo-ai/cli\`. If you installed it globally
+in Step 2 (\`npm install -g @apo-ai/cli\`), use \`apo\` directly. If you're running
+from the cloned repo, use \`pnpm apo\` instead.
 
 \`\`\`bash
-# From the apo repo root:
-pnpm apo --help                   # verify the CLI works
+# Verify the CLI works:
+apo --version
 
-# Configure the task source (the user's repo with .eval.ts files):
-pnpm apo project init-tasks --repo <user-github-org/repo>
+# Publish the task metadata to apo's catalog:
+apo task publish --dir ./my-tasks
 
-# Sync the task definitions into apo:
-pnpm apo project source sync
+# Run the task locally:
+apo task run my-task
 
-# Run the task:
-pnpm apo task run my-task
+# Or connect as a persistent executor (dashboard can then dispatch runs to you):
+apo connect --dir ./my-tasks
 \`\`\`
 
 The run produces a **binary verdict** — pass or fail. Read the result:
 
 \`\`\`bash
-pnpm apo runs show                 # breakdown: which tests passed/failed
-pnpm apo traces show <trace-id>    # the trace: every call, token, message
+apo runs show                 # breakdown: which tests passed/failed
+apo traces show <trace-id>    # the trace: every call, token, message
 \`\`\`
+
+**See results in the dashboard:** open your team's apo dashboard URL (the
+frontend for the server you configured in Step 2), go to the task or runs page —
+you'll see the verdict, cost, tokens, duration, and a full trace breakdown.
 
 **If it fails** (expected on the first try):
 1. Read which test failed and its reasoning (\`apo runs show\`)
 2. Open the trace to see what the agent actually did (\`apo traces show\`)
 3. Fix the agent code or the task
-4. Re-run: \`pnpm apo task run my-task\`
+4. Re-run: \`apo task run my-task\`
 5. Repeat until green
 
 This loop — run → read failure → trace → fix → re-run — is the core apo
@@ -384,12 +433,12 @@ tests, then let the agent run/read/fix/re-run without human intervention.
 ## Verify
 
 Before declaring done, confirm:
-- [ ] The apo stack is running (\`curl localhost:8000/health/ready\` returns ok)
-- [ ] The CLI is authenticated (\`pnpm apo project list\` works)
+- [ ] The CLI is installed (\`apo --version\` works)
+- [ ] The CLI can reach the server (\`apo project list\` works)
 - [ ] The adapter is written and calls the **real** agent (not a mock)
 - [ ] The trace context is threaded (tool calls appear in traces)
-- [ ] At least one task exists with tests (\`pnpm apo task list\` shows it)
-- [ ] \`pnpm apo task run my-task\` produces a verdict (pass or fail)
+- [ ] At least one task exists with tests (\`apo task list\` shows it)
+- [ ] \`apo task run my-task\` produces a verdict (pass or fail)
 - [ ] The user knows how to read the breakdown and trace on failure
 
 Restate the final state: task name, adapter name, verdict, and next steps.
@@ -406,8 +455,8 @@ Restate the final state: task name, adapter name, verdict, and next steps.
   If the user suggests mocking "just to get it working," push back.
 - **Thread the trace.** Without it, trace-based assertions silently fail and
   the trace (the primary debugging surface) is empty.
-- **Prefer the CLI** over the website for command details: \`pnpm apo --help\`,
-  \`pnpm apo <command> --help\`. The CLI output is parseable.
+- **Prefer the CLI** over the website for command details: \`apo --help\`,
+  \`apo <command> --help\`. The CLI output is parseable.
 - **The trace is mandatory for debugging.** When a run fails, always look at
   the trace before suggesting a fix. Guessing without it wastes time.
 
