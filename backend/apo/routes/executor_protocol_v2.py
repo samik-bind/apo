@@ -500,6 +500,28 @@ async def attempt_result_v2(
     )
 
     try:
+        # SPEC-162 #119: persist deliverable rows before finalization.
+        # The finalizer is sync; persist_json_deliverable is async (may gzip
+        # to store). So we persist rows here in the async route, then pass
+        # deliverables=None to the finalizer — the hot row stays clean.
+        if body.deliverables:
+            from apo.services.agent_task_deliverables import persist_json_deliverable
+            from apo.services.artifact_stores.registry import get_store
+
+            attempt = session.get(TaskExecutionAttemptDB, attempt_id)
+            if attempt is not None:
+                store = get_store("local")
+                for name, value in body.deliverables.items():
+                    await persist_json_deliverable(
+                        session,
+                        project=attempt.project,
+                        task_run_id=attempt.task_run_id,
+                        name=name,
+                        value=value,
+                        store=store,
+                    )
+                session.flush()
+
         finalize_attempt_result(
             session,
             lease=lease,
@@ -510,7 +532,7 @@ async def attempt_result_v2(
                 trace_run_id=body.trace_run_id,
                 checks=body.checks,
                 transcript=body.transcript,
-                deliverables=body.deliverables,
+                deliverables=None,
                 exit_code=body.exit_code,
                 stdout_tail=body.stdout_tail,
                 stderr_tail=body.stderr_tail,
