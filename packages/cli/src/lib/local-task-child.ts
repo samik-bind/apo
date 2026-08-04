@@ -11,12 +11,54 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const CHILD_SCRIPT = fileURLToPath(
-  new URL("../internal/run-task-child.ts", import.meta.url),
-);
+/**
+ * Resolve the Task child entry relative to the module that spawns it.
+ *
+ * The child is launched by path, never imported, so the bundler cannot follow
+ * it and the layout differs between the two ways this code runs: in the built
+ * package the spawning code is a flat chunk in `dist/` with the child at
+ * `dist/internal/run-task-child.js`, while in the monorepo it is
+ * `src/lib/local-task-child.ts` with the child a directory up and still
+ * TypeScript. Probing candidates keeps both working; a hard-coded path silently
+ * ships an executor that claims work it can never run (#109).
+ */
+export function resolveChildScript(moduleUrl: string): string {
+  const candidates = [
+    "./internal/run-task-child.js", // built package: flat chunk in dist/
+    "../internal/run-task-child.js", // built package, should chunks ever nest
+    "../internal/run-task-child.ts", // monorepo source: src/lib/ → src/internal/
+  ];
+  for (const candidate of candidates) {
+    const path = fileURLToPath(new URL(candidate, moduleUrl));
+    if (existsSync(path)) return path;
+  }
+  throw new Error(
+    `Task child entry not found — looked for internal/run-task-child.{js,ts} near ${fileURLToPath(moduleUrl)}. ` +
+      `This is a packaging fault in @apo-ai/cli, not a Task error.`,
+  );
+}
+
+const CHILD_SCRIPT = resolveChildScript(import.meta.url);
+
+/** Resolve tsx from the installed CLI package, never from the caller's cwd. */
+export function resolveTsxImportHook(moduleUrl: string): string {
+  try {
+    const loaderPath = createRequire(moduleUrl).resolve("tsx");
+    return pathToFileURL(loaderPath).href;
+  } catch (cause) {
+    const detail = cause instanceof Error ? ` (${cause.message})` : "";
+    throw new Error(
+      "Task TypeScript loader `tsx` is unavailable relative to @apo-ai/cli. " +
+        `Reinstall the CLI; this is a packaging fault, not a Task error.${detail}`,
+    );
+  }
+}
+
+const TSX_IMPORT_HOOK = resolveTsxImportHook(import.meta.url);
 
 /** Env vars that must never reach Task code. */
 const STRIPPED_ENV_KEYS = [
@@ -133,10 +175,11 @@ export function runTaskChild(opts: TaskChildOptions): Promise<TaskChildSuccess |
     let timedOut = false;
     let settled = false;
 
-    // use tsx (not bare --experimental-strip-types) so the child
+    // Use tsx (not bare --experimental-strip-types) so the child
     // can resolve extensionless TypeScript imports (e.g. `from '../../helpers'`).
-    // --experimental-strip-types does not add TS extension resolution; tsx does.
-    const child = spawn(process.execPath, ["--import", "tsx", CHILD_SCRIPT], {
+    // Resolve the hook relative to this installed CLI. Bare `--import tsx`
+    // resolves from the caller's cwd and breaks global/clean installs.
+    const child = spawn(process.execPath, ["--import", TSX_IMPORT_HOOK, CHILD_SCRIPT], {
       env,
       stdio: ["ignore", "pipe", "pipe", "pipe"], // stdin, stdout, stderr, fd3 (IPC)
     });
