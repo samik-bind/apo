@@ -16,7 +16,7 @@ import {
 } from "@/lib/agent-task-api";
 import { loadCheckSource, type DefinitionRef } from "@/lib/load-check-source";
 import { cn } from "@/lib/utils";
-import { formatDuration, runDurationMs, formatCostMicro } from "@/lib/format";
+import { formatDuration, runDurationMs, formatCostMicro, formatTokenTotal } from "@/lib/format";
 import { extractJudgeReasoning } from "@/lib/judge-reasoning";
 import { extractCheckBlock } from "@/lib/extract-check-block";
 import { locateAssertionsInBlock } from "@/lib/locate-assertion";
@@ -560,7 +560,9 @@ function CheckDiff({
   const rightCost = right?.total_cost != null && right.total_cost > 0 ? right.total_cost : null;
   const leftTime = runDurationMs(left?.started_at ?? null, left?.completed_at ?? null);
   const rightTime = runDurationMs(right?.started_at ?? null, right?.completed_at ?? null);
-  const hasMetrics = (leftCost ?? rightCost) != null || (leftTime ?? rightTime) != null;
+  const leftTokens = left?.total_tokens != null && left.total_tokens > 0 ? left.total_tokens : null;
+  const rightTokens = right?.total_tokens != null && right.total_tokens > 0 ? right.total_tokens : null;
+  const hasMetrics = (leftCost ?? rightCost) != null || (leftTime ?? rightTime) != null || (leftTokens ?? rightTokens) != null;
 
   // The grid is the single container for header + metrics + checks. Columns
   // are wide enough that cost/time values (e.g. "$0.0122") don't ellipsize —
@@ -626,6 +628,15 @@ function CheckDiff({
                   rightValue={rightTime}
                   formatLeft={leftTime != null ? formatDuration(leftTime) : "—"}
                   formatRight={rightTime != null ? formatDuration(rightTime) : "—"}
+                />
+              )}
+              {(leftTokens != null || rightTokens != null) && (
+                <MetricRow
+                  label="tokens"
+                  leftValue={leftTokens}
+                  rightValue={rightTokens}
+                  formatLeft={leftTokens != null ? formatTokenTotal(leftTokens) : "—"}
+                  formatRight={rightTokens != null ? formatTokenTotal(rightTokens) : "—"}
                 />
               )}
             </div>

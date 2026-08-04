@@ -119,6 +119,7 @@ def to_task_run_summary(
         trace_error_message=tr.trace_error_message,
         total_cost=tr.total_cost,
         unpriced_call_count=tr.unpriced_call_count,
+        total_tokens=tr.total_tokens,
         total_checks=total_checks,
         passed_checks=passed_checks,
         failed_checks=max(total_checks - passed_checks, 0),
@@ -223,6 +224,8 @@ def to_batch_run_detail(
         for tr in task_runs
     ]
     total_cost = sum(tr.total_cost or 0 for tr in task_runs)
+    total_tokens = sum(tr.total_tokens or 0 for tr in task_runs)
+    total_tokens_out = total_tokens if total_tokens > 0 else None
     breakdown = build_failure_breakdown(task_runs)
     execution_target = _execution_target(br.execution_target_json)
     is_source_owned = isinstance(execution_target, SourceOwnedExecutionTarget)
@@ -259,6 +262,7 @@ def to_batch_run_detail(
         trace_persistence_status=br.trace_persistence_status,
         trace_error_message=br.trace_error_message,
         total_cost=total_cost,
+        total_tokens=total_tokens_out,
         created_at=br.created_at,
         started_at=br.started_at,
         completed_at=br.completed_at,

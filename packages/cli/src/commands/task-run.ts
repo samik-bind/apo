@@ -326,7 +326,23 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   process.env.AGENT_TASK_TRACE_REQUIRED = "true";
   process.env.APO_AUTH_TOKEN = created.lease.token;
 
-  // 4. /start before importing/running the Task.
+  // 4. Import the SDK BEFORE /start (issue #108). Startup failures (package
+  // not found, module-resolution errors) must happen pre-start so the lease
+  // reaper requeues the attempt instead of marking it LOST with the misleading
+  // "after task code started" message. The trace env vars are already set
+  // (step 3), and the SDK reads them at import time — no /start dependency.
+  let runTaskDirImpl: (taskDir: string) => Promise<unknown>;
+  try {
+    const mod = await import("@apo-ai/sdk/agent-task");
+    runTaskDirImpl = mod.runTaskDir;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(red(`Error: failed to load task SDK: ${message}`));
+    delete process.env.APO_AUTH_TOKEN;
+    return 2;
+  }
+
+  // 5. /start (now after a successful SDK import — startup failures are pre-start).
   try {
     await startCallerAttempt(backendUrl, created.lease);
   } catch (error) {
@@ -335,7 +351,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
     return 2;
   }
 
-  // 5. Run the Task locally with a background heartbeat.
+  // 6. Run the Task locally with a background heartbeat.
   const heartbeat = new CallerHeartbeat(backendUrl, created.lease, () => {
     console.error(red("Warning: lease reported stale/cancelled"));
   });
@@ -345,8 +361,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   const completionId = `${created.lease.attemptId}-${created.lease.generation}`;
   let exitCode = 0;
   try {
-    const { runTaskDir } = await import("@apo-ai/sdk/agent-task");
-    const summary = await runTaskDir(taskDir);
+    const summary = await runTaskDirImpl(taskDir) as LocalRunSummary;
     await heartbeat.stop();
     await submitCallerResult(backendUrl, created.lease, {
       completion_id: completionId,
@@ -363,7 +378,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
     if (config.json) {
       console.log(JSON.stringify(summary));
     } else {
-      printLocalRunSummary(summary as LocalRunSummary);
+      printLocalRunSummary(summary);
     }
     exitCode = summary.pass ? 0 : 1;
   } catch (error) {
@@ -373,8 +388,12 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
       await submitCallerFailure(backendUrl, created.lease, {
         completion_id: completionId, failure_kind: "task_process", error_message: message,
       });
-    } catch {
-      // best-effort; the reaper will mark the lease lost if this also fails.
+    } catch (reportError) {
+      // Issue #108: log instead of silently swallowing — if this fails the
+      // reaper will mark the lease lost, but at least the operator can see why
+      // the failure report didn't land.
+      const reportMessage = reportError instanceof Error ? reportError.message : String(reportError);
+      console.error(red(`Warning: failed to report failure to backend: ${reportMessage}`));
     }
     console.error(red(`Error: ${message}`));
     exitCode = 2;
