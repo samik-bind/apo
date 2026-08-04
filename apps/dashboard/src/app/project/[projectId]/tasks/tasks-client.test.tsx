@@ -70,8 +70,6 @@ describe("AgentTasksClient — native source-owned Run", () => {
         error={null}
         taskSource={taskSource}
         isDemo={false}
-        connectedState="offline"
-        connectedStateError={null}
       />,
     );
     // Select the task first (Run is only gated on selection + permissions,
@@ -97,8 +95,6 @@ describe("AgentTasksClient — native source-owned Run", () => {
         error={null}
         taskSource={taskSource}
         isDemo={false}
-        connectedState="ready"
-        connectedStateError={null}
       />,
     );
 
@@ -119,26 +115,5 @@ describe("AgentTasksClient — native source-owned Run", () => {
     // whole request — `selection_type` and `execution_target` are derived
     // server-side and must not be sent.
     expect(Object.keys(call).sort()).toEqual(["project", "run_metadata", "task_ids"]);
-  });
-
-  it("shows non-blocking copy when status fetch fails", async () => {
-    const user = userEvent.setup();
-    render(
-      <AgentTasksClient
-        tasks={[task()]}
-        error={null}
-        taskSource={taskSource}
-        isDemo={false}
-        connectedState={null}
-        connectedStateError="boom"
-      />,
-    );
-    expect(
-      screen.getByText(/Connected environment status unavailable/i),
-    ).toBeInTheDocument();
-    // Select the task; Run stays enabled despite the status failure.
-    await user.click(screen.getAllByRole("checkbox")[0]);
-    const runButtons = screen.getAllByRole("button", { name: /Run/i });
-    expect(runButtons.every((b) => !(b as HTMLButtonElement).disabled)).toBe(true);
   });
 });

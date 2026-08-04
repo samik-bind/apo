@@ -1,9 +1,10 @@
 /**
  * start.md — the agent-readable setup prompt for apo.
  *
- * Served at https://apo.dev/start.md as text/markdown. The "Copy Prompt"
- * button on the landing page copies a one-line instruction that points a
- * coding agent at this URL. The agent fetches it, gets a complete guide,
+ * Served at the configured site origin (import.meta.env.SITE) + /start.md as
+ * text/markdown. The "Copy Prompt" button on the landing page copies a
+ * one-line instruction that points a coding agent at this URL. The agent
+ * fetches it, gets a complete guide,
  * and helps the user set up apo end-to-end.
  *
  * The prompt is intentionally self-contained — it embeds the *why* behind
@@ -16,6 +17,8 @@
  * Fetch those instead of the HTML — cleaner, smaller, no chrome.
  */
 import type { APIRoute } from 'astro';
+
+const ORIGIN = import.meta.env.SITE;
 
 const START_INSTRUCTIONS = `# Skill: Set up apo and run a first task
 
@@ -61,9 +64,9 @@ produced).
    the full runtime record — call tree, tokens, messages. When a run fails, the
    trace is where you find out why.
 
-> **Deeper docs:** https://apo.dev/overview.md (what apo is),
-> https://apo.dev/concepts/mental-model.md (the canonical vocabulary),
-> https://apo.dev/why-apo.md (the design reasoning).
+> **Deeper docs:** ${ORIGIN}/overview.md (what apo is),
+> ${ORIGIN}/concepts/mental-model.md (the canonical vocabulary),
+> ${ORIGIN}/why-apo.md (the design reasoning).
 
 ---
 
@@ -86,7 +89,7 @@ and confirm with the user.
      call. Zero span code. **This is the recommended path.**
    - **OpenAI Agents SDK / Claude Agent SDK** → these emit OTel natively. Use
      \`registerApoTracing()\` + \`withApoRun()\`. See
-     https://apo.dev/reference/tracing-integrations.md.
+     ${ORIGIN}/reference/tracing-integrations.md.
    - **Raw OpenAI/Anthropic SDK** (\`openai\` / \`@anthropic-ai/sdk\` packages)
      → these don't emit OTel. Use the \`createApoOpenAI()\` /
      \`createApoAnthropic()\` wrappers, or the trace primitives manually.
@@ -97,7 +100,7 @@ and confirm with the user.
      logged as message arrays and can't re-run through an adapter, use flow
      normalizers (\`fromOpenAIMessages\`, \`fromAnthropicMessages\`,
      \`fromAISDK\`) to convert them. See
-     https://apo.dev/reference/flow-normalizers.md. This is a secondary path — the
+     ${ORIGIN}/reference/flow-normalizers.md. This is a secondary path — the
      primary path is always the adapter if the agent can run live.
 
 3. **What should the first task test?** Pick the simplest behavior the user
@@ -173,8 +176,8 @@ curl -fsS http://localhost:8000/health/ready | jq
 4. Authenticate: \`apo login\` (defaults to \`http://localhost:8000\`)
 5. Confirm: \`apo project list\` — should show the default project
 
-> **Deeper docs:** https://apo.dev/self-hosting/topology.md (architecture),
-> https://apo.dev/self-hosting/configuration.md (env vars, ports).
+> **Deeper docs:** ${ORIGIN}/self-hosting/topology.md (architecture),
+> ${ORIGIN}/self-hosting/configuration.md (env vars, ports).
 
 ---
 
@@ -293,7 +296,7 @@ export const myAdapter = defineAdapter({
     \`registerApoTracing()\` + wrap your agent call in \`withApoRun()\`.
   - Raw \`openai\` / \`@anthropic-ai/sdk\` packages: these don't emit OTel.
     Use the \`createApoOpenAI()\` / \`createApoAnthropic()\` wrappers.
-  - See https://apo.dev/reference/tracing-integrations.md for all integrations
+  - See ${ORIGIN}/reference/tracing-integrations.md for all integrations
     and the escape-hatch trace primitives.
 - **\`collectDeliverables\` shapes the output.** The agent's raw response is
   rarely what a test wants. Mine the session state and return structured data
@@ -304,10 +307,10 @@ export const myAdapter = defineAdapter({
   Import it into the \`.eval.ts\` from wherever it naturally lives.
 
 > **Deeper docs:**
-> https://apo.dev/concepts/adapters.md (why adapters exist, the concept),
-> https://apo.dev/reference/adapter-contract.md (every field, type, lifecycle
+> ${ORIGIN}/concepts/adapters.md (why adapters exist, the concept),
+> ${ORIGIN}/reference/adapter.md (every field, type, lifecycle
 > method),
-> https://apo.dev/sdk/tracing-integrations.md (tracing for OpenAI, Anthropic,
+> ${ORIGIN}/reference/tracing-integrations.md (tracing for OpenAI, Anthropic,
 > and Vercel AI SDK).
 
 ---
@@ -374,9 +377,9 @@ test("answer-is-accurate", async (t, { deliverables }) => {
 - \`t.judge(value, instruction)\` — async; hands value to an LLM judge
 
 > **Deeper docs:**
-> https://apo.dev/guides/define-a-task.md (end-to-end recipe),
-> https://apo.dev/concepts/tasks.md (task/turn/test concepts),
-> https://apo.dev/reference/assertions.md (full assertion API).
+> ${ORIGIN}/guides/define-a-task.md (end-to-end recipe),
+> ${ORIGIN}/concepts/tasks.md (task/turn/test concepts),
+> ${ORIGIN}/reference/assertions.md (full assertion API).
 
 ---
 
@@ -423,10 +426,10 @@ workflow. It's also the loop a coding agent can close on its own: write the
 tests, then let the agent run/read/fix/re-run without human intervention.
 
 > **Deeper docs:**
-> https://apo.dev/guides/run-and-debug.md (the debug loop),
-> https://apo.dev/guides/loop-engineering.md (letting a coding agent close
+> ${ORIGIN}/guides/run-and-debug.md (the debug loop),
+> ${ORIGIN}/guides/loop-engineering.md (letting a coding agent close
 > the loop autonomously),
-> https://apo.dev/cli.md (full CLI command reference).
+> ${ORIGIN}/cli.md (full CLI command reference).
 
 ---
 
@@ -466,27 +469,27 @@ Restate the final state: task name, adapter name, verdict, and next steps.
 
 | Topic | URL |
 |---|---|
-| What apo is | https://apo.dev/overview.md |
-| Why apo (design reasoning) | https://apo.dev/why-apo.md |
-| Quickstart (human steps) | https://apo.dev/quickstart.md |
-| Mental model (vocabulary) | https://apo.dev/concepts/mental-model.md |
-| Adapters concept | https://apo.dev/concepts/adapters.md |
-| Adapter API reference | https://apo.dev/reference/adapter.md |
-| Tasks concept | https://apo.dev/concepts/tasks.md |
-| Tests concept | https://apo.dev/concepts/tests.md |
-| Assertions API reference | https://apo.dev/reference/assertions.md |
-| Traces concept | https://apo.dev/concepts/traces.md |
-| Schedules concept | https://apo.dev/concepts/schedules.md |
-| Define a task (guide) | https://apo.dev/guides/define-a-task.md |
-| Run and debug (guide) | https://apo.dev/guides/run-and-debug.md |
-| Loop engineering (guide) | https://apo.dev/guides/loop-engineering.md |
-| Self-hosting topology | https://apo.dev/self-hosting/topology.md |
-| Self-hosting configuration | https://apo.dev/self-hosting/configuration.md |
-| Reference overview | https://apo.dev/reference/overview.md |
-| Tracing SDK (@apo-ai/sdk) | https://apo.dev/reference/tracing.md |
-| Tracing integrations | https://apo.dev/reference/tracing-integrations.md |
-| Flow normalizers | https://apo.dev/reference/flow-normalizers.md |
-| CLI reference | https://apo.dev/cli.md |
+| What apo is | ${ORIGIN}/overview.md |
+| Why apo (design reasoning) | ${ORIGIN}/why-apo.md |
+| Quickstart (human steps) | ${ORIGIN}/quickstart.md |
+| Mental model (vocabulary) | ${ORIGIN}/concepts/mental-model.md |
+| Adapters concept | ${ORIGIN}/concepts/adapters.md |
+| Adapter API reference | ${ORIGIN}/reference/adapter.md |
+| Tasks concept | ${ORIGIN}/concepts/tasks.md |
+| Tests concept | ${ORIGIN}/concepts/tests.md |
+| Assertions API reference | ${ORIGIN}/reference/assertions.md |
+| Traces concept | ${ORIGIN}/concepts/traces.md |
+| Schedules concept | ${ORIGIN}/concepts/schedules.md |
+| Define a task (guide) | ${ORIGIN}/guides/define-a-task.md |
+| Run and debug (guide) | ${ORIGIN}/guides/run-and-debug.md |
+| Loop engineering (guide) | ${ORIGIN}/guides/loop-engineering.md |
+| Self-hosting topology | ${ORIGIN}/self-hosting/topology.md |
+| Self-hosting configuration | ${ORIGIN}/self-hosting/configuration.md |
+| Reference overview | ${ORIGIN}/reference/overview.md |
+| Tracing SDK (@apo-ai/sdk) | ${ORIGIN}/reference/tracing.md |
+| Tracing integrations | ${ORIGIN}/reference/tracing-integrations.md |
+| Flow normalizers | ${ORIGIN}/reference/flow-normalizers.md |
+| CLI reference | ${ORIGIN}/cli.md |
 `;
 
 export const GET: APIRoute = () => {

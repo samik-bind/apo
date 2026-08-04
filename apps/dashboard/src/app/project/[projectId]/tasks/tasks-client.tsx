@@ -35,8 +35,6 @@ import {
   syncProjectTaskSource,
 } from "@/lib/projects-api";
 
-import { ConnectedEnvironmentStatusView } from "@/components/connected-environment-status";
-import type { ConnectedEnvironmentState } from "@/lib/executor-api";
 const TASK_ROOT = process.env.NEXT_PUBLIC_AGENT_TASK_ROOT ?? null;
 
 function relativePath(path: string): string {
@@ -140,8 +138,6 @@ interface AgentTasksClientProps {
   error: string | null;
   taskSource: ProjectTaskSource | null;
   isDemo: boolean;
-  connectedState: ConnectedEnvironmentState | null;
-  connectedStateError: string | null;
 }
 
 function TaskCard({
@@ -257,7 +253,6 @@ function TasksToolbar({
   onClearSelection,
   onToggleExpandAll,
   allExpanded,
-  connectedState,
 }: {
   taskSource: ProjectTaskSource | null;
   isDemoProject: boolean;
@@ -273,15 +268,11 @@ function TasksToolbar({
   onClearSelection: () => void;
   onToggleExpandAll: () => void;
   allExpanded: boolean;
-  connectedState: ConnectedEnvironmentState | null;
 }) {
   return (
     <div className="border-b border-border">
       <div className="flex flex-col gap-3 px-6 py-5 lg:flex-row lg:items-center lg:justify-end">
         <div className="flex items-center gap-2">
-          {!isDemoProject && connectedState && (
-            <ConnectedEnvironmentStatusView state={connectedState} />
-          )}
           {taskSource && !isDemoProject && (
             <>
               <Button
@@ -496,8 +487,6 @@ export function AgentTasksClient({
   error,
   taskSource,
   isDemo,
-  connectedState,
-  connectedStateError,
 }: AgentTasksClientProps) {
   const projectId = useProjectId();
   const router = useRouter();
@@ -666,18 +655,12 @@ export function AgentTasksClient({
         onClearSelection={() => setSelected(new Set())}
         onToggleExpandAll={() => setExpanded(allExpanded ? new Set() : new Set(allFolderIds))}
         allExpanded={allExpanded}
-        connectedState={connectedState}
       />
 
       {/* Error alerts */}
       {(error || runState.error) && (
         <div className="mx-6 mt-4 border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
           {error || runState.error}
-        </div>
-      )}
-      {!error && !runState.error && connectedStateError && (
-        <div className="mx-6 mt-4 border border-border bg-muted/10 px-4 py-3 text-[13px] text-muted-foreground">
-          Connected environment status unavailable — the run can still be queued.
         </div>
       )}
 

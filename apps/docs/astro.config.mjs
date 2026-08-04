@@ -9,7 +9,7 @@ import react from '@astrojs/react';
 // dark/monochrome/sharp-cornered identity (design.md) is the next step.
 // https://starlight.astro.build/
 export default defineConfig({
-	site: 'https://apo.dev',
+	site: 'https://docs.test-apo.online',
 	integrations: [
 		starlight({
 			title: 'apo',

@@ -19,9 +19,8 @@ import LandingFeatures from "../components/LandingFeatures.astro";
 import { docsSections, docsHref } from "../lib/docs-navigation";
 
 const GITHUB_URL = "https://github.com/samikuikka/apo";
-const APP_URL = "http://localhost:3000";
 const COPY_PROMPT_TEXT =
-	"Read https://apo.dev/start.md then help me set up apo and run my first task.";
+	`Read ${Astro.site}start.md then help me set up apo and run my first task.`;
 ---
 
 <!doctype html>
@@ -68,9 +67,6 @@ const COPY_PROMPT_TEXT =
 				</div>
 			</div>
 			<div class="landing-nav__right">
-				<a class="landing-nav__app" href={APP_URL}>
-					Open app
-				</a>
 				<a
 					class="landing-nav__github"
 					href={GITHUB_URL}
