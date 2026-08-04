@@ -2,32 +2,34 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { ConnectedEnvironmentStatusView } from "@/components/connected-environment-status";
 
-describe("ConnectedEnvironmentStatusView copy", () => {
+describe("ConnectedEnvironmentStatusView (SPEC-162)", () => {
   const cases: Array<{
     state: Parameters<typeof ConnectedEnvironmentStatusView>[0]["state"];
-    expected: RegExp;
+    label: string;
+    tooltip: string;
   }> = [
-    { state: "ready", expected: /Your connected environment is ready/i },
-    { state: "busy", expected: /Your connected environment is busy — this run will wait/i },
-    { state: "offline", expected: /Waiting for apo connect/i },
-    { state: "not_connected", expected: /Run apo connect in this Task workspace/i },
-    { state: "incompatible", expected: /Update the Apo CLI, then restart apo connect/i },
-    { state: "catalog_mismatch", expected: /Run apo task publish from this Task workspace/i },
+    { state: "ready", label: "Connected", tooltip: "Your connected environment is ready" },
+    { state: "busy", label: "Busy", tooltip: "Your connected environment is busy" },
+    { state: "offline", label: "Offline", tooltip: "Waiting for apo connect" },
+    { state: "not_connected", label: "Not connected", tooltip: "Run apo connect" },
+    { state: "incompatible", label: "Incompatible", tooltip: "Update the Apo CLI" },
+    { state: "catalog_mismatch", label: "Catalog mismatch", tooltip: "apo task publish" },
   ];
 
-  it.each(cases)("renders actionable primary copy for $state", ({ state, expected }) => {
+  it.each(cases)("renders compact label '$label' for state $state", ({ state, label }) => {
     render(<ConnectedEnvironmentStatusView state={state} />);
-    expect(screen.getByText(expected)).toBeInTheDocument();
+    expect(screen.getByText(label)).toBeInTheDocument();
   });
 
-  it("renders the corrective guidance for an incompatible state", () => {
-    render(<ConnectedEnvironmentStatusView state="incompatible" />);
-    expect(screen.getByText(/Queued work will start when compatible/i)).toBeInTheDocument();
+  it.each(cases)("puts full guidance in the tooltip for state $state", ({ state, tooltip, label }) => {
+    render(<ConnectedEnvironmentStatusView state={state} />);
+    const el = screen.getByText(label);
+    expect(el.closest("[title]")?.getAttribute("title")).toContain(tooltip);
   });
 
-  it("renders no guidance when ready", () => {
+  it("renders a status dot", () => {
     const { container } = render(<ConnectedEnvironmentStatusView state="ready" />);
-    expect(container.textContent).toMatch(/Your connected environment is ready/i);
-    expect(container.textContent).not.toMatch(/·/);
+    const dot = container.querySelector(".bg-success");
+    expect(dot).toBeTruthy();
   });
 });
