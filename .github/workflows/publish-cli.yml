@@ -1,0 +1,99 @@
+name: Publish CLI
+
+# Releases the @apo-ai/cli npm package. Parallel to publish-sdk.yml but
+# triggered by `cli-v*` tags and using the `npm-cli-release` environment.
+# Authentication is OIDC trusted publishing only — no stored npm token.
+# Requires a separate trusted-publisher registration on the npm side for
+# @apo-ai/cli (per-package, not per-org).
+
+on:
+  push:
+    tags:
+      - "cli-v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish @apo-ai/cli
+    runs-on: ubuntu-latest
+    environment: npm-cli-release
+    defaults:
+      run:
+        working-directory: packages/cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.3.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install npm (trusted-publishing-aware)
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify tag matches package version
+        run: |
+          set -euo pipefail
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF#refs/tags/cli-v}"
+          echo "package version: $PKG_VERSION"
+          echo "tag version:     $TAG_VERSION"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag cli-v$TAG_VERSION does not match packages/cli/package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+      - name: CLI tests
+        run: pnpm --filter @apo-ai/cli test
+
+      - name: CLI typecheck
+        run: pnpm --filter @apo-ai/cli typecheck
+
+      - name: Clean consumer package gate
+        run: pnpm --filter @apo-ai/cli package:check
+
+      - name: Build release tarball
+        working-directory: .
+        run: |
+          set -euo pipefail
+          rm -rf release
+          mkdir -p release
+          pnpm --filter @apo-ai/cli pack --pack-destination ./release
+          TARBALL_PATH="$(realpath release/*.tgz)"
+          echo "TARBALL_PATH=$TARBALL_PATH" >> "$GITHUB_ENV"
+          echo "Packed $TARBALL_PATH"
+
+      - name: Publish to npm (OIDC, no token)
+        env:
+          TARBALL: ${{ env.TARBALL_PATH }}
+        run: |
+          set -euo pipefail
+          npm publish --access public --provenance "$TARBALL"
+
+      - name: Report publication
+        if: success()
+        working-directory: .
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/cli/package.json').version")
+          {
+            echo "## @apo-ai/cli published"
+            echo ""
+            echo "- **Package**: [\`@apo-ai/cli@${PKG_VERSION}\`](https://www.npmjs.com/package/@apo-ai/cli/v/${PKG_VERSION})"
+            echo "- **Tag**: \`$GITHUB_REF_NAME\`"
+            echo "- **Tarball**: \`${TARBALL_PATH}\`"
+            echo "- **Auth**: GitHub OIDC trusted publishing (no npm token secret)"
+          } >> "$GITHUB_STEP_SUMMARY"

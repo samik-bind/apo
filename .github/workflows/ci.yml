@@ -27,13 +27,15 @@ jobs:
         # on every PR — previously no CI step built the SDK, which is how the
         # broken `build: tsc` script survived unnoticed.
         run: pnpm --filter @apo-ai/sdk build
-      - name: Clean consumer package gate
+      - name: Clean consumer package gate (SDK)
         # The single source of truth for the publish boundary: pack the SDK
         # exactly as a registry release would, install it into a clean
         # directory, import/compile every entry point, and run publint.
-        # Replaces the handwritten dist-file loop below — the gate already
-        # asserts every export target exists on disk plus the manifest parity.
         run: pnpm --filter @apo-ai/sdk package:check
+      - name: Build @apo-ai/cli
+        run: pnpm --filter @apo-ai/cli build
+      - name: Clean consumer package gate (CLI)
+        run: pnpm --filter @apo-ai/cli package:check
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test:public-ingress

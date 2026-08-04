@@ -54,7 +54,7 @@ describe(".github/workflows/publish-cli.yml contract", () => {
   });
 
   it("publishes a tarball resolved from disk via pnpm pack", () => {
-    expect(yaml).toMatch(/pnpm pack/);
+    expect(yaml).toMatch(/pnpm.*pack/);
     expect(yaml).toMatch(/--pack-destination/);
     expect(yaml).toMatch(/realpath.*\.tgz/);
     expect(yaml).toMatch(/npm publish[^\n]*TARBALL/);

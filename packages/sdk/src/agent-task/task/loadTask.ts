@@ -82,7 +82,9 @@ async function loadTaskDefinition(
     const task = registeredTask ?? loaded.default;
     if (!task || typeof task !== "object") {
       throw new Error(
-        "No task definition found — call task(name, config) or default export defineTask(adapter, config)",
+        "No task definition found. The .eval.ts file must call task(name, { adapter, deliverables, ... }) at module top level. " +
+          "If it does, the CLI and the .eval.ts may be loading different @apo-ai/sdk instances " +
+          "(check for a stale packages/sdk/dist build or a version mismatch between the CLI and node_modules).",
       );
     }
     const adapter = getTaskAdapterDefinition(task);
@@ -90,7 +92,7 @@ async function loadTaskDefinition(
       throw new Error(
         registeredTask
           ? "task() config must include an adapter"
-          : "Task module must default export defineTask(adapter, {...})",
+          : "Task module must call task(name, { adapter, ... }) — the config is missing an adapter.",
       );
     }
     return {

@@ -198,7 +198,7 @@ describe("loadTask", () => {
     });
 
     await expect(loadTask(taskDir)).rejects.toThrow(
-      "Task module must default export defineTask(adapter, {...})",
+      "Task module must call task(name, { adapter, ... })",
     );
   });
 
