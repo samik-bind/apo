@@ -115,6 +115,59 @@ def test_v2_result_finalizes_attempt(isolated_engine):
         app.dependency_overrides.clear()
 
 
+def test_v2_result_records_reported_run_configuration(isolated_engine):
+    """The executor reports the agent's resolved model/effort with its result.
+
+    Without this the Task Run keeps null configuration columns, so every
+    dashboard-triggered Run renders with no Execution label even though the
+    adapter reported one.
+    """
+    engine = isolated_engine
+    _, attempt_id, jwt = _seed_leased_attempt(engine)
+    client = _client(engine)
+    try:
+        resp = client.post(
+            f"/v1/executor-protocol/v2/attempts/{attempt_id}/result",
+            headers={"Authorization": f"Bearer {jwt}"},
+            json={
+                "completion_id": "comp-1",
+                "pass_result": True,
+                "adapter_name": "claude-code",
+                "trace_run_id": "tr-1",
+                "run_configuration": {"model": "claude-opus-5", "effort": "medium"},
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        with Session(engine) as s:
+            run = s.get(AgentTaskRunDB, "run-1")
+            assert run is not None
+            assert run.configured_model == "claude-opus-5"
+            assert run.configured_effort == "medium"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_v2_result_without_run_configuration_leaves_it_unset(isolated_engine):
+    """Reporting configuration stays optional — adapters may not resolve one."""
+    engine = isolated_engine
+    _, attempt_id, jwt = _seed_leased_attempt(engine)
+    client = _client(engine)
+    try:
+        resp = client.post(
+            f"/v1/executor-protocol/v2/attempts/{attempt_id}/result",
+            headers={"Authorization": f"Bearer {jwt}"},
+            json={"completion_id": "comp-1", "pass_result": True},
+        )
+        assert resp.status_code == 200, resp.text
+        with Session(engine) as s:
+            run = s.get(AgentTaskRunDB, "run-1")
+            assert run is not None
+            assert run.configured_model is None
+            assert run.configured_effort is None
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_v2_failure_finalizes_attempt(isolated_engine):
     engine = isolated_engine
     _, attempt_id, jwt = _seed_leased_attempt(engine)

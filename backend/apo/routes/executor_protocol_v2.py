@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, col, select
 
 from ..db import get_session
+from ..models.schemas import AgentTaskRunConfiguration
 from ..models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
@@ -466,6 +467,9 @@ class AttemptResultRequest(BaseModel):
     stdout_tail: str | None = None
     stderr_tail: str | None = None
     error_message: str | None = None
+    # The agent's resolved model/effort as reported by the adapter. Optional:
+    # adapters that do not resolve a configuration omit it.
+    run_configuration: AgentTaskRunConfiguration | None = None
 
 
 class AttemptFailureRequest(BaseModel):
@@ -511,7 +515,7 @@ async def attempt_result_v2(
                 stdout_tail=body.stdout_tail,
                 stderr_tail=body.stderr_tail,
                 error_message=body.error_message,
-                run_configuration=None,
+                run_configuration=body.run_configuration,
             ),
         )
     except CompletionConflict as exc:
