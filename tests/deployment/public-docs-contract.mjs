@@ -45,6 +45,12 @@ assert(
   "docs service must set no-new-privileges:true",
 );
 
+// Caddy writes to /data and /config at startup; under read_only those need tmpfs.
+assert(
+  Array.isArray(docs.tmpfs) && docs.tmpfs.includes("/data"),
+  "docs service must mount a writable tmpfs at /data for the read-only root",
+);
+
 assert(
   !docs.ports || docs.ports.length === 0,
   "docs service must publish no host ports",

@@ -19,6 +19,9 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    tmpfs:
+      - /data
+      - /config
     expose:
       - "8080"
     logging:
