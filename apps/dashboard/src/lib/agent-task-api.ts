@@ -289,19 +289,17 @@ export interface ExecutionAttemptSummary {
   cancel_requested_at: string | null;
 }
 
+/**
+ * Mirrors the backend model exactly, which forbids extra fields: a run is
+ * source-owned by definition, so `selection_type` and `execution_target` are
+ * derived server-side and rejected on the request. Keep this in sync with
+ * `CreateAgentTaskBatchRunRequest` in `backend/apo/models/schemas.py`.
+ */
 export interface CreateAgentTaskBatchRunRequest {
   project: string;
-  selection_type: string;
-  /** exact catalog Task IDs for source-owned execution. */
-  task_ids?: string[];
-  /** Legacy bundled path: filesystem-relative selection. */
-  task_paths?: string[];
-  task_root?: string | null;
-  grep?: string | null;
+  /** exact catalog Task IDs. */
+  task_ids: string[];
   environment?: string;
-  /** Explicit target wins. ``source_owned`` routes to the authenticated
-   * User's Connected Executors; ``pool`` keeps the legacy bundled path. */
-  execution_target: ExecutionTarget;
   run_metadata?: {
     trigger?: Partial<AgentTaskRunTrigger> | null;
     [key: string]: unknown;

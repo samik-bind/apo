@@ -85,7 +85,7 @@ describe("AgentTasksClient — native source-owned Run", () => {
     expect(screen.queryByText(/executor pool/i)).not.toBeInTheDocument();
   });
 
-  it("sends exact Task IDs with a source-owned target on Run", async () => {
+  it("sends only the fields the narrowed create API accepts on Run", async () => {
     const user = userEvent.setup();
     vi.mocked(createAgentTaskBatchRun).mockResolvedValueOnce({
       id: "batch-1",
@@ -115,9 +115,10 @@ describe("AgentTasksClient — native source-owned Run", () => {
     });
     const call = vi.mocked(createAgentTaskBatchRun).mock.calls[0][0];
     expect(call.task_ids).toEqual(expect.arrayContaining(["support/refund", "support/cancel"]));
-    expect(call.execution_target).toEqual({ kind: "source_owned" });
-    expect(call.task_root).toBeUndefined();
-    expect(call.task_paths).toBeUndefined();
+    // The backend model forbids extra fields, so any key beyond these 422s the
+    // whole request — `selection_type` and `execution_target` are derived
+    // server-side and must not be sent.
+    expect(Object.keys(call).sort()).toEqual(["project", "run_metadata", "task_ids"]);
   });
 
   it("shows non-blocking copy when status fetch fails", async () => {
