@@ -1,8 +1,11 @@
 import { parseArgs } from "./lib/args.ts";
 import { bold, dim } from "./lib/format.ts";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
 
-const VERSION = "0.1.0";
+const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
+const VERSION = JSON.parse(readFileSync(join(PKG_DIR, "package.json"), "utf8")).version;
 
 type CommandHandler = (argv: string[]) => Promise<number>;
 
