@@ -17,7 +17,7 @@
  * showcase than a hand-authored demo: it proves apo can adopt an existing
  * external verifier instead of inventing its own rubric.
  */
-import { defineAdapter, fileArtifact, type FileArtifact } from "@apo/sdk/agent-task";
+import { defineAdapter, fileArtifact, type FileArtifact } from "@apo-ai/sdk/agent-task";
 import { z } from "zod";
 import {
   runHarborTrial,

@@ -16,7 +16,7 @@ my-task/
 The `.eval.ts` file holds the definition, the input handling, and every test. One module, three calls:
 
 ```typescript
-import { matches, task, turn } from "@apo/sdk/agent-task";
+import { matches, task, turn } from "@apo-ai/sdk/agent-task";
 import { legalDocumentAdapter } from "./adapter";
 import { partiesSchema } from "./schemas";
 

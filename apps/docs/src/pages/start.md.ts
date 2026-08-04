@@ -175,7 +175,7 @@ cleanup(ctx)             optional — tear down
 import { readFileSync } from "fs";
 import { generateText, tool } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
-import { defineAdapter, registerApoTracing } from "@apo/sdk/agent-task";
+import { defineAdapter, registerApoTracing } from "@apo-ai/sdk/agent-task";
 import { z } from "zod";
 
 // Register the OTel processor once at module load. After this, any
@@ -286,7 +286,7 @@ The \`.eval.ts\` imports the adapter (from wherever it lives), registers the
 task, defines the turn behavior, and writes the tests:
 
 \`\`\`typescript
-import { task, turn, test, satisfies, includes } from "@apo/sdk/agent-task";
+import { task, turn, test, satisfies, includes } from "@apo-ai/sdk/agent-task";
 import { myAdapter } from "../../path/to/adapter"; // wherever it lives
 
 // Register: name, adapter, deliverable keys (must match adapter's schema)
@@ -339,8 +339,7 @@ test("answer-is-accurate", async (t, { deliverables }) => {
 
 ## Step 5: Run and verify
 
-**The CLI runs from the cloned repo** (apo isn't on npm yet). After cloning
-in Step 2, use the repo's \`pnpm apo\` script or run the CLI directly:
+**The CLI runs from the cloned repo** (the apo CLI itself isn't published to npm — only the @apo-ai/sdk SDK is). After cloning in Step 2, use the repo's \`pnpm apo\` script or run the CLI directly:
 
 \`\`\`bash
 # From the apo repo root:
@@ -435,7 +434,7 @@ Restate the final state: task name, adapter name, verdict, and next steps.
 | Self-hosting topology | https://apo.dev/self-hosting/topology.md |
 | Self-hosting configuration | https://apo.dev/self-hosting/configuration.md |
 | Reference overview | https://apo.dev/reference/overview.md |
-| Tracing SDK (@apo/sdk) | https://apo.dev/reference/tracing.md |
+| Tracing SDK (@apo-ai/sdk) | https://apo.dev/reference/tracing.md |
 | Tracing integrations | https://apo.dev/reference/tracing-integrations.md |
 | Flow normalizers | https://apo.dev/reference/flow-normalizers.md |
 | CLI reference | https://apo.dev/cli.md |

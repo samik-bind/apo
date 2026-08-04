@@ -281,6 +281,48 @@ class TestTraceProjectorIdempotency:
             )
             assert len(calls) == 1
 
+    def test_reimport_with_different_trace_id_does_not_duplicate(self):
+        """Issue #104: a langfuse re-import lands the same observation under a
+        different ``trace_id`` (e.g. ``--trace-id`` override, or a different
+        source host). The span_id is the deterministic identity, so the
+        projector must upsert the existing call — not append a second copy."""
+        original = _make_canonical_span(
+            trace_id="trace-original",
+            span_id="span-reimport-01",
+            name="chat gpt-4o",
+            attributes={
+                "gen_ai.request.model": "gpt-4o",
+                "gen_ai.usage.input_tokens": 100,
+                "gen_ai.usage.output_tokens": 50,
+            },
+        )
+        reimported = _make_canonical_span(
+            trace_id="trace-reimport-override",  # different trace_id, same span_id
+            span_id="span-reimport-01",
+            name="chat gpt-4o",
+            attributes={
+                "gen_ai.request.model": "gpt-4o",
+                "gen_ai.usage.input_tokens": 100,
+                "gen_ai.usage.output_tokens": 50,
+            },
+        )
+
+        projector = TraceProjector()
+        with Session(engine) as session:
+            projector.project(original, session)
+            session.commit()
+        with Session(engine) as session:
+            projector.project(reimported, session)
+            session.commit()
+
+        with Session(engine) as session:
+            calls = list(
+                session.exec(select(LoggedCallDB).where(LoggedCallDB.id == "span-reimport-01"))
+            )
+            assert len(calls) == 1, "re-import must upsert, not append"
+            # Cost was recomputed on the re-projection (not left stale).
+            assert calls[0].cost is not None
+
 
 class TestTraceProjectorChildBeforeRoot:
     """The projector must tolerate children arriving before roots."""

@@ -402,12 +402,12 @@ runtime. In local development the packaged path falls back to the repo's
 When you change anything under `packages/sdk/src/agent-task/`, rebuild the bundle so the runtime matches the source:
 
 ```bash
-pnpm --filter @apo/sdk build:agent-task-runtime
+pnpm --filter @apo-ai/sdk build:agent-task-runtime
 ```
 
 The Dockerfile runs this for you during `docker compose build`. Locally, you only need to rebuild when you want to test the packaged path (set `AGENT_TASK_RUNTIME_DIR=packages/sdk/dist/agent-task-runtime` before starting the backend).
 
-The backend image also runs the regular `@apo/sdk` build before assembling
+The backend image also runs the regular `@apo-ai/sdk` build before assembling
 the runner. Demo and synced task modules import the package through its
 published `dist` exports, so copying SDK source without those artifacts makes
 the runner start successfully but fail as soon as it loads a task definition.

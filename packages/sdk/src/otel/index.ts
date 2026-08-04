@@ -11,7 +11,7 @@
  * users should use this module; existing ``TraceTracker`` code continues to
  * work through a compatibility bridge.
  *
- * @module @apo/sdk/otel
+ * @module @apo-ai/sdk/otel
  */
 
 import {
@@ -257,7 +257,7 @@ function configureInstrumentationEnvironment(): void {
  *
  * @example
  * ```ts
- * import { configureApoTelemetry } from "@apo/sdk/otel";
+ * import { configureApoTelemetry } from "@apo-ai/sdk/otel";
  *
  * const apo = await configureApoTelemetry({
  *   takeOwnership: true,

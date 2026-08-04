@@ -30,7 +30,7 @@
 
 			<div class="spec" aria-hidden="true">
 				<div class="spec__file">tasks/refund.eval.ts</div>
-				<pre class="spec__code"><code><span class="tok-kw">import</span> {'{ test }'} <span class="tok-kw">from</span> <span class="tok-str">'@apo/sdk/agent-task'</span>;</code><code>
+				<pre class="spec__code"><code><span class="tok-kw">import</span> {'{ test }'} <span class="tok-kw">from</span> <span class="tok-str">'@apo-ai/sdk/agent-task'</span>;</code><code>
 <span class="tok-kw">export default</span> <span class="tok-fn">task</span>(<span class="tok-str">'refund'</span>, <span class="tok-fn">turn</span>(<span class="tok-str">'Refund order #4821'</span>), [</code><code class="spec__pair" data-pair style="--i:0">  <span class="tok-fn">test</span>(<span class="tok-str">'issues-refund'</span>, <span class="tok-kw">async</span> (t, {'{ refund }'}) =&gt; {'{'}
     t.<span class="tok-fn">calledTool</span>(<span class="tok-str">'issue_refund'</span>);
     t.<span class="tok-fn">noFailedActions</span>();

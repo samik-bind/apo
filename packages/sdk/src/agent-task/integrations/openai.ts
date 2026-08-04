@@ -12,7 +12,7 @@
  * @example
  * ```ts
  * import OpenAI from "openai";
- * import { createApoOpenAI } from "@apo/sdk/agent-task";
+ * import { createApoOpenAI } from "@apo-ai/sdk/agent-task";
  *
  * async sendUserTurn(turn, { trace, parentSpanId }) {
  *   const client = createApoOpenAI(

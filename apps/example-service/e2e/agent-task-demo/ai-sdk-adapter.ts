@@ -16,7 +16,7 @@
  * For a full-featured example (multi-turn conversation, custom prompt, richer
  * deliverable parsing), see `real-agent-adapter.ts`.
  */
-import { defineAdapter, registerApoTracing } from "@apo/sdk/agent-task";
+import { defineAdapter, registerApoTracing } from "@apo-ai/sdk/agent-task";
 import { handleChat, type ChatRequest } from "../../app/lib/agent/service.ts";
 import { loadFiles } from "./lib/files.ts";
 import { deliverableSchemas, collectDeliverablesFromState } from "./lib/deliverables.ts";
@@ -44,7 +44,7 @@ export const aiSdkAdapter = defineAdapter({
     // report the same resolved model the agent uses (service.ts
     // getModel() reads OPENROUTER_MODEL with the same default). apo never
     // picks the model — the adapter resolves and reports the truth.
-    const model = process.env.OPENROUTER_MODEL ?? "google/gemini-2.5-flash-lite";
+    const model = process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash-0731";
     return {
       runConfiguration: { model },
       async sendUserTurn(turn: unknown) {

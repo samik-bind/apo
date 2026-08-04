@@ -220,6 +220,30 @@ def synthesize_legacy_manifest(
     return items
 
 
+def read_legacy_deliverable_body(
+    deliverables_json: object,
+    deliverable_id: str,
+) -> tuple[bytes, str]:
+    """Resolve a ``legacy:<name>`` manifest id to its inline body.
+
+    The mirror of :func:`synthesize_legacy_manifest`: the manifest advertises a
+    ``legacy:<name>`` id with a measured ``size_bytes``/``sha256``, and this
+    returns the compact-JSON body bytes plus that same digest so the body
+    endpoint can serve what the manifest promised (issue #105).
+
+    Raises :class:`KeyError` when the id is not a ``legacy:`` id, the inline
+    blob is missing, or the named deliverable does not exist.
+    """
+    prefix = "legacy:"
+    if not deliverable_id.startswith(prefix):
+        raise KeyError(deliverable_id)
+    name = deliverable_id[len(prefix):]
+    if not isinstance(deliverables_json, dict) or name not in deliverables_json:
+        raise KeyError(deliverable_id)
+    body = _compact_json_bytes(deliverables_json[name])
+    return body, _sha256_hex(body)
+
+
 def build_trace_output_manifest(
     items: list[DeliverableSummary], task_run_id: str
 ) -> dict[str, object]:

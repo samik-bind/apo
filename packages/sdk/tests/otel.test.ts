@@ -14,7 +14,7 @@ import { context, trace } from "@opentelemetry/api";
  * the standard OTel unit-test pattern. Real OTLP export is proven by the M6
  * end-to-end integration test with a live server.
  */
-describe("@apo/sdk/otel", () => {
+describe("@apo-ai/sdk/otel", () => {
   let contextManager: AsyncHooksContextManager;
 
   afterEach(() => {

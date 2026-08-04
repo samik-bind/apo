@@ -30,7 +30,7 @@
  *   (runTask.ts), so the adapter needs zero trace instrumentation.
  */
 import { join } from "path";
-import { defineAdapter } from "@apo/sdk/agent-task";
+import { defineAdapter } from "@apo-ai/sdk/agent-task";
 import { z } from "zod";
 import { runClaudeAgent } from "./agent/claude-agent.ts";
 import { buildOtelEnv } from "./lib/otel-env.ts";

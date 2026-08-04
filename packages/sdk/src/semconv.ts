@@ -48,7 +48,7 @@ export const APO_TASK_ID = "apo.task.id" as const;
 export const APO_TASK_RUN_ID = "apo.task.run.id" as const;
 
 // Scores are domain records via the HTTP score API, not sentinel spans.
-// See `score()` in `@apo/sdk/otel` — it calls POST /api/v1/traces/{id}/scores.
+// See `score()` in `@apo-ai/sdk/otel` — it calls POST /api/v1/traces/{id}/scores.
 
 // ── Cost ──────────────────────────────────────────────────────────────────
 //

@@ -35,7 +35,7 @@ describe("SPEC-169: Task Definition preparation", () => {
   afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
 
   it("is deterministic: same content + filename from different roots produces the same digest", () => {
-    const content = `import { task } from "@apo/sdk/agent-task";\ntask("demo", { adapter: "a" });\n`;
+    const content = `import { task } from "@apo-ai/sdk/agent-task";\ntask("demo", { adapter: "a" });\n`;
     const dirA = join(tmp, "a"); mkdirSync(dirA, { recursive: true });
     const dirB = join(tmp, "b"); mkdirSync(dirB, { recursive: true });
     writeFileSync(join(dirA, "demo.eval.ts"), content);
@@ -56,7 +56,7 @@ describe("SPEC-169: Task Definition preparation", () => {
 
   it("normalizes BOM and CRLF to LF", () => {
     const bom = "\uFEFF";
-    const crlf = "import { task } from \"@apo/sdk/agent-task\";\r\ntask(\"demo\", { adapter: \"a\" });\r\n";
+    const crlf = "import { task } from \"@apo-ai/sdk/agent-task\";\r\ntask(\"demo\", { adapter: \"a\" });\r\n";
     const { meta } = writeTask(tmp, "crlf-task", bom + crlf);
 
     const prepared = prepareTaskDefinition(meta);
@@ -68,7 +68,7 @@ describe("SPEC-169: Task Definition preparation", () => {
   });
 
   it("preserves every other byte after normalization", () => {
-    const content = "import { task } from \"@apo/sdk/agent-task\";\n// emoji: 🎉 tabs:\there\n";
+    const content = "import { task } from \"@apo-ai/sdk/agent-task\";\n// emoji: 🎉 tabs:\there\n";
     const { meta } = writeTask(tmp, "unicode-task", content);
 
     const prepared = prepareTaskDefinition(meta);

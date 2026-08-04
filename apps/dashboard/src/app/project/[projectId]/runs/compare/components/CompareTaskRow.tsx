@@ -7,20 +7,18 @@ import { ChevronRight, ExternalLink } from "lucide-react";
 
 import {
   getAgentTaskRun,
+  readTaskDefinitionSource,
   readTaskFile,
   type AgentTaskRunDetail,
   type AgentTaskRunSummary,
   type CheckAssertionResult,
   type CheckResult,
 } from "@/lib/agent-task-api";
+import { loadCheckSource, type DefinitionRef } from "@/lib/load-check-source";
 import { cn } from "@/lib/utils";
 import { formatDuration, runDurationMs, formatCostMicro } from "@/lib/format";
 import { extractJudgeReasoning } from "@/lib/judge-reasoning";
 import { extractCheckBlock } from "@/lib/extract-check-block";
-import {
-  buildSourceCandidates,
-  shouldAcceptSource,
-} from "@/lib/check-source-candidates";
 import { locateAssertionsInBlock } from "@/lib/locate-assertion";
 import type { LineAssertion } from "./compare-markers";
 
@@ -516,6 +514,18 @@ function CheckDiff({
     };
   }, [taskId, leftId, rightId]);
 
+  // SPEC-169: the pinned Task Definition is the authoritative source and — unlike
+  // the filesystem resolver — resolves wherever the task executed. Both sides are
+  // offered because either run's revision renders the same source; two runs of one
+  // task normally pin the same digest. Memoized so the per-check source effect
+  // isn't re-fired by a fresh array identity on every render.
+  const definitionRefs = useMemo<DefinitionRef[]>(() => {
+    if (state.status !== "ready") return [];
+    return [state.left, state.right]
+      .map((run) => ({ runId: run?.id ?? "", filePath: run?.task_definition?.files[0]?.path ?? "" }))
+      .filter((ref) => ref.runId && ref.filePath);
+  }, [state]);
+
   if (state.status === "loading") {
     return <div className="px-6 py-3 text-[12px] text-muted-foreground">Loading checks…</div>;
   }
@@ -646,6 +656,7 @@ function CheckDiff({
                   taskId={taskId}
                   projectId={projectId}
                   commitSha={commitSha}
+                  definitionRefs={definitionRefs}
                 />
               );
             })
@@ -675,6 +686,7 @@ function CheckRow({
   taskId,
   projectId,
   commitSha,
+  definitionRefs,
 }: {
   id: string;
   left: CheckResult | undefined;
@@ -684,6 +696,7 @@ function CheckRow({
   taskId: string;
   projectId: string;
   commitSha: string | null;
+  definitionRefs: DefinitionRef[];
 }) {
   const [open, setOpen] = useState(false);
   const ref = left ?? right;
@@ -730,6 +743,7 @@ function CheckRow({
             taskId={taskId}
             projectId={projectId}
             commitSha={commitSha}
+            definitionRefs={definitionRefs}
             leftCheck={left}
             rightCheck={right}
           />
@@ -768,6 +782,7 @@ function CheckSourceWithResults({
   taskId,
   projectId,
   commitSha,
+  definitionRefs,
   leftCheck,
   rightCheck,
 }: {
@@ -776,6 +791,7 @@ function CheckSourceWithResults({
   taskId: string;
   projectId: string;
   commitSha: string | null;
+  definitionRefs: DefinitionRef[];
   leftCheck: CheckResult | undefined;
   rightCheck: CheckResult | undefined;
 }) {
@@ -795,50 +811,33 @@ function CheckSourceWithResults({
     let cancelled = false;
     const controller = new AbortController();
 
-    const candidates = buildSourceCandidates(sourceFile, taskId);
-
     (async () => {
-      let lastError: unknown;
-      for (const candidate of candidates) {
-        try {
-          let source: { content: string; language: string };
-          try {
-            source = await readTaskFile(
-              taskId, candidate, undefined, projectId,
-              commitSha ?? undefined, controller.signal,
-            );
-          } catch {
-            source = await readTaskFile(
-              taskId, candidate, undefined, undefined,
-              undefined, controller.signal,
-            );
-          }
-          const block = extractCheckBlock(source.content, { id: checkId });
-          if (
-            shouldAcceptSource({
-              candidate,
-              recordedSourceFile: sourceFile,
-              containsKnownCheck: block !== null,
-              isLastCandidate: candidate === candidates[candidates.length - 1],
-            })
-          ) {
-            if (cancelled) return;
-            setState({
-              status: "ready",
-              code: block?.code ?? source.content,
-              language: source.language ?? "typescript",
-            });
-            return;
-          }
-        } catch (error) {
-          if (controller.signal.aborted) return;
-          lastError = error;
-        }
-      }
-      if (!cancelled) {
+      try {
+        const source = await loadCheckSource({
+          taskId,
+          recordedSourceFile: sourceFile,
+          commitSha,
+          definitionRefs,
+          containsKnownCheck: (content) => extractCheckBlock(content, { id: checkId }) !== null,
+          deps: {
+            readDefinitionSource: (runId, filePath) =>
+              readTaskDefinitionSource(runId, filePath, controller.signal),
+            readTaskFile: (id, candidate, sha) =>
+              readTaskFile(id, candidate, undefined, projectId, sha, controller.signal),
+          },
+        });
+        if (cancelled) return;
+        const block = extractCheckBlock(source.content, { id: checkId });
+        setState({
+          status: "ready",
+          code: block?.code ?? source.content,
+          language: source.language ?? "typescript",
+        });
+      } catch (error) {
+        if (cancelled || controller.signal.aborted) return;
         setState({
           status: "error",
-          message: lastError instanceof Error ? lastError.message : "Could not load check source.",
+          message: error instanceof Error ? error.message : "Could not load check source.",
         });
       }
     })();
@@ -847,7 +846,7 @@ function CheckSourceWithResults({
       cancelled = true;
       controller.abort();
     };
-  }, [checkId, sourceFile, taskId, projectId, commitSha]);
+  }, [checkId, sourceFile, taskId, projectId, commitSha, definitionRefs]);
 
   // Locate each run's assertions onto lines of the source block. Builds a
   // map: line number → { left?, right? } assertion results. Empty when the

@@ -1,8 +1,6 @@
 "use client";
 
 import Image from "next/image";
-import { Badge } from "@/components/ui/badge";
-import { Sparkles, User, Wrench, Cpu } from "lucide-react";
 import { useMemo, useRef, useCallback, useState } from "react";
 import { ToolDefinitionsSection } from "./ToolDefinitionsSection";
 import { extractTools, countToolInvocations } from "./tool-utils";
@@ -147,37 +145,16 @@ function MessageBubble({
   const contentParts = parseContentParts(message.content);
 
   return (
-    <div className={`flex gap-3 ${message.role === "user" ? "flex-row-reverse" : ""}`}>
-      <div
-        className={`flex h-8 w-8 shrink-0 items-center justify-center border ${
-          roleInfo.bgColor
-        }`}
-      >
-        {roleInfo.icon}
+    <div className="hover:bg-muted/20">
+      <div className={`px-3 py-1.5 text-xs font-medium ${roleInfo.headerClass}`}>
+        {roleInfo.label}
+        {message.name && <span className="ml-1 opacity-60">({message.name})</span>}
       </div>
 
-      <div className={`flex-1 space-y-2 ${message.role === "user" ? "items-end" : "items-start"} flex flex-col`}>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className={`text-xs ${roleInfo.textColor}`}>
-            {roleInfo.label}
-            {message.name && <span className="ml-1 opacity-70">({message.name})</span>}
-          </Badge>
-        </div>
-
+      <div className="space-y-2 px-3 pb-3">
         {hasContent(message.content) && (
-          <div
-            className={`border px-4 py-3 text-sm ${
-              message.role === "user"
-                ? "bg-primary/10 border-primary/20"
-                : "bg-muted/40 border-border/60"
-            }`}
-          >
+          <div className="text-sm">
             <MessageContent parts={contentParts} />
-          </div>
-        )}
-        {!hasContent(message.content) && !message.tool_calls?.length && (
-          <div className="border border-dashed border-border/60 px-4 py-3 text-sm">
-            <span className="italic text-muted-foreground">Empty message</span>
           </div>
         )}
 
@@ -188,21 +165,13 @@ function MessageBubble({
               return (
                 <div
                   key={`tc-${call.function?.name ?? callNumber}`}
-                  className="border border-warning bg-warning/10 px-3 py-2"
+                  className="rounded border border-border/60 bg-muted/30 px-3 py-2"
                 >
-                  <div className="mb-1 flex items-center gap-2">
-                    <Wrench className="h-3.5 w-3.5 text-warning" />
-                    <span className="text-xs font-mono font-medium text-warning">
-                      Tool Call #{callNumber}
-                    </span>
-                    <span className="text-xs font-mono text-warning">
-                      {call.function?.name || "unknown"}
-                    </span>
+                  <div className="mb-1 text-xs font-mono text-muted-foreground">
+                    {call.function?.name || "unknown"}
                   </div>
                   {call.function?.arguments && (
-                    <pre className="mt-1 overflow-x-auto text-[11px] font-mono text-muted-foreground">
-                      {call.function.arguments}
-                    </pre>
+                    <ToolCallArguments arguments={call.function.arguments} />
                   )}
                 </div>
               );
@@ -241,7 +210,7 @@ function MessageContent({ parts }: { parts: ContentPart[] }) {
 function ImageReference({ url }: { url: string }) {
   if (!url || url.startsWith("/")) {
     return (
-      <span className="inline-flex items-center gap-1.5 border border-border/60 bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground">
+      <span className="inline-flex items-center gap-1.5 border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
         <span className="text-xs">[Image]</span>
         {url && <span className="font-mono">{url}</span>}
       </span>
@@ -259,7 +228,7 @@ function ImageReference({ url }: { url: string }) {
           const target = e.currentTarget;
           target.style.display = "none";
           const placeholder = document.createElement("span");
-          placeholder.className = "inline-flex items-center gap-1.5 border border-border/60 bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground";
+          placeholder.className = "inline-flex items-center gap-1.5 border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground";
           placeholder.textContent = "[Image: failed to load]";
           target.parentNode?.appendChild(placeholder);
         }}
@@ -270,7 +239,7 @@ function ImageReference({ url }: { url: string }) {
 
 function AudioReference({ url }: { url: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 border border-border/60 bg-muted/30 px-2 py-1 text-[11px] text-muted-foreground">
+    <span className="inline-flex items-center gap-1.5 border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
       <span className="text-xs">[Audio]</span>
       {url && <span className="font-mono">{url}</span>}
     </span>
@@ -285,6 +254,78 @@ function parseContentParts(content: string | ContentPart[]): ContentPart[] {
     return content;
   }
   return [];
+}
+
+const TOOL_ARG_COLLAPSE_CHARS = 400;
+
+/**
+ * Render a tool call's arguments readably. The raw value is a JSON string whose
+ * inner text has escaped newlines (e.g. {"text":"import json\\ndef …"}), which
+ * otherwise renders as a single unbroken wall. Parse it: if the argument is an
+ * object carrying a text-like field, show that field with real newlines; fall
+ * back to pretty-printed JSON, then raw text. Long payloads collapse behind an
+ * expand toggle.
+ */
+function ToolCallArguments({ arguments: args }: { arguments: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const rendered = useMemo(() => {
+    let parsed: unknown = args;
+    try {
+      parsed = JSON.parse(args);
+    } catch {
+      return args;
+    }
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const obj = parsed as Record<string, unknown>;
+      const textField = ["text", "content", "source", "code", "input"].find(
+        (k) => typeof obj[k] === "string",
+      );
+      if (textField) {
+        return { label: textField, body: obj[textField] as string };
+      }
+    }
+    try {
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      return args;
+    }
+  }, [args]);
+
+  const label =
+    typeof rendered === "object" && rendered !== null
+      ? (rendered as { label?: string }).label
+      : undefined;
+  const body =
+    typeof rendered === "object" && rendered !== null
+      ? (rendered as { body?: string }).body ?? ""
+      : (rendered as string);
+
+  const tooLong = body.length > TOOL_ARG_COLLAPSE_CHARS;
+  const visible = !expanded && tooLong ? body.slice(0, TOOL_ARG_COLLAPSE_CHARS) : body;
+
+  return (
+    <div className="mt-1 max-w-full">
+      {label ? (
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">
+          {label}
+        </div>
+      ) : null}
+      <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-all text-xs font-mono text-muted-foreground">
+        {visible}
+        {tooLong && !expanded ? "…" : ""}
+      </pre>
+      {tooLong ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-xs text-muted-foreground underline hover:text-foreground"
+        >
+          {expanded ? "Collapse" : `Expand (${body.length} chars)`}
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function hasContent(content: string | ContentPart[]): boolean {
@@ -326,42 +367,29 @@ function parseMessages(data: unknown): ChatMessage[] {
 }
 
 function getRoleInfo(role: string) {
-  const roleMap: Record<
-    string,
-    { label: string; icon: React.ReactNode; bgColor: string; textColor: string }
-  > = {
+  const roleMap: Record<string, { label: string; headerClass: string }> = {
     system: {
       label: "System",
-      icon: <Cpu className="h-4 w-4 text-violet-600" />,
-      bgColor: "bg-violet-900/30 border-violet-700",
-      textColor: "text-violet-300",
+      headerClass: "bg-violet-500/10 text-violet-400",
     },
     user: {
       label: "User",
-      icon: <User className="h-4 w-4 text-blue-600" />,
-      bgColor: "bg-blue-900/30 border-blue-700",
-      textColor: "text-blue-300",
+      headerClass: "bg-blue-500/10 text-blue-400",
     },
     assistant: {
       label: "Assistant",
-      icon: <Sparkles className="h-4 w-4 text-emerald-600" />,
-      bgColor: "bg-emerald-900/30 border-emerald-700",
-      textColor: "text-emerald-300",
+      headerClass: "bg-emerald-500/10 text-emerald-400",
     },
     tool: {
       label: "Tool",
-      icon: <Wrench className="h-4 w-4 text-warning" />,
-      bgColor: "bg-warning/10 border-warning",
-      textColor: "text-warning",
+      headerClass: "bg-amber-500/10 text-amber-400",
     },
   };
 
   return (
     roleMap[role] || {
       label: role.charAt(0).toUpperCase() + role.slice(1),
-      icon: <span className="text-xs">{role[0]}</span>,
-      bgColor: "bg-muted",
-      textColor: "text-foreground",
+      headerClass: "bg-muted text-foreground",
     }
   );
 }

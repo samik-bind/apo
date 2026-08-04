@@ -1,14 +1,14 @@
 ---
 title: "Standalone OTel tracing"
-description: "Send OpenTelemetry traces to apo from any application — not just agent-task runs — via @apo/sdk/otel. The standard OTLP path that replaced the retired TraceTracker protocol."
+description: "Send OpenTelemetry traces to apo from any application — not just agent-task runs — via @apo-ai/sdk/otel. The standard OTLP path that replaced the retired TraceTracker protocol."
 ---
 
-`@apo/sdk/otel` sends traces to apo from any application, using standard OpenTelemetry. This is the lower-level tracing layer — you reach for it when you want apo's traces **outside** of an agent-task run (a production service, a background job, a script). Inside an agent-task run you don't need it; the task runner wires tracing up for you (see [Tracing integrations](/reference/tracing-integrations/)).
+`@apo-ai/sdk/otel` sends traces to apo from any application, using standard OpenTelemetry. This is the lower-level tracing layer — you reach for it when you want apo's traces **outside** of an agent-task run (a production service, a background job, a script). Inside an agent-task run you don't need it; the task runner wires tracing up for you (see [Tracing integrations](/reference/tracing-integrations/)).
 
 This module replaced the retired `TraceTracker` custom protocol (removed). It is plain OTel: the official OTLP/HTTP exporter, standard semantic conventions, and a real OTel `Resource`. No custom wire format.
 
 ```typescript
-import { configureApoTelemetry } from "@apo/sdk/otel";
+import { configureApoTelemetry } from "@apo-ai/sdk/otel";
 
 const apo = await configureApoTelemetry({
   takeOwnership: true,
@@ -43,7 +43,7 @@ The returned `ApoTelemetryHandle` carries the `tracer`, the `provider`, and `for
 Creates a root or child span using standard OTel context, runs your function with the span active, and ends it. Child spans created inside inherit the active context — correct nesting for free.
 
 ```typescript
-import { configureApoTelemetry, withApoTrace } from "@apo/sdk/otel";
+import { configureApoTelemetry, withApoTrace } from "@apo-ai/sdk/otel";
 
 const apo = await configureApoTelemetry({
   takeOwnership: true,
@@ -68,7 +68,7 @@ Set attributes using GenAI semantic conventions (`gen_ai.*`) so the backend norm
 For the common observation kinds, the SDK exports typed wrappers. Each starts a span, sets the right `apo.observation.type`, runs your function, and ends the span:
 
 ```typescript
-import { traceTool } from "@apo/sdk/otel";
+import { traceTool } from "@apo-ai/sdk/otel";
 
 const content = await traceTool(
   apo.tracer,
@@ -94,7 +94,7 @@ const content = await traceTool(
 `score(params, config)` records a named score against a specific trace (or a single observation within it). It calls the native score API directly — a score is an apo domain record, not a span. Unlike the trace-context `trace.score(...)` method available inside a task run, this standalone form takes an explicit `traceId` and the backend `config` (endpoint + auth headers), since it has no ambient run to attach to.
 
 ```typescript
-import { score, buildApoAuthHeaders } from "@apo/sdk/otel";
+import { score, buildApoAuthHeaders } from "@apo-ai/sdk/otel";
 
 await score(
   { traceId: "abc123...", name: "accuracy", value: 0.92, dataType: "NUMERIC", source: "EVAL" },
@@ -109,7 +109,7 @@ Pass `observationId` in `params` instead of `traceId` to attach the score to a s
 If your application already owns an OTel provider, do **not** call `configureApoTelemetry` — it claims ownership. Instead, construct apo's processor and add it to your provider's `spanProcessors` array:
 
 ```typescript
-import { createApoSpanProcessor } from "@apo/sdk/otel";
+import { createApoSpanProcessor } from "@apo-ai/sdk/otel";
 
 const processor = createApoSpanProcessor({
   endpoint: "https://apo.internal.company.com/api/public/otel/v1/traces",
@@ -150,7 +150,7 @@ secure Server Profile.
 
 ## Errors
 
-- `ClientError` / `ConfigurationError` — raised for client setup problems (missing endpoint, invalid keys). `ClientErrorCode` enumerates the cases. Exported from `@apo/sdk`.
+- `ClientError` / `ConfigurationError` — raised for client setup problems (missing endpoint, invalid keys). `ClientErrorCode` enumerates the cases. Exported from `@apo-ai/sdk`.
 
 ## See also
 

@@ -15,7 +15,7 @@ import { RECEIVED_PREVIEW_CHARS, previewString } from "./runs-truncate.ts";
  *
  * Kept in sync with the SDK's copy in `packages/sdk/src/agent-task/run/aggregate.ts`.
  * The CLI can't import the SDK's constant directly because vitest resolves
- * `@apo/sdk/agent-task` without the `development` export condition (no source
+ * `@apo-ai/sdk/agent-task` without the `development` export condition (no source
  * build in tests), so the value would be `undefined` at test time.
  */
 export const NO_CHECKS_REGISTERED_MESSAGE =

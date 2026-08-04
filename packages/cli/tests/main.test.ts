@@ -21,7 +21,7 @@ describe("main", () => {
 
     console.log = origLog;
     expect(code).toBe(0);
-    expect(logs[0]).toMatch(/^apo 0\.1\.0$/);
+    expect(logs[0]).toMatch(/^apo \d+\.\d+\.\d+$/);
   });
 
   it("shows help with --help flag", async () => {

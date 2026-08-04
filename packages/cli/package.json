@@ -1,21 +1,50 @@
 {
-  "name": "@apo/cli",
-  "version": "0.1.0",
+  "name": "@apo-ai/cli",
+  "version": "0.1.2",
+  "description": "Command-line interface for the Apo agent testing and observability platform",
   "type": "module",
   "bin": {
-    "apo": "./src/main.ts"
+    "apo": "./dist/main.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/samikuikka/apo.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/samikuikka/apo#readme",
+  "bugs": {
+    "url": "https://github.com/samikuikka/apo/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "build": "tsup",
+    "prepack": "pnpm run build",
+    "package:check": "node scripts/verify-package.mjs",
     "apo": "node --experimental-strip-types --conditions development src/main.ts",
     "test": "vitest run",
+    "test:unit": "vitest run --exclude 'tests/connect-scene.test.ts'",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@apo/sdk": "github:samikuikka/apo#path:packages/sdk"
+    "@apo-ai/sdk": "^0.2.1"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "publint": "^0.3.22",
+    "tsup": "^8.5.1",
     "typescript": "^5.0.0",
     "vitest": "^4.1.9"
   }

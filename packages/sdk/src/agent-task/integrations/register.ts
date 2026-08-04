@@ -7,7 +7,7 @@
  *
  * @example
  * ```ts
- * import { registerApoTracing } from "@apo/sdk/agent-task";
+ * import { registerApoTracing } from "@apo-ai/sdk/agent-task";
  *
  * async startSession(ctx) {
  *   registerApoTracing(); // one line, once

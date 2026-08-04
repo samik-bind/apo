@@ -18,7 +18,7 @@ Flow normalizers are **compatibility adapters**. The `t.*` assertions in a live 
 :::
 
 ```typescript
-import { fromOpenAIMessages, FlowView } from "@apo/sdk/agent-task";
+import { fromOpenAIMessages, FlowView } from "@apo-ai/sdk/agent-task";
 
 // Convert a recorded OpenAI log, then inspect it directly.
 const view = new FlowView(fromOpenAIMessages(yourRecordedMessages));
@@ -29,9 +29,9 @@ view.failedActions;     // 0
 
 | Normalizer | Input | Source |
 |---|---|---|
-| `fromOpenAIMessages` | OpenAI chat-completions message log | `@apo/sdk/agent-task` |
-| `fromAnthropicMessages` | Anthropic messages API content blocks | `@apo/sdk/agent-task` |
-| `fromAISDK` | Vercel AI SDK `generateText` / `streamText` result | `@apo/sdk/agent-task` |
+| `fromOpenAIMessages` | OpenAI chat-completions message log | `@apo-ai/sdk/agent-task` |
+| `fromAnthropicMessages` | Anthropic messages API content blocks | `@apo-ai/sdk/agent-task` |
+| `fromAISDK` | Vercel AI SDK `generateText` / `streamText` result | `@apo-ai/sdk/agent-task` |
 
 See the [Flow normalizers](/reference/flow-normalizers/) for signatures.
 

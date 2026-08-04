@@ -18,7 +18,7 @@ The simplest path. The Vercel AI SDK emits standard `gen_ai.*` OpenTelemetry spa
 ```typescript
 import { generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
-import { registerApoTracing } from "@apo/sdk/agent-task";
+import { registerApoTracing } from "@apo-ai/sdk/agent-task";
 
 // Register once at module load — idempotent.
 await registerApoTracing();
@@ -58,7 +58,7 @@ For Anthropic, swap the provider: import `createAnthropic` from `@ai-sdk/anthrop
 The same `registerApoTracing()` call works for **any** SDK that emits OpenTelemetry GenAI spans — the OpenAI Agents SDK, Claude Agent SDK, LangChain with OTel enabled, etc. You don't need a per-SDK wrapper.
 
 ```typescript
-import { registerApoTracing, withApoRun } from "@apo/sdk/agent-task";
+import { registerApoTracing, withApoRun } from "@apo-ai/sdk/agent-task";
 
 await registerApoTracing(); // one line, once
 
@@ -108,7 +108,7 @@ The `ApoSpanProcessor` is global — it doesn't inherently know which run a span
 
 ```typescript
 import OpenAI from "openai";
-import { createApoOpenAI } from "@apo/sdk/agent-task";
+import { createApoOpenAI } from "@apo-ai/sdk/agent-task";
 
 async sendUserTurn(turn, { trace, parentSpanId }) {
   const client = createApoOpenAI(
@@ -130,7 +130,7 @@ The wrapper returns a Proxy-wrapped client — every method works exactly as bef
 
 ```typescript
 import Anthropic from "@anthropic-ai/sdk";
-import { createApoAnthropic } from "@apo/sdk/agent-task";
+import { createApoAnthropic } from "@apo-ai/sdk/agent-task";
 
 async sendUserTurn(turn, { trace, parentSpanId }) {
   const client = createApoAnthropic(
@@ -192,11 +192,11 @@ Available primitives on `AgentTaskTraceContext`:
 | `trace.score(params)` | Attaches a named score to the run. |
 | `trace.createSpan(opts)` / `trace.endSpan(id, params)` | Low-level: create and end a span by hand. Use `observation_type: "TOOL"` or `"GENERATION"` for the Flow to pick it up. |
 
-For tracing **outside** a task run (a standalone service or script that sends OTel to apo directly), see [Standalone OTel tracing](/reference/tracing/) — the `@apo/sdk/otel` module's `configureApoTelemetry` / `withApoTrace` path.
+For tracing **outside** a task run (a standalone service or script that sends OTel to apo directly), see [Standalone OTel tracing](/reference/tracing/) — the `@apo-ai/sdk/otel` module's `configureApoTelemetry` / `withApoTrace` path.
 
 ## See also
 
 - [Adapters](/concepts/adapters/) — where `sendUserTurn` and the trace context live.
 - [Assertions API](/reference/assertions/) — what `t.calledTool` and friends read from the run's trace projection.
 - [Task API](/reference/task/) — the `task()`, `turn()`, `test()` calls.
-- [Standalone OTel tracing](/reference/tracing/) — the `@apo/sdk/otel` module.
+- [Standalone OTel tracing](/reference/tracing/) — the `@apo-ai/sdk/otel` module.

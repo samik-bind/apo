@@ -24,15 +24,15 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages/sdk/package.json ./packages/sdk/package.json
 COPY packages/cli/package.json ./packages/cli/package.json
 COPY apps/dashboard/package.json ./apps/dashboard/package.json
-RUN npm install -g pnpm && pnpm install --frozen-lockfile --filter @apo/sdk...
+RUN npm install -g pnpm && pnpm install --frozen-lockfile --filter @apo-ai/sdk...
 
 # Copy SDK source, build its published entry points for task imports, then
 # build the standalone runner. The demo task package resolves
-# `@apo/sdk/agent-task` through the package's default `dist` export; building
+# `@apo-ai/sdk/agent-task` through the package's default `dist` export; building
 # only runner.mjs leaves that export dangling inside the backend image.
 COPY packages/sdk/ ./packages/sdk/
-RUN pnpm --filter @apo/sdk build \
-    && pnpm --filter @apo/sdk build:agent-task-runtime
+RUN pnpm --filter @apo-ai/sdk build \
+    && pnpm --filter @apo-ai/sdk build:agent-task-runtime
 
 # ---- Python builder: compile C extensions, install deps ----
 FROM python:3.13-slim AS builder
@@ -115,7 +115,7 @@ COPY apps/example-service/app/lib/agent /app/apps/example-service/app/lib/agent
 
 # Make the demo task tree self-contained so its tasks can run without the
 # monorepo's node_modules. Demo files import:
-#   - @apo/sdk/agent-task  (install the locally built SDK package)
+#   - @apo-ai/sdk/agent-task  (install the locally built SDK package)
 #   - zod, ai, @ai-sdk/openai (real npm deps the demo adapters use)
 # Installing these here (rather than relying on the task-dependency installer)
 # bakes them into the image so first-run latency is zero and there's no
@@ -141,12 +141,9 @@ RUN cd /app/apps/example-service/e2e/agent-task-demo \
 # Create every named-volume mountpoint BEFORE the chown below. Docker seeds a
 # named volume's ownership from the image only when the mountpoint dir exists
 # at build time; a missing mountpoint is created root-owned at runtime and the
-# non-root backend (USER appuser) can never write into it. This bit the bundled
-# executor bootstrap token in issue #38 (executor restart-loops because the
-# backend couldn't write /var/lib/apo/executor-bootstrap).
+# non-root backend (USER appuser) can never write into it.
 RUN mkdir -p /app/data \
         /var/lib/apo/task-sources \
-        /var/lib/apo/executor-bootstrap \
     && chown -R appuser:appuser /app/data /app/agent-task-runtime /app/apps /var/lib/apo
 
 # Pin the runtime location so the backend status probe and the task runner

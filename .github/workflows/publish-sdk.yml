@@ -1,0 +1,115 @@
+name: Publish SDK
+
+# Releases the @apo-ai/sdk npm package. Decoupled from the Docker release
+# workflow (.github/workflows/release.yml, triggered by `v*` tags): SDK
+# versions follow their own cadence under `sdk-v*` tags.
+#
+# Authentication is OIDC trusted publishing only — no long-lived npm
+# credential is stored as a GitHub secret. The trusted publisher
+# (repo `samikuikka/apo`, workflow `publish-sdk.yml`, environment
+# `npm-sdk-release`) must be configured once on the npm side by a
+# maintainer with publishing rights to the `apo` scope.
+
+on:
+  push:
+    tags:
+      - "sdk-v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish @apo-ai/sdk
+    runs-on: ubuntu-latest
+    environment: npm-sdk-release
+    defaults:
+      run:
+        working-directory: packages/sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.3.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install npm (trusted-publishing-aware)
+        # npm >=11.5.1 understands the OIDC exchange used by trusted publishing.
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify tag matches package version
+        # The Git tag must be exactly `sdk-v<packages/sdk/package.json version>`.
+        # Any mismatch is a hard stop — we never publish a tarball whose
+        # reported version disagrees with the immutable tag.
+        run: |
+          set -euo pipefail
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF#refs/tags/sdk-v}"
+          echo "package version: $PKG_VERSION"
+          echo "tag version:     $TAG_VERSION"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag sdk-v$TAG_VERSION does not match packages/sdk/package.json version $PKG_VERSION"
+            exit 1
+          fi
+
+      - name: SDK tests
+        run: pnpm --filter @apo-ai/sdk test
+
+      - name: SDK typecheck
+        run: pnpm --filter @apo-ai/sdk typecheck
+
+      - name: Clean consumer package gate
+        run: pnpm --filter @apo-ai/sdk package:check
+
+      - name: Build release tarball
+        # `pnpm pack` is the only correct artifact source — it applies the
+        # publishConfig rewrite (strips `development` conditions, locks the
+        # six dist-only exports). We pack into a fresh dir to guarantee no
+        # stale local tarball is reused. Do NOT capture pnpm's stdout into
+        # $GITHUB_ENV — it carries ANSI color codes that the file command
+        # rejects. Resolve the tarball path from disk instead.
+        working-directory: .
+        run: |
+          set -euo pipefail
+          rm -rf release
+          mkdir -p release
+          pnpm --filter @apo-ai/sdk pack --pack-destination ./release
+          TARBALL_PATH="$(realpath release/*.tgz)"
+          echo "TARBALL_PATH=$TARBALL_PATH" >> "$GITHUB_ENV"
+          echo "Packed $TARBALL_PATH"
+
+      - name: Publish to npm (OIDC, no token)
+        # Trusted publishing exchanges the GitHub OIDC JWT for short-lived
+        # npm credentials. There is no NODE_AUTH_TOKEN and no NPM_TOKEN.
+        env:
+          TARBALL: ${{ env.TARBALL_PATH }}
+        run: |
+          set -euo pipefail
+          npm publish --access public --provenance "$TARBALL"
+
+      - name: Report publication
+        if: success()
+        working-directory: .
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/sdk/package.json').version")
+          {
+            echo "## @apo-ai/sdk published"
+            echo ""
+            echo "- **Package**: [\`@apo-ai/sdk@${PKG_VERSION}\`](https://www.npmjs.com/package/@apo-ai/sdk/v/${PKG_VERSION})"
+            echo "- **Tag**: \`$GITHUB_REF_NAME\`"
+            echo "- **Tarball**: \`${TARBALL_PATH}\`"
+            echo "- **Auth**: GitHub OIDC trusted publishing (no \`NPM_TOKEN\` secret)"
+          } >> "$GITHUB_STEP_SUMMARY"

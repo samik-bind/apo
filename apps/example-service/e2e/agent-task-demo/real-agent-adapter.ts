@@ -12,7 +12,7 @@
  * Tracing is automatic via `registerApoTracing()` + `handleChat`'s
  * `experimental_telemetry` (same process).
  */
-import { defineAdapter, registerApoTracing } from "@apo/sdk/agent-task";
+import { defineAdapter, registerApoTracing } from "@apo-ai/sdk/agent-task";
 import { handleChat, type ChatRequest } from "../../app/lib/agent/service.ts";
 import type { AgentState } from "./agent/types.ts";
 import { loadFiles } from "./lib/files.ts";
@@ -40,7 +40,7 @@ export const realAgentAdapter = defineAdapter({
     const state = (ctx.state ?? EMPTY_STATE) as AgentState;
     // report the same resolved model the agent uses (service.ts
     // getModel() reads OPENROUTER_MODEL with the same default).
-    const model = process.env.OPENROUTER_MODEL ?? "google/gemini-2.5-flash-lite";
+    const model = process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash-0731";
     return {
       runConfiguration: { model },
       async sendUserTurn(turn: unknown) {

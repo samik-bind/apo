@@ -115,7 +115,7 @@ These variables are read **only** by the CLI for the [`traces import langfuse`](
 | `LANGFUSE_SECRET_KEY` | yes | Langfuse project secret key for the source trace. |
 | `LANGFUSE_HOST` | no | Source Langfuse deployment (default `https://cloud.langfuse.com`). Overrideable with `--langfuse-host`. |
 
-## SDK (`@apo/sdk`)
+## SDK (`@apo-ai/sdk`)
 
 The tracing SDK reads these environment variables:
 

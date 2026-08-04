@@ -10,7 +10,7 @@ The CLI isn't the only way to run a task. The SDK exposes the same runner the CL
 Run a task from its directory through the full lifecycle (adapter → turns → tests → result). `runTask` loads the task for you — pass the folder path, not a loaded task object.
 
 ```typescript
-import { runTask } from "@apo/sdk/agent-task";
+import { runTask } from "@apo-ai/sdk/agent-task";
 
 const result = await runTask("./e2e/tasks/extract-parties", {
   judge: { model: "google/gemini-2.5-flash-lite" },
@@ -50,7 +50,7 @@ type RunTaskOptions = {
 Load a `.eval.ts` task definition from a folder path without running it. Returns a `LoadedTask` (the task config + the adapter object) — useful when you want to inspect the definition before running.
 
 ```typescript
-import { loadTask } from "@apo/sdk/agent-task";
+import { loadTask } from "@apo-ai/sdk/agent-task";
 
 const loaded = await loadTask("./e2e/tasks/extract-parties");
 console.log(loaded.task.id, loaded.adapter.name);
@@ -63,7 +63,7 @@ Note: `runTask(dir)` calls `loadTask` internally, so you don't need to load firs
 Find task directories under a root path. This is the same discovery the CLI uses. Returns a sorted array of directory paths.
 
 ```typescript
-import { discoverAgentTaskDirs, runTask } from "@apo/sdk/agent-task";
+import { discoverAgentTaskDirs, runTask } from "@apo-ai/sdk/agent-task";
 
 const dirs = discoverAgentTaskDirs("./e2e/tasks");  // synchronous
 for (const dir of dirs) {
@@ -77,7 +77,7 @@ for (const dir of dirs) {
 The thinnest wrapper: load + run in one call. The judge model is resolved from environment variables (`OPENROUTER_MODEL` / `OPENAI_MODEL`), not from options — this is the entry point an Executor subprocess uses.
 
 ```typescript
-import { runTaskDir } from "@apo/sdk/agent-task";
+import { runTaskDir } from "@apo-ai/sdk/agent-task";
 
 const summary = await runTaskDir("./e2e/tasks/extract-parties");
 console.log(summary.pass ? "✓" : "✗");

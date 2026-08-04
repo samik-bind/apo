@@ -75,7 +75,7 @@ export type DescribeRegistration = {
 
 type RegisteredCheck = { id: string; fn: CheckFn; group_id?: string; group_name?: string };
 
-const REGISTRY_KEY = Symbol.for("@apo/sdk/agent-task/check-registry");
+const REGISTRY_KEY = Symbol.for("@apo-ai/sdk/agent-task/check-registry");
 const registryStore = globalThis as typeof globalThis & {
   [key: symbol]: unknown;
 };
@@ -85,7 +85,7 @@ const registry = (registryStore[REGISTRY_KEY] ??= []) as RegisteredCheck[];
 // Same Symbol.for globalThis pattern as the check registry so registrations
 // survive module re-imports. `currentGroupId` is the slot describe() pushes
 // while its callback runs; defineCheck reads it to stamp member checks.
-const GROUP_REGISTRY_KEY = Symbol.for("@apo/sdk/agent-task/group-registry");
+const GROUP_REGISTRY_KEY = Symbol.for("@apo-ai/sdk/agent-task/group-registry");
 const groupRegistry = (registryStore[GROUP_REGISTRY_KEY] ??= []) as CheckGroup[];
 let currentGroupId: string | null = null;
 let currentGroupName: string | null = null;

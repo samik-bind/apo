@@ -57,7 +57,7 @@ export interface EnvConfig {
  *
  * @example
  * ```ts
- * import { readConfig } from "@apo/sdk";
+ * import { readConfig } from "@apo-ai/sdk";
  *
  * const config = readConfig();
  * console.log(config.endpoint); // "http://localhost:8000" or env value

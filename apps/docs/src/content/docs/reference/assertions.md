@@ -170,10 +170,10 @@ Absent fields inherit from the run's judge config (`runTask({ judge })`, or the 
 
 ## Matchers
 
-Imported from `@apo/sdk/agent-task` and passed to `t.check(value, matcher)`:
+Imported from `@apo-ai/sdk/agent-task` and passed to `t.check(value, matcher)`:
 
 ```typescript title="my-task.eval.ts"
-import { includes, equals, matches, satisfies, similarity } from "@apo/sdk/agent-task";
+import { includes, equals, matches, satisfies, similarity } from "@apo-ai/sdk/agent-task";
 ```
 
 | Matcher | Signature | Passes when |

@@ -20,7 +20,7 @@ import {
   includes,
   satisfies,
   filePaths,
-} from "@apo/sdk/agent-task";
+} from "@apo-ai/sdk/agent-task";
 import { realAgentAdapter } from "../../../../real-agent-adapter.ts";
 import {
   MAX_TURNS,

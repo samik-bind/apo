@@ -6,7 +6,7 @@
  *
  * NOTE on the method list: this is a *copy* of the SDK's
  * ``TEST_METHOD_NAMES`` (``packages/sdk/src/agent-task/checks/t.ts``), not an
- * import — ``@apo/sdk/agent-task`` is a server-runtime entry (runTask,
+ * import — ``@apo-ai/sdk/agent-task`` is a server-runtime entry (runTask,
  * callJudge, adapters, …) that must never enter the browser bundle. Keeping
  * the two lists in sync is enforced by the test in
  * ``__tests__/t-api-highlight.test.ts``, which compares against the canonical

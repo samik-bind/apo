@@ -23,14 +23,14 @@ If your agent *can* run live through apo, use an [adapter](/concepts/adapters/) 
 
 ## The three converters
 
-All three take their SDK's native message/result shape and return a `Flow`. Import them from `@apo/sdk/agent-task`:
+All three take their SDK's native message/result shape and return a `Flow`. Import them from `@apo-ai/sdk/agent-task`:
 
 ### `fromOpenAIMessages(messages)`
 
 Converts a standard OpenAI chat-completions log. Extracts user/assistant messages and tool calls, resolving tool outputs from the matching `role: "tool"` messages.
 
 ```typescript
-import { fromOpenAIMessages } from "@apo/sdk/agent-task";
+import { fromOpenAIMessages } from "@apo-ai/sdk/agent-task";
 
 const flow = fromOpenAIMessages([
   { role: "user", content: "Summarize this contract" },
@@ -47,7 +47,7 @@ const flow = fromOpenAIMessages([
 Converts Anthropic content blocks (`text`, `tool_use`, `tool_result`), resolving tool outputs from matching `tool_result` blocks.
 
 ```typescript
-import { fromAnthropicMessages } from "@apo/sdk/agent-task";
+import { fromAnthropicMessages } from "@apo-ai/sdk/agent-task";
 
 const flow = fromAnthropicMessages([
   { role: "user", content: [{ type: "text", text: "Summarize this contract" }] },
@@ -67,7 +67,7 @@ Converts a Vercel AI SDK `generateText` / `streamText` result. Each step's text 
 
 ```typescript
 import { generateText } from "ai";
-import { fromAISDK } from "@apo/sdk/agent-task";
+import { fromAISDK } from "@apo-ai/sdk/agent-task";
 
 const result = await generateText({
   model: openai("gpt-4o"),
@@ -84,7 +84,7 @@ const flow = fromAISDK(result);
 Once you have a `Flow`, inspect it with `FlowView` — a typed read-model over the recording. Construct one and read its derived getters:
 
 ```typescript
-import { FlowView } from "@apo/sdk/agent-task";
+import { FlowView } from "@apo-ai/sdk/agent-task";
 
 const view = new FlowView(flow);
 

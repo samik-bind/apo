@@ -129,7 +129,7 @@ there when the host owns telemetry:
 
 ```typescript
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
-import { createApoSpanProcessor } from "@apo/sdk/otel";
+import { createApoSpanProcessor } from "@apo-ai/sdk/otel";
 
 const provider = new BasicTracerProvider({
   spanProcessors: [createApoSpanProcessor({
@@ -171,7 +171,7 @@ Register the OTel processor once at startup, then enable telemetry on each call:
 ```typescript
 import { generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
-import { registerApoTracing } from "@apo/sdk/agent-task";
+import { registerApoTracing } from "@apo-ai/sdk/agent-task";
 
 // Register once — reads APO_OTLP_ENDPOINT, APO_PUBLIC_KEY, etc. from env.
 await registerApoTracing();

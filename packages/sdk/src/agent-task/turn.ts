@@ -15,7 +15,7 @@ export type TurnFn<TUserTurn = unknown> = (
   ctx: TurnContext,
 ) => Promise<TUserTurn | null> | TUserTurn | null;
 
-const TURN_KEY = Symbol.for("@apo/sdk/agent-task/task-turn");
+const TURN_KEY = Symbol.for("@apo-ai/sdk/agent-task/task-turn");
 
 export function turn<TUserTurn>(fn: TurnFn<TUserTurn>): void {
   (globalThis as Record<symbol, unknown>)[TURN_KEY] = fn;

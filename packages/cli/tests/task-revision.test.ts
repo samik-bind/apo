@@ -6,14 +6,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { walkWorkspaceForRevision, TaskRevisionWalkError, DEFAULT_REVISION_LIMITS } from "../src/lib/task-revision.ts";
 // Contract requirement: import the canonicalizer through the package entry
 // point, not an internal path.
-import { buildManifest, contentSha256 } from "@apo/sdk/agent-task";
+import { buildManifest, contentSha256 } from "@apo-ai/sdk/agent-task";
 
 /**
  * CLI filesystem walker for a caller workspace.
  *
  * Walks a source root, applies the required exclusions and limits, reads each
  * surviving regular/executable file, and feeds the result to the shared
- * canonicalizer from @apo/sdk/agent-task. The walker never maintains a second
+ * canonicalizer from @apo-ai/sdk/agent-task. The walker never maintains a second
  * digest algorithm and never follows links.
  */
 

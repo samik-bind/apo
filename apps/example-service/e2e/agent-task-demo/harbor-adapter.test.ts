@@ -16,7 +16,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { join } from "node:path";
-import { runTaskDir } from "@apo/sdk/agent-task";
+import { runTaskDir } from "@apo-ai/sdk/agent-task";
 
 const DEMO_ROOT = import.meta.dirname;
 const TASK_DIR = join(

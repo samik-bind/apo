@@ -19,7 +19,7 @@ import {
   includes,
   satisfies,
   filePaths,
-} from "@apo/sdk/agent-task";
+} from "@apo-ai/sdk/agent-task";
 import { claudeAdapter } from "../../../claude-adapter.ts";
 import {
   MAX_DURATION_MS,

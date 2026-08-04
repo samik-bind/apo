@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractCheckBlock } from "../extract-check-block";
 
-const source = `import { test } from "@apo/sdk/agent-task";
+const source = `import { test } from "@apo-ai/sdk/agent-task";
 
 test("quality", async (t, { deliverables }) => {
   t.calledTool("read_file");
@@ -32,7 +32,7 @@ describe("extractCheckBlock", () => {
   });
 
   it("extracts a check registered via a typed alias (const check = test<T>)", () => {
-    const aliasedSource = `import { test } from "@apo/sdk/agent-task";
+    const aliasedSource = `import { test } from "@apo-ai/sdk/agent-task";
 
 const check = test<RealAgentDeliverables>;
 
