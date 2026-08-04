@@ -459,14 +459,12 @@ function SelectionActionBar({
   selectedCount,
   runRunning,
   isDemoProject,
-  connectedState,
   onClear,
   onRun,
 }: {
   selectedCount: number;
   runRunning: boolean;
   isDemoProject: boolean;
-  connectedState: ConnectedEnvironmentState | null;
   onClear: () => void;
   onRun: () => void;
 }) {
@@ -481,10 +479,6 @@ function SelectionActionBar({
             task{selectedCount > 1 ? "s" : ""} selected
           </span>
         </div>
-        <div className="h-5 w-px bg-border" />
-        <span className="text-[12px] text-muted-foreground">in your connected environment</span>
-        {connectedState && <ConnectedEnvironmentStatusView state={connectedState} />}
-        <div className="h-5 w-px bg-border" />
         <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[12px] font-normal text-muted-foreground hover:text-foreground/70" onClick={onClear}>
           Clear
         </Button>
@@ -722,7 +716,6 @@ export function AgentTasksClient({
           selectedCount={selected.size}
           runRunning={runState.running}
           isDemoProject={isDemoProject}
-          connectedState={connectedState}
           onClear={() => setSelected(new Set())}
           onRun={handleRun}
         />
