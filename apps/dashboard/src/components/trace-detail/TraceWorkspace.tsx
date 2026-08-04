@@ -399,6 +399,7 @@ function TraceNavigation({
   prevId,
   nextId,
   readOnly = false,
+  onCollapse,
 }: {
   run: TraceDetail;
   isLive: boolean;
@@ -412,6 +413,7 @@ function TraceNavigation({
   prevId: string | null;
   nextId: string | null;
   readOnly?: boolean;
+  onCollapse?: () => void;
 }) {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
@@ -427,8 +429,19 @@ function TraceNavigation({
           nextId={nextId}
           readOnly={readOnly}
         />
-        <div className="px-2.5 pb-2 pt-0.5">
+        <div className="flex items-center px-2.5 pb-2 pt-0.5">
           <TraceNavTabs run={run} activeView={activeView} onActiveViewChange={onActiveViewChange} />
+          {onCollapse && (
+            <button
+              type="button"
+              onClick={onCollapse}
+              aria-label="Collapse tree panel"
+              title="Collapse tree panel"
+              className="ml-auto flex items-center text-muted-foreground hover:text-foreground"
+            >
+              <PanelLeft className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -625,6 +638,7 @@ export function TraceWorkspace({
                   prevId={prevId}
                   nextId={nextId}
                   readOnly={readOnly}
+                  onCollapse={toggleCollapse}
                 />
               </div>
             )}
