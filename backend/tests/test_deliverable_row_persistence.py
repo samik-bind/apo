@@ -319,3 +319,98 @@ class TestResultReplaySkipsDeliverablePersistence:
                 run_configuration=None,
             )
             assert precheck_result_replay(s, lease=lease, body=body) is True
+
+
+class TestProtocolV2UploadToDownload:
+    """SPEC-172 step 8: full protocol-v2 upload → result → manifest → body."""
+
+    def test_full_flow_artifact_upload_then_result_then_download(self, isolated, monkeypatch, tmp_path):
+        import hashlib
+
+        monkeypatch.setenv("APO_ARTIFACT_DIR", str(tmp_path))
+        engine = isolated
+        with Session(engine) as s:
+            jwt = _seed_leased_attempt(s)
+        c = _client(engine)
+        artifact_bytes = b"PK\x03\x04fake-docx-content-for-integration-test"
+        artifact_sha = hashlib.sha256(artifact_bytes).hexdigest()
+
+        try:
+            # 1. POST artifact upload intent.
+            intent_resp = c.post(
+                "/v1/agent-task-runs/run-deliv/artifact-uploads",
+                headers={"Authorization": f"Bearer {jwt}"},
+                json={
+                    "name": "report",
+                    "display_filename": "report.docx",
+                    "media_type": "application/octet-stream",
+                    "size_bytes": len(artifact_bytes),
+                    "sha256": artifact_sha,
+                },
+            )
+            assert intent_resp.status_code == 201, intent_resp.text
+            upload_id = intent_resp.json()["id"]
+
+            # 2. PUT artifact bytes.
+            put_resp = c.put(
+                f"/v1/agent-task-artifact-uploads/{upload_id}",
+                content=artifact_bytes,
+                headers={
+                    "Authorization": f"Bearer {jwt}",
+                    "Content-Type": "application/octet-stream",
+                },
+            )
+            assert put_resp.status_code == 200, put_resp.text
+
+            # 3. POST JSON-only result (artifact is ready, no collision).
+            result_resp = c.post(
+                "/v1/executor-protocol/v2/attempts/att-deliv/result",
+                headers={"Authorization": f"Bearer {jwt}"},
+                json={
+                    "completion_id": "comp-e2e",
+                    "pass_result": True,
+                    "deliverables": {"score": {"value": 0.95}},
+                },
+            )
+            assert result_resp.status_code == 200, result_resp.text
+
+            # 4. Verify the deliverable manifest via DB.
+            with Session(engine) as s:
+                from apo.services.agent_task_deliverables import build_deliverable_manifest
+                manifest = build_deliverable_manifest(s, "run-deliv")
+                names = {item.name for item in manifest}
+                assert "report" in names
+                assert "score" in names
+
+                # 5. Verify the artifact body is byte-for-byte identical.
+                from apo.services.agent_task_deliverables import load_deliverable_for_download
+                row = load_deliverable_for_download(
+                    s, project="p1", deliverable_id=upload_id,
+                )
+                assert row is not None
+                assert row.kind == "artifact"
+                assert row.status == "ready"
+                assert row.sha256 == artifact_sha
+                assert row.size_bytes == len(artifact_bytes)
+
+                # Read the stored bytes back through the store.
+                from apo.services.artifact_stores.registry import get_store
+                store = get_store(row.storage_backend)
+                import asyncio
+
+                async def _read_body():
+                    chunks = []
+                    async for chunk in store.open(row.storage_key):
+                        chunks.append(chunk)
+                    return b"".join(chunks)
+
+                downloaded = asyncio.run(_read_body())
+                assert downloaded == artifact_bytes
+
+            # 6. Verify the task run is terminal.
+            with Session(engine) as s:
+                run = s.get(AgentTaskRunDB, "run-deliv")
+                assert run.status == "passed"
+                assert run.deliverables_json is None
+        finally:
+            app.dependency_overrides.clear()
