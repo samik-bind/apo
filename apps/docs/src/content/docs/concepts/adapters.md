@@ -86,14 +86,13 @@ Return it from `startSession` as `runConfiguration`. The same resolved object th
 
 ```typescript
 async startSession(ctx) {
-  // Resolve once, from the same source the agent reads.
-  const model = process.env.MY_AGENT_MODEL ?? "claude-opus-4.1";
-  const effort = process.env.MY_AGENT_EFFORT ?? "high";
+  // Resolve once. `effort` is absent unless this model/provider applies it.
+  const { model, effort } = resolveAgentConfiguration();
 
-  const agent = createAgent({ model, effort, /* … */ });
+  const agent = createAgent({ model, ...(effort ? { effort } : {}), /* … */ });
 
   return {
-    runConfiguration: { model, effort },
+    runConfiguration: { model, ...(effort ? { effort } : {}) },
     async sendUserTurn(turn) {
       return { response: await agent.send(turn) };
     },
@@ -102,8 +101,16 @@ async startSession(ctx) {
 ```
 
 - `model` is required when you report a configuration; `effort` is optional.
+- Include `effort` only when the selected model/provider has an effective effort control and the runtime applied that value. A provider accepting but ignoring an effort parameter does not count. Neither does a default from your adapter's config schema. In both cases, omit `effort`; apo displays `model · —`.
 - Omit `runConfiguration` entirely if your adapter can't truthfully report a single configuration (e.g. a multi-model agent, or a model that changes mid-run). An unreported configuration is shown as `—` — never inferred from the adapter name, env, or trace.
 - apo validates the values (length and character bounds) and fails the run before the first turn if they're malformed.
+
+:::note[Why apo does not infer effort support]
+Model capabilities depend on the provider and route, not only the model name,
+and they change independently of apo. The adapter is the only component that
+knows what the runtime actually applied. Missing effort therefore means “no
+effective effort was reported,” whether the control is unsupported or unknown.
+:::
 
 **Configured vs. observed.** `runConfiguration.model` is what the adapter *intended* to use. The trace's observed model (what the provider actually served, after routing or fallbacks) is a separate value shown as **Observed** on the run. A difference between them is useful evidence, not an error.
 

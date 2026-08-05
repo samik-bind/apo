@@ -137,6 +137,10 @@ The session returned by `startSession` has one required method. This is where yo
 
 ```typescript
 type AdapterSession = {
+  runConfiguration?: {
+    model: string;
+    effort?: string;
+  };
   sendUserTurn: (
     turn: unknown,
     context: {
@@ -150,6 +154,12 @@ type AdapterSession = {
 ```
 
 apo calls `sendUserTurn` once per turn. Inside it, you invoke your real agent — the LLM, the tools, the same code path you ship. **Thread the `trace` and `parentSpanId` into your agent call**, or tool-call assertions (`t.calledTool`, `t.toolOrder`) won't have anything to read. See [Tracing integrations](/reference/tracing-integrations/) for the wrappers that do this automatically.
+
+`runConfiguration` is optional descriptive metadata. `model` is the exact
+runtime model identifier. Include `effort` only when the selected model/provider
+actually applies that control; omit defaults or accepted-but-ignored values.
+See [Report the run's model and effort](/concepts/adapters/#report-the-runs-model-and-effort)
+for the reporting rules and examples.
 
 ## Context fields
 
