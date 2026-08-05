@@ -228,14 +228,14 @@ export interface AgentTaskBatchRunSummary {
   trigger: AgentTaskRunTrigger | null;
   trace_persistence_status: TracePersistenceStatus;
   trace_error_message: string | null;
+  total_cost: number | null;
+  total_tokens: number | null;
   /** derived configuration summary (uniform/mixed/partial/unknown). */
   configuration: AgentTaskBatchRunConfigurationSummary;
 }
 
 export interface AgentTaskBatchRunDetail extends AgentTaskBatchRunSummary {
   run_metadata: Record<string, unknown> | null;
-  total_cost: number | null;
-  total_tokens: number | null;
   cancelled_tasks: number;
   task_runs: AgentTaskRunSummary[];
   failure_breakdown: FailureBreakdownItem[];

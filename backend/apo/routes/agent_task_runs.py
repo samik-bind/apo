@@ -649,6 +649,7 @@ async def list_agent_task_batch_runs(
     # Cost + configuration for the page's batches only.
     batch_ids = [br.id for br in batches]
     cost_by_batch: dict[str, float] = {}
+    tokens_by_batch: dict[str, int] = {}
     configuration_by_batch: dict[str, AgentTaskBatchRunConfigurationSummary] = {}
     task_ids_by_batch: dict[str, list[str]] = {}
     if batch_ids:
@@ -658,6 +659,9 @@ async def list_agent_task_batch_runs(
         for tr in all_task_runs:
             cost_by_batch[tr.batch_run_id] = cost_by_batch.get(tr.batch_run_id, 0.0) + (
                 tr.total_cost or 0.0
+            )
+            tokens_by_batch[tr.batch_run_id] = tokens_by_batch.get(tr.batch_run_id, 0) + (
+                tr.total_tokens or 0
             )
         configuration_by_batch = group_batch_configuration_summaries(all_task_runs)
         for batch_id in batch_ids:
@@ -670,6 +674,7 @@ async def list_agent_task_batch_runs(
             to_batch_run_summary(
                 br,
                 cost_by_batch.get(br.id),
+                tokens_by_batch.get(br.id),
                 configuration=configuration_by_batch.get(br.id),
                 derived_task_ids=task_ids_by_batch.get(br.id, ()),
             )

@@ -158,6 +158,7 @@ def child_task_ids(task_runs: Sequence[AgentTaskRunDB]) -> list[str]:
 def to_batch_run_summary(
     br: AgentTaskBatchRunDB,
     total_cost: float | None = None,
+    total_tokens: int | None = None,
     configuration: AgentTaskBatchRunConfigurationSummary | None = None,
     derived_task_ids: Sequence[str] = (),
 ) -> AgentTaskBatchRunSummary:
@@ -189,6 +190,7 @@ def to_batch_run_summary(
         trace_persistence_status=br.trace_persistence_status,
         trace_error_message=br.trace_error_message,
         total_cost=total_cost,
+        total_tokens=total_tokens,
         created_at=br.created_at,
         started_at=br.started_at,
         completed_at=br.completed_at,

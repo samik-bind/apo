@@ -601,6 +601,7 @@ class AgentTaskBatchRunSummary(SQLModel):
     trace_persistence_status: str = "pending"
     trace_error_message: str | None = None
     total_cost: float | None = None
+    total_tokens: int | None = None
     created_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None

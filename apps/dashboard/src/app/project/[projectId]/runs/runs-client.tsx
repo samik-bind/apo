@@ -38,7 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { parseUTC, formatCostMicro } from "@/lib/format";
+import { parseUTC, formatCostMicro, formatTokenTotal } from "@/lib/format";
 import { formatBatchExecution, formatRunExecution, formatRunExecutionFull } from "@/lib/run-configuration";
 
 import { useProjectId } from "@/lib/project-router";
@@ -622,6 +622,16 @@ function RunsRow({
             <Clock className="h-3 w-3 text-muted-foreground/50" />
             {formatDuration(batch.started_at, batch.completed_at)}
           </div>
+          {batch.total_cost != null && batch.total_cost > 0 && (
+            <div className="mt-1 font-mono text-[11px] tabular-nums text-muted-foreground">
+              {formatCostMicro(batch.total_cost)}
+            </div>
+          )}
+          {batch.total_tokens != null && batch.total_tokens > 0 && (
+            <div className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              {formatTokenTotal(batch.total_tokens)}
+            </div>
+          )}
         </TableCell>
 
         <TableCell>
@@ -788,6 +798,11 @@ function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTaskRunSumm
         {run.total_cost != null && run.total_cost > 0 && (
           <div className="mt-1 font-mono text-[11px] tabular-nums text-muted-foreground">
             {formatCostMicro(run.total_cost)}
+          </div>
+        )}
+        {run.total_tokens != null && run.total_tokens > 0 && (
+          <div className="font-mono text-[11px] tabular-nums text-muted-foreground">
+            {formatTokenTotal(run.total_tokens)}
           </div>
         )}
       </TableCell>
