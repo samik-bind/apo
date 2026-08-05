@@ -272,7 +272,7 @@ function terminate(child: ChildProcess): void {
     // ignore — best-effort
   }
   setTimeout(() => {
-    if (child.exitCode !== null && !child.killed) {
+    if (child.exitCode === null) {
       try {
         child.kill("SIGKILL");
       } catch {

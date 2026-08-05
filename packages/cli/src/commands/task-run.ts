@@ -397,7 +397,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
     // render the result so the CLI shows PASS/FAIL + checks,
     // just like the local and backend paths it replaced.
     if (config.json) {
-      console.log(JSON.stringify(summary));
+      console.log(JSON.stringify({ ...summary, deliverables: jsonDeliverables }));
     } else {
       printLocalRunSummary(summary);
     }

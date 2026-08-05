@@ -51,15 +51,15 @@ export function fileArtifact(
   try {
     const lstat = lstatSync(path);
     if (lstat.isSymbolicLink()) {
-      throw new Error(`fileArtifact: '${path}' is a symbolic link, not a regular file`);
+      throw new Error("fileArtifact: path is a symbolic link, not a regular file");
     }
     stat = statSync(path);
   } catch (error) {
-    if (!existsLike(error)) throw error;
-    throw new Error(`fileArtifact: '${path}' is not a regular file`);
+    if (error instanceof Error && error.message.startsWith("fileArtifact:")) throw error;
+    throw new Error("fileArtifact: path is not a regular file or is inaccessible");
   }
   if (!stat.isFile()) {
-    throw new Error(`fileArtifact: '${path}' is not a regular file`);
+    throw new Error("fileArtifact: path is not a regular file");
   }
 
   const displayFilename = options.displayFilename ?? basename(path);
