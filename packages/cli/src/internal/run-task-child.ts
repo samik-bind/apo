@@ -14,7 +14,7 @@
  * the User API key or Executor Credential.
  */
 
-import { runTaskDir } from "@apo-ai/sdk/agent-task";
+import { runTaskDir, persistFileArtifacts, isFileArtifact } from "@apo-ai/sdk/agent-task";
 import { writeSync } from "node:fs";
 
 const taskDir = process.env.APO_CHILD_TASK_DIR;
@@ -32,8 +32,6 @@ interface ChildFailure {
 function writeResult(payload: ChildSuccess | ChildFailure): void {
   try {
     const line = JSON.stringify(payload) + "\n";
-    // fd 3 is inherited from the parent as a writable pipe; if it is missing
-    // the parent will time out and report a runtime failure rather than trust stdout.
     writeSync(resultFd, line);
   } catch {
     // best-effort — the dedicated fd is the contract
@@ -47,13 +45,36 @@ async function main(): Promise<number> {
   }
   try {
     const summary = await runTaskDir(taskDir);
+
+    // SPEC-172: upload file artifacts after checks, before fd-3 result.
+    const deliverables = (summary as { deliverables?: Record<string, unknown> }).deliverables;
+    if (deliverables && Object.values(deliverables).some(isFileArtifact)) {
+      const backendUrl = process.env.APO_BACKEND_URL;
+      const taskRunId = process.env.AGENT_TASK_RUN_ID;
+      const authToken = process.env.APO_AUTH_TOKEN;
+      const prepared = await persistFileArtifacts(deliverables, {
+        taskRunId: taskRunId ?? "",
+        authToken: authToken ?? "",
+        baseUrl: backendUrl ?? "",
+        fetch,
+      });
+      (summary as { deliverables: Record<string, unknown> }).deliverables =
+        prepared.jsonDeliverables;
+    }
+
     writeResult({
       ok: true,
       summary: summary as unknown as Record<string, unknown>,
     });
     return 0;
   } catch (err) {
-    writeResult({ ok: false, error: (err as Error).message || String(err) });
+    const message = (err as Error).message || String(err);
+    // Prefix artifact-persistence errors so the parent maps to failure_kind="driver".
+    const isArtifactError = message.includes("Artifact") && message.includes("uploaded");
+    writeResult({
+      ok: false,
+      error: isArtifactError ? `artifact_persistence: ${message}` : message,
+    });
     return 1;
   }
 }

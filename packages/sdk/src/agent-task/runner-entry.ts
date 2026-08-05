@@ -89,7 +89,6 @@ async function main(): Promise<void> {
     pass: result.result.pass,
     checks: result.result.checks,
     deliverables: recorded.jsonDeliverables,
-    artifacts: recorded.artifactUploads,
     traceRunId: result.traceRunId ?? null,
     // the adapter's resolved model/effort. The executor parses this
     // into the typed run_configuration columns. Absent when the adapter does

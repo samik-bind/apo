@@ -70,6 +70,15 @@ export async function persistFileArtifacts(
   const jsonDeliverables: Record<string, unknown> = {};
   const artifactUploads: DeliverableSummary[] = [];
 
+  // Validate upload context only when at least one FileArtifact exists.
+  // JSON-only recorded runs perform no Artifact HTTP request.
+  const artifactNames = Object.entries(deliverables)
+    .filter(([, v]) => isFileArtifact(v))
+    .map(([name]) => name);
+  if (artifactNames.length > 0) {
+    validateUploadConfig(config, artifactNames[0]);
+  }
+
   for (const [name, value] of Object.entries(deliverables)) {
     if (isFileArtifact(value)) {
       const summary = await uploadOne(name, value, config);
@@ -80,6 +89,29 @@ export async function persistFileArtifacts(
   }
 
   return { jsonDeliverables, artifactUploads };
+}
+
+/**
+ * Fail early with a safe, path-free message before any file hashing or HTTP
+ * request. The error names the first Artifact Deliverable so the author knows
+ * which one is affected, but never includes the executor-local file path.
+ */
+function validateUploadConfig(config: ArtifactUploadConfig, firstName: string): void {
+  if (!config.taskRunId) {
+    throw new Error(
+      `Artifact '${firstName}' cannot be uploaded: missing task run ID`,
+    );
+  }
+  if (!config.authToken) {
+    throw new Error(
+      `Artifact '${firstName}' cannot be uploaded: missing auth token`,
+    );
+  }
+  if (!config.baseUrl) {
+    throw new Error(
+      `Artifact '${firstName}' cannot be uploaded: missing backend base URL`,
+    );
+  }
 }
 
 async function uploadOne(

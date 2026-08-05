@@ -80,6 +80,8 @@ export interface TaskChildOptions {
   envRoot: string;
   /** Task-scoped values injected from the assignment. */
   traceEndpoint: string;
+  /** API base URL for artifact uploads (may differ from the trace endpoint). */
+  backendUrl: string;
   project: string;
   taskRunId: string;
   traceRequired: boolean;
@@ -123,6 +125,8 @@ export function buildChildEnv(opts: TaskChildOptions): NodeJS.ProcessEnv {
   env.AGENT_TASK_RUN_ID = opts.taskRunId;
   env.AGENT_TASK_TRACE_REQUIRED = opts.traceRequired ? "true" : "false";
   env.APO_AUTH_TOKEN = opts.attemptJwt;
+  // SPEC-172: explicit API base for artifact uploads, independent from trace.
+  env.APO_BACKEND_URL = opts.backendUrl;
   env.APO_CHILD_TASK_DIR = opts.taskDir;
   env.APO_CHILD_RESULT_FD = "3";
   return env;

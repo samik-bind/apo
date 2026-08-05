@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Captured at runTaskDir time: the env the CLI threads to the child SDK is the
 // caller path's actual contract with it, so it has to be asserted, not assumed.
 const _captured: { env?: NodeJS.ProcessEnv } = {};
+let _deliverables: Record<string, unknown> = {};
 
 // Partially mock the SDK: keep the real manifest canonicalizer (used by the
 // caller attestation) but stub runTaskDir so the test needs no importable task.
@@ -15,7 +16,7 @@ vi.mock("@apo-ai/sdk/agent-task", async (importOriginal) => {
     ...actual,
     runTaskDir: async () => {
       _captured.env = { ...process.env };
-      return { taskId: "t", pass: true, checks: [], adapterName: null, traceRunId: null, deliverables: {} };
+      return { taskId: "t", pass: true, checks: [], adapterName: null, traceRunId: null, deliverables: _deliverables };
     },
   };
 });
@@ -54,6 +55,7 @@ describe("task run --executor caller dispatch", () => {
     vi.restoreAllMocks();
     rmSync(testDir, { recursive: true, force: true });
     _captured.env = undefined;
+    _deliverables = {};
   });
 
   it("--executor caller + reachable posts to the caller create route and submits result", async () => {
@@ -203,5 +205,66 @@ describe("task run --executor caller dispatch", () => {
     expect(calls.some((u) => u.includes("/v1/agent-task-batch-runs/caller"))).toBe(true);
     expect(calls.some((u) => u.includes("/v1/agent-task-batch-runs/external"))).toBe(false);
     expect(code).toBe(0);
+  });
+
+  // SPEC-172: recorded Caller execution must upload file artifacts after checks
+  // and submit only JSON deliverables in the result body.
+  it("uploads file artifacts automatically and submits JSON-only deliverables", async () => {
+    const { fileArtifact } = await import("@apo-ai/sdk/agent-task");
+    const artifactPath = join(testDir, "report.docx");
+    writeFileSync(artifactPath, "fake-docx-bytes");
+    _deliverables = {
+      score: { value: 0.92 },
+      report: fileArtifact(artifactPath),
+    };
+
+    const calls: string[] = [];
+    let resultBody: Record<string, unknown> | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      calls.push(`${method} ${url}`);
+      if (url.includes("/health")) return new Response("ok", { status: 200 });
+      if (url.includes("/agent-task-batch-runs/caller")) {
+        return mockResp({
+          batch_run_id: "b1", task_run_id: "r1", attempt_id: "a1", lease_generation: 1,
+          lease_expires_at: "2026-01-01T00:00:00Z", attempt_jwt: "jwt-1",
+          trace_endpoint: "http://backend.test", trace_project: "proj-test",
+        }, 201);
+      }
+      if (url.includes("/attempts/a1/start")) return mockResp({ status: "running" });
+      if (url.includes("/attempts/a1/heartbeat")) return mockResp({ cancel_requested: false });
+      // Artifact upload intent
+      if (url.includes("/agent-task-runs/r1/artifact-uploads") && method === "POST") {
+        return mockResp({ id: "upl_1", upload_url: "/v1/agent-task-artifact-uploads/upl_1" }, 201);
+      }
+      // Artifact byte PUT
+      if (url.includes("/agent-task-artifact-uploads/upl_1") && method === "PUT") {
+        return mockResp({
+          id: "dlv_1", name: "report", kind: "artifact", status: "ready",
+          media_type: "application/octet-stream", display_filename: "report.docx",
+          size_bytes: 15, sha256: "abc", download_url: "/v1/agent-task-runs/r1/deliverables/dlv_1",
+        });
+      }
+      if (url.includes("/attempts/a1/result")) {
+        resultBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return mockResp({ status: "succeeded" });
+      }
+      return mockResp({}, 404);
+    });
+
+    const code = await run([
+      taskId, "--dir", testDir, "--backend", "http://backend.test",
+      "--project", "proj-test", "--api-key", "sk-apo-test", "--executor", "caller",
+    ]);
+
+    expect(code).toBe(0);
+    // Upload happened: intent + PUT
+    expect(calls.some((c) => c.includes("POST") && c.includes("artifact-uploads"))).toBe(true);
+    expect(calls.some((c) => c.includes("PUT") && c.includes("artifact-uploads"))).toBe(true);
+    // Result body has JSON-only deliverables — no FileArtifact descriptor
+    expect(resultBody?.deliverables).toEqual({ score: { value: 0.92 } });
+    expect(JSON.stringify(resultBody?.deliverables)).not.toContain("apo.file-artifact");
+    expect(JSON.stringify(resultBody)).not.toContain(artifactPath);
   });
 });

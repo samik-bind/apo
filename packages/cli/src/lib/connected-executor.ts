@@ -341,6 +341,7 @@ export type SourceOwnedFailureKind =
   | "timeout"
   | "cancelled"
   | "executor_shutdown"
+  | "driver"
   | "result_invalid"
   | "driver";
 

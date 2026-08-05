@@ -332,9 +332,11 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   // "after task code started" message. The trace env vars are already set
   // (step 3), and the SDK reads them at import time — no /start dependency.
   let runTaskDirImpl: (taskDir: string) => Promise<unknown>;
+  let persistFileArtifactsImpl: typeof import("@apo-ai/sdk/agent-task").persistFileArtifacts | undefined;
   try {
     const mod = await import("@apo-ai/sdk/agent-task");
     runTaskDirImpl = mod.runTaskDir;
+    persistFileArtifactsImpl = mod.persistFileArtifacts;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(red(`Error: failed to load task SDK: ${message}`));
@@ -360,9 +362,28 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
 
   const completionId = `${created.lease.attemptId}-${created.lease.generation}`;
   let exitCode = 0;
+  let resultStarted = false;
+  let artifactPhase = false;
   try {
     const summary = await runTaskDirImpl(taskDir) as LocalRunSummary;
     await heartbeat.stop();
+
+    // SPEC-172: upload file artifacts after checks, before result submission.
+    const rawDeliverables = (summary as { deliverables?: Record<string, unknown> }).deliverables ?? {};
+    let jsonDeliverables: Record<string, unknown> = rawDeliverables;
+    if (persistFileArtifactsImpl) {
+      artifactPhase = true;
+      const prepared = await persistFileArtifactsImpl(rawDeliverables, {
+        taskRunId: created.taskRunId,
+        authToken: created.lease.token,
+        baseUrl: backendUrl,
+        fetch,
+      });
+      artifactPhase = false;
+      jsonDeliverables = prepared.jsonDeliverables;
+    }
+
+    resultStarted = true;
     await submitCallerResult(backendUrl, created.lease, {
       completion_id: completionId,
       pass_result: summary.pass,
@@ -370,7 +391,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
       trace_run_id: summary.traceRunId ?? null,
       checks: summary.checks as unknown,
       transcript: (summary as { transcript?: Record<string, unknown> }).transcript ?? null,
-      deliverables: (summary as { deliverables?: Record<string, unknown> }).deliverables ?? null,
+      deliverables: jsonDeliverables,
       run_configuration: (summary as { runConfiguration?: { model: string; effort?: string } }).runConfiguration ?? null,
     });
     // render the result so the CLI shows PASS/FAIL + checks,
@@ -384,19 +405,25 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await heartbeat.stop();
-    try {
-      await submitCallerFailure(backendUrl, created.lease, {
-        completion_id: completionId, failure_kind: "task_process", error_message: message,
-      });
-    } catch (reportError) {
-      // Issue #108: log instead of silently swallowing — if this fails the
-      // reaper will mark the lease lost, but at least the operator can see why
-      // the failure report didn't land.
-      const reportMessage = reportError instanceof Error ? reportError.message : String(reportError);
-      console.error(red(`Warning: failed to report failure to backend: ${reportMessage}`));
+    if (resultStarted) {
+      // SPEC-172: ambiguous result — the server may have committed before the
+      // connection failed. Do NOT send a contradictory failure.
+      console.error(red(`Error: result submission outcome unknown: ${message}`));
+      exitCode = 2;
+    } else {
+      try {
+        await submitCallerFailure(backendUrl, created.lease, {
+          completion_id: completionId,
+          failure_kind: artifactPhase ? "driver" : "task_process",
+          error_message: message,
+        });
+      } catch (reportError) {
+        const reportMessage = reportError instanceof Error ? reportError.message : String(reportError);
+        console.error(red(`Warning: failed to report failure to backend: ${reportMessage}`));
+      }
+      console.error(red(`Error: ${message}`));
+      exitCode = 2;
     }
-    console.error(red(`Error: ${message}`));
-    exitCode = 2;
   } finally {
     delete process.env.APO_AUTH_TOKEN;
   }

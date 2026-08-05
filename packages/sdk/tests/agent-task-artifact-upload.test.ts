@@ -204,4 +204,44 @@ describe("persistFileArtifacts", () => {
     expect(dumped).not.toContain(logPath);
     expect(dumped).not.toContain("secret-name.log");
   });
+
+  // SPEC-172 SDK test #4: JSON-only runs need no upload context at all.
+  it("passes JSON-only deliverables through without upload context", async () => {
+    const failFetch = vi.fn(async () => {
+      throw new Error("fetch should not be called for JSON-only deliverables");
+    });
+    const result = await persistFileArtifacts(
+      { score: { value: 0.92 } },
+      { taskRunId: "", authToken: "", baseUrl: "", fetch: failFetch },
+    );
+    expect(result.jsonDeliverables).toEqual({ score: { value: 0.92 } });
+    expect(result.artifactUploads).toEqual([]);
+    expect(failFetch).not.toHaveBeenCalled();
+  });
+
+  // SPEC-172 SDK test #5: missing Artifact context fails safely before any request.
+  it("fails safely when Artifact context is missing (no request, no path leak)", async () => {
+    const logPath = join(dir, "secret-path.log");
+    writeFileSync(logPath, "data");
+    const artifact = fileArtifact(logPath);
+
+    const failFetch = vi.fn(async () => {
+      throw new Error("fetch should not be called when context is missing");
+    });
+
+    const error = await persistFileArtifacts(
+      { report: artifact },
+      { taskRunId: "", authToken: "", baseUrl: "", fetch: failFetch },
+    ).then(
+      () => null,
+      (e: Error) => e,
+    );
+
+    expect(error).not.toBeNull();
+    expect(failFetch).not.toHaveBeenCalled();
+    // Names the Deliverable so the author knows which one failed.
+    expect(error!.message).toContain("report");
+    // Never leaks the executor-local path.
+    expect(error!.message).not.toContain(logPath);
+  });
 });

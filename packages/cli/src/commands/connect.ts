@@ -324,6 +324,8 @@ async function executeAssignment(
       // use the configured backend base URL, not the server's
       // trace_endpoint (which is a full path that the SDK would double).
       traceEndpoint: backendUrl,
+      // SPEC-172: explicit API base for artifact uploads.
+      backendUrl,
       project: assignment.project,
       taskRunId: assignment.task_run_id,
       traceRequired: true,
@@ -335,7 +337,12 @@ async function executeAssignment(
     clearInterval(heartbeatInterval);
 
     if (!outcome.ok) {
-      const failure_kind: SourceOwnedFailureKind = outcome.timedOut ? "timeout" : "task_runtime";
+      const isArtifactError = outcome.error?.startsWith("artifact_persistence:");
+      const failure_kind: SourceOwnedFailureKind = isArtifactError
+        ? "driver"
+        : outcome.timedOut
+          ? "timeout"
+          : "task_runtime";
       finalized = true;
       await submitFailure({
         backendUrl,
@@ -365,6 +372,9 @@ async function executeAssignment(
       transcript?: Record<string, unknown>;
       runConfiguration?: { model: string; effort?: string };
     };
+    // SPEC-172: once result submission begins, the server may commit before we
+    // see the response. Do not send a contradictory failure on a dropped response.
+    finalized = true;
     await submitResult({
       backendUrl,
       attemptJwt: assignment.attempt_jwt,
@@ -384,7 +394,6 @@ async function executeAssignment(
         error_message: null,
       },
     });
-    finalized = true;
   } catch (err) {
     clearInterval(heartbeatInterval);
     // only submit a failure if no finalization has happened.

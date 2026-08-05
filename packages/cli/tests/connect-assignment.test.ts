@@ -42,6 +42,7 @@ vi.mock("../src/lib/git-provenance.ts", () => ({
 // env sanitization itself is unit-tested in local-task-child.test.ts.
 let lastChildOpts: {
   traceEndpoint?: string;
+  backendUrl?: string;
   project?: string;
   taskRunId?: string;
   attemptJwt?: string;
@@ -162,6 +163,8 @@ describe("connector assignment execution", () => {
     // itself; a full-path value doubles it and drops every SDK span.
     expect(lastChildOpts!.traceEndpoint).toBe("http://cp");
     expect(lastChildOpts!.traceEndpoint).not.toContain("/api/public/otel");
+    // SPEC-172: backendUrl is passed separately for artifact uploads.
+    expect(lastChildOpts!.backendUrl).toBe("http://cp");
     expect(lastChildOpts!.project).toBe("acme");
     expect(lastChildOpts!.taskRunId).toBe("run-1");
     expect(lastChildOpts!.attemptJwt).toBe("attempt-jwt");
