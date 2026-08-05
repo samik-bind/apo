@@ -46,6 +46,27 @@ _NAME_MAX_BYTES = 255
 _UPLOAD_INTENT_TTL = timedelta(seconds=86_400)
 
 
+def lock_task_run(session: Session, task_run_id: str) -> AgentTaskRunDB | None:
+    """Serialize intent creation, PUT completion, and result finalization on
+    one Task Run row (SPEC-172 fence).
+
+    PostgreSQL's row lock prevents two operations from observing an
+    inconsistent intermediate state. SQLite serializes writes at the database
+    level and safely ignores ``FOR UPDATE``.
+    """
+    from sqlmodel import col
+
+    return session.exec(
+        select(AgentTaskRunDB)
+        .where(col(AgentTaskRunDB.id) == task_run_id)
+        .with_for_update()
+    ).one_or_none()
+
+
+# Internal alias so callers read naturally.
+_lock_task_run = lock_task_run
+
+
 async def persist_json_deliverable(
     session: Session,
     *,
@@ -328,7 +349,7 @@ async def create_artifact_upload_intent(
             f"Artifact size {size_bytes} exceeds per-item limit {max_item}"
         )
 
-    task_run = session.get(AgentTaskRunDB, task_run_id)
+    task_run = _lock_task_run(session, task_run_id)
     if task_run is None:
         raise ValueError("Task run not found")
     if task_run.status in ("passed", "failed", "error"):
@@ -416,6 +437,20 @@ async def complete_artifact_upload(
         expected_size=row.size_bytes,
         expected_sha256=row.sha256,
     )
+
+    # SPEC-172 fence: lock the Task Run before promoting to ready. If the run
+    # became terminal while bytes were streaming, compensate by deleting the
+    # just-written object and reject.
+    task_run = _lock_task_run(session, row.task_run_id)
+    if task_run is not None and task_run.status in ("passed", "failed", "error"):
+        try:
+            await store.delete(key)
+        except Exception:
+            pass  # best-effort cleanup; retention handles orphans
+        raise ValueError(
+            f"artifact_upload_closed: Task Run {row.task_run_id} no longer accepts Artifact uploads"
+        )
+
     row.storage_key = key
     row.storage_backend = stored.backend
     row.stored_size_bytes = stored.size_bytes

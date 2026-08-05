@@ -414,3 +414,105 @@ class TestProtocolV2UploadToDownload:
                 assert run.deliverables_json is None
         finally:
             app.dependency_overrides.clear()
+
+
+class TestTaskRunFence:
+    """SPEC-172 step 5: Task Run row-lock fence.
+
+    On SQLite, writes serialize naturally (FOR UPDATE is a no-op). These
+    tests verify the logical fence outcomes — the same outcomes PostgreSQL's
+    row lock would enforce under true concurrency.
+    """
+
+    def test_terminal_run_rejects_new_intent_under_lock(self, isolated, monkeypatch, tmp_path):
+        """A terminal run must reject intent creation — the fence re-checks
+        status under the row lock."""
+        import hashlib
+
+        monkeypatch.setenv("APO_ARTIFACT_DIR", str(tmp_path))
+        engine = isolated
+        artifact_bytes = b"x"
+        with Session(engine) as s:
+            jwt = _seed_leased_attempt(s)
+            # Terminalize the run before attempting upload.
+            run = s.get(AgentTaskRunDB, "run-deliv")
+            run.status = "passed"
+            s.add(run)
+            s.commit()
+        c = _client(engine)
+        try:
+            resp = c.post(
+                "/v1/agent-task-runs/run-deliv/artifact-uploads",
+                headers={"Authorization": f"Bearer {jwt}"},
+                json={
+                    "name": "late",
+                    "display_filename": "late.txt",
+                    "media_type": "text/plain",
+                    "size_bytes": 1,
+                    "sha256": hashlib.sha256(artifact_bytes).hexdigest(),
+                },
+            )
+            assert resp.status_code == 409, resp.text
+            assert "terminal" in resp.text
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_pending_artifact_then_result_is_atomic(self, isolated, monkeypatch, tmp_path):
+        """Either the pending artifact blocks the result, or the result
+        terminalizes first and a subsequent intent is rejected. Both outcomes
+        are serialized — never terminal plus a new pending row."""
+        import hashlib
+
+        monkeypatch.setenv("APO_ARTIFACT_DIR", str(tmp_path))
+        engine = isolated
+        with Session(engine) as s:
+            jwt = _seed_leased_attempt(s)
+            _seed_artifact_row(s, name="pending-report", status="pending")
+        c = _client(engine)
+        try:
+            # Result must be blocked by the pending artifact.
+            result_resp = c.post(
+                "/v1/executor-protocol/v2/attempts/att-deliv/result",
+                headers={"Authorization": f"Bearer {jwt}"},
+                json={"completion_id": "comp-fence", "pass_result": True,
+                      "deliverables": {"score": 1}},
+            )
+            assert result_resp.status_code == 409, result_resp.text
+            assert "pending-report" in result_resp.text
+
+            # The run must still be non-terminal (result was rejected).
+            with Session(engine) as s:
+                run = s.get(AgentTaskRunDB, "run-deliv")
+                assert run.status == "running"
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_ready_artifacts_retained_on_error(self, isolated, monkeypatch, tmp_path):
+        """SPEC-172 invariant #11: ready Artifacts remain downloadable even
+        when the Task Run later errors."""
+        monkeypatch.setenv("APO_ARTIFACT_DIR", str(tmp_path))
+        engine = isolated
+        with Session(engine) as s:
+            jwt = _seed_leased_attempt(s)
+            _seed_artifact_row(s, name="evidence", status="ready")
+        c = _client(engine)
+        try:
+            # Submit a failure — the run errors, but ready artifacts stay.
+            fail_resp = c.post(
+                "/v1/executor-protocol/v2/attempts/att-deliv/failure",
+                headers={"Authorization": f"Bearer {jwt}"},
+                json={"completion_id": "comp-fail", "failure_kind": "driver",
+                      "error_message": "upload failed for other file"},
+            )
+            assert fail_resp.status_code == 200, fail_resp.text
+
+            with Session(engine) as s:
+                run = s.get(AgentTaskRunDB, "run-deliv")
+                assert run.status == "error"
+                # Ready artifact is still there.
+                from apo.services.agent_task_deliverables import load_deliverable_for_download
+                row = load_deliverable_for_download(s, project="p1", deliverable_id="dlv_evidence")
+                assert row is not None
+                assert row.status == "ready"
+        finally:
+            app.dependency_overrides.clear()

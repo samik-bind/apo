@@ -457,9 +457,18 @@ def finalize_task_run_with_result(
 def _reject_non_ready_artifacts(session: Session, task_run_id: str) -> None:
     """SPEC-172 invariant #5: a result cannot terminalize while an Artifact
     is still pending or failed. Returns silently when all Artifacts are ready
-    or there are none."""
+    or there are none.
+
+    Locks the Task Run row (SELECT ... FOR UPDATE) to serialize with
+    concurrent intent creation / PUT completion."""
     from ..models.db import AgentTaskDeliverableDB
     from sqlmodel import col
+    from .agent_task_deliverables import lock_task_run
+
+    # Acquire the fence so a concurrent intent cannot land between the check
+    # and the terminal mutation.
+    _locked = lock_task_run(session, task_run_id)
+
     blocked = session.exec(
         select(AgentTaskDeliverableDB).where(
             AgentTaskDeliverableDB.task_run_id == task_run_id,

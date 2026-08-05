@@ -204,7 +204,7 @@ async def create_artifact_upload(
         msg = str(exc)
         status_code = (
             status.HTTP_409_CONFLICT
-            if "conflicting" in msg or "terminal" in msg or "already exists" in msg
+            if "conflicting" in msg or "terminal" in msg or "already exists" in msg or "closed" in msg
             else status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
             if "limit" in msg
             else status.HTTP_400_BAD_REQUEST
