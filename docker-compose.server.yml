@@ -31,6 +31,9 @@ services:
       - APO_PUBLIC_URL=${APO_PUBLIC_URL:?Set APO_PUBLIC_URL to https://your-apo-host.example}
       # direct mode — Caddy site is the public HTTPS origin.
       - APO_CADDY_SITE_ADDRESS=${APO_PUBLIC_URL:?Set APO_PUBLIC_URL}
+      # Keep the shared Caddyfile's optional docs site syntactically valid when
+      # the public-docs overlay is absent. The overlay replaces this value.
+      - APO_DOCS_HOST=${APO_DOCS_HOST:-apo-docs-disabled.invalid}
       # Non-routable default so direct callers cannot forge forwarding headers.
       - APO_TRUSTED_PROXY_RANGES=192.0.2.0/24
       - APO_TELEMETRY_MAX_REQUEST_BYTES=${APO_TELEMETRY_MAX_REQUEST_BYTES:-10485760}

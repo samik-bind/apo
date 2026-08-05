@@ -487,7 +487,10 @@ route `/api/public/otel/v1/traces` is rewritten by Next.js to the backend.
 Frontend and backend diagnostic ports bind to `127.0.0.1`, and the database is
 never published publicly. Caddy is a replaceable reference ingress: an existing
 TLS proxy may forward the same public origin to the frontend without changing
-the application contract.
+the application contract. Because direct-VPS and tunnel modes share one
+Caddyfile, both profiles supply a reserved `.invalid` docs hostname when the
+optional public-docs overlay is absent; an empty hostname would make Caddy
+interpret the docs block as a second global-options block and fail startup.
 
 ### Public Documentation Boundary
 

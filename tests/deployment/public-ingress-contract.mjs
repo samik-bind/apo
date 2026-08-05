@@ -1,16 +1,30 @@
 import { readFileSync } from "node:fs";
 
 const publicUrl = "https://apo.example.com";
-const renderedPath = process.argv[2];
-if (!renderedPath) {
+const disabledDocsRenderedPath = process.argv[2];
+const configuredDocsRenderedPath = process.argv[3];
+if (!disabledDocsRenderedPath || !configuredDocsRenderedPath) {
   throw new Error(
-    "usage: node tests/deployment/public-ingress-contract.mjs <rendered-compose.json>",
+    "usage: node tests/deployment/public-ingress-contract.mjs <docs-disabled-compose.json> <docs-configured-compose.json>",
   );
 }
-const rendered = JSON.parse(readFileSync(renderedPath, "utf8"));
+const rendered = JSON.parse(readFileSync(disabledDocsRenderedPath, "utf8"));
+const configuredDocsRendered = JSON.parse(
+  readFileSync(configuredDocsRenderedPath, "utf8"),
+);
 
 assert(rendered.services.caddy, "Server Profile must include Caddy");
 assertEnvironment(rendered.services.caddy, "APO_PUBLIC_URL", publicUrl);
+assertEnvironment(
+  rendered.services.caddy,
+  "APO_DOCS_HOST",
+  "apo-docs-disabled.invalid",
+);
+assertEnvironment(
+  configuredDocsRendered.services.caddy,
+  "APO_DOCS_HOST",
+  "docs.apo.example.com",
+);
 assertEnvironment(rendered.services.frontend, "NEXTAUTH_URL", publicUrl);
 assertEnvironment(rendered.services.frontend, "BACKEND_URL", "http://backend:8000");
 assertEnvironment(rendered.services.backend, "APO_DEPLOYMENT_PROFILE", "server");
