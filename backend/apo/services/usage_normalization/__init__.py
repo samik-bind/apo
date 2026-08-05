@@ -7,10 +7,11 @@ raw usage attributes onto the canonical ``UsageKey`` set, enforcing the OTel
 GenAI non-overlap invariant (cache/reasoning subtracted from input/output).
 
 Provider detection is a multi-signal hierarchy (most-authoritative first):
-  1. ``ai.response.providerMetadata`` key-membership (carries Anthropic 5m/1h)
-  2. ``gen_ai.system`` attribute
-  3. model-name prefix heuristic (``anthropic/``, ``openai/``, …)
-  4. generic fallback
+   1. ``ai.response.providerMetadata`` key-membership (carries Anthropic 5m/1h)
+   2. ``gen_ai.system`` attribute
+   3. model-name prefix heuristic (``anthropic/``, ``openai/``, …)
+   4. bare model-family heuristic (``claude-*``, ``gpt-*``, ``o1/o3-*``, ``gemini-*``)
+   5. generic fallback
 
 Replaces ``extract_tokens``. Callable from BOTH the projector and the legacy
 direct-writer.
@@ -34,6 +35,21 @@ _PREFIX_PROVIDERS: dict[str, str] = {
     "gemini/": "gemini",
     "google/": "gemini",
     "vertex_ai/": "gemini",
+}
+
+# Bare model-family prefix -> provider. Catches plain provider model names
+# that carry no vendor/ prefix (e.g. "claude-opus-5", "gpt-5.6-luna",
+# "o3-mini", "gemini-2.0-flash"). Without this, cache-creation tokens on
+# Anthropic spans fall through to the generic normalizer, which prices no
+# cache-write dimension — silently zeroing the dominant cost component
+# (issue #125).
+_MODEL_FAMILY_PROVIDERS: dict[str, str] = {
+    "claude": "anthropic",
+    "gpt": "openai",
+    "o1": "openai",
+    "o3": "openai",
+    "o4": "openai",
+    "gemini": "gemini",
 }
 
 # providerMetadata JSON key-membership -> provider.
@@ -77,7 +93,13 @@ def detect_provider(attrs: dict[str, Any], model_name: str | None) -> str:
             if lowered.startswith(prefix):
                 return provider
 
-    # 4. generic fallback.
+        # 4. bare model-family heuristic (strip any vendor/ prefix first).
+        bare = lowered.split("/", 1)[-1]
+        for family, provider in _MODEL_FAMILY_PROVIDERS.items():
+            if bare.startswith(family):
+                return provider
+
+    # 5. generic fallback.
     return "generic"
 
 

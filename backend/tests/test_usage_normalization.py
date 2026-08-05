@@ -92,6 +92,57 @@ class TestDetectProvider:
         assert detect_provider({}, "some-unknown-model") == "generic"
 
 
+class TestBareModelFamilyDetection:
+    """Bare provider model names (no vendor/ prefix) must resolve to their
+    provider so cache-creation dimensions are priced correctly (issue #125)."""
+
+    def test_claude_bare_name(self) -> None:
+        assert detect_provider({}, "claude-opus-5") == "anthropic"
+
+    def test_gpt_bare_name(self) -> None:
+        assert detect_provider({}, "gpt-5.6-luna") == "openai"
+
+    def test_o1_bare_name(self) -> None:
+        assert detect_provider({}, "o1-preview") == "openai"
+
+    def test_o3_bare_name(self) -> None:
+        assert detect_provider({}, "o3-mini") == "openai"
+
+    def test_gemini_bare_name(self) -> None:
+        assert detect_provider({}, "gemini-2.0-flash") == "gemini"
+
+    def test_unknown_bare_still_generic(self) -> None:
+        assert detect_provider({}, "deepseek-r2") == "generic"
+
+    def test_vendor_prefix_still_works(self) -> None:
+        assert detect_provider({}, "anthropic/claude-opus-5") == "anthropic"
+
+    def test_family_does_not_override_higher_signals(self) -> None:
+        # gen_ai.system wins over model-name family.
+        assert detect_provider({"gen_ai.system": "openai"}, "claude-opus-5") == "openai"
+
+
+class TestBareModelCacheCreation:
+    """The end-to-end fix: a bare-name Anthropic span with cache-creation
+    tokens must be normalized by the anthropic normalizer, which recognises
+    cache_write_5m. Previously it fell through to generic, zeroing cache
+    creation cost (issue #125)."""
+
+    def test_bare_claude_cache_creation_is_priced(self) -> None:
+        result = normalize_usage(
+            {
+                "gen_ai.usage.input_tokens": 500,
+                "gen_ai.usage.output_tokens": 95,
+                "gen_ai.usage.cache_read.input_tokens": 21773,
+                "gen_ai.usage.cache_creation.input_tokens": 24044,
+            },
+            model_name="claude-opus-5",
+        )
+        # The anthropic normalizer recognises cache_creation → cache_write_5m.
+        assert result.get("cache_write_5m") == 24044
+        assert result.get("cache_read") == 21773
+
+
 class TestPlainUsage:
     def test_genai_semconv_input_output(self) -> None:
         result = normalize_usage(
