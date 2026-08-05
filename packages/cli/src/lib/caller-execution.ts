@@ -9,6 +9,8 @@
  * injected into the Task environment.
  */
 
+import { Worker } from "node:worker_threads";
+
 import type { CallerIdentity } from "./git-provenance.ts";
 import type { TaskDefinitionDocument } from "./task-definition.ts";
 
@@ -189,15 +191,61 @@ export async function submitCallerFailure(
 }
 
 /**
+ * A dumb POST pump, run on its own thread. It knows nothing about the executor
+ * protocol: the main thread hands it a prepared request and it replays that
+ * request every `intervalMs`, forwarding each response body back untouched.
+ *
+ * It lives on a worker thread because a heartbeat must not share a failure
+ * domain with the work whose liveness it reports. `apo task run` executes the
+ * Task in-process, so a `setInterval` heartbeat is starved by any synchronous
+ * stretch of Task work — and four missed beats are enough for the lease reaper
+ * to declare a perfectly healthy run `lost`.
+ */
+const HEARTBEAT_WORKER_SRC = `
+const { parentPort, workerData } = require('node:worker_threads');
+const { url, headers, body, intervalMs } = workerData;
+let inFlight = false;
+
+async function tick() {
+  if (inFlight) return;
+  inFlight = true;
+  try {
+    const resp = await fetch(url, { method: 'POST', headers, body });
+    if (!resp.ok) {
+      parentPort.postMessage({ type: 'error', message: 'heartbeat failed: ' + resp.status });
+    } else {
+      parentPort.postMessage({ type: 'response', body: await resp.json().catch(() => null) });
+    }
+  } catch (err) {
+    parentPort.postMessage({ type: 'error', message: err && err.message ? err.message : String(err) });
+  } finally {
+    inFlight = false;
+  }
+}
+
+void tick();
+setInterval(() => void tick(), intervalMs);
+`;
+
+type HeartbeatWorkerMessage =
+  | { type: "response"; body: { cancel_requested?: boolean } | null }
+  | { type: "error"; message: string };
+
+/**
  * Background heartbeat lifecycle. Calls /heartbeat every `intervalMs` with the
  * current phase until stopped. If the lease reports stale/cancelled, the
  * callback is invoked so the caller can abort the Task and suppress a normal
- * result. Uses an AbortController so shutdown is prompt.
+ * result.
+ *
+ * The beat is issued from a worker thread so that Task work on the main thread
+ * cannot starve it; if the worker cannot be created for any reason, this falls
+ * back to an in-thread timer, which is the previous behaviour.
  */
 export class CallerHeartbeat {
+  private worker: Worker | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
-  private readonly abort = new AbortController();
   private stopped = false;
+  private consecutiveFailures = 0;
   private readonly backendUrl: string;
   private readonly lease: CallerLease;
   private readonly onStale: () => void;
@@ -216,18 +264,65 @@ export class CallerHeartbeat {
   }
 
   start(phase: string): void {
+    try {
+      this.worker = new Worker(HEARTBEAT_WORKER_SRC, {
+        eval: true,
+        workerData: {
+          url: attemptUrl(this.backendUrl, this.lease, "heartbeat"),
+          headers: attemptHeaders(this.lease),
+          body: JSON.stringify({ phase }),
+          intervalMs: this.intervalMs,
+        },
+      });
+      this.worker.on("message", (msg: HeartbeatWorkerMessage) => {
+        if (this.stopped) return;
+        if (msg.type === "error") {
+          this.noteFailure(msg.message);
+          return;
+        }
+        this.consecutiveFailures = 0;
+        if (msg.body?.cancel_requested === true) this.onStale();
+      });
+      this.worker.on("error", (err: Error) => this.noteFailure(err.message));
+      // Never hold the process open on the heartbeat's account.
+      this.worker.unref();
+      return;
+    } catch (err) {
+      this.worker = null;
+      this.noteFailure(
+        `heartbeat worker unavailable, falling back to in-thread timer: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    this.startInThread(phase);
+  }
+
+  private startInThread(phase: string): void {
     const tick = async (): Promise<void> => {
-      if (this.stopped || this.abort.signal.aborted) return;
+      if (this.stopped) return;
       try {
         const { cancelRequested } = await heartbeatCallerAttempt(this.backendUrl, this.lease, phase);
+        this.consecutiveFailures = 0;
         if (cancelRequested) this.onStale();
-      } catch {
-        // transient heartbeat errors do not abort the task; the lease reaper
-        // is the authority for staleness.
+      } catch (err) {
+        this.noteFailure(err instanceof Error ? err.message : String(err));
       }
     };
     void tick();
     this.timer = setInterval(() => void tick(), this.intervalMs);
+  }
+
+  /**
+   * A failed beat is not fatal on its own — the reaper is the authority — but
+   * silence here is how a run gets declared `lost` with no warning at all, so
+   * say something once the lease is genuinely at risk.
+   */
+  private noteFailure(message: string): void {
+    this.consecutiveFailures += 1;
+    console.error(
+      `Warning: heartbeat failed (${this.consecutiveFailures} in a row): ${message}`,
+    );
   }
 
   /** Update the reported phase for subsequent heartbeats. */
@@ -237,9 +332,12 @@ export class CallerHeartbeat {
 
   async stop(): Promise<void> {
     this.stopped = true;
-    this.abort.abort();
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    if (this.worker) {
+      await this.worker.terminate();
+      this.worker = null;
+    }
   }
 }
 
