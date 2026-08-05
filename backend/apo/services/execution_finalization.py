@@ -315,6 +315,30 @@ def _emit_finalization_events(
         emit_batch_run_event(attempt.project, batch, task_runs)
 
 
+def precheck_result_replay(
+    session: Session,
+    *,
+    lease: CurrentAttemptLease,
+    body: AttemptResultBody,
+) -> bool:
+    """Check completion idempotency before deliverable persistence (SPEC-172 step 7).
+
+    Returns True if this is an idempotent replay — the caller should return
+    early without persisting deliverables.
+    Raises CompletionConflict for conflicting replays.
+    Returns False for first finalization — proceed to persist + finalize.
+    """
+    attempt = _require_current(session, lease)
+    digest = _body_digest({"kind": "result", "body": asdict(body)})
+    return _check_completion_idempotency(
+        session,
+        attempt=attempt,
+        completion_id=body.completion_id,
+        digest=digest,
+        terminal_status=SUCCEEDED,
+    )
+
+
 __all__ = [
     "AttemptFailureBody",
     "AttemptResultBody",
@@ -323,4 +347,5 @@ __all__ = [
     "FinalizationError",
     "finalize_attempt_failure",
     "finalize_attempt_result",
+    "precheck_result_replay",
 ]

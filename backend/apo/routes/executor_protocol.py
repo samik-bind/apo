@@ -197,6 +197,22 @@ async def attempt_result(
     if lease.attempt_id != attempt_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "attempt token not valid for this attempt")
     try:
+        # SPEC-172 step 7: check completion replay BEFORE persisting
+        # deliverables so an identical replay doesn't collide with rows.
+        from apo.services.execution_finalization import precheck_result_replay
+
+        pre_body = AttemptResultBody(
+            completion_id=body.completion_id, pass_result=body.pass_result,
+            adapter_name=body.adapter_name, trace_run_id=body.trace_run_id,
+            checks=body.checks, transcript=body.transcript,
+            deliverables=None, exit_code=body.exit_code,
+            stdout_tail=body.stdout_tail, stderr_tail=body.stderr_tail,
+            error_message=body.error_message,
+            run_configuration=body.run_configuration,
+        )
+        if precheck_result_replay(session, lease=lease, body=pre_body):
+            return {"attempt_id": attempt_id, "status": "replayed"}
+
         # SPEC-162 #119: persist deliverable rows before finalization.
         if body.deliverables:
             from apo.services.agent_task_deliverables import persist_json_deliverable

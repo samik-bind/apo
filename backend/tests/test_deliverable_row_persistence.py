@@ -266,3 +266,56 @@ class TestDeliverableNameCollision:
             assert "report" in resp.text
         finally:
             app.dependency_overrides.clear()
+
+
+class TestResultReplaySkipsDeliverablePersistence:
+    """SPEC-172 step 7: a replayed result must be detected before deliverable
+    persistence, not collide with existing rows."""
+
+    def test_identical_replay_returns_success_without_collision(self, isolated, monkeypatch):
+        """After a successful finalization, re-submitting the same completion
+        body at the service layer returns True (replay) without attempting to
+        persist deliverables again."""
+        from apo.services.execution_finalization import precheck_result_replay, AttemptResultBody
+        from apo.services.execution_leases import CurrentAttemptLease
+
+        engine = isolated
+        with Session(engine) as s:
+            jwt = _seed_leased_attempt(s)
+        c = _client(engine)
+        try:
+            result_body = {
+                "completion_id": "comp-replay",
+                "pass_result": True,
+                "deliverables": {"score": {"value": 42}},
+            }
+            # First submission succeeds.
+            resp1 = c.post(
+                "/v1/executor-protocol/v2/attempts/att-deliv/result",
+                headers={"Authorization": f"Bearer {jwt}"},
+                json=result_body,
+            )
+            assert resp1.status_code == 200, resp1.text
+        finally:
+            app.dependency_overrides.clear()
+
+        # Second call at the service layer: identical replay.
+        with Session(engine) as s:
+            lease = CurrentAttemptLease(
+                attempt_id="att-deliv", lease_generation=1, executor_id="",
+            )
+            body = AttemptResultBody(
+                completion_id="comp-replay",
+                pass_result=True,
+                adapter_name=None,
+                trace_run_id=None,
+                checks=None,
+                transcript=None,
+                deliverables=None,
+                exit_code=None,
+                stdout_tail=None,
+                stderr_tail=None,
+                error_message=None,
+                run_configuration=None,
+            )
+            assert precheck_result_replay(s, lease=lease, body=body) is True

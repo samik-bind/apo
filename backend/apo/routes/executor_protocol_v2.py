@@ -497,9 +497,29 @@ async def attempt_result_v2(
         AttemptResultBody,
         CompletionConflict,
         finalize_attempt_result,
+        precheck_result_replay,
     )
 
     try:
+        # SPEC-172 step 7: check completion replay BEFORE persisting
+        # deliverables so an identical replay doesn't collide with rows.
+        pre_body = AttemptResultBody(
+            completion_id=body.completion_id,
+            pass_result=body.pass_result,
+            adapter_name=body.adapter_name,
+            trace_run_id=body.trace_run_id,
+            checks=body.checks,
+            transcript=body.transcript,
+            deliverables=None,
+            exit_code=body.exit_code,
+            stdout_tail=body.stdout_tail,
+            stderr_tail=body.stderr_tail,
+            error_message=body.error_message,
+            run_configuration=body.run_configuration,
+        )
+        if precheck_result_replay(session, lease=lease, body=pre_body):
+            return {"ok": True, "attempt_id": attempt_id, "status": "replayed"}
+
         # SPEC-162 #119: persist deliverable rows before finalization.
         # The finalizer is sync; persist_json_deliverable is async (may gzip
         # to store). So we persist rows here in the async route, then pass
