@@ -189,3 +189,80 @@ class TestResultSubmitPersistsDeliverableRows:
                 assert len(rows) == 0
         finally:
             app.dependency_overrides.clear()
+
+
+def _seed_artifact_row(session, *, name="report", status="pending", run_id="run-deliv"):
+    """Insert an artifact deliverable row directly for preflight tests."""
+    now = datetime.now(timezone.utc)
+    session.add(AgentTaskDeliverableDB(
+        id=f"dlv_{name}", project="p1", task_run_id=run_id, name=name,
+        kind="artifact", status=status, storage_backend="local",
+        storage_key=f"test/{name}", media_type="application/octet-stream",
+        display_filename=name, size_bytes=100, stored_size_bytes=100,
+        sha256="a" * 64, created_at=now,
+        ready_at=now if status == "ready" else None,
+    ))
+    session.commit()
+
+
+class TestArtifactReadinessFence:
+    """SPEC-172 Step 6: a result cannot terminalize while an Artifact is
+    pending or failed."""
+
+    def test_pending_artifact_blocks_result(self, isolated, monkeypatch):
+        engine = isolated
+        with Session(engine) as s:
+            jwt = _seed_leased_attempt(s)
+            _seed_artifact_row(s, name="report", status="pending")
+        c = _client(engine)
+        try:
+            resp = c.post(
+                "/v1/executor-protocol/v2/attempts/att-deliv/result",
+                headers={"Authorization": f"Bearer {jwt}"},
+                json={"completion_id": "comp-pending", "pass_result": True,
+                      "deliverables": {"score": {"value": 1}}},
+            )
+            assert resp.status_code == 409, resp.text
+            assert "report" in resp.text
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_ready_artifact_allows_result(self, isolated, monkeypatch):
+        engine = isolated
+        with Session(engine) as s:
+            jwt = _seed_leased_attempt(s)
+            _seed_artifact_row(s, name="report", status="ready")
+        c = _client(engine)
+        try:
+            resp = c.post(
+                "/v1/executor-protocol/v2/attempts/att-deliv/result",
+                headers={"Authorization": f"Bearer {jwt}"},
+                json={"completion_id": "comp-ready", "pass_result": True,
+                      "deliverables": {"score": {"value": 1}}},
+            )
+            assert resp.status_code == 200, resp.text
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestDeliverableNameCollision:
+    """SPEC-172 Step 6: a JSON Deliverable name cannot collide with an
+    existing Artifact name."""
+
+    def test_json_name_collides_with_artifact(self, isolated, monkeypatch):
+        engine = isolated
+        with Session(engine) as s:
+            jwt = _seed_leased_attempt(s)
+            _seed_artifact_row(s, name="report", status="ready")
+        c = _client(engine)
+        try:
+            resp = c.post(
+                "/v1/executor-protocol/v2/attempts/att-deliv/result",
+                headers={"Authorization": f"Bearer {jwt}"},
+                json={"completion_id": "comp-collide", "pass_result": True,
+                      "deliverables": {"report": {"value": "conflict"}}},
+            )
+            assert resp.status_code == 409, resp.text
+            assert "report" in resp.text
+        finally:
+            app.dependency_overrides.clear()

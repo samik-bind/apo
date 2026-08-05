@@ -65,6 +65,14 @@ async def persist_json_deliverable(
     size = len(body)
     sha = _sha256_hex(body)
 
+    # SPEC-172 invariant #6: a JSON deliverable name cannot collide with an
+    # existing Artifact (or another JSON deliverable) on the same Task Run.
+    existing = _find_deliverable(session, project, task_run_id, name)
+    if existing is not None:
+        raise ValueError(
+            f"Deliverable name '{name}' already exists on task run {task_run_id}"
+        )
+
     if size <= INLINE_THRESHOLD_BYTES:
         row = AgentTaskDeliverableDB(
             id=_new_id(),

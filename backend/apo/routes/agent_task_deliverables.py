@@ -28,7 +28,7 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
 from ..db import get_session
-from ..models.db import AgentTaskDeliverableDB, AgentTaskRunDB
+from ..models.db import AgentTaskDeliverableDB, AgentTaskRunDB, TaskExecutionAttemptDB
 from ..models.schemas import (
     AgentTaskDeliverableManifest,
     ArtifactUploadIntent,
@@ -51,6 +51,28 @@ router = APIRouter(prefix="/v1", tags=["agent-tasks"])
 
 def _get_store_for_row(row: AgentTaskDeliverableDB) -> Any:
     return get_store(row.storage_backend)
+
+
+def _require_running_attempt(request: Request, session: Session) -> None:
+    """Artifact uploads require a currently running Attempt (SPEC-172 invariant #3).
+
+    A leased (pre-start) attempt has not begun task code, so no artifact can
+    exist yet. Service tokens bypass this check (backend-spawned runner).
+    """
+    if getattr(request.state, "auth_method", None) != "attempt_token":
+        return
+    attempt_id = getattr(request.state, "attempt_id", None)
+    if not attempt_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Artifact upload requires a running Attempt",
+        )
+    attempt = session.get(TaskExecutionAttemptDB, attempt_id)
+    if attempt is None or attempt.status != "running":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Artifact upload requires a running Attempt",
+        )
 
 
 def _load_task_run_or_404(session: Session, task_run_id: str) -> AgentTaskRunDB:
@@ -163,6 +185,7 @@ async def create_artifact_upload(
     """Open a two-phase Artifact upload intent for a Task Run."""
     task_run = _load_task_run_or_404(session, task_run_id)
     project = require_task_run_access(request, session, task_run, write=True)
+    _require_running_attempt(request, session)
     store = get_store(None)  # default configured write backend
     try:
         intent = await create_artifact_upload_intent(
@@ -202,6 +225,7 @@ async def upload_artifact_bytes(
         raise HTTPException(status_code=404, detail="Upload not found")
     task_run = _load_task_run_or_404(session, row.task_run_id)
     project = require_task_run_access(request, session, task_run, write=True)
+    _require_running_attempt(request, session)
 
     declared = request.headers.get("content-length")
     declared_size = int(declared) if declared and declared.isdigit() else None

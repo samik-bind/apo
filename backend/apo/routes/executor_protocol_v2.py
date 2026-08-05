@@ -542,6 +542,10 @@ async def attempt_result_v2(
         )
     except CompletionConflict as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except ValueError as exc:
+        msg = str(exc)
+        code = status.HTTP_409_CONFLICT if "non-ready" in msg or "already exists" in msg else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(code, detail={"kind": "deliverable_error", "msg": msg}) from exc
     return {"ok": True, "attempt_id": attempt_id}
 
 

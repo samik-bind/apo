@@ -27,6 +27,19 @@ def _now() -> datetime:
 
 
 def _seed_running_attempt(session: Session) -> TaskExecutionAttemptDB:
+    return _seed_attempt(session, status="running")
+
+
+def _seed_attempt(
+    session: Session,
+    *,
+    status: str = "running",
+    lease_expires_at: datetime | None = None,
+    run_id: str = "run-auth",
+    attempt_id: str = "attempt-auth",
+) -> TaskExecutionAttemptDB:
+    if lease_expires_at is None:
+        lease_expires_at = _now() + timedelta(minutes=5)
     session.add(ProjectDB(id="attempt-auth", name="attempt-auth", created_at=_now()))
     session.add(
         AgentTaskBatchRunDB(
@@ -55,7 +68,7 @@ def _seed_running_attempt(session: Session) -> TaskExecutionAttemptDB:
     )
     session.add(
         AgentTaskRunDB(
-            id="run-auth",
+            id=run_id,
             batch_run_id="batch-auth",
             task_id="task-auth",
             task_path="task-auth",
@@ -65,22 +78,46 @@ def _seed_running_attempt(session: Session) -> TaskExecutionAttemptDB:
     )
     session.flush()
     attempt = TaskExecutionAttemptDB(
-        id="attempt-auth",
+        id=attempt_id,
         project="attempt-auth",
         batch_run_id="batch-auth",
-        task_run_id="run-auth",
+        task_run_id=run_id,
         task_revision_id="revision-auth",
         sequence_index=0,
         target_kind="caller",
-        status="running",
+        status=status,
         lease_generation=1,
-        lease_expires_at=_now() + timedelta(minutes=5),
+        lease_expires_at=lease_expires_at,
         queue_expires_at=_now() + timedelta(hours=1),
-        started_at=_now(),
+        started_at=_now() if status != "leased" else None,
     )
     session.add(attempt)
     session.commit()
     return attempt
+
+
+def _mint_token(attempt: TaskExecutionAttemptDB, generation: int = 1) -> str:
+    return executor_auth.create_attempt_jwt(
+        attempt=attempt,
+        lease_generation=generation,
+        expires_in_seconds=300,
+    )
+
+
+def _post_intent(client: TestClient, run_id: str, headers: dict) -> tuple[int, str]:
+    artifact = b"abc"
+    resp = client.post(
+        f"/v1/agent-task-runs/{run_id}/artifact-uploads",
+        json={
+            "name": "output",
+            "display_filename": "output.txt",
+            "media_type": "text/plain",
+            "size_bytes": len(artifact),
+            "sha256": hashlib.sha256(artifact).hexdigest(),
+        },
+        headers=headers,
+    )
+    return resp.status_code, resp.text
 
 
 @pytest.mark.real_auth
@@ -169,3 +206,114 @@ def test_attempt_token_can_read_own_trace_projection(
         "/v1/agent-task-runs/some-other-run/trace-projection", headers=headers
     )
     assert other.status_code == 403, other.text
+
+
+# ---------------------------------------------------------------------------
+# SPEC-172 Step 4: only a currently running, live Attempt may upload artifacts.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.real_auth
+def test_running_attempt_can_create_artifact_intent(
+    client: TestClient,
+    session: Session,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The happy path: a running attempt with a valid token creates an intent."""
+    monkeypatch.setattr(auth_middleware, "engine", session.get_bind())
+    monkeypatch.setattr(executor_auth, "AUTH_SECRET", "attempt-transport-secret")
+    monkeypatch.setenv("APO_ARTIFACT_DIR", str(tmp_path))
+    attempt = _seed_running_attempt(session)
+    token = _mint_token(attempt)
+
+    code, body = _post_intent(client, "run-auth", {"Authorization": f"Bearer {token}"})
+    assert code == 201, body
+
+
+@pytest.mark.real_auth
+def test_leased_attempt_cannot_upload(
+    client: TestClient,
+    session: Session,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A leased (not-yet-started) attempt must not upload artifacts — the task
+    code hasn't started, so no artifact can exist yet (SPEC-172 invariant #3)."""
+    monkeypatch.setattr(auth_middleware, "engine", session.get_bind())
+    monkeypatch.setattr(executor_auth, "AUTH_SECRET", "attempt-transport-secret")
+    monkeypatch.setenv("APO_ARTIFACT_DIR", str(tmp_path))
+    attempt = _seed_attempt(session, status="leased")
+    token = _mint_token(attempt)
+
+    code, body = _post_intent(client, "run-auth", {"Authorization": f"Bearer {token}"})
+    assert code in (401, 403), f"leased attempt should be rejected, got {code}: {body}"
+
+
+@pytest.mark.real_auth
+def test_expired_lease_cannot_upload(
+    client: TestClient,
+    session: Session,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An attempt whose lease has expired must not upload artifacts."""
+    monkeypatch.setattr(auth_middleware, "engine", session.get_bind())
+    monkeypatch.setattr(executor_auth, "AUTH_SECRET", "attempt-transport-secret")
+    monkeypatch.setenv("APO_ARTIFACT_DIR", str(tmp_path))
+    attempt = _seed_attempt(
+        session, status="running", lease_expires_at=_now() - timedelta(minutes=1)
+    )
+    token = _mint_token(attempt)
+
+    code, body = _post_intent(client, "run-auth", {"Authorization": f"Bearer {token}"})
+    assert code in (401, 403), f"expired attempt should be rejected, got {code}: {body}"
+
+
+@pytest.mark.real_auth
+def test_lost_attempt_cannot_upload(
+    client: TestClient,
+    session: Session,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A lost attempt must not upload artifacts."""
+    monkeypatch.setattr(auth_middleware, "engine", session.get_bind())
+    monkeypatch.setattr(executor_auth, "AUTH_SECRET", "attempt-transport-secret")
+    monkeypatch.setenv("APO_ARTIFACT_DIR", str(tmp_path))
+    attempt = _seed_attempt(session, status="lost")
+    token = _mint_token(attempt)
+
+    code, body = _post_intent(client, "run-auth", {"Authorization": f"Bearer {token}"})
+    assert code in (401, 403), f"lost attempt should be rejected, got {code}: {body}"
+
+
+@pytest.mark.real_auth
+def test_cross_run_token_cannot_upload(
+    client: TestClient,
+    session: Session,
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A token bound to run-auth must not create uploads for a different run."""
+    monkeypatch.setattr(auth_middleware, "engine", session.get_bind())
+    monkeypatch.setattr(executor_auth, "AUTH_SECRET", "attempt-transport-secret")
+    monkeypatch.setenv("APO_ARTIFACT_DIR", str(tmp_path))
+    attempt = _seed_running_attempt(session)
+    token = _mint_token(attempt)
+
+    # Seed a second run that the token is NOT bound to.
+    session.add(
+        AgentTaskRunDB(
+            id="run-other",
+            batch_run_id="batch-auth",
+            task_id="task-other",
+            task_path="task-other",
+            status="running",
+            started_at=_now(),
+        )
+    )
+    session.commit()
+
+    code, body = _post_intent(client, "run-other", {"Authorization": f"Bearer {token}"})
+    assert code in (401, 403, 404), f"cross-run should be rejected, got {code}: {body}"

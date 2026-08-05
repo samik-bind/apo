@@ -409,6 +409,11 @@ def finalize_task_run_with_result(
     """
     # validate before mutating terminal state.
     normalized_config = normalize_run_configuration(run_configuration)
+
+    # SPEC-172: no Artifact may still be pending or failed when the run
+    # terminalizes. Checks finish and uploads complete before result submission.
+    _reject_non_ready_artifacts(session, task_run.id)
+
     task_run.adapter_name = adapter_name
     task_run.pass_result = pass_result
     task_run.trace_run_id = reconcile_trace_id(task_run, trace_run_id)
@@ -446,6 +451,25 @@ def finalize_task_run_with_result(
             pass_result=task_run.pass_result,
             checks=checks,
             error_message=error_message,
+        )
+
+
+def _reject_non_ready_artifacts(session: Session, task_run_id: str) -> None:
+    """SPEC-172 invariant #5: a result cannot terminalize while an Artifact
+    is still pending or failed. Returns silently when all Artifacts are ready
+    or there are none."""
+    from ..models.db import AgentTaskDeliverableDB
+    from sqlmodel import col
+    blocked = session.exec(
+        select(AgentTaskDeliverableDB).where(
+            AgentTaskDeliverableDB.task_run_id == task_run_id,
+            AgentTaskDeliverableDB.kind == "artifact",
+            col(AgentTaskDeliverableDB.status).in_(("pending", "failed")),
+        )
+    ).first()
+    if blocked is not None:
+        raise ValueError(
+            f"Task Run has non-ready Artifacts: {blocked.name} (status={blocked.status})"
         )
 
 
