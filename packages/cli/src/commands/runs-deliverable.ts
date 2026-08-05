@@ -140,12 +140,19 @@ async function downloadArtifact(
   outputPath: string | undefined,
   runId: string,
 ): Promise<number> {
-  if (!outputPath && (process.stdout.isTTY === true || isatty(1))) {
+  // Resolve output path: --output <dir>/ or "." auto-derives from display_filename.
+  let resolvedOutput = outputPath;
+  if (outputPath && (outputPath === "." || outputPath.endsWith("/"))) {
+    const filename = item.display_filename || item.name;
+    resolvedOutput = outputPath === "." ? filename : `${outputPath}${filename}`;
+  }
+
+  if (!resolvedOutput && (process.stdout.isTTY === true || isatty(1))) {
     // Refuse to dump binary bytes to an interactive terminal.
     console.error(
       `Deliverable "${item.name}" is a binary artifact (${item.media_type}, ${item.size_bytes} bytes).`,
     );
-    console.error(dim(`Use --output <path> to write it to a file.`));
+    console.error(dim(`Use --output <path> (or --output . to use the original filename) to write it to a file.`));
     return 2;
   }
 
@@ -156,11 +163,11 @@ async function downloadArtifact(
       console.error("Empty download response.");
       return 2;
     }
-    if (outputPath) {
+    if (resolvedOutput) {
       // Stream to a file and await completion so the caller (and tests) see a
       // complete file before the process returns.
       await new Promise<void>((resolve, reject) => {
-        const dest = createWriteStream(outputPath);
+        const dest = createWriteStream(resolvedOutput);
         dest.on("error", reject);
         dest.on("finish", () => resolve());
         (async () => {

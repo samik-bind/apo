@@ -199,20 +199,26 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
     console.log(`\n  ${run.error_message ?? NO_CHECKS_REGISTERED_MESSAGE}`);
   }
 
+  // Deliverables summary — always shown so users discover artifacts exist.
+  const manifest = run.deliverables ?? [];
+  if (manifest.length > 0) {
+    const summary = manifest.map((d) =>
+      `${d.name} (${d.kind}${d.size_bytes ? `, ${formatBytes(d.size_bytes)}` : ""})`,
+    ).join(", ");
+    console.log(`\n  Deliverables: ${summary}`);
+    console.log(dim(`    Read one: apo runs deliverable ${run.id} <name>`));
+  }
+
   if (verbose) {
-    // prefer the manifest (metadata-only) over the legacy
-    // deliverables_json body. New rows have deliverables_json null; legacy
-    // rows synthesize a manifest on the backend.
-    const manifest = run.deliverables ?? [];
+    // Detailed per-item listing.
     if (manifest.length > 0) {
-      console.log(bold("\n  Deliverables:"));
+      console.log(bold("\n  Deliverable details:"));
       for (const item of manifest) {
         const filename = item.display_filename ? dim(` (${item.display_filename})`) : "";
         console.log(
           dim(`    ${item.name}: ${item.kind}, ${item.size_bytes} bytes${filename}`),
         );
       }
-      console.log(dim(`\n    Read one: apo runs deliverable <run-id> <name>`));
     } else if (run.deliverables_json) {
       console.log(bold("\n  Deliverables:"));
       const keys = Object.keys(run.deliverables_json);
@@ -263,6 +269,12 @@ function previewTranscriptValue(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return value.slice(0, 200);
   return JSON.stringify(value, null, 0).slice(0, 200);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function formatUnpricedSuffix(unpricedCallCount?: number): string {

@@ -110,6 +110,32 @@ Return the structured deliverables, keyed to match `deliverables`.
 
 Let TypeScript infer this method's return type. `task()` carries it into the scoped `test` callback and narrows it to the deliverable names that task selected. An explicit `Promise<Record<string, unknown>>` annotation intentionally widens the values back to `unknown`.
 
+#### File artifacts
+
+A deliverable can be a file instead of a JSON value. Use `fileArtifact()` to declare it:
+
+```typescript
+import { fileArtifact } from "@apo-ai/sdk/agent-task";
+
+async collectDeliverables(ctx) {
+  return {
+    score: { value: 0.92 },                          // JSON — tested inline
+    report: fileArtifact(ctx.state.reportPath, {     // file — uploaded + downloadable
+      displayFilename: "final-report.docx",
+      mediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }),
+  };
+}
+```
+
+`fileArtifact(path, options?)` validates the path points to a regular file (no symlinks, no directories). `displayFilename` and `mediaType` are optional with sensible defaults (`basename(path)` and `application/octet-stream`).
+
+After checks finish, apo uploads the file automatically and submits only the JSON deliverables in the result body. The executor-local path never reaches the backend. Both `apo connect` and recorded `apo task run` handle the upload — no extra code needed.
+
+Failed checks still upload artifacts — a failing run's files are evidence for understanding the failure.
+
+The file is **not** available as a `deliverables.report` value inside `test()` — tests see the descriptor, not the file content. Assert on JSON deliverables or trace-based assertions instead. After the run, download the file with `apo runs deliverable <run-id> report --output report.docx` or from the dashboard's Deliverables tab.
+
 ### `initialize`
 
 - **Type:** `(ctx) => Promise<AdapterRuntimeState | void>`
@@ -180,3 +206,4 @@ Every lifecycle method receives a context object. All four share these base fiel
 - [Task API](/reference/task/) — how `task()` wires an adapter into a task.
 - [Assertions API](/reference/assertions/) — what asserts against the deliverables you return.
 - [Tracing integrations](/reference/tracing-integrations/) — `createApoTracer` and friends that auto-trace `sendUserTurn`.
+- [`apo runs deliverable`](/cli/runs-deliverable/) — download file artifacts from a completed run.

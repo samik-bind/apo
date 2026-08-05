@@ -198,7 +198,7 @@ const commands: Record<string, CommandEntry> = {
     ],
     options: [
       ["--task <id>", "Filter 'last' to the latest run of a specific task"],
-      ["--output <path>", "Write a binary artifact to a file instead of stdout"],
+      ["--output <path>", "Write a binary artifact to a file instead of stdout. Use '.' to auto-derive the original filename."],
     ],
     examples: [
       "apo runs deliverable de89cab             # manifest of all deliverables",
@@ -206,7 +206,7 @@ const commands: Record<string, CommandEntry> = {
       "apo runs deliverable de89cab verifier-log --output verifier.log",
       "apo runs deliverable last --task meeting-summary summary",
     ],
-    note: "Accepts run-id prefixes. Requires backend auth. Fetches only the manifest, then exactly one body when a name is given — never the whole run. Binary artifacts require --output on an interactive terminal. Supports --json.",
+    note: "Accepts run-id prefixes. Requires backend auth. Fetches only the manifest, then exactly one body when a name is given — never the whole run. Binary artifacts require --output on an interactive terminal (use '.' to keep the original filename). Supports --json.",
   },
   "traces list": {
     handler: loadCommand("traces-list"),
