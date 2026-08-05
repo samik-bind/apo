@@ -16,6 +16,21 @@ vi.mock("@/lib/agent-task-api", async () => {
   return { ...actual, createAgentTaskBatchRun: vi.fn() };
 });
 
+// Evidence-view endpoints (SPEC-174): the client fetches the model/effort
+// palette on mount and view-scoped stats on tab switch. Stub them so the mount
+// effect doesn't hit the network and so derived-tab stats are deterministic.
+vi.mock("@/lib/agent-task-view-api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/agent-task-view-api")>(
+    "@/lib/agent-task-view-api",
+  );
+  return {
+    ...actual,
+    fetchTaskViewConfigFacets: vi.fn().mockResolvedValue([]),
+    fetchTaskViewStats: vi.fn().mockResolvedValue({}),
+    createTaskViewComparison: vi.fn(),
+  };
+});
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   useParams: () => ({ projectId: "acme-evals" }),
@@ -115,5 +130,49 @@ describe("AgentTasksClient — native source-owned Run", () => {
     // whole request — `selection_type` and `execution_target` are derived
     // server-side and must not be sent.
     expect(Object.keys(call).sort()).toEqual(["project", "run_metadata", "task_ids"]);
+  });
+});
+
+describe("AgentTasksClient — evidence views (SPEC-174)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders the permanent Main tab and the Model filter header", async () => {
+    render(
+      <AgentTasksClient
+        tasks={[task()]}
+        error={null}
+        taskSource={taskSource}
+        isDemo={false}
+      />,
+    );
+    // The Main tab is always present (permanent) and shows the "everything"
+    // config readout; the Model filter is part of the unified header.
+    expect(screen.getByText("Main")).toBeInTheDocument();
+    expect(screen.getByText("everything")).toBeInTheDocument();
+    // The Model filter label renders as part of the unified header (CSS
+    // uppercases it visually; the DOM text is the capitalized form).
+    expect(screen.getByText("Model")).toBeInTheDocument();
+    // The palette fetch fires once on mount (drives the Model dropdown options).
+    const { fetchTaskViewConfigFacets } = await import("@/lib/agent-task-view-api");
+    await waitFor(() => {
+      expect(fetchTaskViewConfigFacets).toHaveBeenCalledWith("acme-evals");
+    });
+  });
+
+  it("exposes Compare on the selection action bar once tasks are checked", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentTasksClient
+        tasks={[task(), task({ id: "support/cancel", display_name: "cancel" })]}
+        error={null}
+        taskSource={taskSource}
+        isDemo={false}
+      />,
+    );
+    // Select-all folder checkbox picks every task, which surfaces the bar.
+    await user.click(screen.getAllByRole("checkbox")[0]);
+    expect(screen.getByRole("button", { name: /Compare/i })).toBeInTheDocument();
   });
 });
