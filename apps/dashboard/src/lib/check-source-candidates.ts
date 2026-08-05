@@ -74,3 +74,26 @@ export function shouldAcceptSource(input: AcceptSourceInput): boolean {
 function dedupe(items: string[]): string[] {
   return [...new Set(items)];
 }
+
+/**
+ * Structural shape needed to derive an anchor line from a check result.
+ * Compatible with `CheckResult` without importing it (avoids a cycle).
+ */
+export interface CheckAnchorSource {
+  location?: { line?: number } | null;
+  assertions?: Array<{ location?: { line?: number } | null }> | null;
+}
+
+/**
+ * The best available source line for a check, for anchoring
+ * {@link extractCheckBlock} when the check's id doesn't appear literally in
+ * the source (table-driven evals with generated titles — issue #126).
+ *
+ * The check-level `location` is preferred; when it's absent (the common case
+ * for generated-title checks, where only assertions carry a line), the first
+ * assertion with a location is used.
+ */
+export function checkAnchorLine(check: CheckAnchorSource): number | undefined {
+  if (check.location?.line) return check.location.line;
+  return check.assertions?.find((a) => a.location?.line)?.location?.line;
+}

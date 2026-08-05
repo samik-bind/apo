@@ -31,6 +31,7 @@ import { buildCheckDiagnostics } from "@/lib/check-diagnostics";
 import { extractCheckBlock } from "@/lib/extract-check-block";
 import {
   buildSourceCandidates,
+  checkAnchorLine,
   shouldAcceptSource,
 } from "@/lib/check-source-candidates";
 import { locateAssertionsInBlock } from "@/lib/locate-assertion";
@@ -400,7 +401,7 @@ function ExpandableCheckItem({
     checksSource
       ? extractCheckBlock(checksSource.content, {
           id: item.id,
-          anchorLine: item.location?.line,
+          anchorLine: checkAnchorLine(item),
         })
       : null;
   const diagnostics = checkBlock
@@ -774,7 +775,7 @@ export function TaskRunDetailBody({
             signal,
           );
           const containsKnownCheck = checks.some((check) =>
-            extractCheckBlock(source.content, { id: check.id }) !== null
+            extractCheckBlock(source.content, { id: check.id, anchorLine: checkAnchorLine(check) }) !== null
           );
           if (
             shouldAcceptSource({

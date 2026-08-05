@@ -238,17 +238,31 @@ function printTranscript(transcript: Record<string, unknown>): void {
     for (const turn of turns) {
       if (typeof turn !== "object" || turn === null) continue;
       const t = turn as Record<string, unknown>;
+      // SDK TaskTranscriptTurn: { turnNumber, userAction, agentResponse }.
+      if ("userAction" in t || "agentResponse" in t) {
+        const n = typeof t.turnNumber === "number" ? t.turnNumber : "?";
+        console.log(dim(`    --- Turn ${n} ---`));
+        const ua = previewTranscriptValue(t.userAction);
+        const ar = previewTranscriptValue(t.agentResponse);
+        if (ua) console.log(dim(`    [user] ${ua}`));
+        if (ar) console.log(dim(`    [agent] ${ar}`));
+        continue;
+      }
+      // Legacy chat-style turns: { role, content }.
       const role = t.role ?? t.actor ?? t.type ?? "?";
-      const content = t.content ?? t.message ?? t.text ?? "";
-      const preview = typeof content === "string"
-        ? content.slice(0, 200)
-        : JSON.stringify(content, null, 0).slice(0, 200);
+      const preview = previewTranscriptValue(t.content ?? t.message ?? t.text);
       console.log(dim(`    [${role}] ${preview}`));
     }
   } else {
     const preview = JSON.stringify(transcript, null, 0).slice(0, 500);
     console.log(dim(`    ${preview}`));
   }
+}
+
+function previewTranscriptValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value.slice(0, 200);
+  return JSON.stringify(value, null, 0).slice(0, 200);
 }
 
 function formatUnpricedSuffix(unpricedCallCount?: number): string {

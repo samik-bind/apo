@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSourceCandidates,
+  checkAnchorLine,
   shouldAcceptSource,
 } from "../check-source-candidates";
 
@@ -110,5 +111,47 @@ describe("shouldAcceptSource", () => {
         isLastCandidate: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("checkAnchorLine", () => {
+  it("returns the check-level location line when present", () => {
+    expect(checkAnchorLine({ location: { line: 42 } })).toBe(42);
+  });
+
+  it("falls back to the first assertion location line when check-level is null", () => {
+    // Issue #126: table-driven evals record the line on assertions[].location,
+    // not on checks[].location — which is null.
+    expect(
+      checkAnchorLine({
+        assertions: [
+          { location: { line: 78 } },
+          { location: { line: 82 } },
+        ],
+      }),
+    ).toBe(78);
+  });
+
+  it("skips assertions with no location and uses the first one that has one", () => {
+    expect(
+      checkAnchorLine({
+        assertions: [
+          { location: null },
+          { location: { line: 55 } },
+        ],
+      }),
+    ).toBe(55);
+  });
+
+  it("returns undefined when neither check nor assertions have a location", () => {
+    expect(checkAnchorLine({ assertions: [{}, { location: null }] })).toBeUndefined();
+  });
+
+  it("returns undefined when assertions is empty", () => {
+    expect(checkAnchorLine({ assertions: [] })).toBeUndefined();
+  });
+
+  it("returns undefined when assertions is null/undefined", () => {
+    expect(checkAnchorLine({})).toBeUndefined();
   });
 });

@@ -363,4 +363,45 @@ describe("runs show command", () => {
     expect(out).toContain("No tests were registered");
     expect(out).toContain("test()");
   });
+
+  // Issue #126: printTranscript read role/content fields that the SDK's
+  // TaskTranscriptTurn ({ turnNumber, userAction, agentResponse }) never has,
+  // so every turn rendered as [?] "". Fix: handle the real shape.
+  it("renders SDK TaskTranscriptTurns in --verbose", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(
+        makeRun({
+          status: "passed",
+          pass_result: true,
+          transcript_json: {
+            turns: [
+              {
+                turnNumber: 1,
+                userAction: "Please draft the memo.",
+                agentResponse: "Here is the draft...",
+              },
+              {
+                turnNumber: 2,
+                userAction: "Add a conclusion.",
+                agentResponse: "Done.",
+              },
+            ],
+          },
+        }),
+      ),
+    );
+    const { logs, restore } = captureLog();
+
+    await run([FULL_ID, "--backend", "http://backend.test", "--verbose"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("Turn 1");
+    expect(out).toContain("[user]");
+    expect(out).toContain("Please draft the memo.");
+    expect(out).toContain("[agent]");
+    expect(out).toContain("Here is the draft...");
+    expect(out).toContain("Turn 2");
+    expect(out).not.toContain("[?]");
+  });
 });
