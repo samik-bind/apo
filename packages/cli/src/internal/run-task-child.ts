@@ -49,17 +49,25 @@ async function main(): Promise<number> {
     // SPEC-172: upload file artifacts after checks, before fd-3 result.
     const deliverables = (summary as { deliverables?: Record<string, unknown> }).deliverables;
     if (deliverables && Object.values(deliverables).some(isFileArtifact)) {
-      const backendUrl = process.env.APO_BACKEND_URL;
-      const taskRunId = process.env.AGENT_TASK_RUN_ID;
-      const authToken = process.env.APO_AUTH_TOKEN;
-      const prepared = await persistFileArtifacts(deliverables, {
-        taskRunId: taskRunId ?? "",
-        authToken: authToken ?? "",
-        baseUrl: backendUrl ?? "",
-        fetch,
-      });
-      (summary as { deliverables: Record<string, unknown> }).deliverables =
-        prepared.jsonDeliverables;
+      try {
+        const backendUrl = process.env.APO_BACKEND_URL;
+        const taskRunId = process.env.AGENT_TASK_RUN_ID;
+        const authToken = process.env.APO_AUTH_TOKEN;
+        const prepared = await persistFileArtifacts(deliverables, {
+          taskRunId: taskRunId ?? "",
+          authToken: authToken ?? "",
+          baseUrl: backendUrl ?? "",
+          fetch,
+        });
+        (summary as { deliverables: Record<string, unknown> }).deliverables =
+          prepared.jsonDeliverables;
+      } catch (artifactErr) {
+        // Any error from the persist phase is classified as artifact_persistence
+        // so the parent maps it to failure_kind="driver", not task_runtime.
+        const msg = (artifactErr as Error).message || String(artifactErr);
+        writeResult({ ok: false, error: `artifact_persistence: ${msg}` });
+        return 1;
+      }
     }
 
     writeResult({
@@ -68,13 +76,7 @@ async function main(): Promise<number> {
     });
     return 0;
   } catch (err) {
-    const message = (err as Error).message || String(err);
-    // Prefix artifact-persistence errors so the parent maps to failure_kind="driver".
-    const isArtifactError = message.includes("Artifact") && message.includes("uploaded");
-    writeResult({
-      ok: false,
-      error: isArtifactError ? `artifact_persistence: ${message}` : message,
-    });
+    writeResult({ ok: false, error: (err as Error).message || String(err) });
     return 1;
   }
 }

@@ -468,6 +468,8 @@ def _reject_non_ready_artifacts(session: Session, task_run_id: str) -> None:
     # Acquire the fence so a concurrent intent cannot land between the check
     # and the terminal mutation.
     _locked = lock_task_run(session, task_run_id)
+    if _locked is None:
+        return  # Task Run deleted — the finalizer's caller handles missing runs
 
     blocked = session.exec(
         select(AgentTaskDeliverableDB).where(

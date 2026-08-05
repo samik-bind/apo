@@ -13,7 +13,6 @@
 
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { basename } from "node:path";
 import { Readable } from "node:stream";
 
 import { isFileArtifact, type FileArtifact } from "./artifact.ts";
@@ -119,15 +118,23 @@ async function uploadOne(
   artifact: FileArtifact,
   config: ArtifactUploadConfig,
 ): Promise<DeliverableSummary> {
-  const { size, sha256 } = await hashFile(artifact.path);
-  const intent = await createIntent(name, artifact, size, sha256, config);
+  try {
+    const { size, sha256 } = await hashFile(artifact.path);
+    const intent = await createIntent(name, artifact, size, sha256, config);
 
-  const body = Readable.toWeb(createReadStream(artifact.path)) as ReadableStream<Uint8Array>;
-  const summary = await putBytes(intent.upload_url, body, size, config);
-  // The local filename never enters the persisted summary; the server owns
-  // display metadata through the intent.
-  void basename;
-  return summary;
+    const body = Readable.toWeb(createReadStream(artifact.path)) as ReadableStream<Uint8Array>;
+    const summary = await putBytes(intent.upload_url, body, size, config);
+    return summary;
+  } catch (err) {
+    // Sanitize file I/O errors (ENOENT, EACCES, etc.) which embed the full
+    // local path in their message. HTTP errors carry server responses, not
+    // paths, and propagate unchanged.
+    if (err instanceof Error && (err as NodeJS.ErrnoException).code) {
+      const code = (err as NodeJS.ErrnoException).code ?? "UNKNOWN";
+      throw new Error(`Artifact '${name}' file read failed: ${code}`);
+    }
+    throw err;
+  }
 }
 
 async function hashFile(

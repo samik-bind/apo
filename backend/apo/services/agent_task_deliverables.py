@@ -82,6 +82,7 @@ async def persist_json_deliverable(
     through ``store``. Returns the persisted (ready) row, unsaved — the caller
     commits so multiple rows and the terminal task-run state land together.
     """
+    validate_deliverable_name(name)
     body = _compact_json_bytes(value)
     size = len(body)
     sha = _sha256_hex(body)
@@ -442,14 +443,32 @@ async def complete_artifact_upload(
     # became terminal while bytes were streaming, compensate by deleting the
     # just-written object and reject.
     task_run = _lock_task_run(session, row.task_run_id)
-    if task_run is not None and task_run.status in ("passed", "failed", "error"):
+    if task_run is None:
         try:
             await store.delete(key)
         except Exception:
-            pass  # best-effort cleanup; retention handles orphans
+            pass
+        raise ValueError(
+            f"artifact_upload_closed: Task Run {row.task_run_id} no longer exists"
+        )
+    if task_run.status in ("passed", "failed", "error"):
+        try:
+            await store.delete(key)
+        except Exception:
+            pass
         raise ValueError(
             f"artifact_upload_closed: Task Run {row.task_run_id} no longer accepts Artifact uploads"
         )
+
+    # Re-check the deliverable row: a concurrent PUT may have already promoted it.
+    session.refresh(row)
+    if row.status == "ready":
+        # Idempotent: a concurrent PUT already completed this upload.
+        try:
+            await store.delete(key)
+        except Exception:
+            pass
+        return _row_to_summary(row, download_url=None)
 
     row.storage_key = key
     row.storage_backend = stored.backend
