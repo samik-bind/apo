@@ -414,7 +414,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
       try {
         await submitCallerFailure(backendUrl, created.lease, {
           completion_id: completionId,
-          failure_kind: artifactPhase ? "driver" : "task_process",
+          failure_kind: artifactPhase ? "driver" : "task_runtime",
           error_message: message,
         });
       } catch (reportError) {

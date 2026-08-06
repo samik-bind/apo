@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // caller path's actual contract with it, so it has to be asserted, not assumed.
 const _captured: { env?: NodeJS.ProcessEnv } = {};
 let _deliverables: Record<string, unknown> = {};
+let _throwError: string | null = null;
 
 // Partially mock the SDK: keep the real manifest canonicalizer (used by the
 // caller attestation) but stub runTaskDir so the test needs no importable task.
@@ -15,6 +16,7 @@ vi.mock("@apo-ai/sdk/agent-task", async (importOriginal) => {
   return {
     ...actual,
     runTaskDir: async () => {
+      if (_throwError) throw new Error(_throwError);
       _captured.env = { ...process.env };
       return { taskId: "t", pass: true, checks: [], adapterName: null, traceRunId: null, deliverables: _deliverables };
     },
@@ -56,6 +58,7 @@ describe("task run --executor caller dispatch", () => {
     rmSync(testDir, { recursive: true, force: true });
     _captured.env = undefined;
     _deliverables = {};
+    _throwError = null;
   });
 
   it("--executor caller + reachable posts to the caller create route and submits result", async () => {
@@ -266,5 +269,40 @@ describe("task run --executor caller dispatch", () => {
     expect(resultBody?.deliverables).toEqual({ score: { value: 0.92 } });
     expect(JSON.stringify(resultBody?.deliverables)).not.toContain("apo.file-artifact");
     expect(JSON.stringify(resultBody)).not.toContain(artifactPath);
+  });
+
+  // Issue #127: the caller path sent failure_kind "task_process" which the
+  // backend rejects. Must be a valid kind like "task_runtime".
+  it("sends a valid failure_kind when the task throws", async () => {
+    _throwError = "task exploded";
+
+    let failureBody: Record<string, unknown> | undefined;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("/health")) return new Response("ok", { status: 200 });
+      if (url.includes("/agent-task-batch-runs/caller")) {
+        return mockResp({
+          batch_run_id: "b1", task_run_id: "r1", attempt_id: "a1", lease_generation: 1,
+          lease_expires_at: "2026-01-01T00:00:00Z", attempt_jwt: "jwt-1",
+          trace_endpoint: "http://backend.test", trace_project: "proj-test",
+        }, 201);
+      }
+      if (url.includes("/attempts/a1/start")) return mockResp({ status: "running" });
+      if (url.includes("/attempts/a1/heartbeat")) return mockResp({ cancel_requested: false });
+      if (url.includes("/attempts/a1/failure")) {
+        failureBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return mockResp({ status: "failed" });
+      }
+      return mockResp({}, 404);
+    });
+
+    const code = await run([
+      taskId, "--dir", testDir, "--backend", "http://backend.test",
+      "--project", "proj-test", "--api-key", "sk-apo-test", "--executor", "caller",
+    ]);
+
+    expect(code).toBe(2);
+    expect(failureBody?.failure_kind).toBe("task_runtime");
+    expect(failureBody?.failure_kind).not.toBe("task_process");
   });
 });
