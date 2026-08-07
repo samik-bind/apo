@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useMemo, ReactNode } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { setSearchParamShallow } from "@/lib/shallow-search-params";
 import { SelectionContext, type NavigationView } from "./SelectionContext";
 
 interface SelectionContextValue {
@@ -39,28 +40,17 @@ export function UrlSelectionProvider({
   runId: string;
   projectId?: string | null;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedCallId = searchParams.get("observation");
   const view = parseView(searchParams.get("view"));
   const detailTab = searchParams.get("tab") ?? "";
 
-  const updateParam = useCallback(
-    (key: string, value: string | null) => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (value) {
-        params.set(key, value);
-      } else {
-        params.delete(key);
-      }
-      const qs = params.toString();
-      router.replace(`${pathname}${qs ? `?${qs}` : ""}`, {
-        scroll: false,
-      });
-    },
-    [router, pathname, searchParams],
-  );
+  // Shallow history update: `useSearchParams` consumers re-render, but the
+  // server component does NOT re-run — selection stays a pure client concern.
+  // Reads the live URL (not the hook) so rapid successive updates compose.
+  const updateParam = useCallback((key: string, value: string | null) => {
+    setSearchParamShallow(key, value);
+  }, []);
 
   const selectCall = useCallback(
     (callId: string | null) => {

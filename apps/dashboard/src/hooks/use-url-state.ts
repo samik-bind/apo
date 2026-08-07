@@ -6,8 +6,13 @@
  * Lets a component read/write a piece of UI state from the query string so the
  * page can be shared, bookmarked, or restored via back/forward. Mirrors the
  * pattern established by `UrlSelectionContext` (used by the trace workspace):
- * it writes with `router.replace` + `{ scroll: false }` so selection changes
- * don't pollute history or jump the viewport.
+ * writes are shallow (`window.history.replaceState` via
+ * `shallow-search-params`), so the URL updates and `useSearchParams` consumers
+ * re-render without the server component re-running — a `router.replace` on
+ * these `force-dynamic` pages would re-fetch the page's entire data set per
+ * click. Only use these hooks for params the server component does NOT read;
+ * server-driven params (pagination, sorting, filters) must keep using router
+ * navigation.
  *
  * NOTE: `useSearchParams` requires a <Suspense> boundary above any page that
  * renders these hooks at the top level. The pages that consume them wrap their
@@ -15,7 +20,12 @@
  */
 
 import { useCallback } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+
+import {
+  setSearchParamShallow,
+  updateSearchParamsShallow,
+} from "@/lib/shallow-search-params";
 
 /**
  * Read/write a single-valued query param.
@@ -24,16 +34,14 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
  * @param fallback Value used when the param is absent/empty.
  */
 export function useUrlParam(key: string, fallback = ""): [string, (value: string | null) => void] {
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const value = searchParams.get(key) ?? fallback;
 
   const setValue = useCallback(
     (next: string | null) => {
-      updateParam(router, pathname, searchParams, key, next);
+      setSearchParamShallow(key, next);
     },
-    [router, pathname, searchParams, key],
+    [key],
   );
 
   return [value, setValue];
@@ -49,30 +57,31 @@ export function useUrlParamSet(key: string): [
   (value: string, open?: boolean) => void,
   () => void,
 ] {
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
 
   const raw = searchParams.get(key) ?? "";
   const values = parseCsvSet(raw);
 
+  // Reads the live URL inside the mutation, so rapid toggles compose instead
+  // of clobbering each other via a stale hook snapshot.
   const toggle = useCallback(
     (value: string, open?: boolean) => {
-      const next = parseCsvSet(raw);
-      const shouldOpen = open ?? !next.has(value);
-      if (shouldOpen) next.add(value);
-      else next.delete(value);
-      updateParam(router, pathname, searchParams, key, setToParam(next));
+      updateSearchParamsShallow((params) => {
+        const next = parseCsvSet(params.get(key) ?? "");
+        const shouldOpen = open ?? !next.has(value);
+        if (shouldOpen) next.add(value);
+        else next.delete(value);
+        const joined = setToParam(next);
+        if (joined) params.set(key, joined);
+        else params.delete(key);
+      });
     },
-    [router, pathname, searchParams, key, raw],
+    [key],
   );
 
-  // Clear every value at once. The toggle closure reads a stale `raw` snapshot,
-  // so removing items in a loop is unreliable — this writes the empty set
-  // directly in one router update.
   const clearAll = useCallback(() => {
-    updateParam(router, pathname, searchParams, key, null);
-  }, [router, pathname, searchParams, key]);
+    setSearchParamShallow(key, null);
+  }, [key]);
 
   return [values, toggle, clearAll];
 }
@@ -87,24 +96,6 @@ function parseCsvSet(raw: string): Set<string> {
       return t ? [t] : [];
     }),
   );
-}
-
-/** Shared writer: rebuild the query string, preserving other params. */
-function updateParam(
-  router: ReturnType<typeof useRouter>,
-  pathname: string,
-  searchParams: ReturnType<typeof useSearchParams>,
-  key: string,
-  value: string | null,
-): void {
-  const params = new URLSearchParams(searchParams.toString());
-  if (value) {
-    params.set(key, value);
-  } else {
-    params.delete(key);
-  }
-  const qs = params.toString();
-  router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
 }
 
 function setToParam(set: Set<string>): string | null {

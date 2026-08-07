@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Search, ArrowLeft, Download, Settings2, ChevronLeft, ChevronRight, AlertTriangle, PanelLeft, Radio } from "lucide-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -9,6 +9,7 @@ import { useProjectId } from "@/lib/project-router";
 import { usePanelRef, type PanelSize } from "react-resizable-panels";
 import { toast } from "sonner";
 import { getCommentCounts } from "@/lib/comments-api";
+import { setSearchParamShallow } from "@/lib/shallow-search-params";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -492,8 +493,6 @@ export function TraceWorkspace({
   readOnly = false,
 }: TraceWorkspaceProps) {
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const pathname = usePathname();
   const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState(() =>
     mode === "page" ? (searchParams.get("q") ?? "") : "",
@@ -557,17 +556,12 @@ export function TraceWorkspace({
     if (searchQuery === lastSyncedQueryRef.current) return;
     const timer = setTimeout(() => {
       lastSyncedQueryRef.current = searchQuery;
-      const params = new URLSearchParams(searchParams.toString());
-      if (searchQuery) {
-        params.set("q", searchQuery);
-      } else {
-        params.delete("q");
-      }
-      const qs = params.toString();
-      router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
+      // Shallow: keeps the URL shareable without re-running the server
+      // component (which would re-fetch the whole trace) per keystroke.
+      setSearchParamShallow("q", searchQuery || null);
     }, 300);
     return () => clearTimeout(timer);
-  }, [mode, searchQuery, searchParams, router, pathname]);
+  }, [mode, searchQuery]);
 
   return (
     <TraceDataProvider run={liveRun} isLoading={false} error={null} refreshRun={refreshRun}>
