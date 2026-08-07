@@ -32,6 +32,7 @@ const shouldRenderSearch =
 <div class="header">
   <div class="title-wrapper sl-flex">
     <SiteTitle />
+    <span class="alpha-badge" title="apo is in public alpha — expect breaking changes and rough edges">Public Alpha</span>
   </div>
 
   <nav class="section-tabs" aria-label="Documentation sections">
@@ -52,7 +53,6 @@ const shouldRenderSearch =
     {shouldRenderSearch && <Search />}
   </div>
   <div class="sl-hidden md:sl-flex print:hidden right-group">
-    <a class="header-app-link" href="http://localhost:3000">Open app</a>
     <div class="sl-flex social-icons">
       <SocialIcons />
     </div>
@@ -75,6 +75,24 @@ const shouldRenderSearch =
     padding: 0.25rem;
     margin: -0.25rem;
     min-width: 0;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .alpha-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.5rem;
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--sl-color-gray-3);
+    background: var(--sl-color-gray-6);
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 999px;
+    text-transform: uppercase;
+    white-space: nowrap;
     flex-shrink: 0;
   }
 
