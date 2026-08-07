@@ -134,6 +134,32 @@ def test_get_run_details(client: TestClient, session: Session):
     assert calls[2]["output"]["long"] == "y"*400
 
 
+def test_get_run_details_omits_messages_unless_included(client: TestClient, session: Session):
+    # `messages` duplicates input/output content (the projector copies
+    # input.messages + output.messages verbatim), roughly doubling the payload
+    # of agentic traces. Default response drops it; ?include=messages restores
+    # it for the CLI's verbose view.
+    now = datetime.now(timezone.utc)
+    msgs = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "yo"}]
+
+    session.add(RunDB(id="r-msg", project="p", task_id="t", created_at=now, call_count=1))
+    session.add(LoggedCallDB(
+        id="c-msg", project="p", model="m", task_id="t", run_id="r-msg",
+        created_at=now, input={"messages": msgs}, messages=msgs, output={"c": "d"},
+    ))
+    session.commit()
+
+    default = client.get("/v1/runs/r-msg?project=p")
+    assert default.status_code == 200
+    call = default.json()["calls"][0]
+    assert "messages" not in call
+    assert call["input"]["messages"] == msgs  # nested content untouched
+
+    included = client.get("/v1/runs/r-msg?project=p&include=messages")
+    assert included.status_code == 200
+    assert included.json()["calls"][0]["messages"] == msgs
+
+
 def test_get_run_details_accepts_nondict_json_fields(client: TestClient, session: Session):
     # Regression for issue #23: a trace written via the projection path can hold
     # a non-dict tool_result / input / output (e.g. a plain string, number, or

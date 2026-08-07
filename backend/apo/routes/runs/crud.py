@@ -561,6 +561,7 @@ def get_distinct_metrics(session: Session = Depends(get_session)):
 def get_run_details(
     run_id: str,
     project: str = "default",
+    include: str | None = Query(default=None),
     session: Session = Depends(get_session),
     _: None = Depends(require_api_key_scope("full")),
 ):
@@ -603,11 +604,22 @@ def get_run_details(
         LoggedCall.model_validate(call, from_attributes=True) for call in calls
     ]
 
+    # `messages` duplicates content already present in each call's input/output
+    # (the projector copies input.messages + output.messages verbatim), which
+    # roughly doubles the response for agentic traces. Ship it only on opt-in
+    # (?include=messages — the CLI's `traces show --verbose` uses it); the
+    # dashboard renders from input/output and never reads it.
+    exclude = (
+        None
+        if include and "messages" in include
+        else {"calls": {"__all__": {"messages"}}}
+    )
+
     return RunDetail(
         run=Run.model_validate(run),
         metrics=[RunMetric.model_validate(m) for m in all_metrics],
         calls=calls_models,
-    ).model_dump(by_alias=True)
+    ).model_dump(by_alias=True, exclude=exclude)
 
 
 class CustomMetricResult(BaseModel):

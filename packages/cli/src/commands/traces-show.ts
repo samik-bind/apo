@@ -74,6 +74,9 @@ export async function run(argv: string[]): Promise<number> {
   try {
     const params: Record<string, string> = {};
     if (config.projectId) params.project = config.projectId;
+    // The backend omits per-call `messages` by default (it duplicates
+    // input/output content); verbose mode renders them, so opt in.
+    if (verbose) params.include = "messages";
     trace = await apiGet<TraceDetail>(
       config.backendUrl,
       `/v1/runs/${resolvedTraceId}`,
