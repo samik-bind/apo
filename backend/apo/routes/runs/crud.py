@@ -15,6 +15,10 @@ from sqlmodel import Session, func, or_, select
 
 from ...db import get_session
 from ...auth.deps import require_api_key_scope
+from ...services.project_memberships import (
+    enforce_project_role_from_request,
+    list_projects_for_user,
+)
 from ...db_helpers import _as_column, _ensure_utc_datetime
 from ...models import (
     RunDB,
@@ -255,6 +259,37 @@ def _validate_trace_write_access(request: Request, run_project: str) -> None:
         raise HTTPException(status_code=403, detail="Service token project mismatch")
 
 
+def _enforce_project_read(request: Request, session: Session, project: str) -> None:
+    """Scope a read to a project the caller belongs to.
+
+    The runs/trace read endpoints accept a caller-supplied ``project`` query
+    param and filter by it, but previously only checked API-key *scope* — so
+    any authenticated user (dashboard or API key) could read another
+    project's traces by passing ``?project=<other>``. This mirrors the
+    membership enforcement the agent-task-run endpoints already apply.
+    Dev/open mode (no ``user_id`` on the request) stays permissive, as the
+    membership helper does elsewhere.
+    """
+    enforce_project_role_from_request(
+        request, session, project, minimum_role="member"
+    )
+
+
+def _caller_project_scope(request: Request, session: Session) -> list[str] | None:
+    """The project ids a caller may read across, or ``None`` for unscoped.
+
+    Returns ``None`` in dev/open mode (no ``user_id`` on the request), where
+    the membership system is not active — matching the permissive fallback in
+    ``enforce_project_role_from_request``. Otherwise returns exactly the
+    projects the caller is a member of, so an unscoped list/aggregate can't
+    span tenants.
+    """
+    user_id = getattr(getattr(request, "state", None), "user_id", None)
+    if not user_id:
+        return None
+    return list_projects_for_user(session, str(user_id))
+
+
 VALID_SORT_FIELDS = {"created_at", "duration_ms", "call_count"}
 
 
@@ -268,6 +303,7 @@ def _get_sort_column(field: str):
 
 @router.get("", response_model=PaginatedRunSummary)
 def list_runs(
+    http_request: Request,
     project: str | None = None,
     flow_name: str | None = Query(None, description="Comma-separated flow_name list"),
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
@@ -297,7 +333,14 @@ def list_runs(
     statement = select(RunDB)
 
     if project:
+        _enforce_project_read(http_request, session, project)
         statement = statement.where(RunDB.project == project)
+    else:
+        # No project given would otherwise list across every tenant. Restrict
+        # to the caller's projects; dev/open mode (no user_id) stays unscoped.
+        allowed = _caller_project_scope(http_request, session)
+        if allowed is not None:
+            statement = statement.where(RUN_PROJECT_COL.in_(allowed))
 
     flow_name_list = [s.strip() for s in (flow_name or "").split(",") if s.strip()]
     if flow_name_list:
@@ -529,42 +572,73 @@ def list_runs(
     )
 
 
+# The distinct-* endpoints power the dashboard's global filter dropdowns and
+# previously scanned every tenant's rows unscoped, leaking the full list of
+# project names, task ids, models, and metric names to any authenticated
+# caller. They now aggregate only over the caller's own projects (unscoped in
+# dev/open mode, where the membership system is inactive).
+
+
 @router.get("/distinct-projects")
-def get_distinct_projects(session: Session = Depends(get_session)):
-    projects = session.exec(select(RunDB.project).distinct()).all()
-    return [p[0] for p in projects]
+def get_distinct_projects(
+    http_request: Request, session: Session = Depends(get_session)
+):
+    allowed = _caller_project_scope(http_request, session)
+    if allowed is not None:
+        return sorted(allowed)
+    # session.exec(select(col)) yields scalars, so index [0] would return the
+    # first character of each name — return the values themselves.
+    return list(session.exec(select(RunDB.project).distinct()).all())
 
 
 @router.get("/distinct-tasks")
-def get_distinct_tasks(session: Session = Depends(get_session)):
-    tasks = session.exec(
-        select(RunDB.task_id).distinct().where(RunDB.task_id != None)
-    ).all()
+def get_distinct_tasks(
+    http_request: Request, session: Session = Depends(get_session)
+):
+    allowed = _caller_project_scope(http_request, session)
+    statement = select(RunDB.task_id).distinct().where(RunDB.task_id != None)
+    if allowed is not None:
+        statement = statement.where(RUN_PROJECT_COL.in_(allowed))
+    tasks = session.exec(statement).all()
     return [task_id for task_id in tasks if task_id is not None]
 
 
 @router.get("/distinct-models")
-def get_distinct_models(session: Session = Depends(get_session)):
-    models = session.exec(
+def get_distinct_models(
+    http_request: Request, session: Session = Depends(get_session)
+):
+    allowed = _caller_project_scope(http_request, session)
+    statement = (
         select(RunDB.primary_model).distinct().where(RunDB.primary_model != None)
-    ).all()
+    )
+    if allowed is not None:
+        statement = statement.where(RUN_PROJECT_COL.in_(allowed))
+    models = session.exec(statement).all()
     return [model for model in models if model is not None]
 
 
 @router.get("/distinct-metrics")
-def get_distinct_metrics(session: Session = Depends(get_session)):
-    metrics = session.exec(select(RunMetricDB.metric_name).distinct()).all()
-    return [m[0] for m in metrics]
+def get_distinct_metrics(
+    http_request: Request, session: Session = Depends(get_session)
+):
+    allowed = _caller_project_scope(http_request, session)
+    statement = select(RunMetricDB.metric_name).distinct()
+    if allowed is not None:
+        statement = statement.where(RUN_METRIC_PROJECT_COL.in_(allowed))
+    # Scalars, not rows — see get_distinct_projects.
+    return list(session.exec(statement).all())
 
 
 @router.get("/{run_id}")
 def get_run_details(
     run_id: str,
+    http_request: Request,
     project: str = "default",
     include: str | None = Query(default=None),
     session: Session = Depends(get_session),
     _: None = Depends(require_api_key_scope("full")),
 ):
+    _enforce_project_read(http_request, session, project)
     run = session.exec(
         select(RunDB).where(RunDB.id == run_id, RunDB.project == project)
     ).first()

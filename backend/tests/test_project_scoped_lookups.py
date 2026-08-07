@@ -14,7 +14,13 @@ from sqlmodel import Session
 
 from apo.models.db import LoggedCallDB, RunDB, RunMetricDB
 from apo.metrics.aggregate import calculate_and_store_aggregate_metrics
+from types import SimpleNamespace
+
 from apo.routes.runs.navigation import get_adjacent_runs
+
+# Direct call bypasses FastAPI's Request injection; no user_id → dev/open-mode
+# permissive path (pre-enforcement behavior).
+_REQ = SimpleNamespace(state=SimpleNamespace())
 from apo.services.projection_lookup import (
     select_call,
     select_run,
@@ -146,7 +152,7 @@ def test_adjacent_runs_stay_within_project(session: Session) -> None:
     session.commit()
 
     # Alpha's r2 should resolve to alpha's row, not beta's.
-    result = get_adjacent_runs("r2", project="alpha", session=session)
+    result = get_adjacent_runs("r2", _REQ, project="alpha", session=session)
     # No adjacent runs in alpha (only r2 exists there), so both are None.
     assert result.prev_id is None
     assert result.next_id is None

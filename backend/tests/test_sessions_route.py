@@ -4,8 +4,14 @@ from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session
 
+from types import SimpleNamespace
+
 from apo.models import LoggedCallDB, RunDB
 from apo.routes.runs.sessions import list_sessions
+
+# Direct calls bypass FastAPI's Request injection; a request with no user_id on
+# its state takes the dev/open-mode permissive path (pre-enforcement behavior).
+_REQ = SimpleNamespace(state=SimpleNamespace())
 
 
 def _run(session: Session, run_id: str, session_id: str | None, created_at: datetime) -> None:
@@ -38,7 +44,7 @@ def test_aggregates_cost_and_tokens_from_calls(session: Session):
     _call(session, "c3", "r2", cost=101_572, tokens=47_106)
     session.commit()
 
-    result = list_sessions(project="p", page=0, page_size=20, session=session)
+    result = list_sessions(_REQ, project="p", page=0, page_size=20, session=session)
 
     assert result.total_count == 1
     (row,) = result.data
@@ -54,7 +60,7 @@ def test_run_without_calls_reports_zero(session: Session):
     _run(session, "r1", "s1", now)
     session.commit()
 
-    (row,) = list_sessions(project="p", page=0, page_size=20, session=session).data
+    (row,) = list_sessions(_REQ, project="p", page=0, page_size=20, session=session).data
 
     assert row.trace_count == 1
     assert row.total_cost == 0
@@ -67,7 +73,7 @@ def test_scopes_to_the_requested_project(session: Session):
     session.add(RunDB(id="r2", project="other", session_id="s2", created_at=now))
     session.commit()
 
-    result = list_sessions(project="p", page=0, page_size=20, session=session)
+    result = list_sessions(_REQ, project="p", page=0, page_size=20, session=session)
 
     assert [row.session_id for row in result.data] == ["s1"]
 
@@ -81,7 +87,7 @@ def test_counts_runs_with_no_session_id(session: Session):
     _run(session, "r3", "s1", now - timedelta(minutes=2))
     session.commit()
 
-    result = list_sessions(project="p", page=0, page_size=20, session=session)
+    result = list_sessions(_REQ, project="p", page=0, page_size=20, session=session)
 
     assert result.total_count == 2  # the "(none)" group + "s1"
     assert result.total_pages == 1

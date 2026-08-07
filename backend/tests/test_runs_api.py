@@ -1,11 +1,15 @@
 # pyright: reportAny=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 
 import pytest
+from types import SimpleNamespace
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 from datetime import datetime, timedelta, timezone
 
 from apo.models import LoggedCallDB, RunDB
+from apo.models.db import ProjectDB, ProjectMembershipDB, UserDB
+from apo.routes.runs.crud import get_run_details, get_distinct_projects
 
 
 def test_list_runs(client: TestClient, session: Session):
@@ -189,6 +193,65 @@ def test_get_run_details_accepts_nondict_json_fields(client: TestClient, session
     assert calls[0]["tool_result"] == "Before using DOCX tools, ..."
     assert calls[0]["input"] == "plain string input"
     assert calls[0]["output"] == 42
+
+
+def _req(user_id: str | None) -> SimpleNamespace:
+    """Fake request for direct route-function calls. ``user_id=None`` takes the
+    dev/open-mode permissive path; a value exercises membership enforcement."""
+    state = SimpleNamespace()
+    if user_id is not None:
+        state.user_id = user_id
+    return SimpleNamespace(state=state)
+
+
+def _seed_membership_project(session: Session, project: str, member_id: str) -> None:
+    """A real ProjectDB row (so legacy tolerance does not apply) with one member."""
+    session.add(UserDB(id=member_id, email=f"{member_id}@t.co", name=member_id, password_hash="x"))
+    session.commit()
+    session.add(ProjectDB(id=project, name=project, created_by=member_id))
+    session.commit()
+    session.add(
+        ProjectMembershipDB(project_id=project, user_id=member_id, role="owner")
+    )
+    session.commit()
+
+
+def test_get_run_details_enforces_project_membership(client: TestClient, session: Session):
+    now = datetime.now(timezone.utc)
+    _seed_membership_project(session, "proj-a", "member-a")
+    session.add(RunDB(id="ra", project="proj-a", task_id="t", created_at=now, call_count=1))
+    session.add(LoggedCallDB(
+        id="ca", project="proj-a", model="m", task_id="t", run_id="ra",
+        created_at=now, input={}, messages=[], output={},
+    ))
+    session.commit()
+
+    # Member reads their own project's trace.
+    detail = get_run_details("ra", _req("member-a"), project="proj-a", session=session)
+    assert detail["run"]["id"] == "ra"
+
+    # Non-member passing ?project=proj-a is rejected — the pre-fix leak.
+    with pytest.raises(HTTPException) as exc:
+        get_run_details("ra", _req("outsider"), project="proj-a", session=session)
+    assert exc.value.status_code == 403
+
+
+def test_distinct_projects_scoped_to_caller(client: TestClient, session: Session):
+    now = datetime.now(timezone.utc)
+    _seed_membership_project(session, "iso-a", "iso-member-a")
+    _seed_membership_project(session, "iso-b", "iso-member-b")
+    session.add(RunDB(id="iso-ra", project="iso-a", created_at=now, call_count=0))
+    session.add(RunDB(id="iso-rb", project="iso-b", created_at=now, call_count=0))
+    session.commit()
+
+    # A member of iso-a sees iso-a but cannot enumerate iso-b's existence.
+    scoped = get_distinct_projects(_req("iso-member-a"), session=session)
+    assert "iso-a" in scoped
+    assert "iso-b" not in scoped
+
+    # Dev/open mode (no user_id) stays unscoped: sees both.
+    unscoped = set(get_distinct_projects(_req(None), session=session))
+    assert {"iso-a", "iso-b"} <= unscoped
 
 
 if __name__ == "__main__":
