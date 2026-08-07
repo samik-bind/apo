@@ -198,7 +198,7 @@ This endpoint is intentionally separate from the basic `/health` liveness probe,
   "database": {
     "engine": "sqlite",
     "host": null,
-    "name": "optimizer.db",
+    "name": "//app/data/apo.db",
     "credentials_configured": false,
     "shared_use_recommended": false
   },

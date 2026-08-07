@@ -44,11 +44,11 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      # Persistent SQLite database (the file lives at /app/data/optimizer.db).
+      # Persistent SQLite database (the file lives at /app/data/apo.db).
       - apo_db:/app/data
     environment:
       # No DATABASE_URL → the supported alpha default is SQLite at
-      # /app/data/optimizer.db. The apo_db volume keeps it across restarts.
+      # /app/data/apo.db. The apo_db volume keeps it across restarts.
       # For a longer-lived shared installation or heavier concurrent writes,
       # apply docker-compose.postgres.yml (see comments there).
       - AUTH_SECRET=${AUTH_SECRET}
