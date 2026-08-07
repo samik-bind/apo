@@ -34,6 +34,9 @@ export default async function RunsPage({
   let error: string | null = null;
   let taskSource: ProjectTaskSource | null = null;
 
+  // Fetch runs list and project in parallel — they're independent.
+  const projectPromise = getProject(projectId).catch(() => null);
+
   try {
     const paginated = await listAgentTaskBatchRuns(projectId, {
       q,
@@ -45,15 +48,13 @@ export default async function RunsPage({
     totalCount = paginated.total_count;
     totalPages = paginated.total_pages;
     modelFacets = paginated.model_facets;
-    try {
-      const project = await getProject(projectId);
-      taskSource = project.task_source;
-    } catch {
-      // Non-fatal: source awareness is a progressive enhancement.
-    }
   } catch (e: unknown) {
     error = e instanceof Error ? e.message : "Failed to fetch runs";
   }
+
+  // Project result (started in parallel with the runs list).
+  const project = await projectPromise;
+  taskSource = project?.task_source ?? null;
 
   return (
     <main className="h-full flex flex-col">

@@ -15,6 +15,7 @@ from typing import cast
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import asc, desc, func, or_
+from sqlalchemy.orm import defer
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, col, select
 from sqlmodel.sql.expression import SelectOfScalar
@@ -91,6 +92,15 @@ class PaginatedBatchRunSummary(BaseModel):
     page_size: int
     total_pages: int
     model_facets: list[ModelFacetOption] = []
+
+
+# Defer the heavy JSON columns on list/summary paths that only read scalars.
+# The columns lazy-load on access, so code that needs them still works.
+_TASK_RUN_LIGHT = (
+    defer(AgentTaskRunDB.transcript_json),  # pyright: ignore[reportArgumentType]
+    defer(AgentTaskRunDB.deliverables_json),  # pyright: ignore[reportArgumentType]
+    defer(AgentTaskRunDB.checks_json),  # pyright: ignore[reportArgumentType]
+)
 
 
 def _format_task_summary(task: object) -> AgentTaskSummary:
@@ -654,7 +664,7 @@ async def list_agent_task_batch_runs(
     task_ids_by_batch: dict[str, list[str]] = {}
     if batch_ids:
         all_task_runs = session.exec(
-            select(AgentTaskRunDB).where(col(AgentTaskRunDB.batch_run_id).in_(batch_ids))
+            select(AgentTaskRunDB).options(*_TASK_RUN_LIGHT).where(col(AgentTaskRunDB.batch_run_id).in_(batch_ids))
         ).all()
         for tr in all_task_runs:
             cost_by_batch[tr.batch_run_id] = cost_by_batch.get(tr.batch_run_id, 0.0) + (
@@ -702,7 +712,7 @@ async def get_agent_task_batch_run(
         raise HTTPException(status_code=404, detail="Batch run not found")
 
     task_runs = session.exec(
-        select(AgentTaskRunDB).where(AgentTaskRunDB.batch_run_id == batch_run_id)
+        select(AgentTaskRunDB).options(*_TASK_RUN_LIGHT).where(AgentTaskRunDB.batch_run_id == batch_run_id)
     ).all()
 
     model_map = _load_primary_models(session, task_runs, batch.project)
@@ -769,7 +779,7 @@ async def list_agent_task_runs(
     Repeated values within one dimension OR; the two dimensions AND. A run
     with an unreported configuration (NULL columns) never matches.
     """
-    query = select(AgentTaskRunDB)
+    query = select(AgentTaskRunDB).options(*_TASK_RUN_LIGHT)
 
     if project:
         query = query.join(AgentTaskBatchRunDB).where(
@@ -795,6 +805,7 @@ async def list_agent_task_runs(
 @router.get("/agent-task-runs/{task_run_id}", response_model=AgentTaskRunDetail)
 async def get_agent_task_run(
     task_run_id: str,
+    include: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
     """Get detailed information about a single task run."""
@@ -837,7 +848,7 @@ async def get_agent_task_run(
         failed_checks=task_run.failed_checks,
         trigger=trigger,
         checks_json=load_check_report(session, task_run.id),
-        transcript_json=task_run.transcript_json,
+        transcript_json=task_run.transcript_json if include and "transcript" in include else None,
         deliverables_json=task_run.deliverables_json,
         error_category=classify_run_outcome(
             task_run.status,
@@ -936,7 +947,7 @@ async def report_agent_task_run_result(
         failed_checks=task_run.failed_checks,
         trigger=trigger,
         checks_json=load_check_report(session, task_run.id),
-        transcript_json=task_run.transcript_json,
+        transcript_json=None,
         deliverables_json=task_run.deliverables_json,
         error_category=classify_run_outcome(
             task_run.status,

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import asc, delete, desc, and_ as sql_and
+from sqlalchemy.orm import defer
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, func, or_, select
 
@@ -27,6 +28,16 @@ from ...models import (
     UpdateRunRequest,
     LoggedCall,
     CorrectionRequest,
+)
+
+# Defer the heaviest LoggedCallDB columns on list/preview/metrics paths that
+# only read scalar fields or short previews. Lazy-loaded on access.
+_CALL_LIGHT = (
+    defer(LoggedCallDB.messages),  # pyright: ignore[reportArgumentType]
+    defer(LoggedCallDB.tool_parameters),  # pyright: ignore[reportArgumentType]
+    defer(LoggedCallDB.tool_result),  # pyright: ignore[reportArgumentType]
+    defer(LoggedCallDB.cost_breakdown),  # pyright: ignore[reportArgumentType]
+    defer(LoggedCallDB.raw_usage),  # pyright: ignore[reportArgumentType]
 )
 from ...metrics import calculate_and_store_aggregate_metrics
 from ...services.demo_workspace import require_project_not_demo, require_run_not_demo
@@ -113,7 +124,7 @@ def _fetch_io_previews(
     if not run_ids:
         return {}
 
-    first_query = select(LoggedCallDB).where(
+    first_query = select(LoggedCallDB).options(*_CALL_LIGHT).where(
         LOGGED_CALL_RUN_ID_COL.in_(run_ids),
         LoggedCallDB.observation_type == "GENERATION",
     )
@@ -134,7 +145,7 @@ def _fetch_io_previews(
 
     runs_without_gen = [rid for rid in run_ids if rid not in seen_runs]
     if runs_without_gen:
-        span_query = select(LoggedCallDB).where(
+        span_query = select(LoggedCallDB).options(*_CALL_LIGHT).where(
             LOGGED_CALL_RUN_ID_COL.in_(runs_without_gen)
         )
         if project is not None:
@@ -425,7 +436,7 @@ def list_runs(
     ]
     calls_by_run: dict[str, list[LoggedCallDB]] = {}
     if runs_needing_calls:
-        calls_query = select(LoggedCallDB).where(
+        calls_query = select(LoggedCallDB).options(*_CALL_LIGHT).where(
             LOGGED_CALL_RUN_ID_COL.in_(runs_needing_calls)
         )
         if project is not None:

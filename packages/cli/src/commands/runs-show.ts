@@ -110,7 +110,7 @@ export async function run(argv: string[]): Promise<number> {
   try {
     runDetail = await apiGet<RunDetail>(
       config.backendUrl,
-      `/v1/agent-task-runs/${resolvedRunId}`,
+      `/v1/agent-task-runs/${resolvedRunId}${verbose ? "?include=transcript" : ""}`,
       undefined,
       config,
     );
