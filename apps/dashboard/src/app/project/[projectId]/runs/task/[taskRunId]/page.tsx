@@ -1,13 +1,8 @@
 import { getAgentTaskRun } from "@/lib/agent-task-api";
-import { getTraceDetail } from "@/lib/traces-api";
-import {
-  deriveConversationFromTrace,
-  type ChatMessage,
-} from "@/lib/conversation-from-trace";
 import type { Metadata } from "next";
 import { Button } from "@/components/ui/button";
 import { TraceHomeLink } from "@/components/trace-detail";
-import { Suspense } from "react";
+import { Suspense, cache } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -28,6 +23,9 @@ import { getProject } from "@/lib/projects-api";
 
 export const dynamic = "force-dynamic";
 
+// Per-request memo so generateMetadata and the page body share one fetch.
+const getAgentTaskRunCached = cache(getAgentTaskRun);
+
 // Tab title: "Task Run #<short id>". Falls back to "Task Run" on fetch failure.
 export async function generateMetadata({
   params,
@@ -36,7 +34,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { taskRunId } = await params;
   try {
-    const run = await getAgentTaskRun(taskRunId);
+    const run = await getAgentTaskRunCached(taskRunId);
     return { title: `Task Run #${run.task_id.slice(0, 8)}` };
   } catch {
     return { title: "Task Run" };
@@ -91,24 +89,15 @@ export default async function TaskRunDetailPage({
   let error: string | null = null;
 
   try {
-    taskRun = await getAgentTaskRun(taskRunId);
+    taskRun = await getAgentTaskRunCached(taskRunId);
   } catch (e: unknown) {
     error = e instanceof Error ? e.message : "Failed to fetch task run";
   }
 
-  // Derive the conversation view from the linked trace when one exists.
-  // This depends on taskRun.trace_run_id so it starts after the task run
-  // resolves, but doesn't wait for the project fetch.
-  const traceRunId = taskRun?.trace_run_id ?? null;
-  let conversation: { messages: ChatMessage[] } = { messages: [] };
-  if (taskRun && traceRunId) {
-    try {
-      const trace = await getTraceDetail(traceRunId, projectId);
-      conversation = deriveConversationFromTrace(trace);
-    } catch {
-      // Leave conversation empty; the transcript tab shows its empty state.
-    }
-  }
+  // The transcript is NOT derived here: it requires the full trace detail
+  // (every call's input/output — megabytes for agent runs), and the default
+  // tab is "checks". TaskRunDetailBody fetches and derives it client-side
+  // when the transcript tab first opens.
 
   // Project result — started in parallel with the task run, likely resolved.
   const project = await projectPromise;
@@ -294,7 +283,6 @@ export default async function TaskRunDetailPage({
         <Suspense>
           <TaskRunDetailBody
             checks={checks}
-            conversation={conversation.messages}
             deliverables={taskRun.deliverables_json ?? null}
             deliverableItems={taskRun.deliverables ?? []}
             traceRunId={taskRun.trace_run_id ?? null}
