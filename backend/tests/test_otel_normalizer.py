@@ -159,6 +159,74 @@ class TestTokenUsage:
         assert result.token_usage["prompt"] == 50
         assert result.token_usage["completion"] == 30
 
+    def test_anthropic_cached_prompt_counts_cache_buckets(self):
+        """Anthropic semantics: input_tokens is NET of cache, with cache_read /
+        cache_creation as separate buckets. Reading input_tokens verbatim made a
+        ~40k-token cached prompt display as 3 tokens on every call of a cached
+        agent run — prompt must be the full input-side sum."""
+        span = _make_span(
+            attributes={
+                "gen_ai.request.model": "claude-opus-5",
+                "gen_ai.system": "anthropic",
+                "gen_ai.usage.input_tokens": 3,
+                "gen_ai.usage.output_tokens": 416,
+                "gen_ai.usage.cache_read.input_tokens": 39_800,
+                "gen_ai.usage.cache_creation.input_tokens": 1_000,
+            }
+        )
+        result = normalize_span(span)
+        assert result.token_usage["prompt"] == 40_803
+        assert result.token_usage["completion"] == 416
+
+    def test_openai_inclusive_input_not_double_counted(self):
+        """OpenAI semantics: input_tokens already INCLUDES cache_read (OTel
+        semconv subset rule). The prompt total must equal the reported
+        input_tokens, not input + cache_read again."""
+        span = _make_span(
+            attributes={
+                "gen_ai.request.model": "gpt-5.6-terra",
+                "gen_ai.system": "openai",
+                "gen_ai.usage.input_tokens": 39_803,
+                "gen_ai.usage.output_tokens": 416,
+                "gen_ai.usage.cache_read.input_tokens": 39_800,
+            }
+        )
+        result = normalize_span(span)
+        assert result.token_usage["prompt"] == 39_803
+        assert result.token_usage["completion"] == 416
+
+    def test_openai_net_input_recovers_cached_prompt(self):
+        """A non-compliant OpenAI-semantics emitter that reports the net
+        remainder as input_tokens (the bug this guards against): the cache_read
+        bucket still dominates the sum, so the prompt reads ~the real size
+        instead of ~3."""
+        span = _make_span(
+            attributes={
+                "gen_ai.request.model": "gpt-5.6-terra",
+                "gen_ai.system": "openai",
+                "gen_ai.usage.input_tokens": 3,
+                "gen_ai.usage.output_tokens": 416,
+                "gen_ai.usage.cache_read.input_tokens": 39_800,
+            }
+        )
+        result = normalize_span(span)
+        assert result.token_usage["prompt"] == 39_800
+        assert result.token_usage["completion"] == 416
+
+    def test_langfuse_usage_details_sum_matches_importer(self):
+        """Langfuse SDK spans: prompt is the input-family sum — the same rule
+        the Langfuse trace importer applies (issue #43)."""
+        span = _make_span(
+            attributes={
+                "langfuse.observation.usage_details": json.dumps(
+                    {"input": 2, "input_cache_read": 33_381, "input_cache_creation": 100, "output": 50}
+                ),
+            }
+        )
+        result = normalize_span(span)
+        assert result.token_usage["prompt"] == 33_483
+        assert result.token_usage["completion"] == 50
+
 
 class TestInputOutputContent:
     """Content extraction and normalization (gen_ai.input.messages etc.)."""

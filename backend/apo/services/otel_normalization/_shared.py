@@ -16,7 +16,7 @@ VALID_OBSERVATION_TYPES = frozenset({
 })
 
 # Bump when any mapper's logic changes. Reproject uses this to detect stale projections.
-NORMALIZER_VERSION = 4
+NORMALIZER_VERSION = 5
 
 
 @final

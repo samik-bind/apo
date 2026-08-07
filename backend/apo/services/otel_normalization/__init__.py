@@ -22,6 +22,8 @@ import logging
 from typing import Any
 
 from ...models.db import OtlpSpanDB
+from ...models.usage_keys import INPUT_FAMILY, OUTPUT_FAMILY
+from ..usage_normalization import normalize_usage
 from ._shared import (
     NORMALIZER_VERSION,
     NormalizedSpan,
@@ -83,7 +85,7 @@ def normalize_span(span: OtlpSpanDB) -> NormalizedSpan:
 
     # Extract common fields (shared across all conventions)
     normalized.model = extract_model(attrs)
-    normalized.token_usage = extract_tokens(attrs)
+    normalized.token_usage = _token_usage(attrs, normalized.model)
     normalized.error_message = extract_error(span, attrs)
     normalized.input = extract_input(attrs)
     normalized.output = extract_output(attrs)
@@ -112,6 +114,40 @@ def normalize_span(span: OtlpSpanDB) -> NormalizedSpan:
         normalized.tool_result = tool_result
 
     return normalized
+
+
+def _token_usage(attrs: dict[str, Any], model: str | None) -> dict[str, int | float]:
+    """Provider-aware prompt/completion totals for display and run aggregates.
+
+    ``extract_tokens`` reads ``gen_ai.usage.input_tokens`` verbatim, but what that
+    attribute means differs per provider: Anthropic-semantics emitters report it
+    *net* of cache, with cache_read / cache_creation as separate buckets. Reading
+    it verbatim made a ~40k-token cached prompt display as 3 tokens on every call
+    of a cached agent run, while the priced cost on the same span said otherwise.
+
+    So: normalize per provider (the same normalizer the pricing path uses), then
+    sum the input-side family (uncached + cache_read + cache_write) into
+    ``prompt`` and the output-side family (output + reasoning) into
+    ``completion``. That is the same total the Langfuse importer reports
+    (issue #43), so a directly-emitted span and an imported one agree on the
+    same call. Falls back to ``extract_tokens`` when the normalizer finds no
+    canonical usage (e.g. exotic emitters it doesn't recognize).
+    """
+    try:
+        usage = normalize_usage(attrs, model_name=model)
+    except Exception:
+        logger.debug("usage normalization failed; falling back to raw tokens", exc_info=True)
+        usage = {}
+    result: dict[str, int | float] = {}
+    input_side = [usage[k.value] for k in INPUT_FAMILY if k.value in usage]
+    output_side = [usage[k.value] for k in OUTPUT_FAMILY if k.value in usage]
+    if input_side:
+        result["prompt"] = sum(input_side)
+    if output_side:
+        result["completion"] = sum(output_side)
+    if not result:
+        return extract_tokens(attrs)
+    return result
 
 
 def _get_json(attrs: dict[str, Any], key: str) -> Any:

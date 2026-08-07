@@ -86,7 +86,12 @@ def test_missing_usage_details_leaves_tokens_empty():
 
 
 def test_standard_conventions_keep_precedence_over_langfuse():
-    # A span carrying both keeps the well-tested gen_ai extraction.
+    # A span carrying both: content extraction keeps the well-tested gen_ai
+    # path, but usage follows the pricing normalizer, where the Langfuse map —
+    # an explicit declaration by the app author — outranks gen_ai (the same
+    # rationale that puts langfuse above gen-ai in the type mappers). Display
+    # and cost must read the same buckets or a cached prompt shows one number
+    # and bills another.
     attrs = {
         **SIM_USER_ATTRS,
         "gen_ai.request.model": "claude-opus-5",
@@ -101,7 +106,7 @@ def test_standard_conventions_keep_precedence_over_langfuse():
     result = normalize_span(_span(attrs))
 
     assert result.model == "claude-opus-5"
-    assert result.token_usage == {"prompt": 10, "completion": 5}
+    assert result.token_usage == {"prompt": 999, "completion": 999}
     assert result.output is not None and result.output.get("text") == "from gen_ai"
     # The explicit type declaration still wins — that is not an inference.
     assert result.observation_type == "GENERATION"
