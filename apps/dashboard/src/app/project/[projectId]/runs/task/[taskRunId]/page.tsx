@@ -83,6 +83,10 @@ export default async function TaskRunDetailPage({
 }) {
   const { projectId, taskRunId } = await params;
 
+  // Start the project fetch in parallel — it's independent of the task run.
+  // A failure here is non-fatal (sourceType falls back to null).
+  const projectPromise = getProject(projectId).catch(() => null);
+
   let taskRun;
   let error: string | null = null;
 
@@ -92,20 +96,9 @@ export default async function TaskRunDetailPage({
     error = e instanceof Error ? e.message : "Failed to fetch task run";
   }
 
-  // Source-type awareness is a progressive enhancement: published task sources
-  // are metadata-only, so the dashboard should not attempt to fetch their check
-  // source files (see TaskRunDetailBody). A fetch failure here is non-fatal.
-  let sourceType: string | null = null;
-  try {
-    const project = await getProject(projectId);
-    sourceType = project.task_source?.source_type ?? null;
-  } catch {
-    // Fall through with sourceType=null; the body will attempt source load.
-  }
-
-  // Derive the conversation view from the linked trace when one exists. A fetch
-  // failure here must not break the page — the empty conversation just renders
-  // the empty state, and the trace link still points at the full viewer.
+  // Derive the conversation view from the linked trace when one exists.
+  // This depends on taskRun.trace_run_id so it starts after the task run
+  // resolves, but doesn't wait for the project fetch.
   const traceRunId = taskRun?.trace_run_id ?? null;
   let conversation: { messages: ChatMessage[] } = { messages: [] };
   if (taskRun && traceRunId) {
@@ -116,6 +109,10 @@ export default async function TaskRunDetailPage({
       // Leave conversation empty; the transcript tab shows its empty state.
     }
   }
+
+  // Project result — started in parallel with the task run, likely resolved.
+  const project = await projectPromise;
+  const sourceType = project?.task_source?.source_type ?? null;
 
   if (error) {
     return (

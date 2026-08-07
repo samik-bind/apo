@@ -397,6 +397,11 @@ class LoggedCallDB(LoggedCallBase, table=True):
 
 class AgentTaskBatchRunDB(SQLModel, table=True):
     __tablename__: ClassVar[str] = "agent_task_batch_runs"
+    __table_args__: ClassVar[tuple[object, ...]] = (
+        # Hot path: the runs list filters by project, orders by created_at DESC,
+        # then paginates. Without this composite, SQLite filesorts every page.
+        Index("ix_batch_runs_project_created", "project", "created_at"),
+    )
 
     id: str = Field(primary_key=True)
     project: str = Field(index=True)
