@@ -121,7 +121,9 @@ The write path has explicit ownership boundaries:
    stamps the canonical span with the normalizer version in the same database
    transaction as its derived writes. Failed projections therefore remain
    visibly stale, while replay advances the stamp only after the replacement
-   projection succeeds.
+   projection succeeds. Once a run is complete, every later span projection
+   refreshes its stored aggregate metrics; this covers both children that
+   arrive after the root and replay into an already-complete run.
 
 This separation is the intended extension point: add framework convention
 normalizers over canonical spans, not provider-specific ingestion endpoints.

@@ -112,7 +112,6 @@ class TraceProjector:
         existing_call = select_call(session, span.span_id, span.project_id)
         is_new_call = existing_call is None
         run_before = select_run(session, span.trace_id, span.project_id)
-        was_complete = run_before is not None and run_before.completed_at is not None
         run_existed = run_before is not None
 
         # Ensure the run exists
@@ -121,8 +120,12 @@ class TraceProjector:
         # Upsert the call (applies cost + tokens inside)
         self._upsert_call(session, span, normalized, repo)
 
-        # When the root span completes the run, compute aggregate metrics.
-        if is_root and span.end_time and not was_complete:
+        # A completed root may arrive before its children, and replay updates
+        # calls on a run that was already complete. Refresh after every span
+        # projected into a completed run so dashboard-facing aggregates cannot
+        # lag behind the authoritative call rows.
+        run_after = select_run(session, span.trace_id, span.project_id)
+        if run_after is not None and run_after.completed_at is not None:
             _compute_run_aggregates(session, span.trace_id, span.project_id)
 
         # Issue #41: re-aggregate the linked Task Run's cost/tokens whenever a

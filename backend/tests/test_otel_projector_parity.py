@@ -298,6 +298,44 @@ class TestProjectorCostAndAggregates:
             agg_names = {m.metric_name for m in agg}
             assert "total_tokens" in agg_names
 
+    def test_child_arriving_after_completed_root_refreshes_run_aggregates(self):
+        """Completed runs stay current when later child spans are projected."""
+        _ingest_span(_make_span(span_id=_ROOT_SPAN, name="agent.run"))
+
+        child = _make_span(
+            span_id=_CHILD_SPAN,
+            parent_span_id=_ROOT_SPAN,
+            attributes={
+                "gen_ai.request.model": "gpt-4o",
+                "gen_ai.usage.input_tokens": 100,
+                "gen_ai.usage.output_tokens": 50,
+            },
+        )
+        _ingest_span(child)
+
+        with Session(engine) as session:
+            metrics = {
+                metric.metric_name: metric.score
+                for metric in session.exec(
+                    select(RunMetricDB).where(
+                        RunMetricDB.run_id == _TRACE,
+                        RunMetricDB.project == _PROJECT,
+                        RunMetricDB.metric_type == "aggregate",
+                    )
+                )
+            }
+            assert metrics["total_tokens"] == 150
+            assert metrics["total_cost"] == 750
+
+            run = session.exec(
+                select(RunDB).where(
+                    RunDB.id == _TRACE,
+                    RunDB.project == _PROJECT,
+                )
+            ).one()
+            assert run.call_count == 2
+            assert run.primary_model == "gpt-4o"
+
     def test_projected_run_has_call_count_and_primary_model(self):
         """The projector must populate run.call_count and run.primary_model
         from the child spans, so the traces list shows real values instead
