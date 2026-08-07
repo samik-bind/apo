@@ -117,7 +117,11 @@ The write path has explicit ownership boundaries:
 7. Projection materializes `RunDB` and `LoggedCallDB` for current product APIs.
    Public OTel IDs are preserved, while storage identity and every lookup are
    Project-scoped. Canonical OTLP spans remain the replayable source of truth
-   when conventions or projection schemas change.
+   when conventions or projection schemas change. A successful projection
+   stamps the canonical span with the normalizer version in the same database
+   transaction as its derived writes. Failed projections therefore remain
+   visibly stale, while replay advances the stamp only after the replacement
+   projection succeeds.
 
 This separation is the intended extension point: add framework convention
 normalizers over canonical spans, not provider-specific ingestion endpoints.

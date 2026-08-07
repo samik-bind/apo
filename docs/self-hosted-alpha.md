@@ -277,6 +277,7 @@ Alpha defaults are intentionally cheap:
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
+| The backend still behaves like an older checkout after `docker compose up --build` | The source checkout was stale, the image build did not complete, or the existing backend container was not recreated. A container restart alone reuses its old image. | From the repository root, update the checkout, run `docker compose build backend`, then `docker compose up -d --no-deps --force-recreate backend`. Confirm the image and container creation times with `docker compose images backend` and `docker compose ps backend`. Preserve the database volume; never use `down -v` for an application update. |
 | `/health/ready` returns 503 with `auth_secret` failing | You left `AUTH_SECRET` set to the placeholder or unset in non-dev mode. | Generate a strong secret with `openssl rand -hex 32`. |
 | `executor` service restart-loops; backend logs `Bundled executor is enabled but the bootstrap token file could not be written` | The `apo_executor_bootstrap` named volume was created root-owned (a stack created before the Dockerfile seeded the mountpoint as `appuser`). | Run `docker compose run --rm --user 0:0 backend chown -R 1000:1000 /var/lib/apo/executor-bootstrap`, or remove the volume (`docker volume rm apo_executor_bootstrap`) and recreate the stack. Fresh stacks built from the current image are unaffected. |
 | Schedules visible but never fire | `SCHEDULER_ENABLED=false`. | Either set it to `true` (one backend process only) or run an external dispatcher. |

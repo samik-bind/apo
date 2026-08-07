@@ -95,6 +95,11 @@ class TraceProjector:
             return
 
         normalized = normalize_span(span)
+        # Stamp the canonical source only after normalization succeeds. Because
+        # this mutation shares the caller's transaction with the derived
+        # projection writes, a later projection failure rolls back both and the
+        # span remains discoverable as stale for a future replay.
+        span.projection_version = normalized.mapping_version
         is_root = span.parent_span_id is None
 
         # Route writes through the TraceRepository boundary.
