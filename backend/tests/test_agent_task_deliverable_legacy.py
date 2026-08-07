@@ -54,7 +54,11 @@ class TestLegacyReadability:
         body = resp.json()
         # Legacy columns remain accessible for old callers.
         assert body["deliverables_json"] == {"verdict": {"reward": 1}, "log": "legacy body"}
-        assert body["transcript_json"] is not None
+        # transcript_json became opt-in (?include=transcript); default omits it.
+        assert body["transcript_json"] is None
+        included = client.get("/v1/agent-task-runs/legacy-1?include=transcript")
+        assert included.status_code == 200
+        assert included.json()["transcript_json"] is not None
 
     def test_manifest_synthesizes_from_legacy_json(self, client: TestClient, session: Session):
         _seed_legacy_run(session)
