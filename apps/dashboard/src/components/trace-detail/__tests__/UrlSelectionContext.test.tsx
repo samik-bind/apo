@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 
 const replaceMock = vi.fn();
@@ -52,19 +52,37 @@ function renderWithProvider(
   return render(<UrlSelectionProvider runId={runId}>{ui}</UrlSelectionProvider>);
 }
 
-function lastReplaceUrl(): string {
-  const last = replaceMock.mock.calls.at(-1);
-  return last ? (last[0] as string) : "";
+let historySpy: ReturnType<typeof vi.spyOn>;
+
+/**
+ * Selection updates are shallow (`window.history.replaceState`), so they read
+ * and write the real jsdom URL. Keep the mocked `useSearchParams` (initial
+ * render reads) and `window.location` (update reads/writes) in sync.
+ */
+function setLocation(params = "") {
+  searchParams = new URLSearchParams(params);
+  const qs = searchParams.toString();
+  window.history.replaceState(null, "", `${pathname}${qs ? `?${qs}` : ""}`);
+  historySpy?.mockClear();
 }
 
-describe("UrlSelectionContext - initial state from URL", () => {
-  beforeEach(() => {
-    replaceMock.mockReset();
-    pushMock.mockReset();
-    searchParams = new URLSearchParams();
-    pathname = "/project/test/traces/run-1";
-  });
+function currentUrl(): string {
+  return `${window.location.pathname}${window.location.search}`;
+}
 
+beforeEach(() => {
+  replaceMock.mockReset();
+  pushMock.mockReset();
+  pathname = "/project/test/traces/run-1";
+  setLocation();
+  historySpy = vi.spyOn(window.history, "replaceState");
+});
+
+afterEach(() => {
+  historySpy.mockRestore();
+});
+
+describe("UrlSelectionContext - initial state from URL", () => {
   it("defaults to tree view and empty tab when no params", () => {
     renderWithProvider(<Consumer />);
     expect(screen.getByTestId("view").textContent).toBe("tree");
@@ -73,19 +91,19 @@ describe("UrlSelectionContext - initial state from URL", () => {
   });
 
   it("reads observation param from URL on mount", () => {
-    searchParams = new URLSearchParams("observation=call-abc");
+    setLocation("observation=call-abc");
     renderWithProvider(<Consumer />);
     expect(screen.getByTestId("selectedCallId").textContent).toBe("call-abc");
   });
 
   it("reads view param from URL on mount", () => {
-    searchParams = new URLSearchParams("view=timeline");
+    setLocation("view=timeline");
     renderWithProvider(<Consumer />);
     expect(screen.getByTestId("view").textContent).toBe("timeline");
   });
 
   it("reads tab param from URL on mount", () => {
-    searchParams = new URLSearchParams("tab=tokens");
+    setLocation("tab=tokens");
     renderWithProvider(<Consumer />);
     expect(screen.getByTestId("detailTab").textContent).toBe("tokens");
   });
@@ -97,22 +115,15 @@ describe("UrlSelectionContext - initial state from URL", () => {
 });
 
 describe("UrlSelectionContext - view param validation", () => {
-  beforeEach(() => {
-    replaceMock.mockReset();
-    pushMock.mockReset();
-    searchParams = new URLSearchParams();
-    pathname = "/project/test/traces/run-1";
-  });
-
   it("falls back to tree for invalid view param", () => {
-    searchParams = new URLSearchParams("view=invalid-mode");
+    setLocation("view=invalid-mode");
     renderWithProvider(<Consumer />);
     expect(screen.getByTestId("view").textContent).toBe("tree");
   });
 
   it("supports all valid view values", () => {
     for (const v of ["tree", "timeline", "graph"] as const) {
-      searchParams = new URLSearchParams(`view=${v}`);
+      setLocation(`view=${v}`);
       const { unmount } = renderWithProvider(<Consumer />);
       expect(screen.getByTestId("view").textContent).toBe(v);
       unmount();
@@ -121,119 +132,100 @@ describe("UrlSelectionContext - view param validation", () => {
 });
 
 describe("UrlSelectionContext - selectCall syncs URL", () => {
-  beforeEach(() => {
-    replaceMock.mockReset();
-    pushMock.mockReset();
-    searchParams = new URLSearchParams();
-    pathname = "/project/test/traces/run-1";
-  });
-
   it("sets observation param when selecting a call", () => {
     renderWithProvider(<Consumer />);
     act(() => screen.getByTestId("select-call").click());
 
-    expect(replaceMock).toHaveBeenCalledTimes(1);
-    expect(lastReplaceUrl()).toContain("observation=call-123");
-    expect(pushMock).not.toHaveBeenCalled();
+    expect(historySpy).toHaveBeenCalledTimes(1);
+    expect(currentUrl()).toContain("observation=call-123");
   });
 
   it("removes observation param when selecting null", () => {
-    searchParams = new URLSearchParams("observation=call-old");
+    setLocation("observation=call-old");
     renderWithProvider(<Consumer />);
     act(() => screen.getByTestId("select-null").click());
 
-    expect(replaceMock).toHaveBeenCalledTimes(1);
-    expect(lastReplaceUrl()).not.toContain("observation=");
+    expect(historySpy).toHaveBeenCalledTimes(1);
+    expect(currentUrl()).not.toContain("observation=");
   });
 
   it("clearSelection removes observation param", () => {
-    searchParams = new URLSearchParams("observation=call-old");
+    setLocation("observation=call-old");
     renderWithProvider(<Consumer />);
     act(() => screen.getByTestId("clear").click());
 
-    expect(lastReplaceUrl()).not.toContain("observation=");
+    expect(currentUrl()).not.toContain("observation=");
   });
 
   it("preserves other params when updating observation", () => {
-    searchParams = new URLSearchParams("view=timeline&tab=tokens");
+    setLocation("view=timeline&tab=tokens");
     renderWithProvider(<Consumer />);
     act(() => screen.getByTestId("select-call").click());
 
-    const url = lastReplaceUrl();
+    const url = currentUrl();
     expect(url).toContain("observation=call-123");
     expect(url).toContain("view=timeline");
     expect(url).toContain("tab=tokens");
   });
+
+  it("composes rapid successive updates from the live URL", () => {
+    renderWithProvider(<Consumer />);
+    // The mocked useSearchParams never updates, so both params surviving
+    // proves updates read window.location rather than the (stale) hook.
+    act(() => screen.getByTestId("select-call").click());
+    act(() => screen.getByTestId("set-view-timeline").click());
+
+    const url = currentUrl();
+    expect(url).toContain("observation=call-123");
+    expect(url).toContain("view=timeline");
+  });
 });
 
 describe("UrlSelectionContext - selectRun behavior", () => {
-  beforeEach(() => {
-    replaceMock.mockReset();
-    pushMock.mockReset();
-    searchParams = new URLSearchParams();
-    pathname = "/project/test/traces/run-1";
-  });
-
   it("clears call selection when selecting the current run", () => {
-    searchParams = new URLSearchParams("observation=call-old");
+    setLocation("observation=call-old");
     renderWithProvider(<Consumer />, "run-1");
     act(() => screen.getByTestId("select-run-same").click());
 
-    expect(lastReplaceUrl()).not.toContain("observation=");
+    expect(currentUrl()).not.toContain("observation=");
   });
 });
 
 describe("UrlSelectionContext - view sync", () => {
-  beforeEach(() => {
-    replaceMock.mockReset();
-    pushMock.mockReset();
-    searchParams = new URLSearchParams();
-    pathname = "/project/test/traces/run-1";
-  });
-
   it("sets view param via setView", () => {
     renderWithProvider(<Consumer />);
     act(() => screen.getByTestId("set-view-timeline").click());
 
-    expect(replaceMock).toHaveBeenCalledTimes(1);
-    expect(lastReplaceUrl()).toContain("view=timeline");
-    expect(pushMock).not.toHaveBeenCalled();
+    expect(historySpy).toHaveBeenCalledTimes(1);
+    expect(currentUrl()).toContain("view=timeline");
   });
 
   it("preserves observation when updating view", () => {
-    searchParams = new URLSearchParams("observation=call-x");
+    setLocation("observation=call-x");
     renderWithProvider(<Consumer />);
     act(() => screen.getByTestId("set-view-timeline").click());
 
-    const url = lastReplaceUrl();
+    const url = currentUrl();
     expect(url).toContain("view=timeline");
     expect(url).toContain("observation=call-x");
   });
 });
 
 describe("UrlSelectionContext - detail tab sync", () => {
-  beforeEach(() => {
-    replaceMock.mockReset();
-    pushMock.mockReset();
-    searchParams = new URLSearchParams();
-    pathname = "/project/test/traces/run-1";
-  });
-
   it("sets tab param via setDetailTab", () => {
     renderWithProvider(<Consumer />);
     act(() => screen.getByTestId("set-tab-tokens").click());
 
-    expect(replaceMock).toHaveBeenCalledTimes(1);
-    expect(lastReplaceUrl()).toContain("tab=tokens");
-    expect(pushMock).not.toHaveBeenCalled();
+    expect(historySpy).toHaveBeenCalledTimes(1);
+    expect(currentUrl()).toContain("tab=tokens");
   });
 
   it("preserves observation and view when updating tab", () => {
-    searchParams = new URLSearchParams("observation=call-x&view=timeline");
+    setLocation("observation=call-x&view=timeline");
     renderWithProvider(<Consumer />);
     act(() => screen.getByTestId("set-tab-tokens").click());
 
-    const url = lastReplaceUrl();
+    const url = currentUrl();
     expect(url).toContain("tab=tokens");
     expect(url).toContain("observation=call-x");
     expect(url).toContain("view=timeline");
@@ -241,46 +233,36 @@ describe("UrlSelectionContext - detail tab sync", () => {
 });
 
 describe("UrlSelectionContext - URL construction", () => {
-  beforeEach(() => {
-    replaceMock.mockReset();
-    pushMock.mockReset();
-    searchParams = new URLSearchParams();
-    pathname = "/project/test/traces/run-1";
-  });
-
-  it("preserves the current pathname in the replace URL", () => {
+  it("preserves the current pathname in the updated URL", () => {
     pathname = "/project/test/traces/run-42";
+    setLocation();
     renderWithProvider(<Consumer />, "run-42");
     act(() => screen.getByTestId("select-call").click());
 
-    expect(lastReplaceUrl()).toContain("/project/test/traces/run-42");
+    expect(currentUrl()).toContain("/project/test/traces/run-42");
   });
 
   it("omits the query string entirely when no params remain", () => {
-    searchParams = new URLSearchParams("observation=only-one");
+    setLocation("observation=only-one");
     renderWithProvider(<Consumer />);
     act(() => screen.getByTestId("clear").click());
 
-    expect(lastReplaceUrl()).toBe("/project/test/traces/run-1");
+    expect(currentUrl()).toBe("/project/test/traces/run-1");
   });
 
-  it("passes scroll:false option to router.replace", () => {
+  it("updates shallowly without a router navigation", () => {
     renderWithProvider(<Consumer />);
     act(() => screen.getByTestId("select-call").click());
 
-    const options = replaceMock.mock.calls.at(-1)?.[1];
-    expect(options).toEqual({ scroll: false });
+    // The whole point of the shallow update: the URL changes but the router
+    // never navigates, so the server component is not re-rendered.
+    expect(historySpy).toHaveBeenCalledTimes(1);
+    expect(replaceMock).not.toHaveBeenCalled();
+    expect(pushMock).not.toHaveBeenCalled();
   });
 });
 
 describe("UrlSelectionContext - throw outside provider", () => {
-  beforeEach(() => {
-    replaceMock.mockReset();
-    pushMock.mockReset();
-    searchParams = new URLSearchParams();
-    pathname = "/project/test/traces/run-1";
-  });
-
   it("throws when useSelection is used outside provider", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 

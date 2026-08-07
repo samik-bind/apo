@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 
 const replaceMock = vi.fn();
@@ -7,7 +7,6 @@ let searchParams: URLSearchParams;
 let pathname: string;
 
 vi.mock("next/navigation", () => ({
-  // Forward all args (url + options) so tests can assert e.g. { scroll: false }.
   useRouter: () => ({
     replace: (...args: unknown[]) => replaceMock(...args),
     push: (...args: unknown[]) => pushMock(...args),
@@ -18,43 +17,40 @@ vi.mock("next/navigation", () => ({
 
 import { useUrlParam, useUrlParamSet } from "../use-url-state";
 
-function lastReplaceUrl(): string {
-  const last = replaceMock.mock.calls.at(-1);
-  return last ? (last[0] as string) : "";
-}
-
-function lastReplaceOptions() {
-  return replaceMock.mock.calls.at(-1)?.[1];
-}
+let historySpy: ReturnType<typeof vi.spyOn>;
 
 /**
- * Make router.replace behave like Next.js: after a replace, the next read of
- * useSearchParams() should reflect the new query string. The real hook rebuilds
- * URLSearchParams from the current search params each render, so a sequence of
- * interactions (e.g. toggling two items) accumulates correctly only if the mock
- * advances searchParams the way the router would.
+ * Writes are shallow (`window.history.replaceState`), so they read and write
+ * the real jsdom URL. Keep the mocked `useSearchParams` (initial render reads)
+ * and `window.location` (update reads/writes) in sync.
  */
-function syncSearchParamsOnReplace() {
-  replaceMock.mockImplementation((url: string) => {
-    const qIndex = url.indexOf("?");
-    searchParams = new URLSearchParams(qIndex >= 0 ? url.slice(qIndex + 1) : "");
-  });
+function setLocation(params = "") {
+  searchParams = new URLSearchParams(params);
+  const qs = searchParams.toString();
+  window.history.replaceState(null, "", `${pathname}${qs ? `?${qs}` : ""}`);
+  historySpy?.mockClear();
 }
 
-// Note: the mock advances searchParams after a replace, but jsdom won't
-// re-render the component the way Next.js does. So tests that need a sequence
-// of interactions should seed the URL with the prior state instead of relying
-// on a prior click to persist it. The hook accumulates within a single render
-// correctly (it rebuilds the set from the current URL each call), so seeding
-// is faithful to real behavior.
-
-/** Extract the value(s) of one param from the last replaced URL. */
-function paramFromLastUrl(key: string): string {
-  const url = lastReplaceUrl();
-  const qIndex = url.indexOf("?");
-  const params = new URLSearchParams(qIndex >= 0 ? url.slice(qIndex + 1) : "");
-  return params.get(key) ?? "";
+function currentUrl(): string {
+  return `${window.location.pathname}${window.location.search}`;
 }
+
+/** Extract the value of one param from the current URL. */
+function paramFromUrl(key: string): string {
+  return new URLSearchParams(window.location.search).get(key) ?? "";
+}
+
+beforeEach(() => {
+  replaceMock.mockReset();
+  pushMock.mockReset();
+  pathname = "/project/test/runs/run-1";
+  setLocation();
+  historySpy = vi.spyOn(window.history, "replaceState");
+});
+
+afterEach(() => {
+  historySpy.mockRestore();
+});
 
 // ── useUrlParam ──────────────────────────────────────────────────────────
 
@@ -70,15 +66,8 @@ function ParamConsumer({ paramKey, fallback }: { paramKey: string; fallback?: st
 }
 
 describe("useUrlParam - initial state from URL", () => {
-  beforeEach(() => {
-    replaceMock.mockReset();
-    pushMock.mockReset();
-    searchParams = new URLSearchParams();
-    pathname = "/project/test/runs/run-1";
-  });
-
   it("reads value from URL on mount", () => {
-    searchParams = new URLSearchParams("q=hello");
+    setLocation("q=hello");
     render(<ParamConsumer paramKey="q" />);
     expect(screen.getByTestId("value").textContent).toBe("hello");
   });
@@ -94,61 +83,49 @@ describe("useUrlParam - initial state from URL", () => {
   });
 });
 
-describe("useUrlParam - writes sync URL via router.replace", () => {
-  beforeEach(() => {
-    replaceMock.mockReset();
-    pushMock.mockReset();
-    searchParams = new URLSearchParams();
-    pathname = "/project/test/runs/run-1";
-    syncSearchParamsOnReplace();
-  });
-
-  it("sets the param and uses replace (not push)", () => {
+describe("useUrlParam - writes sync URL shallowly", () => {
+  it("sets the param via a shallow history update, not a router navigation", () => {
     render(<ParamConsumer paramKey="q" />);
     act(() => screen.getByTestId("set").click());
 
-    expect(replaceMock).toHaveBeenCalledTimes(1);
-    expect(lastReplaceUrl()).toContain("q=next");
+    expect(historySpy).toHaveBeenCalledTimes(1);
+    expect(currentUrl()).toContain("q=next");
+    expect(replaceMock).not.toHaveBeenCalled();
     expect(pushMock).not.toHaveBeenCalled();
   });
 
   it("removes the param when set to null", () => {
-    searchParams = new URLSearchParams("q=stale");
+    setLocation("q=stale");
     render(<ParamConsumer paramKey="q" />);
     act(() => screen.getByTestId("clear").click());
 
-    expect(lastReplaceUrl()).not.toContain("q=");
+    expect(currentUrl()).not.toContain("q=");
   });
 
   it("preserves other params when writing", () => {
-    searchParams = new URLSearchParams("filter=failed&tab=checks");
+    setLocation("filter=failed&tab=checks");
     render(<ParamConsumer paramKey="q" />);
     act(() => screen.getByTestId("set").click());
 
-    const url = lastReplaceUrl();
+    const url = currentUrl();
     expect(url).toContain("q=next");
     expect(url).toContain("filter=failed");
     expect(url).toContain("tab=checks");
   });
 
-  it("passes scroll:false to avoid viewport jumps", () => {
-    render(<ParamConsumer paramKey="q" />);
-    act(() => screen.getByTestId("set").click());
-    expect(lastReplaceOptions()).toEqual({ scroll: false });
-  });
-
-  it("keeps pathname in the replace URL", () => {
+  it("keeps pathname in the updated URL", () => {
     pathname = "/project/p1/runs/task/abc";
+    setLocation();
     render(<ParamConsumer paramKey="tab" />);
     act(() => screen.getByTestId("set").click());
-    expect(lastReplaceUrl()).toContain("/project/p1/runs/task/abc");
+    expect(currentUrl()).toContain("/project/p1/runs/task/abc");
   });
 
   it("omits query string entirely when no params remain", () => {
-    searchParams = new URLSearchParams("q=only");
+    setLocation("q=only");
     render(<ParamConsumer paramKey="q" />);
     act(() => screen.getByTestId("clear").click());
-    expect(lastReplaceUrl()).toBe("/project/test/runs/run-1");
+    expect(currentUrl()).toBe("/project/test/runs/run-1");
   });
 });
 
@@ -169,14 +146,12 @@ function SetConsumer({ paramKey }: { paramKey: string }) {
 
 describe("useUrlParamSet - reads comma-separated values from URL", () => {
   beforeEach(() => {
-    replaceMock.mockReset();
-    pushMock.mockReset();
-    searchParams = new URLSearchParams();
     pathname = "/project/test/runs/task/x";
+    setLocation();
   });
 
   it("parses multiple values from URL on mount", () => {
-    searchParams = new URLSearchParams("check=a,b,c");
+    setLocation("check=a,b,c");
     render(<SetConsumer paramKey="check" />);
     expect(screen.getByTestId("set").textContent).toBe("a,b,c");
   });
@@ -187,7 +162,7 @@ describe("useUrlParamSet - reads comma-separated values from URL", () => {
   });
 
   it("trims whitespace and ignores empty entries", () => {
-    searchParams = new URLSearchParams("check= a ,,b,");
+    setLocation("check= a ,,b,");
     render(<SetConsumer paramKey="check" />);
     expect(screen.getByTestId("set").textContent).toBe("a,b");
   });
@@ -195,62 +170,59 @@ describe("useUrlParamSet - reads comma-separated values from URL", () => {
 
 describe("useUrlParamSet - toggle writes to URL", () => {
   beforeEach(() => {
-    replaceMock.mockReset();
-    pushMock.mockReset();
-    searchParams = new URLSearchParams();
     pathname = "/project/test/runs/task/x";
-    syncSearchParamsOnReplace();
+    setLocation();
   });
 
-  it("adds a value via toggle (replace, not push)", () => {
+  it("adds a value via a shallow history update, not a router navigation", () => {
     render(<SetConsumer paramKey="check" />);
     act(() => screen.getByTestId("add-a").click());
 
-    expect(replaceMock).toHaveBeenCalledTimes(1);
-    expect(lastReplaceUrl()).toContain("check=a");
+    expect(historySpy).toHaveBeenCalledTimes(1);
+    expect(paramFromUrl("check")).toBe("a");
+    expect(replaceMock).not.toHaveBeenCalled();
     expect(pushMock).not.toHaveBeenCalled();
   });
 
-  it("adds multiple values to the same param", () => {
-    // Seed "a" already in the URL, then add "b". A single render must combine
-    // the existing URL value with the new toggle (jsdom won't re-render between
-    // clicks the way Next.js does; seeding mirrors the real re-rendered state).
-    searchParams = new URLSearchParams("check=a");
+  it("accumulates values across successive toggles from the live URL", () => {
+    // No re-render happens between clicks (the mocked useSearchParams is
+    // static), so both values surviving proves toggle reads the live URL
+    // rather than a stale hook snapshot.
     render(<SetConsumer paramKey="check" />);
+    act(() => screen.getByTestId("add-a").click());
     act(() => screen.getByTestId("add-b").click());
 
-    // Both values land in the single check param, comma-separated.
-    expect(paramFromLastUrl("check")).toBe("a,b");
+    expect(paramFromUrl("check")).toBe("a,b");
   });
 
   it("removes a value when toggled off", () => {
-    searchParams = new URLSearchParams("check=a,b");
+    setLocation("check=a,b");
     render(<SetConsumer paramKey="check" />);
     act(() => screen.getByTestId("add-a").click());
 
-    expect(paramFromLastUrl("check")).toBe("b");
+    expect(paramFromUrl("check")).toBe("b");
   });
 
   it("respects explicit open=false", () => {
-    searchParams = new URLSearchParams("check=a");
+    setLocation("check=a");
     render(<SetConsumer paramKey="check" />);
     act(() => screen.getByTestId("remove-a").click());
-    expect(lastReplaceUrl()).not.toContain("check=");
+    expect(currentUrl()).not.toContain("check=");
   });
 
   it("respects explicit open=true even if already present", () => {
-    searchParams = new URLSearchParams("check=a");
+    setLocation("check=a");
     render(<SetConsumer paramKey="check" />);
     act(() => screen.getByTestId("force-add-a").click());
-    expect(paramFromLastUrl("check")).toBe("a");
+    expect(paramFromUrl("check")).toBe("a");
   });
 
   it("preserves other params", () => {
-    searchParams = new URLSearchParams("tab=checks&other=1");
+    setLocation("tab=checks&other=1");
     render(<SetConsumer paramKey="check" />);
     act(() => screen.getByTestId("add-a").click());
 
-    const url = lastReplaceUrl();
+    const url = currentUrl();
     expect(url).toContain("check=a");
     expect(url).toContain("tab=checks");
     expect(url).toContain("other=1");

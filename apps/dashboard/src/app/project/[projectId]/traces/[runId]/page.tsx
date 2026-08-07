@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, cache } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import type { Metadata } from "next";
@@ -10,6 +10,10 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// Per-request memo so generateMetadata and the page body share one backend
+// fetch — the trace detail payload is large (every call's full input/output).
+const getTraceDetailCached = cache(getTraceDetail);
+
 // Tab title: "Trace <short id>". Falls back to "Trace" on fetch failure.
 export async function generateMetadata({
   params,
@@ -18,7 +22,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { projectId, runId } = await params;
   try {
-    const detail = await getTraceDetail(runId, projectId);
+    const detail = await getTraceDetailCached(runId, projectId);
     return { title: `Trace ${detail.run.id.slice(0, 8)}` };
   } catch {
     return { title: "Trace" };
@@ -34,14 +38,17 @@ export default async function TraceDetailPage({
 }) {
   const { projectId, runId } = await params;
   const { sort_by, sort_order } = await searchParams;
-  let trace: TraceDetail | null = null;
   let error: string | null = null;
 
-  try {
-    trace = await getTraceDetail(runId, projectId);
-  } catch (e: unknown) {
-    error = e instanceof Error ? e.message : "Failed to fetch trace details";
-  }
+  // Adjacent-trace lookup is independent of the detail fetch (and swallows
+  // its own errors), so run both in parallel instead of as a waterfall.
+  const [trace, adjacent] = await Promise.all([
+    getTraceDetailCached(runId, projectId).catch((e: unknown): TraceDetail | null => {
+      error = e instanceof Error ? e.message : "Failed to fetch trace details";
+      return null;
+    }),
+    getAdjacentTraces(runId, sort_by, sort_order, projectId),
+  ]);
 
   if (error) {
     return (
@@ -57,8 +64,6 @@ export default async function TraceDetailPage({
   if (!trace) {
     return null;
   }
-
-  const adjacent = await getAdjacentTraces(runId, sort_by, sort_order, projectId);
 
   return (
     <div className="flex h-[calc(100vh-6rem)] flex-col overflow-hidden">
