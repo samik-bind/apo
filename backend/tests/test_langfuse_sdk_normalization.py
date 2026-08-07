@@ -145,6 +145,38 @@ def test_empty_payloads_do_not_masquerade_as_content():
     assert result.output is None
 
 
+def test_malformed_json_payload_is_flagged_with_parse_error():
+    """Issue #129: a string that looks like JSON but fails to parse must be
+    flagged, not silently wrapped as opaque text."""
+    truncated = '{"model":"claude-opus-5","messages":[{"role":"user","content":"h'
+    result = normalize_span(
+        _span({**SIM_USER_ATTRS, "langfuse.observation.input": truncated})
+    )
+    assert result.input is not None
+    assert "parse_error" in result.input
+    assert "text" in result.input  # original text preserved
+
+
+def test_malformed_json_array_payload_is_flagged():
+    """Same flagging for a string that starts with '[' but fails to parse."""
+    truncated = '[{"role":"user","content":"par'
+    result = normalize_span(
+        _span({**SIM_USER_ATTRS, "langfuse.observation.output": truncated})
+    )
+    assert result.output is not None
+    assert "parse_error" in result.output
+
+
+def test_plain_text_payload_has_no_parse_error():
+    """A genuinely-free-form string (not JSON-looking) must NOT get a
+    parse_error flag — it's just text."""
+    result = normalize_span(
+        _span({**SIM_USER_ATTRS, "langfuse.observation.output": "just a string"})
+    )
+    assert result.output == {"text": "just a string"}
+    assert "parse_error" not in result.output
+
+
 # --- projection: the layer where the payload was actually being lost ----------
 
 

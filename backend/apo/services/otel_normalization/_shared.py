@@ -266,7 +266,16 @@ def langfuse_payload(attrs: dict[str, Any], key: str) -> dict[str, Any] | None:
             return {"messages": value}
         return {"value": value} if value else None
     if isinstance(value, str):
-        return {"text": value} if value else None
+        if not value:
+            return None
+        # Flag JSON-looking strings that failed to parse (issue #129): a
+        # truncated or malformed payload silently wrapping as {"text": ...}
+        # is indistinguishable from a genuine string and hides the real
+        # problem from the user.
+        stripped = value.lstrip()
+        if stripped and stripped[0] in "{[":
+            return {"text": value, "parse_error": "malformed JSON payload"}
+        return {"text": value}
     return {"value": value}
 
 
