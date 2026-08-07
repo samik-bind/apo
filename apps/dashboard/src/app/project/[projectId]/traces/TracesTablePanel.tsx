@@ -389,6 +389,22 @@ export function TracesTablePanel({ projectId, traces, error, pagination }: Trace
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(0);
   const [searchQuery, setSearchQuery] = useState("");
+  // Client-confirmed bookmark states (from the PATCH response) layered over
+  // the server-fetched rows; cleared whenever a fresh `traces` prop arrives.
+  const [bookmarkOverrides, setBookmarkOverrides] = useState<Record<string, boolean>>({});
+  const [prevTraces, setPrevTraces] = useState(traces);
+  if (traces !== prevTraces) {
+    setPrevTraces(traces);
+    setBookmarkOverrides({});
+  }
+  const displayedTraces = useMemo(() => {
+    if (Object.keys(bookmarkOverrides).length === 0) return traces;
+    return traces.map((t) =>
+      bookmarkOverrides[t.id] !== undefined
+        ? { ...t, bookmarked: bookmarkOverrides[t.id] }
+        : t,
+    );
+  }, [traces, bookmarkOverrides]);
   const {
     preferences,
     setColumnVisibility,
@@ -427,7 +443,11 @@ export function TracesTablePanel({ projectId, traces, error, pagination }: Trace
 
   useEffect(() => {
     if (autoRefreshInterval === 0) return;
-    const id = setInterval(() => router.refresh(), autoRefreshInterval);
+    // Skip ticks while the tab is hidden — an abandoned background tab on a
+    // 30s interval otherwise re-runs the full server page (~720 times/hour).
+    const id = setInterval(() => {
+      if (!document.hidden) router.refresh();
+    }, autoRefreshInterval);
     return () => clearInterval(id);
   }, [autoRefreshInterval, router]);
 
@@ -503,14 +523,18 @@ export function TracesTablePanel({ projectId, traces, error, pagination }: Trace
     }
   };
 
+  // The PATCH response already carries the new state — applying it locally
+  // avoids re-running the entire server page (list + filter options +
+  // sessions) to flip one boolean. Overrides reset whenever fresh server
+  // data arrives (see displayedTraces below).
   const handleToggleBookmark = useCallback(async (runId: string) => {
     try {
-      await toggleBookmark(runId);
-      router.refresh();
+      const result = await toggleBookmark(runId);
+      setBookmarkOverrides((prev) => ({ ...prev, [result.id]: result.bookmarked }));
     } catch (err) {
       console.error("Failed to toggle bookmark:", err);
     }
-  }, [router]);
+  }, []);
 
   const columns = useMemo(
     () => createTraceColumns(selectActionColumn, handleToggleBookmark, projectId, isDemo),
@@ -523,7 +547,7 @@ export function TracesTablePanel({ projectId, traces, error, pagination }: Trace
   }, [isDemo]);
 
   const table = useReactTable({
-    data: traces,
+    data: displayedTraces,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getRowId: (row) => row.id,

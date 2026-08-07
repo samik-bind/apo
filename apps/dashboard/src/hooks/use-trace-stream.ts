@@ -63,6 +63,41 @@ export function useTraceStream(traceId: string | null) {
   // Reconnect attempt counter for exponential backoff with a hard cap. Reset to
   // 0 on every successful connect so a stable connection doesn't keep backing off.
   const attemptsRef = useRef(0);
+  // Span events buffered between flushes. The backend replays every existing
+  // span as an individual event on connect, and each setCalls commit cascades
+  // into a full tree/gantt re-render — so committing per event freezes the UI
+  // for seconds on large running traces. Buffer and flush on an interval
+  // instead; the buffer preserves event order so the flush applies the exact
+  // created/updated semantics a per-event reducer would.
+  const pendingRef = useRef<
+    Array<{ kind: "created" | "updated"; data: Partial<LoggedCall> }>
+  >([]);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushPending = useCallback(() => {
+    flushTimerRef.current = null;
+    const pending = pendingRef.current;
+    if (pending.length === 0) return;
+    pendingRef.current = [];
+    setCalls((prev) => {
+      const next = [...prev];
+      const indexById = new Map(next.map((c, i) => [c.id, i] as const));
+      for (const { kind, data } of pending) {
+        const id = data.id;
+        if (!id) continue;
+        const idx = indexById.get(id);
+        if (kind === "created") {
+          if (idx === undefined) {
+            indexById.set(id, next.length);
+            next.push(data as LoggedCall);
+          }
+        } else if (idx !== undefined) {
+          next[idx] = { ...next[idx], ...data };
+        }
+      }
+      return next;
+    });
+  }, []);
 
   // Reset stream state when traceId changes/clears, done during render via the
   // prev-prop comparison pattern rather than inside the connect effect.
@@ -125,9 +160,14 @@ export function useTraceStream(traceId: string | null) {
         }
         if (event.event_type === "trace:completed") {
           setIsLive(false);
-          // Terminal event: close the stream and arm the "closed by us" flag so
-          // the onerror that close() may fire — or any later blip — cannot
-          // reconnect a trace that is already finished.
+          // Terminal event: land any buffered spans, then close the stream and
+          // arm the "closed by us" flag so the onerror that close() may fire —
+          // or any later blip — cannot reconnect a trace that is already
+          // finished.
+          if (flushTimerRef.current) {
+            clearTimeout(flushTimerRef.current);
+          }
+          flushPending();
           closedByUsRef.current = true;
           if (reconnectTimerRef.current) {
             clearTimeout(reconnectTimerRef.current);
@@ -140,19 +180,17 @@ export function useTraceStream(traceId: string | null) {
           return;
         }
 
-        const normalized = normalizeCall(data);
-
-        if (event.event_type === "span:created") {
-          setCalls((prev) => {
-            if (prev.some((c) => c.id === normalized.id)) return prev;
-            return [...prev, normalized as LoggedCall];
+        if (
+          event.event_type === "span:created" ||
+          event.event_type === "span:updated"
+        ) {
+          pendingRef.current.push({
+            kind: event.event_type === "span:created" ? "created" : "updated",
+            data: normalizeCall(data),
           });
-        } else if (event.event_type === "span:updated") {
-          setCalls((prev) =>
-            prev.map((c) =>
-              c.id === normalized.id ? { ...c, ...normalized } : c,
-            ),
-          );
+          if (!flushTimerRef.current) {
+            flushTimerRef.current = setTimeout(flushPending, FLUSH_INTERVAL_MS);
+          }
         }
       } catch {
         // ignore malformed events
@@ -163,7 +201,7 @@ export function useTraceStream(traceId: string | null) {
     for (const type of TRACE_EVENT_TYPES) {
       es.addEventListener(type, handleEvent);
     }
-  }, []);
+  }, [flushPending]);
 
   useEffect(() => {
     if (!traceId) {
@@ -183,6 +221,11 @@ export function useTraceStream(traceId: string | null) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
       }
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      pendingRef.current = [];
       if (esRef.current) {
         detachAndClose(esRef.current, handlerRef.current);
         esRef.current = null;
@@ -194,6 +237,9 @@ export function useTraceStream(traceId: string | null) {
 }
 
 const TRACE_EVENT_TYPES = ["trace:created", "span:created", "span:updated", "trace:completed"];
+
+/** Coalescing window (ms) for span events; one setCalls commit per window. */
+const FLUSH_INTERVAL_MS = 250;
 
 /** Base delay (ms) for the first reconnect attempt; doubles each attempt up to the cap. */
 const BASE_RECONNECT_MS = 3000;
