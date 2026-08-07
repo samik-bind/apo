@@ -193,17 +193,16 @@ describe("buildCheckDiagnostics", () => {
     ]);
   });
 
-  it("emits green info markers for t.judge passes alongside red errors for failures", () => {
-    // Marker policy: failures always get red markers, but only Judge
-    // passes earn green markers. A passing t.check() / t.calledTool() is
-    // baseline OK and should not clutter the gutter — its line stays plain.
+  it("emits green info markers for passes alongside red errors for failures", () => {
+    // Marker policy: failures get red markers and passes get green markers,
+    // regardless of whether the assertion uses code or an LLM judge.
     const diagnostics = buildCheckDiagnostics(
       {
         id: "mixed-check",
         pass: false,
         reasoning: "1 judge + 1 t.check failed",
         assertions: [
-          // Passing t.calledTool — should NOT get any marker.
+          // Passing t.calledTool — should get a green info marker.
           {
             id: "calledTool('read_file')",
             pass: true,
@@ -236,6 +235,17 @@ describe("buildCheckDiagnostics", () => {
       10,
     );
     expect(diagnostics).toEqual([
+      {
+        line: 4,
+        column: undefined,
+        message: "passed",
+        severity: "info",
+        label: "calledTool('read_file')",
+        expected: undefined,
+        received: undefined,
+        reasoning: undefined,
+        evaluator_type: "code",
+      },
       {
         line: 5,
         column: undefined,
