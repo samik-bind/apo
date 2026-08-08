@@ -734,14 +734,14 @@ function SelectionActionBar({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-[200px]">
-            <p className="px-2 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/50">
+            <p className="px-2 py-1.5 text-[10px] uppercase tracking-wide text-foreground/60">
               Compare against
             </p>
             {compareOptions.map((opt) => (
               <DropdownMenuItem
                 key={opt.model ?? "__all__"}
                 onClick={() => onCompare(opt.model)}
-                className="text-[12px]"
+                className="text-[13px] text-foreground/80"
               >
                 {opt.label}
               </DropdownMenuItem>
