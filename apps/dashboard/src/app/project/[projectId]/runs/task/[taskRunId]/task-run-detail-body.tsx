@@ -22,7 +22,6 @@ import { DeliverablesPanel } from "@/components/agent-task-execution/deliverable
 import { ShikiCodeBlock } from "@/components/shiki-code-block";
 import { ExpandableJson } from "@/components/ExpandableJson";
 import { Markdown } from "@/components/trace-detail/Markdown";
-import type { ChatMessage } from "@/lib/conversation-from-trace";
 import type { DeliverableSummary } from "@/lib/agent-task-deliverables-api";
 import { readTaskFile, readTaskDefinitionSource, type TaskFileContentResponse, type TaskDefinitionRevisionSummary } from "@/lib/agent-task-api";
 import { extractJudgeReasoning } from "@/lib/judge-reasoning";
@@ -43,6 +42,7 @@ import {
   groupCost,
 } from "./group-by-describe";
 import { CheckGroupHeader } from "./check-group-header";
+import { useLazyConversation } from "./use-lazy-conversation";
 
 // CodeMirror is heavy — load it only when a code check is expanded.
 const CodeViewer = dynamic(
@@ -723,7 +723,6 @@ function ChecksList({
 
 export function TaskRunDetailBody({
   checks,
-  conversation,
   deliverables,
   deliverableItems,
   traceRunId,
@@ -735,7 +734,6 @@ export function TaskRunDetailBody({
   taskRunId,
 }: {
   checks: CheckResult[];
-  conversation: ChatMessage[];
   deliverables: Record<string, unknown> | null;
   deliverableItems: DeliverableSummary[];
   traceRunId: string | null;
@@ -750,6 +748,12 @@ export function TaskRunDetailBody({
   // the same view (checks / transcript / deliverables).
   const [tabParam, setTabParam] = useUrlParam("tab");
   const tab: Tab = tabParam === "transcript" || tabParam === "deliverables" ? tabParam : "checks";
+
+  const conversationState = useLazyConversation(
+    traceRunId,
+    projectId,
+    tab === "transcript",
+  );
 
   const recordedSourceFile = checks.find((check) => check.source_file)?.source_file;
   const checkIds = checks.map((check) => check.id).join("\u0000");
@@ -958,10 +962,20 @@ export function TaskRunDetailBody({
         )}
 
         {tab === "transcript" && (
-          <ConversationTranscript
-            conversation={conversation}
-            traceRunId={traceRunId}
-          />
+          conversationState.status === "ready" ? (
+            <ConversationTranscript
+              conversation={conversationState.messages}
+              traceRunId={traceRunId}
+            />
+          ) : conversationState.status === "error" ? (
+            <p className="py-4 text-center text-sm text-destructive">
+              Failed to load transcript: {conversationState.message}
+            </p>
+          ) : (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              Loading transcript…
+            </p>
+          )
         )}
 
         {tab === "deliverables" && (

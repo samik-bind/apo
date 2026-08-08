@@ -113,6 +113,18 @@ describe("getTraceDetail", () => {
     expect(calledUrl).not.toContain("project=");
   });
 
+  it("passes an abort signal to the request", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve(sampleDetail),
+    });
+    const controller = new AbortController();
+
+    await getTraceDetail("r1", "proj-123", controller.signal);
+
+    expect(mockFetch.mock.calls[0][1]?.signal).toBe(controller.signal);
+  });
+
   it("throws 'Trace not found' on 404", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,

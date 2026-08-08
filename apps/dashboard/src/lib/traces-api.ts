@@ -272,11 +272,13 @@ export async function getAdjacentTraces(
 export async function getTraceDetail(
   runId: string,
   projectId?: string,
+  signal?: AbortSignal,
 ): Promise<TraceDetail> {
   try {
     const data = await apiClient<TraceDetailTransport>(`/v1/runs/${runId}`, {
       ...NO_CACHE,
       query: { project: projectId },
+      signal,
     });
     return normalizeTraceDetail(data);
   } catch (error) {
