@@ -55,14 +55,18 @@ export default async function TracesPage({
     pageSize,
   };
 
-  try {
-    paginatedData = await listTraces(traceListParams);
-  } catch (e: any) {
-    error = e.message || "Failed to fetch traces";
-  }
+  // The three fetches are independent — run them concurrently instead of
+  // paying the list query before the options/sessions fan-out even starts.
+  // The list promise never rejects, so the fallback path below can still
+  // await it when the options/sessions fan-out throws.
+  const listPromise = listTraces(traceListParams).catch((e: unknown) => {
+    error = e instanceof Error ? e.message : "Failed to fetch traces";
+    return null;
+  });
 
   try {
-    const [filterOptions, sessionsData] = await Promise.all([
+    const [listResult, filterOptions, sessionsData] = await Promise.all([
+      listPromise,
       getTraceFilterOptions(),
       view === "sessions" ? listTraceSessions(
         projectId,
@@ -70,6 +74,7 @@ export default async function TracesPage({
         pageSize,
       ) : Promise.resolve(null),
     ]);
+    paginatedData = listResult;
     return (
       <main className="h-full flex flex-col">
         <TracesPageClient
@@ -95,6 +100,8 @@ export default async function TracesPage({
       </main>
     );
   } catch {}
+
+  paginatedData = await listPromise;
 
   return (
     <main className="h-full flex flex-col">

@@ -1,7 +1,17 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useRunEvents, RunEvent } from "@/hooks/use-run-events";
+
+/**
+ * Coalesce SSE-triggered refreshes: router.refresh() re-runs the whole
+ * force-dynamic batch page (every task_run summary + attempts), and a busy
+ * batch emits bursts of events — K running tasks replay 2 events each on
+ * every stream (re)connect, and concurrent completions land together. One
+ * refresh per window bounds that to a single re-render per burst.
+ */
+const REFRESH_COALESCE_MS = 1000;
 
 interface BatchRunAutoRefreshProps {
   project: string;
@@ -15,6 +25,16 @@ export function BatchRunAutoRefresh({
   isRunning,
 }: BatchRunAutoRefreshProps) {
   const router = useRouter();
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleEvent = (event: RunEvent) => {
     if (event.data.batch_run_id !== batchRunId) return;
@@ -31,7 +51,11 @@ export function BatchRunAutoRefresh({
       event.event_type === "task_run.error" ||
       event.event_type === "task_run.trace_claimed"
     ) {
-      router.refresh();
+      if (refreshTimerRef.current) return;
+      refreshTimerRef.current = setTimeout(() => {
+        refreshTimerRef.current = null;
+        router.refresh();
+      }, REFRESH_COALESCE_MS);
     }
   };
 
