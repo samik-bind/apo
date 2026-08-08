@@ -1,18 +1,30 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
-import { CompareViewsClient } from "@/app/project/[projectId]/compare-views/[comparisonId]/compare-views-client";
-import type { AgentTaskSummary } from "@/lib/agent-task-api";
-import type { TaskViewComparisonSnapshot } from "@/lib/agent-task-view-api";
+// Mock the heavy FlowSection (it pulls in CompareTaskRow + trace links) so the
+// test stays isolated to the view-comparison header + summary.
+vi.mock("../../runs/compare/components/FlowSection", () => ({
+  FlowSection: ({ folder, tasks }: { folder: string; tasks: { taskId: string }[] }) => (
+    <div data-testid={`flow-${folder}`}>
+      {tasks.map((t) => <span key={t.taskId}>{t.taskId}</span>)}
+    </div>
+  ),
+}));
+
+vi.mock("@/hooks/use-url-state", () => ({
+  useUrlParamSet: () => [new Set(), vi.fn()],
+}));
 
 vi.mock("@/lib/project-router", () => ({
   useProjectId: () => "acme-evals",
   useIsDemo: () => false,
-  DEFAULT_PROJECT: "example-service",
-  DEMO_PROJECT: "demo",
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }));
+
+import { CompareViewsClient } from "@/app/project/[projectId]/compare-views/[comparisonId]/compare-views-client";
+import type { AgentTaskRunSummary, AgentTaskSummary } from "@/lib/agent-task-api";
+import type { TaskViewComparisonSnapshot } from "@/lib/agent-task-view-api";
 
 function task(id: string, name: string, folder: string): AgentTaskSummary {
   return {
@@ -21,62 +33,52 @@ function task(id: string, name: string, folder: string): AgentTaskSummary {
   };
 }
 
+function run(id: string, taskId: string, status: string, passResult: boolean, checks = 5, passed = 3): AgentTaskRunSummary {
+  return {
+    id, batch_run_id: "b1", task_id: taskId, task_path: `tasks/${taskId}`,
+    sequence_index: 0, adapter_name: null, status, pass_result: passResult,
+    started_at: "2026-08-07T00:00:00Z", completed_at: "2026-08-07T00:00:01Z",
+    trace_run_id: null, error_message: null, trace_persistence_status: "pending",
+    trace_error_message: null, checks_json: "null", total_checks: checks,
+    passed_checks: passed, failed_checks: checks - passed, transcript_json: "null",
+    deliverables_json: "null", total_cost: 100, total_tokens: 0, configured_model: null,
+    configured_effort: null, task_inventory_id: null, task_source_commit_sha: null,
+    unpriced_call_count: 0,
+  } as unknown as AgentTaskRunSummary;
+}
+
 const snapshot: TaskViewComparisonSnapshot = {
-  id: "tvc_test",
-  project_id: "acme-evals",
+  id: "tvc_test", project_id: "acme-evals",
   view_a_config: { model: "claude-opus-4.1", effort: null, since: null },
   view_b_config: { model: "deepseek-v3", effort: null, since: null },
   task_ids: ["evals/alpha", "evals/beta"],
-  // alpha: comparable; beta: def/exec disagree -> n/c (excluded from aggregate)
   resolved: [
     { task_id: "evals/alpha", a_run_id: "ra", b_run_id: "rb", a_status: "passed", b_status: "failed", comparable: true },
     { task_id: "evals/beta", a_run_id: "rc", b_run_id: "rd", a_status: "passed", b_status: "passed", comparable: false },
   ],
   coverage: { both_run: 2, comparable: 1, scope: 2 },
-  created_at: "2026-08-07T00:00:00Z",
-  created_by: null,
+  created_at: "2026-08-07T00:00:00Z", created_by: null,
 };
 
-describe("CompareViewsClient (SPEC-174 Phase 2)", () => {
-  it("renders each task A vs B with a verdict, and flags non-comparable as n/c", () => {
+describe("CompareViewsClient (SPEC-174)", () => {
+  it("renders both view configs in the header and the differs summary", () => {
     render(
       <CompareViewsClient
         projectId="acme-evals"
         snapshot={snapshot}
         tasks={[task("evals/alpha", "Alpha", "evals"), task("evals/beta", "Beta", "evals")]}
+        // alpha: A passed(3/5), B failed(0/5) → differs. beta: both passed → identical (hidden).
+        leftRuns={[run("ra", "evals/alpha", "passed", true), run("rc", "evals/beta", "passed", true)]}
+        rightRuns={[run("rb", "evals/alpha", "failed", false, 5, 0), run("rd", "evals/beta", "passed", true)]}
       />,
     );
-
-    // Both scoped tasks appear with their display names.
-    expect(screen.getByText("Alpha")).toBeInTheDocument();
-    expect(screen.getByText("Beta")).toBeInTheDocument();
-
-    // alpha: A passed, B failed -> regressed verdict; comparable.
-    expect(screen.getAllByText("Passed").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("Failed")).toBeInTheDocument();
-    expect(screen.getByText("regressed")).toBeInTheDocument();
-
-    // beta: comparable=false -> n/c badge (excluded from aggregate).
-    expect(screen.getByText("n/c")).toBeInTheDocument();
-
-    // Coverage pill reflects the frozen aggregate.
-    expect(screen.getByText("1")).toBeInTheDocument(); // comparable count
-  });
-
-  it("falls back to the raw task id for tasks no longer in inventory", () => {
-    render(
-      <CompareViewsClient
-        projectId="acme-evals"
-        snapshot={{ ...snapshot, task_ids: ["evals/gone"], resolved: [
-          { task_id: "evals/gone", a_run_id: "r", b_run_id: null, a_status: "passed", b_status: null, comparable: false },
-        ] }}
-        tasks={[]} // inventory no longer lists it
-      />,
-    );
-    // A task no longer in inventory renders its raw id as both the name and
-    // the subtitle (the only identity the snapshot still has).
-    expect(screen.getAllByText("evals/gone").length).toBeGreaterThanOrEqual(1);
-    // Side B has no run -> Not Run.
-    expect(screen.getAllByText("Not Run").length).toBeGreaterThan(0);
+    // Header shows both view configs.
+    expect(screen.getByText("claude-opus-4.1")).toBeInTheDocument();
+    expect(screen.getByText("deepseek-v3")).toBeInTheDocument();
+    // Summary: 1 of 2 tasks differ (alpha differs, beta is identical → hidden).
+    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.getByText(/tasks differ/)).toBeInTheDocument();
+    // The alpha task appears in the rendered FlowSection.
+    expect(screen.getByText("evals/alpha")).toBeInTheDocument();
   });
 });

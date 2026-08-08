@@ -1,175 +1,164 @@
 "use client";
 
-// Renders an immutable selection-scoped view comparison (SPEC-174 Phase 2).
-//
-// One row per task in the snapshot, grouped by folder: side A status | side B
-// status | a verdict derived from the status transition. Tasks the two sides
-// disagree on revisions (def/exec) stay visible but show `n/c` and are excluded
-// from the aggregate coverage.
+// SPEC-174 comparison page — renders the SAME task-level comparison as
+// /runs/compare (useComparison + FlowSection), fed by the resolved run_ids
+// from the immutable view snapshot. The only structural difference is the
+// header: view configs (Model · Effort · Date) instead of batch summaries.
 
-import { useMemo } from "react";
 import Link from "next/link";
-import { ArrowLeft, Folder, ChevronRight } from "lucide-react";
+import { useMemo } from "react";
+import { ArrowLeft, ChevronRight } from "lucide-react";
+
+import type { AgentTaskRunSummary, AgentTaskSummary } from "@/lib/agent-task-api";
+import type { TaskViewComparisonSnapshot, TaskViewConfig } from "@/lib/agent-task-view-api";
 import { cn } from "@/lib/utils";
-import { useProjectId } from "@/lib/project-router";
-import { taskDetailHref } from "@/lib/task-routes";
-import type { AgentTaskSummary } from "@/lib/agent-task-api";
-import type { ResolvedComparisonCell, TaskViewComparisonSnapshot, TaskViewConfig } from "@/lib/agent-task-view-api";
+import { useUrlParamSet } from "@/hooks/use-url-state";
+
+import { tallyChecks, useComparison, type CheckTally } from "../../runs/compare/use-comparison";
+import { FlowSection } from "../../runs/compare/components/FlowSection";
 
 export function CompareViewsClient({
-  projectId: projectIdProp,
+  projectId,
   snapshot,
   tasks,
+  leftRuns,
+  rightRuns,
 }: {
   projectId: string;
   snapshot: TaskViewComparisonSnapshot;
   tasks: AgentTaskSummary[];
+  leftRuns: AgentTaskRunSummary[];
+  rightRuns: AgentTaskRunSummary[];
 }) {
-  // read the project id from the URL too (hooks must run unconditionally); the
-  // server-passed value is authoritative for the initial render.
-  const routeProjectId = useProjectId();
-  const projectId = projectIdProp || routeProjectId;
+  const [expanded, toggleExpanded] = useUrlParamSet("expand");
+  const comparison = useComparison(leftRuns, rightRuns, tasks);
 
-  const taskMap = useMemo(() => {
-    const m = new Map(tasks.map((t) => [t.id, t]));
-    return m;
-  }, [tasks]);
-
-  const groups = useMemo(() => {
-    const byFolder: Record<string, ResolvedComparisonCell[]> = {};
-    for (const cell of snapshot.resolved) {
-      const folder = taskMap.get(cell.task_id)?.folder_path || "(removed)";
-      (byFolder[folder] ??= []).push(cell);
-    }
-    return Object.entries(byFolder).map(([folder, cells]) => ({ folder, cells }));
-  }, [snapshot.resolved, taskMap]);
+  // Same "hide identical" filter as /runs/compare: only show tasks that differ
+  // or are one-sided (present in only one view).
+  const foldersToShow = useMemo(() => {
+    return comparison.folders.flatMap((f) => {
+      const visibleTasks = f.tasks.filter((t) => t.differs || t.left.run === null || t.right.run === null);
+      return visibleTasks.length > 0 ? [{ ...f, tasks: visibleTasks }] : [];
+    });
+  }, [comparison.folders]);
 
   const viewLabel = (v: TaskViewConfig) => {
     const parts = [v.model ?? "All models"];
     if (v.effort) parts.push(v.effort);
+    if (v.since) parts.push(v.since);
     return parts.join(" · ");
   };
 
   return (
-    <div className="flex flex-col">
-      {/* Header: scope + rule + both view configs + coverage */}
-      <div className="flex flex-wrap items-center gap-3 border-b border-border px-6 py-3">
-        <Link
-          href={`/project/${projectId}/tasks`}
-          className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground/70"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Tasks
-        </Link>
-        <span className="font-medium text-foreground/80">
-          Comparing {snapshot.coverage.scope} task{snapshot.coverage.scope === 1 ? "" : "s"}
-        </span>
-        <span className="text-muted-foreground/50">·</span>
-        <span className="text-[12px] text-muted-foreground/60">latest run per task</span>
-        <div className="flex items-center gap-2">
-          <span className="grid h-4 min-w-4 place-items-center bg-warning px-1 font-mono text-[10px] font-semibold text-black">A</span>
-          <span className="font-mono text-[11px] text-muted-foreground">{viewLabel(snapshot.view_a_config)}</span>
-          <span className="text-muted-foreground/40">vs</span>
-          <span className="grid h-4 min-w-4 place-items-center bg-foreground px-1 font-mono text-[10px] font-semibold text-black">B</span>
-          <span className="font-mono text-[11px] text-muted-foreground">{viewLabel(snapshot.view_b_config)}</span>
+    <div className="mx-auto w-full max-w-6xl">
+      {/* Breadcrumb */}
+      <div className="border-b border-border bg-background">
+        <div className="flex items-center gap-1.5 px-6 py-5 text-[12px] text-muted-foreground">
+          <Link href={`/project/${projectId}/tasks`} className="inline-flex items-center gap-1 hover:text-foreground">
+            <ArrowLeft className="h-3 w-3" /> Tasks
+          </Link>
+          <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
+          <span className="text-foreground">Compare views</span>
         </div>
-        <span className="ml-auto font-mono text-[11px] tabular-nums text-muted-foreground">
-          <span className="text-foreground/80">{snapshot.coverage.both_run}</span>
-          <span className="text-muted-foreground/50">/{snapshot.coverage.scope} Run</span>
-          <span className="text-muted-foreground/30"> · </span>
-          <span className="text-foreground/80">{snapshot.coverage.comparable}</span>
-          <span className="text-muted-foreground/50">/{snapshot.coverage.scope} Comparable</span>
-        </span>
       </div>
 
-      <div className="px-6 py-1">
-        {groups.map(({ folder, cells }) => (
-          <FolderGroup key={folder} folder={folder} cells={cells} taskMap={taskMap} projectId={projectId} />
-        ))}
+      {/* Header: both view configs + summary */}
+      <div className="border-b border-border bg-background px-6 py-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <ViewSlot label="View A" view={snapshot.view_a_config} accent="warning" />
+          <ViewSlot label="View B" view={snapshot.view_b_config} accent="foreground" />
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
+          {comparison.totalDiffers > 0 ? (
+            <span>
+              <span className="font-mono tabular-nums text-foreground">{comparison.totalDiffers}</span>{" "}
+              of{" "}
+              <span className="font-mono tabular-nums text-foreground">{comparison.tasks.length}</span>{" "}
+              tasks differ
+            </span>
+          ) : (
+            <span>No tasks differ between these views</span>
+          )}
+          {comparison.totalOnlyInOne > 0 && (
+            <span className="text-muted-foreground/60">
+              {" · "}
+              <span className="font-mono tabular-nums">{comparison.totalOnlyInOne}</span> task{comparison.totalOnlyInOne > 1 ? "s" : ""} only in one view
+            </span>
+          )}
+          {comparison.leftChecks.total > 0 && comparison.rightChecks.total > 0 && (
+            <CheckDelta left={comparison.leftChecks} right={comparison.rightChecks} />
+          )}
+        </div>
       </div>
-    </div>
-  );
-}
 
-function FolderGroup({
-  folder,
-  cells,
-  taskMap,
-  projectId,
-}: {
-  folder: string;
-  cells: ResolvedComparisonCell[];
-  taskMap: Map<string, AgentTaskSummary>;
-  projectId: string;
-}) {
-  return (
-    <div className="border-b border-border last:border-b-0">
-      <div className="flex items-center gap-2 px-2 py-2">
-        <Folder className="h-4 w-4 text-muted-foreground" />
-        <span className="font-mono text-[13px] font-medium">{folder}</span>
-        <span className="bg-border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">{cells.length}</span>
-      </div>
-      <div className="space-y-px pb-2">
-        {cells.map((cell) => {
-          const task = taskMap.get(cell.task_id);
-          const name = task?.display_name ?? cell.task_id;
-          return (
-            <div key={cell.task_id} className="flex items-center gap-3 border border-transparent px-2 py-2 hover:bg-card/40">
-              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
-              <Link
-                href={taskDetailHref(projectId, cell.task_id)}
-                className="min-w-0 flex-1 hover:text-foreground/70"
-                title={cell.task_id}
-              >
-                <div className="truncate text-[13px] font-medium">{name}</div>
-                <div className="truncate font-mono text-[11px] text-muted-foreground/40">{cell.task_id}</div>
-              </Link>
-              <div className="flex w-[120px] shrink-0 items-center justify-end border-l border-warning/20 pl-3">
-                <StatusPill status={cell.a_status} resolved={cell.a_run_id !== null} />
-              </div>
-              <div className="flex w-[120px] shrink-0 items-center justify-end border-l border-border pl-3">
-                <StatusPill status={cell.b_status} resolved={cell.b_run_id !== null} />
-              </div>
-              <div className="flex w-[90px] shrink-0 justify-end border-l border-border pl-3">
-                <Verdict cell={cell} />
-              </div>
+      {/* Task rows — same FlowSection rendering as /runs/compare */}
+      {comparison.tasks.length === 0 ? (
+        <div className="m-6 border border-dashed border-border bg-card/40 p-10 text-center text-[13px] text-muted-foreground">
+          These views share no tasks — there is nothing to compare.
+        </div>
+      ) : (
+        <div className="divide-y divide-border">
+          {foldersToShow.map((f) => (
+            <FlowSection
+              key={f.folder}
+              folder={f.folder}
+              tasks={f.tasks}
+              differsCount={f.tasks.filter((t) => t.differs).length}
+              leftChecks={tallyChecks(f.tasks.map((t) => t.left))}
+              rightChecks={tallyChecks(f.tasks.map((t) => t.right))}
+              defaultOpen={f.tasks.some((t) => t.differs)}
+              expanded={expanded}
+              onToggleExpand={toggleExpanded}
+              projectId={projectId}
+            />
+          ))}
+          {foldersToShow.length === 0 && (
+            <div className="px-6 py-10 text-center text-[13px] text-muted-foreground">
+              No differing tasks — all aligned tasks are identical.
             </div>
-          );
-        })}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function StatusPill({ status, resolved }: { status: string | null; resolved: boolean }) {
-  if (!resolved || status === null) {
-    return <span className="font-mono text-[12px] text-muted-foreground/50">Not Run</span>;
-  }
-  const map: Record<string, { label: string; cls: string; dot: string }> = {
-    passed: { label: "Passed", cls: "text-success", dot: "bg-success" },
-    failed: { label: "Failed", cls: "text-destructive", dot: "bg-destructive" },
-    error: { label: "Errored", cls: "text-warning", dot: "bg-warning" },
-  };
-  const s = map[status] ?? { label: status, cls: "text-muted-foreground", dot: "bg-muted-foreground" };
+function ViewSlot({ label, view, accent }: { label: string; view: TaskViewConfig; accent: "warning" | "foreground" }) {
+  const parts = [view.model ?? "All models"];
+  if (view.effort) parts.push(view.effort);
+  if (view.since) parts.push(view.since);
   return (
-    <span className={cn("flex items-center gap-1.5 font-mono text-[12px]", s.cls)}>
-      <span className={cn("h-2 w-2 rounded-full", s.dot)} aria-hidden />
-      {s.label}
+    <div className="border border-border bg-card/40 p-4">
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            "grid h-5 min-w-5 place-items-center px-1 font-mono text-[11px] font-semibold text-black",
+            accent === "warning" ? "bg-warning" : "bg-foreground",
+          )}
+        >
+          {label === "View A" ? "A" : "B"}
+        </span>
+        <span className="text-[12px] font-medium text-foreground/80">{label}</span>
+      </div>
+      <p className="mt-2 font-mono text-[13px] text-foreground">{parts.join(" · ")}</p>
+    </div>
+  );
+}
+
+function CheckDelta({ left, right }: { left: CheckTally; right: CheckTally }) {
+  const delta = right.passed - left.passed;
+  const sign = delta > 0 ? "+" : "";
+  return (
+    <span className="font-mono tabular-nums">
+      <span className="text-muted-foreground/60">· checks </span>
+      <span className="text-muted-foreground">{left.passed}/{left.total}</span>
+      <span className="text-muted-foreground/40"> → </span>
+      <span className="text-muted-foreground">{right.passed}/{right.total}</span>
+      {delta !== 0 && (
+        <span className={cn("ml-1", delta > 0 ? "text-success" : "text-destructive")}>
+          ({sign}{delta})
+        </span>
+      )}
     </span>
   );
-}
-
-function Verdict({ cell }: { cell: ResolvedComparisonCell }) {
-  if (!cell.comparable) {
-    return <span className="border border-warning/40 px-1 font-mono text-[10px] text-warning" title="Revisions differ or a side has no run — excluded from aggregate">n/c</span>;
-  }
-  const aPass = cell.a_status === "passed";
-  const bPass = cell.b_status === "passed";
-  if (aPass === bPass) {
-    return <span className="font-mono text-[10px] text-muted-foreground/60">same</span>;
-  }
-  if (!aPass && bPass) {
-    return <span className="font-mono text-[10px] text-success" title="B passed where A did not">improved</span>;
-  }
-  return <span className="font-mono text-[10px] text-destructive" title="B did not pass where A did">regressed</span>;
 }
