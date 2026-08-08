@@ -17,6 +17,7 @@ import {
   Plus,
   X,
   GitCompare,
+  ChevronDown,
 } from "lucide-react";
 import {
   createAgentTaskBatchRun,
@@ -41,6 +42,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { formatCostMicro } from "@/lib/format";
 import { toast } from "sonner";
@@ -680,6 +687,7 @@ function SelectionActionBar({
   runRunning,
   comparing,
   isDemoProject,
+  compareOptions,
   onClear,
   onRun,
   onCompare,
@@ -688,9 +696,10 @@ function SelectionActionBar({
   runRunning: boolean;
   comparing: boolean;
   isDemoProject: boolean;
+  compareOptions: { model: string | null; label: string }[];
   onClear: () => void;
   onRun: () => void;
-  onCompare: () => void;
+  onCompare: (bModel: string | null) => void;
 }) {
   return (
     <div className="sticky bottom-4 z-20 mx-auto mb-4 w-fit">
@@ -710,17 +719,35 @@ function SelectionActionBar({
           <Play className="h-3 w-3 fill-current" />
           {runRunning ? "Starting..." : "Run selection"}
         </Button>
-        <Button
-          type="button"
-          size="sm"
-          className="h-7 gap-1.5 px-3 text-[12px] font-medium"
-          onClick={onCompare}
-          disabled={comparing || isDemoProject}
-          title={isDemoProject ? "Demo workspace is read-only" : "Compare the selection under two views (latest run per task)"}
-        >
-          <GitCompare className="h-3 w-3" />
-          {comparing ? "Building…" : "Compare"}
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 gap-1 px-3 text-[12px] font-medium"
+              disabled={comparing || isDemoProject || compareOptions.length === 0}
+              title={isDemoProject ? "Demo workspace is read-only" : "Compare the selection against another view"}
+            >
+              <GitCompare className="h-3 w-3" />
+              {comparing ? "Building…" : "Compare"}
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[200px]">
+            <p className="px-2 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/50">
+              Compare against
+            </p>
+            {compareOptions.map((opt) => (
+              <DropdownMenuItem
+                key={opt.model ?? "__all__"}
+                onClick={() => onCompare(opt.model)}
+                className="text-[12px]"
+              >
+                {opt.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );
@@ -917,14 +944,12 @@ export function AgentTasksClient({
   // side B defaults to a contrasting model (the first one that differs), or to
   // Main if the active tab is already a model view with no alternative.
   const [comparing, setComparing] = useState(false);
-  const handleCompare = async () => {
+  const handleCompare = async (bModel: string | null) => {
     if (selected.size === 0 || isDemoProject) return;
     setComparing(true);
     try {
       const viewA: TaskViewConfig = { model: activeView.model, effort: activeView.effort, since: activeView.since };
-      const altModel = facets.find((f) => f.model !== activeView.model)?.model ?? null;
-      // Side B: a contrasting model, same date window as A for a fair comparison.
-      const viewB: TaskViewConfig = { model: altModel, effort: null, since: activeView.since };
+      const viewB: TaskViewConfig = { model: bModel, effort: null, since: activeView.since };
       const snapshot = await createTaskViewComparison(projectId, {
         task_ids: [...selected],
         view_a: viewA,
@@ -1052,6 +1077,12 @@ export function AgentTasksClient({
           runRunning={runState.running}
           comparing={comparing}
           isDemoProject={isDemoProject}
+          compareOptions={[
+            ...facets
+              .filter((f) => f.model !== activeView.model)
+              .map((f) => ({ model: f.model, label: f.model })),
+            ...(activeView.model !== null ? [{ model: null as string | null, label: "All models" }] : []),
+          ]}
           onClear={() => setSelected(new Set())}
           onRun={handleRun}
           onCompare={handleCompare}
