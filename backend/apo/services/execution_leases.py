@@ -589,7 +589,8 @@ def _finalize_logical_run(
     update_batch_run_status(session, batch)
     # resolve the pending Schedule Occurrence when the Batch reaches
     # a terminal state through recovery/cancellation.
-    _resolve_schedule_occurrence_if_terminal(session, batch)
+    from apo.services.schedule_occurrences import resolve_occurrence_if_terminal
+    resolve_occurrence_if_terminal(session, batch)
     emit_task_run_event(attempt.project, task_run)
     if batch.status in ("completed", "error"):
         task_runs = list(
@@ -611,18 +612,6 @@ def _mark_schedule_occurrence_delivered(
     mark_occurrence_delivered_on_start(
         session, batch_run_id=attempt.batch_run_id, now=_now()
     )
-
-
-def _resolve_schedule_occurrence_if_terminal(
-    session: Session, batch: AgentTaskBatchRunDB
-) -> None:
-    """Hook shared by finalization and recovery."""
-    if batch.status not in BATCH_RUN_TERMINAL:
-        return
-    from apo.services.schedule_occurrences import resolve_occurrence_on_terminal_batch
-
-    resolve_occurrence_on_terminal_batch(session, batch=batch, now=_now())
-
 
 def cancel_active_batch_on_pause(
     session: Session,

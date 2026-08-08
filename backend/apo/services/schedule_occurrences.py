@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import cast
 
 from sqlmodel import Session, select
@@ -176,6 +176,18 @@ def resolve_occurrence_on_terminal_batch(
     occurrence.resolved_at = now
     session.add(occurrence)
     session.flush()
+
+
+def resolve_occurrence_if_terminal(
+    session: Session, batch: AgentTaskBatchRunDB
+) -> None:
+    """Clear the Schedule active pointer and resolve the linked pending
+    Occurrence once the Batch reaches a terminal state. No-op if non-terminal."""
+    if batch.status not in BATCH_RUN_TERMINAL:
+        return
+    resolve_occurrence_on_terminal_batch(
+        session, batch=batch, now=datetime.now(timezone.utc)
+    )
 
 
 def mark_occurrence_cancelled_for_batch(
