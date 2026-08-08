@@ -35,11 +35,12 @@ export const fetchTaskViewStats = (
   projectId: string,
   model?: string | null,
   effort?: string | null,
+  since?: string | null,
   signal?: AbortSignal,
 ): Promise<Record<string, AgentTaskRunStats>> =>
   apiClient(`/v1/projects/${encodeURIComponent(projectId)}/agent-task-run-stats`, {
     ...NO_CACHE,
-    query: { model: model ?? undefined, effort: effort ?? undefined },
+    query: { model: model ?? undefined, effort: effort ?? undefined, since: since ?? undefined },
     signal,
   });
 
@@ -60,6 +61,7 @@ export const fetchTaskViewConfigFacets = (
 export interface TaskViewConfig {
   model: string | null;  // null = All models (Main)
   effort: string | null; // null = any effort
+  since: string | null;  // "7d" | "30d" | "90d" | null (all time)
 }
 
 export interface ResolvedComparisonCell {

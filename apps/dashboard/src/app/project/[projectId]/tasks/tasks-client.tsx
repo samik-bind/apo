@@ -74,7 +74,16 @@ interface ViewTab {
   label: string;
   model: string | null;  // null = All models (Main)
   effort: string | null; // null = any effort
+  since: string | null;  // "7d" | "30d" | "90d" | null (all time)
 }
+
+const SINCE_OPTIONS = [
+  { value: "__all__", label: "All time" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+  { value: "90d", label: "Last 90 days" },
+];
+const ALL_SINCE_VALUE = "__all__";
 
 function groupByFolder(tasks: AgentTaskSummary[]): FolderNode[] {
   const groups: Record<string, AgentTaskSummary[]> = {};
@@ -272,9 +281,10 @@ const ANY_EFFORT_VALUE = "__any__";
 
 /** A short, human-readable config line for a tab chip (e.g. "Opus · high"). */
 function viewConfigLabel(view: ViewTab): string {
-  if (view.model === null && view.effort === null) return "everything";
+  if (view.model === null && view.effort === null && view.since === null) return "everything";
   const parts: string[] = [view.model ?? "all models"];
   if (view.effort) parts.push(view.effort);
+  if (view.since) parts.push(view.since);
   return parts.join(" · ");
 }
 
@@ -309,7 +319,7 @@ function EvidenceViewsBar({
   onToggleExpandAll: () => void;
   allExpanded: boolean;
   onSelect: (id: string) => void;
-  onChange: (patch: Partial<Pick<ViewTab, "model" | "effort" | "label">>) => void;
+  onChange: (patch: Partial<Pick<ViewTab, "model" | "effort" | "since" | "label">>) => void;
   onDuplicate: () => void;
   onClose: (id: string) => void;
 }) {
@@ -341,16 +351,23 @@ function EvidenceViewsBar({
             const isActive = v.id === activeViewId;
             const isMain = v.id === MAIN_VIEW_ID;
             return (
-              <div key={v.id} className="flex items-stretch">
+              // One bordered unit per tab: the select area + an inline close on
+              // its right edge (Main has no close — it's permanent). Mirrors the
+              // conventional editor/browser tab shape rather than a separate
+              // close column.
+              <div
+                key={v.id}
+                className={cn(
+                  "flex items-stretch border transition-colors",
+                  isActive
+                    ? "border-foreground/40 bg-foreground/[0.08]"
+                    : "border-foreground/15 hover:border-foreground/30 hover:bg-foreground/[0.05]",
+                )}
+              >
                 <button
                   type="button"
                   onClick={() => onSelect(v.id)}
-                  className={cn(
-                    "relative flex flex-col items-start gap-0.5 border px-3 py-1.5 text-left transition-colors",
-                    isActive
-                      ? "border-foreground/40 bg-foreground/[0.08]"
-                      : "border-foreground/15 hover:border-foreground/30 hover:bg-foreground/[0.05]",
-                  )}
+                  className="relative flex flex-col items-start gap-0.5 px-3 py-1.5 text-left"
                 >
                   {isActive && (
                     <span className="pointer-events-none absolute inset-y-1 left-0 w-[2px] bg-foreground" aria-hidden />
@@ -372,7 +389,7 @@ function EvidenceViewsBar({
                     type="button"
                     aria-label={`Close ${v.label} tab`}
                     onClick={() => onClose(v.id)}
-                    className="grid place-items-center px-1 text-muted-foreground/30 hover:text-destructive"
+                    className="grid place-items-center border-l border-foreground/10 px-1.5 text-muted-foreground/50 hover:bg-destructive/20 hover:text-destructive"
                     title="Close tab"
                   >
                     <X className="h-3 w-3" />
@@ -384,11 +401,11 @@ function EvidenceViewsBar({
           <button
             type="button"
             onClick={onDuplicate}
-            className="ml-1 flex items-center gap-1 border border-dashed border-foreground/15 px-2 py-1.5 text-[12px] text-foreground/70 hover:border-foreground/30 hover:bg-foreground/[0.05]"
-            title="Duplicate the active tab, then edit its filters"
+            aria-label="Add a new view tab"
+            className="grid place-items-center border border-dashed border-foreground/20 px-3 text-foreground/60 hover:border-foreground/40 hover:bg-foreground/[0.05]"
+            title="Add a new view tab (starts as a copy of the active one)"
           >
-            <Plus className="h-3 w-3" />
-            Duplicate
+            <Plus className="h-3.5 w-3.5" />
           </button>
         </div>
       )}
@@ -427,6 +444,12 @@ function EvidenceViewsBar({
                 onChange={(value) => onChange({ effort: value === ANY_EFFORT_VALUE ? null : value })}
               />
             )}
+            <FilterPicker
+              label="Date"
+              value={active.since ?? ALL_SINCE_VALUE}
+              options={SINCE_OPTIONS}
+              onChange={(value) => onChange({ since: value === ALL_SINCE_VALUE ? null : value })}
+            />
             {isDerived && (
               <span className="font-mono text-[10px] text-muted-foreground/50">
                 {loading ? "loading scoped stats…" : "scoped to this view"}
@@ -720,7 +743,7 @@ export function AgentTasksClient({
   // ---- Evidence views (SPEC-174): a permanent "Main" tab (all-history) plus
   // closable derived tabs narrowed by model (+ model-aware effort). The stats
   // shown in the task table are scoped to the active tab's cohort.
-  const [views, setViews] = useState<ViewTab[]>([{ id: MAIN_VIEW_ID, label: "Main", model: null, effort: null }]);
+  const [views, setViews] = useState<ViewTab[]>([{ id: MAIN_VIEW_ID, label: "Main", model: null, effort: null, since: null }]);
   const [activeViewId, setActiveViewId] = useState<string>(MAIN_VIEW_ID);
   const [facets, setFacets] = useState<RunConfigModelFacet[]>([]);
   // Per-task stats overlay for the active derived view. null = Main (use the
@@ -743,13 +766,16 @@ export function AgentTasksClient({
   // When the active tab is a derived view, fetch its scoped stats and overlay
   // them. Main reuses the server-provided all-history stats (viewStats = null).
   useEffect(() => {
-    if (isDemoProject || (activeView.model === null && activeView.effort === null)) {
+    if (
+      isDemoProject ||
+      (activeView.model === null && activeView.effort === null && activeView.since === null)
+    ) {
       setViewStats(null);
       return;
     }
     const controller = new AbortController();
     setViewStatsLoading(true);
-    fetchTaskViewStats(projectId, activeView.model, activeView.effort, controller.signal)
+    fetchTaskViewStats(projectId, activeView.model, activeView.effort, activeView.since, controller.signal)
       .then((stats) => { setViewStats(stats); })
       .catch(() => { /* keep previous overlay on transient failure */ })
       .finally(() => { if (!controller.signal.aborted) setViewStatsLoading(false); });
@@ -828,7 +854,7 @@ export function AgentTasksClient({
   };
 
   // ---- Evidence view tab operations ----
-  const updateActiveView = (patch: Partial<Pick<ViewTab, "model" | "effort" | "label">>) => {
+  const updateActiveView = (patch: Partial<Pick<ViewTab, "model" | "effort" | "since" | "label">>) => {
     setViews((prev) => prev.map((v) => (v.id === activeViewId ? { ...v, ...patch } : v)));
   };
   const duplicateActive = () => {
@@ -890,9 +916,10 @@ export function AgentTasksClient({
     if (selected.size === 0 || isDemoProject) return;
     setComparing(true);
     try {
-      const viewA: TaskViewConfig = { model: activeView.model, effort: activeView.effort };
+      const viewA: TaskViewConfig = { model: activeView.model, effort: activeView.effort, since: activeView.since };
       const altModel = facets.find((f) => f.model !== activeView.model)?.model ?? null;
-      const viewB: TaskViewConfig = { model: altModel, effort: null };
+      // Side B: a contrasting model, same date window as A for a fair comparison.
+      const viewB: TaskViewConfig = { model: altModel, effort: null, since: activeView.since };
       const snapshot = await createTaskViewComparison(projectId, {
         task_ids: [...selected],
         view_a: viewA,

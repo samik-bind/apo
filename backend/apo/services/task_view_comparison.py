@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
+from datetime import datetime
 from typing import cast
 
 from sqlalchemy import desc, select as sa_select
@@ -35,6 +36,7 @@ from ..models.schemas import (
     TaskViewComparisonSnapshot,
     TaskViewConfig,
 )
+from .agent_task_stats import since_cutoff
 
 # Status that means "the run did not complete" (no usable verdict). Mirrors
 # ``compute_run_stats``, which counts "error" separately from "failed".
@@ -47,7 +49,7 @@ _ERRORED = "error"
 _RUN_ID_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.id))
 _RUN_TASK_ID_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.task_id))
 _RUN_STATUS_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.status))
-_RUN_STARTED_COL: ColumnElement[object] = _as_column(cast(object, AgentTaskRunDB.started_at))
+_RUN_STARTED_COL: ColumnElement[datetime | None] = _as_column(cast(object, AgentTaskRunDB.started_at))
 _RUN_BATCH_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.batch_run_id))
 _RUN_DEF_REV_COL: ColumnElement[str | None] = _as_column(
     cast(object, AgentTaskRunDB.task_definition_revision_id)
@@ -106,6 +108,9 @@ def _resolve_side(
         conditions.append(_RUN_MODEL_COL == view.model)
     if view.effort is not None:
         conditions.append(_RUN_EFFORT_COL == view.effort)
+    cutoff = since_cutoff(view.since)
+    if cutoff is not None:
+        conditions.append(_RUN_STARTED_COL >= cutoff)
 
     stmt = (
         sa_select(

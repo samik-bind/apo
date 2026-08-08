@@ -500,13 +500,14 @@ async def list_project_agent_task_run_stats(
     session: Session = Depends(get_session),
     model: str | None = Query(default=None),
     effort: str | None = Query(default=None),
+    since: str | None = Query(default=None),
 ):
-    """Per-task run stats scoped to a model/effort view.
+    """Per-task run stats scoped to a model/effort/date view.
 
     No filter = Main (all-history, identical to the ``run_stats`` already
-    attached by ``GET .../agent-tasks``). With ``model`` / ``effort`` the cohort
-    is the Tasks page's active evidence view. Returns one entry per task in the
-    project inventory; tasks with no matching runs get all-zero stats.
+    attached by ``GET .../agent-tasks``). With ``model`` / ``effort`` / ``since``
+    the cohort is the Tasks page's active evidence view. Returns one entry per
+    task in the project inventory; tasks with no matching runs get all-zero stats.
     """
     user_id = _get_user_id(request)
     _project, _role = _load_project_for_user(session, project_id, user_id)
@@ -517,7 +518,7 @@ async def list_project_agent_task_run_stats(
         return {}
 
     runs_by_task = load_run_stat_fields(
-        session, project_id, task_ids, model=model, effort=effort
+        session, project_id, task_ids, model=model, effort=effort, since=since
     )
     return {
         task_id: compute_run_stats(runs) for task_id, runs in runs_by_task.items()

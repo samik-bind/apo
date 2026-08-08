@@ -24,8 +24,8 @@ function task(id: string, name: string, folder: string): AgentTaskSummary {
 const snapshot: TaskViewComparisonSnapshot = {
   id: "tvc_test",
   project_id: "acme-evals",
-  view_a_config: { model: "claude-opus-4.1", effort: null },
-  view_b_config: { model: "deepseek-v3", effort: null },
+  view_a_config: { model: "claude-opus-4.1", effort: null, since: null },
+  view_b_config: { model: "deepseek-v3", effort: null, since: null },
   task_ids: ["evals/alpha", "evals/beta"],
   // alpha: comparable; beta: def/exec disagree -> n/c (excluded from aggregate)
   resolved: [

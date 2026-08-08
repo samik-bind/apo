@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import cast
 
 from sqlalchemy import desc, select as sa_select
@@ -50,6 +50,27 @@ class RunStatFields:
     pass_result: bool | None
     total_checks: int
     passed_checks: int
+
+
+# Recognised "since" presets for the date filter on evidence views. None/unknown
+# means "all time". Kept small and named (not a freeform number) so the URL and
+# the snapshot stay legible.
+_SINCE_DAYS: dict[str, int] = {"7d": 7, "30d": 30, "90d": 90}
+
+
+def since_cutoff(since: str | None) -> datetime | None:
+    """Resolve a ``since`` preset (``7d`` / ``30d`` / ``90d``) to a UTC cutoff.
+
+    Returns ``None`` for all-time (no preset / unknown preset). Shared by the
+    stats loader and the comparison resolver so the two paths agree on what a
+    view's date window means.
+    """
+    if not since:
+        return None
+    days = _SINCE_DAYS.get(since)
+    if days is None:
+        return None
+    return datetime.now(timezone.utc) - timedelta(days=days)
 
 
 def compute_run_stats(runs: Sequence[RunStatFields]) -> AgentTaskRunStats:
@@ -103,6 +124,7 @@ def load_run_stat_fields(
     task_ids: list[str],
     model: str | None = None,
     effort: str | None = None,
+    since: str | None = None,
 ) -> dict[str, list[RunStatFields]]:
     """Load only the run columns stats needs, grouped by task id.
 
@@ -114,9 +136,9 @@ def load_run_stat_fields(
     ``project_id`` via the parent batch run so two projects' runs never mix even
     if they share a task id.
 
-    ``model`` / ``effort`` optionally scope the cohort to a single view (the
-    Tasks page evidence views). Both default to ``None`` = all-history, which is
-    the original behavior and what the Main tab shows.
+    ``model`` / ``effort`` / ``since`` optionally scope the cohort to a single
+    view (the Tasks page evidence views). All default to ``None`` = all-history,
+    which is the original behavior and what the Main tab shows.
     """
     if not task_ids:
         return {}
@@ -129,6 +151,9 @@ def load_run_stat_fields(
         conditions.append(_CONFIGURED_MODEL_COL == model)
     if effort is not None:
         conditions.append(_CONFIGURED_EFFORT_COL == effort)
+    cutoff = since_cutoff(since)
+    if cutoff is not None:
+        conditions.append(_STARTED_AT_COL >= cutoff)
 
     stmt = (
         sa_select(

@@ -356,10 +356,11 @@ class RunConfigModelFacet(SQLModel):
 # SPEC-174 Phase 2 — selection-scoped view comparison.
 
 class TaskViewConfig(SQLModel):
-    """A model/effort filter — one side of a comparison. ``model=None`` = Main."""
+    """A model/effort/date filter — one side of a comparison. ``model=None`` = Main."""
 
     model: str | None = None
     effort: str | None = None
+    since: str | None = None  # "7d" | "30d" | "90d" | None (all time)
 
 
 class TaskViewComparisonRequest(SQLModel):
