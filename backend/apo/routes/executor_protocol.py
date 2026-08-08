@@ -163,7 +163,7 @@ async def attempt_start(
     try:
         started = start_attempt(session, lease=lease, driver_kind=body.driver_kind, runtime=body.runtime)
     except LeaseError as exc:
-        raise _lease_error_to_http(exc)
+        raise lease_error_to_http(exc)
     return {"attempt_id": started.id, "status": started.status, "phase": started.phase}
 
 
@@ -181,7 +181,7 @@ async def attempt_heartbeat(
     try:
         resp = heartbeat_attempt(session, lease=lease, phase=body.phase)
     except LeaseError as exc:
-        raise _lease_error_to_http(exc)
+        raise lease_error_to_http(exc)
     return {"cancel_requested": resp.cancel_requested}
 
 
@@ -197,11 +197,12 @@ async def attempt_result(
     if lease.attempt_id != attempt_id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "attempt token not valid for this attempt")
     try:
-        # SPEC-172 step 7: check completion replay BEFORE persisting
-        # deliverables so an identical replay doesn't collide with rows.
-        from apo.services.execution_finalization import precheck_result_replay
+        from apo.services.execution_finalization import (
+            AttemptResultBody,
+            finalize_attempt_with_deliverables,
+        )
 
-        pre_body = AttemptResultBody(
+        body_obj = AttemptResultBody(
             completion_id=body.completion_id, pass_result=body.pass_result,
             adapter_name=body.adapter_name, trace_run_id=body.trace_run_id,
             checks=body.checks, transcript=body.transcript,
@@ -210,40 +211,12 @@ async def attempt_result(
             error_message=body.error_message,
             run_configuration=body.run_configuration,
         )
-        if precheck_result_replay(session, lease=lease, body=pre_body):
-            return {"attempt_id": attempt_id, "status": "replayed"}
-
-        # SPEC-162 #119: persist deliverable rows before finalization.
-        if body.deliverables:
-            from apo.services.agent_task_deliverables import persist_json_deliverable
-            from apo.services.artifact_stores.registry import get_store
-
-            attempt_row = session.get(TaskExecutionAttemptDB, attempt_id)
-            if attempt_row is not None:
-                store = get_store("local")
-                for name, value in body.deliverables.items():
-                    await persist_json_deliverable(
-                        session,
-                        project=attempt_row.project,
-                        task_run_id=attempt_row.task_run_id,
-                        name=name,
-                        value=value,
-                        store=store,
-                    )
-                session.flush()
-
-        attempt = finalize_attempt_result(
-            session, lease=lease,
-            body=AttemptResultBody(
-                completion_id=body.completion_id, pass_result=body.pass_result,
-                adapter_name=body.adapter_name, trace_run_id=body.trace_run_id,
-                checks=body.checks, transcript=body.transcript,
-                deliverables=None, exit_code=body.exit_code,
-                stdout_tail=body.stdout_tail, stderr_tail=body.stderr_tail,
-                error_message=body.error_message,
-                run_configuration=body.run_configuration,
-            ),
+        attempt = await finalize_attempt_with_deliverables(
+            session, lease=lease, body=body_obj,
+            deliverables=body.deliverables,
         )
+        if attempt is None:
+            return {"attempt_id": attempt_id, "status": "replayed"}
     except CompletionConflict as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail={"kind": "completion_conflict", "msg": str(exc)})
     except ValueError as exc:
@@ -251,7 +224,7 @@ async def attempt_result(
         code = status.HTTP_409_CONFLICT if "non-ready" in msg or "already exists" in msg else status.HTTP_400_BAD_REQUEST
         raise HTTPException(code, detail={"kind": "deliverable_error", "msg": msg})
     except LeaseError as exc:
-        raise _lease_error_to_http(exc)
+        raise lease_error_to_http(exc)
     return {"attempt_id": attempt.id, "status": attempt.status}
 
 
@@ -283,11 +256,11 @@ async def attempt_failure(
     except FinalizationError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     except LeaseError as exc:
-        raise _lease_error_to_http(exc)
+        raise lease_error_to_http(exc)
     return {"attempt_id": attempt.id, "status": attempt.status}
 
 
-def _lease_error_to_http(exc: LeaseError) -> HTTPException:
+def lease_error_to_http(exc: LeaseError) -> HTTPException:
     if exc.kind in ("stale_generation", "state_mismatch"):
         return HTTPException(status.HTTP_409_CONFLICT, detail={"kind": "lease_stale", "msg": str(exc)})
     if exc.kind == "not_found":

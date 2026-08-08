@@ -496,14 +496,11 @@ async def attempt_result_v2(
     from ..services.execution_finalization import (
         AttemptResultBody,
         CompletionConflict,
-        finalize_attempt_result,
-        precheck_result_replay,
+        finalize_attempt_with_deliverables,
     )
 
     try:
-        # SPEC-172 step 7: check completion replay BEFORE persisting
-        # deliverables so an identical replay doesn't collide with rows.
-        pre_body = AttemptResultBody(
+        body_obj = AttemptResultBody(
             completion_id=body.completion_id,
             pass_result=body.pass_result,
             adapter_name=body.adapter_name,
@@ -517,55 +514,21 @@ async def attempt_result_v2(
             error_message=body.error_message,
             run_configuration=body.run_configuration,
         )
-        if precheck_result_replay(session, lease=lease, body=pre_body):
-            return {"ok": True, "attempt_id": attempt_id, "status": "replayed"}
-
-        # SPEC-162 #119: persist deliverable rows before finalization.
-        # The finalizer is sync; persist_json_deliverable is async (may gzip
-        # to store). So we persist rows here in the async route, then pass
-        # deliverables=None to the finalizer — the hot row stays clean.
-        if body.deliverables:
-            from apo.services.agent_task_deliverables import persist_json_deliverable
-            from apo.services.artifact_stores.registry import get_store
-
-            attempt = session.get(TaskExecutionAttemptDB, attempt_id)
-            if attempt is not None:
-                store = get_store("local")
-                for name, value in body.deliverables.items():
-                    await persist_json_deliverable(
-                        session,
-                        project=attempt.project,
-                        task_run_id=attempt.task_run_id,
-                        name=name,
-                        value=value,
-                        store=store,
-                    )
-                session.flush()
-
-        finalize_attempt_result(
-            session,
-            lease=lease,
-            body=AttemptResultBody(
-                completion_id=body.completion_id,
-                pass_result=body.pass_result,
-                adapter_name=body.adapter_name,
-                trace_run_id=body.trace_run_id,
-                checks=body.checks,
-                transcript=body.transcript,
-                deliverables=None,
-                exit_code=body.exit_code,
-                stdout_tail=body.stdout_tail,
-                stderr_tail=body.stderr_tail,
-                error_message=body.error_message,
-                run_configuration=body.run_configuration,
-            ),
+        attempt = await finalize_attempt_with_deliverables(
+            session, lease=lease, body=body_obj,
+            deliverables=body.deliverables,
         )
+        if attempt is None:
+            return {"ok": True, "attempt_id": attempt_id, "status": "replayed"}
     except CompletionConflict as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except ValueError as exc:
         msg = str(exc)
         code = status.HTTP_409_CONFLICT if "non-ready" in msg or "already exists" in msg else status.HTTP_400_BAD_REQUEST
         raise HTTPException(code, detail={"kind": "deliverable_error", "msg": msg}) from exc
+    except LeaseError as exc:
+        from .executor_protocol import lease_error_to_http
+        raise lease_error_to_http(exc)
     return {"ok": True, "attempt_id": attempt_id}
 
 

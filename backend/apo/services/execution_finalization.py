@@ -327,6 +327,48 @@ def precheck_result_replay(
     )
 
 
+async def finalize_attempt_with_deliverables(
+    session: Session,
+    *,
+    lease: CurrentAttemptLease,
+    body: AttemptResultBody,
+    deliverables: dict[str, object] | None,
+) -> TaskExecutionAttemptDB | None:
+    """Precheck replay, persist JSON deliverables, then finalize the attempt.
+
+    Shared by executor protocol v1 and v2 result routes so the
+    precheck → persist → finalize ordering lives in one place.
+
+    Returns the finalized attempt, or ``None`` for an idempotent replay
+    (caller should return its replay response without touching the result).
+    Raises ``CompletionConflict`` / ``ValueError`` / ``LeaseError`` — the
+    caller maps these to HTTP responses.
+    """
+    if precheck_result_replay(session, lease=lease, body=body):
+        return None
+
+    if deliverables:
+        from apo.models.db import TaskExecutionAttemptDB
+        from apo.services.agent_task_deliverables import persist_json_deliverable
+        from apo.services.artifact_stores.registry import get_store
+
+        attempt_row = session.get(TaskExecutionAttemptDB, lease.attempt_id)
+        if attempt_row is not None:
+            store = get_store("local")
+            for name, value in deliverables.items():
+                await persist_json_deliverable(
+                    session,
+                    project=attempt_row.project,
+                    task_run_id=attempt_row.task_run_id,
+                    name=name,
+                    value=value,
+                    store=store,
+                )
+            session.flush()
+
+    return finalize_attempt_result(session, lease=lease, body=body)
+
+
 __all__ = [
     "AttemptFailureBody",
     "AttemptResultBody",
@@ -335,5 +377,6 @@ __all__ = [
     "FinalizationError",
     "finalize_attempt_failure",
     "finalize_attempt_result",
+    "finalize_attempt_with_deliverables",
     "precheck_result_replay",
 ]
