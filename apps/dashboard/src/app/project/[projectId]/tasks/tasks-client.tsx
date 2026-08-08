@@ -211,8 +211,8 @@ function TaskCard({
       className={cn(
         "group/card relative block border px-2 py-3 transition-colors",
         isSel
-          ? "border-foreground/30 bg-muted/20"
-          : "border-border bg-card/40 hover:border-border hover:bg-card/60",
+          ? "border-foreground/30 bg-muted/30"
+          : "border-border bg-card/60 hover:border-border hover:bg-card",
       )}
     >
       {isSel && (
@@ -354,7 +354,7 @@ function EvidenceViewsBar({
   }
 
   return (
-    <div className="border-b border-border">
+    <div className="border-b border-border bg-muted/10">
       {/* Tabs: Main is permanent; every other tab is a closable derived copy.
           Hidden entirely for demo projects (no views there). */}
       {viewsActive && (
@@ -504,9 +504,9 @@ function FilterPicker({
 }) {
   return (
     <label className="flex shrink-0 items-center gap-1.5">
-      <span className="text-[11px] uppercase tracking-wide text-muted-foreground/60">{label}</span>
+      <span className="text-[11px] uppercase tracking-wide text-foreground/50">{label}</span>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger size="sm" className="h-7 text-[12px]">
+        <SelectTrigger size="sm" className="h-7 bg-muted/40 text-[12px]">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -543,7 +543,7 @@ function TasksToolbar({
   onRun: () => void;
 }) {
   return (
-    <div className="border-b border-border">
+    <div className="border-b border-border bg-muted/10">
       <div className="flex items-center justify-end gap-2 px-6 py-3">
         {taskSource && !isDemoProject && (
           <>
