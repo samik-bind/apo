@@ -336,7 +336,7 @@ function EvidenceViewsBar({
       {/* Tabs: Main is permanent; every other tab is a closable derived copy.
           Hidden entirely for demo projects (no views there). */}
       {viewsActive && (
-        <div className="flex flex-wrap items-stretch gap-px px-6 py-2">
+        <div className="flex flex-wrap items-stretch gap-1 bg-muted/20 px-6 py-2">
           {views.map((v) => {
             const isActive = v.id === activeViewId;
             const isMain = v.id === MAIN_VIEW_ID;
@@ -346,21 +346,26 @@ function EvidenceViewsBar({
                   type="button"
                   onClick={() => onSelect(v.id)}
                   className={cn(
-                    "flex flex-col items-start gap-0.5 border px-2.5 py-1.5 text-left transition-colors",
-                    isActive ? "border-input bg-input/30" : "border-border hover:bg-muted/10",
+                    "relative flex flex-col items-start gap-0.5 border px-3 py-1.5 text-left transition-colors",
+                    isActive
+                      ? "border-foreground/40 bg-foreground/[0.08]"
+                      : "border-foreground/15 hover:border-foreground/30 hover:bg-foreground/[0.05]",
                   )}
                 >
+                  {isActive && (
+                    <span className="pointer-events-none absolute inset-y-1 left-0 w-[2px] bg-foreground" aria-hidden />
+                  )}
                   <span className="flex items-center gap-1.5">
-                    <span className={cn("text-[12px] font-medium", isActive ? "text-foreground" : "text-muted-foreground")}>
+                    <span className={cn("text-[13px] font-medium", isActive ? "text-foreground" : "text-foreground/70")}>
                       {v.label}
                     </span>
                     {isMain && (
-                      <span className="border border-border px-1 font-mono text-[9px] uppercase tracking-wide text-muted-foreground/60">
+                      <span className="border border-foreground/25 px-1 font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
                         main
                       </span>
                     )}
                   </span>
-                  <span className="font-mono text-[10px] text-muted-foreground/60">{viewConfigLabel(v)}</span>
+                  <span className="font-mono text-[10px] text-muted-foreground">{viewConfigLabel(v)}</span>
                 </button>
                 {!isMain && (
                   <button
@@ -379,7 +384,7 @@ function EvidenceViewsBar({
           <button
             type="button"
             onClick={onDuplicate}
-            className="ml-1 flex items-center gap-1 px-2 py-1.5 text-[12px] text-muted-foreground/60 hover:text-foreground/70"
+            className="ml-1 flex items-center gap-1 border border-dashed border-foreground/15 px-2 py-1.5 text-[12px] text-foreground/70 hover:border-foreground/30 hover:bg-foreground/[0.05]"
             title="Duplicate the active tab, then edit its filters"
           >
             <Plus className="h-3 w-3" />
