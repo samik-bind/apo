@@ -37,6 +37,7 @@ from apo.models.db import (
 )
 from apo.models.execution import EXECUTOR_PROTOCOL_VERSION
 from apo.services.executor_auth import ATTEMPT_LEASE_SECONDS
+from apo.services.lifecycle import TASK_RUN_TERMINAL, BATCH_RUN_TERMINAL
 
 # Attempt statuses.
 QUEUED = "queued"
@@ -568,7 +569,7 @@ def _finalize_logical_run(
     batch = session.get(AgentTaskBatchRunDB, attempt.batch_run_id)
     if task_run is None or batch is None:
         raise LeaseError("not_found", "attempt references a missing Task Run or Batch")
-    if task_run.status in ("passed", "failed", "error"):
+    if task_run.status in TASK_RUN_TERMINAL:
         return
 
     now = _now()
@@ -616,7 +617,7 @@ def _resolve_schedule_occurrence_if_terminal(
     session: Session, batch: AgentTaskBatchRunDB
 ) -> None:
     """Hook shared by finalization and recovery."""
-    if batch.status not in ("completed", "error", "cancelled"):
+    if batch.status not in BATCH_RUN_TERMINAL:
         return
     from apo.services.schedule_occurrences import resolve_occurrence_on_terminal_batch
 

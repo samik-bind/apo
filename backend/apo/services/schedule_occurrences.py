@@ -36,6 +36,7 @@ from apo.services.execution_queue import (
     SourceOwnedSelectionError,
     create_source_owned_batch_run,
 )
+from apo.services.lifecycle import BATCH_RUN_TERMINAL
 
 #: Fixed 24-hour queue deadline for every scheduled Occurrence.
 SCHEDULE_QUEUE_DEADLINE_SECONDS = 24 * 60 * 60

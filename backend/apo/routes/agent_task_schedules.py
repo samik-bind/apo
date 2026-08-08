@@ -28,6 +28,7 @@ from ..models import (
 )
 from ..models.schemas import ScheduleLastBatchSummary
 from ..models.db import AdaptiveTaskStateDB, AgentTaskRunDB
+from ..services.lifecycle import BATCH_RUN_TERMINAL
 from ..services.agent_task_outcome import build_failure_breakdown
 from ..services.agent_task_scheduler import (
     compute_next_run_at,
@@ -773,7 +774,7 @@ def _trigger_source_owned_schedule(
     active_batch_id = schedule.active_batch_run_id
     if active_batch_id:
         active = session.get(AgentTaskBatchRunDB, active_batch_id)
-        if active is not None and active.status not in ("completed", "error", "cancelled"):
+        if active is not None and active.status not in BATCH_RUN_TERMINAL:
             occ = session.exec(
                 select(AgentTaskScheduleOccurrenceDB).where(
                     AgentTaskScheduleOccurrenceDB.batch_run_id == active_batch_id

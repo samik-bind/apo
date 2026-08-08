@@ -37,6 +37,7 @@ from apo.models.schemas import (
 )
 from apo.services.artifact_store import ArtifactStore
 from apo.services.artifact_stores.registry import artifact_limits
+from apo.services.lifecycle import TASK_RUN_TERMINAL
 
 # — inline threshold is a code constant, not a tuning knob.
 INLINE_THRESHOLD_BYTES = 64 * 1024  # 64 KiB
@@ -353,7 +354,7 @@ async def create_artifact_upload_intent(
     task_run = _lock_task_run(session, task_run_id)
     if task_run is None:
         raise ValueError("Task run not found")
-    if task_run.status in ("passed", "failed", "error"):
+    if task_run.status in TASK_RUN_TERMINAL:
         raise ValueError(
             f"Task run {task_run_id} is terminal (status={task_run.status})"
         )
@@ -451,7 +452,7 @@ async def complete_artifact_upload(
         raise ValueError(
             f"artifact_upload_closed: Task Run {row.task_run_id} no longer exists"
         )
-    if task_run.status in ("passed", "failed", "error"):
+    if task_run.status in TASK_RUN_TERMINAL:
         try:
             await store.delete(key)
         except Exception:

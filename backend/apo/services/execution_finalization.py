@@ -24,7 +24,7 @@ from sqlmodel import Session, select
 from apo.db_helpers import _as_column
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskRunDB, TaskExecutionAttemptDB
 from apo.models.schemas import AgentTaskRunConfiguration
-from apo.services.agent_task_run_service import finalize_task_run_with_result, update_batch_run_status
+from apo.services.agent_task_runner import finalize_task_run_with_result, update_batch_run_status
 from apo.services.execution_leases import (
     CANCELLED,
     FAILED,
@@ -33,6 +33,7 @@ from apo.services.execution_leases import (
     LeaseError,
     _require_current,
 )
+from apo.services.lifecycle import BATCH_RUN_TERMINAL
 
 # Bounded diagnostic tails: 64 KiB each.
 DIAGNOSTIC_TAIL_BYTES = 64 * 1024
@@ -283,7 +284,7 @@ def _resolve_schedule_occurrence_if_terminal(
 ) -> None:
     """Hook: clear the Schedule active pointer and resolve the linked
     pending Occurrence once the Batch reaches a terminal state."""
-    if batch.status not in ("completed", "error", "cancelled"):
+    if batch.status not in BATCH_RUN_TERMINAL:
         return
     from apo.services.schedule_occurrences import resolve_occurrence_on_terminal_batch
 

@@ -33,6 +33,7 @@ from apo.models.db import (
     TaskExecutionAttemptDB,
     TaskRevisionDB,
 )
+from apo.services.lifecycle import TASK_RUN_TERMINAL, BATCH_RUN_TERMINAL
 
 logger = logging.getLogger(__name__)
 
@@ -163,13 +164,13 @@ def _retire_bundled_attempts(session: Session, ts: datetime) -> int:
 
 def _roll_up_logical_run(session: Session, attempt: TaskExecutionAttemptDB, ts: datetime) -> None:
     task_run = session.get(AgentTaskRunDB, attempt.task_run_id)
-    if task_run is not None and task_run.status not in ("passed", "failed", "error", "cancelled"):
+    if task_run is not None and task_run.status not in (*TASK_RUN_TERMINAL, "cancelled"):
         task_run.status = "error"
         task_run.error_message = "bundled execution retired"
         task_run.completed_at = ts
         session.add(task_run)
     batch = session.get(AgentTaskBatchRunDB, attempt.batch_run_id)
-    if batch is not None and batch.status not in ("completed", "error", "cancelled"):
+    if batch is not None and batch.status not in BATCH_RUN_TERMINAL:
         batch.status = "error"
         batch.cancelled_tasks = (batch.cancelled_tasks or 0) + 1
         session.add(batch)

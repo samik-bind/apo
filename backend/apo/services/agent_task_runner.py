@@ -26,6 +26,7 @@ from ..models.db import (
 )
 from ..models.schemas import AgentTaskRunConfiguration
 from .agent_task_configuration import normalize_run_configuration
+from .lifecycle import TASK_RUN_TERMINAL
 from .agent_task_discovery import DEFAULT_TASK_ROOT, resolve_task_paths
 from .check_report_storage import persist_check_report
 from .trace_backend import get_trace_backend
@@ -316,7 +317,7 @@ def update_batch_run_status(session: Session, batch: AgentTaskBatchRunDB) -> Non
     batch.total_checks = sum(tr.total_checks for tr in task_runs)
     batch.passed_checks = sum(tr.passed_checks for tr in task_runs)
 
-    all_done = all(tr.status in ("passed", "failed", "error") for tr in task_runs)
+    all_done = all(tr.status in TASK_RUN_TERMINAL for tr in task_runs)
     if all_done and task_runs:
         batch.status = "completed"
         batch.completed_at = datetime.now(timezone.utc)
@@ -581,7 +582,7 @@ def finalize_external_task_run(
     ``ValueError`` (mapped to 400 by the route, since the terminal-check above
     has already passed).
     """
-    if task_run.status in ("passed", "failed", "error"):
+    if task_run.status in TASK_RUN_TERMINAL:
         raise ValueError(
             f"Task run {task_run.id} is already terminal (status={task_run.status})"
         )
