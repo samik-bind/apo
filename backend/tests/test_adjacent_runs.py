@@ -2,7 +2,9 @@
 
 import pytest
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
+from fastapi import Request
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
@@ -14,7 +16,7 @@ from apo.routes.runs.navigation import get_adjacent_runs
 # Direct function calls bypass FastAPI's Request injection. A request whose
 # state has no user_id exercises the dev/open-mode (permissive) auth path,
 # matching how these tests ran before project-membership enforcement.
-_REQ = SimpleNamespace(state=SimpleNamespace())
+_REQ = cast(Request, cast(object, SimpleNamespace(state=SimpleNamespace())))
 
 
 def _create_run(session: Session, run_id: str, created_at: datetime, duration_ms: int | None = None, call_count: int = 1) -> RunDB:

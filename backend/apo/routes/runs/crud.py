@@ -16,8 +16,8 @@ from sqlmodel import Session, func, or_, select
 from ...db import get_session
 from ...auth.deps import require_api_key_scope
 from ...services.project_memberships import (
-    enforce_project_role_from_request,
-    list_projects_for_user,
+    enforce_project_read_from_request,
+    list_readable_projects_from_request,
 )
 from ...db_helpers import _as_column, _ensure_utc_datetime
 from ...models import (
@@ -270,9 +270,7 @@ def _enforce_project_read(request: Request, session: Session, project: str) -> N
     Dev/open mode (no ``user_id`` on the request) stays permissive, as the
     membership helper does elsewhere.
     """
-    enforce_project_role_from_request(
-        request, session, project, minimum_role="member"
-    )
+    _ = enforce_project_read_from_request(request, session, project)
 
 
 def _caller_project_scope(request: Request, session: Session) -> list[str] | None:
@@ -284,10 +282,7 @@ def _caller_project_scope(request: Request, session: Session) -> list[str] | Non
     projects the caller is a member of, so an unscoped list/aggregate can't
     span tenants.
     """
-    user_id = getattr(getattr(request, "state", None), "user_id", None)
-    if not user_id:
-        return None
-    return list_projects_for_user(session, str(user_id))
+    return list_readable_projects_from_request(request, session)
 
 
 VALID_SORT_FIELDS = {"created_at", "duration_ms", "call_count"}

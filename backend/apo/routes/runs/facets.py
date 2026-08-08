@@ -3,7 +3,7 @@
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import and_, func, or_, text
+from sqlalchemy import and_, func, or_
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, select
 
@@ -13,8 +13,8 @@ from ...models import LoggedCallDB, RunDB, RunMetricDB
 from ...models.schemas import FacetBucket, RunFacets
 from ...services.filters import apply_date_range, apply_tag_filters
 from ...services.project_memberships import (
-    enforce_project_role_from_request,
-    list_projects_for_user,
+    enforce_project_read_from_request,
+    list_readable_projects_from_request,
 )
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
@@ -301,13 +301,11 @@ def get_run_facets(
     # projects (dev/open mode stays unscoped via allowed_projects=None).
     allowed_projects: list[str] | None = None
     if project:
-        enforce_project_role_from_request(
-            http_request, session, project, minimum_role="member"
-        )
+        _ = enforce_project_read_from_request(http_request, session, project)
     else:
-        caller = getattr(getattr(http_request, "state", None), "user_id", None)
-        if caller:
-            allowed_projects = list_projects_for_user(session, str(caller))
+        allowed_projects = list_readable_projects_from_request(
+            http_request, session
+        )
 
     all_kwargs: dict[str, Any] = dict(
         project=project,

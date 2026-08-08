@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import func, text
-from sqlmodel import Session, select
+from sqlalchemy import text
+from sqlmodel import Session
 
 from ...db import get_session
-from ...models import RunDB
 from ...models.schemas import PaginatedSessionSummary, SessionSummary
 from ...services.project_memberships import (
-    enforce_project_role_from_request,
-    list_projects_for_user,
+    enforce_project_read_from_request,
+    list_readable_projects_from_request,
 )
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
@@ -30,17 +27,14 @@ def list_sessions(
     params: dict[str, object] = {}
 
     if project:
-        enforce_project_role_from_request(
-            http_request, session, project, minimum_role="member"
-        )
+        _ = enforce_project_read_from_request(http_request, session, project)
         conditions.append("r.project = :project")
         params["project"] = project
     else:
         # No project would aggregate sessions across every tenant; scope to the
         # caller's projects (dev/open mode, no user_id, stays unscoped).
-        user_id = getattr(getattr(http_request, "state", None), "user_id", None)
-        if user_id:
-            allowed = list_projects_for_user(session, str(user_id))
+        allowed = list_readable_projects_from_request(http_request, session)
+        if allowed is not None:
             if allowed:
                 placeholders = ", ".join(f":p{i}" for i in range(len(allowed)))
                 conditions.append(f"r.project IN ({placeholders})")

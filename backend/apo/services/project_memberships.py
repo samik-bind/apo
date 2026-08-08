@@ -283,6 +283,55 @@ def enforce_project_role_from_request(
     )
 
 
+def enforce_project_read_from_request(
+    request: object,
+    session: Session,
+    project_id: str,
+) -> ProjectMembershipDB:
+    """Require read membership and honor a credential's bound project.
+
+    Cookie sessions represent the user and may read any project where that
+    user is a member. API keys are narrower: even when their creator belongs
+    to several projects, the key may read only the project recorded on the
+    key and request state.
+    """
+    state = getattr(request, "state", None)
+    auth_method = getattr(state, "auth_method", None)
+    credential_project = getattr(state, "project", None)
+    if auth_method == "api_key" and credential_project != project_id:
+        raise HTTPException(status_code=403, detail="API key project mismatch")
+    return enforce_project_role_from_request(
+        request, session, project_id, minimum_role="member"
+    )
+
+
+def list_readable_projects_from_request(
+    request: object,
+    session: Session,
+) -> list[str] | None:
+    """Return projects visible to this request, or ``None`` in open-dev mode.
+
+    API keys return only their bound project. Cookie sessions return all
+    current memberships. Rechecking membership here also makes a key stop
+    reading immediately when its creator loses access to the bound project.
+    """
+    state = getattr(request, "state", None)
+    user_id = getattr(state, "user_id", None)
+    if not isinstance(user_id, str) or not user_id:
+        return None
+
+    if getattr(state, "auth_method", None) == "api_key":
+        credential_project = getattr(state, "project", None)
+        if not isinstance(credential_project, str) or not credential_project:
+            return []
+        _ = enforce_project_read_from_request(
+            request, session, credential_project
+        )
+        return [credential_project]
+
+    return list_projects_for_user(session, user_id)
+
+
 # ---------------------------------------------------------------------------
 # Permission derivation
 # ---------------------------------------------------------------------------

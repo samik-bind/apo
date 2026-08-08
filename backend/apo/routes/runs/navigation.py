@@ -11,7 +11,7 @@ from sqlmodel import Session, col, select
 from ...db import get_session
 from ...db_helpers import _as_column
 from ...models import RunDB
-from ...services.project_memberships import enforce_project_role_from_request
+from ...services.project_memberships import enforce_project_read_from_request
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
 
@@ -51,9 +51,7 @@ def get_adjacent_runs(
     """Return the previous and next run IDs relative to the given run in the sort order."""
     # Same project-scoping as the other trace reads: don't let a caller page
     # through another project's runs by passing its ``project``.
-    enforce_project_role_from_request(
-        http_request, session, project, minimum_role="member"
-    )
+    _ = enforce_project_read_from_request(http_request, session, project)
     run = session.exec(
         select(RunDB).where(
             RunDB.id == run_id, col(RunDB.project) == project

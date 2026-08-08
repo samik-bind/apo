@@ -583,7 +583,7 @@ def _finalize_logical_run(
     session.add(batch)
     session.flush()
 
-    from apo.services.agent_task_run_service import update_batch_run_status
+    from apo.services.agent_task_runner import update_batch_run_status
     from apo.services.run_events import emit_batch_run_event, emit_task_run_event
 
     update_batch_run_status(session, batch)

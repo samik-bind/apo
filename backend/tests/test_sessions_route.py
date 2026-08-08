@@ -1,7 +1,9 @@
 # pyright: reportAny=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
+from fastapi import Request
 from sqlmodel import Session
 
 from types import SimpleNamespace
@@ -11,7 +13,7 @@ from apo.routes.runs.sessions import list_sessions
 
 # Direct calls bypass FastAPI's Request injection; a request with no user_id on
 # its state takes the dev/open-mode permissive path (pre-enforcement behavior).
-_REQ = SimpleNamespace(state=SimpleNamespace())
+_REQ = cast(Request, cast(object, SimpleNamespace(state=SimpleNamespace())))
 
 
 def _run(session: Session, run_id: str, session_id: str | None, created_at: datetime) -> None:
@@ -29,6 +31,9 @@ def _call(session: Session, call_id: str, run_id: str, cost: int, tokens: int) -
             model="claude-opus-5",
             cost=cost,
             total_tokens=tokens,
+            input={},
+            messages=[],
+            output={},
         )
     )
 
