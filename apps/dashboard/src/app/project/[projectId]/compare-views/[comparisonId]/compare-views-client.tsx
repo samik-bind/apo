@@ -14,7 +14,8 @@ import type { TaskViewComparisonSnapshot, TaskViewConfig } from "@/lib/agent-tas
 import { cn } from "@/lib/utils";
 import { useUrlParamSet } from "@/hooks/use-url-state";
 
-import { tallyChecks, useComparison, type CheckTally } from "../../runs/compare/use-comparison";
+import { tallyChecks, useComparison, filterVisibleFolders } from "../../runs/compare/use-comparison";
+import { CheckDelta } from "../../runs/compare/compare-client";
 import { FlowSection } from "../../runs/compare/components/FlowSection";
 
 export function CompareViewsClient({
@@ -33,21 +34,7 @@ export function CompareViewsClient({
   const [expanded, toggleExpanded] = useUrlParamSet("expand");
   const comparison = useComparison(leftRuns, rightRuns, tasks);
 
-  // Same "hide identical" filter as /runs/compare: only show tasks that differ
-  // or are one-sided (present in only one view).
-  const foldersToShow = useMemo(() => {
-    return comparison.folders.flatMap((f) => {
-      const visibleTasks = f.tasks.filter((t) => t.differs || t.left.run === null || t.right.run === null);
-      return visibleTasks.length > 0 ? [{ ...f, tasks: visibleTasks }] : [];
-    });
-  }, [comparison.folders]);
-
-  const viewLabel = (v: TaskViewConfig) => {
-    const parts = [v.model ?? "All models"];
-    if (v.effort) parts.push(v.effort);
-    if (v.since) parts.push(v.since);
-    return parts.join(" · ");
-  };
+  const foldersToShow = useMemo(() => filterVisibleFolders(comparison.folders), [comparison.folders]);
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -65,8 +52,8 @@ export function CompareViewsClient({
       {/* Header: both view configs + summary */}
       <div className="border-b border-border bg-background px-6 py-4">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <ViewSlot label="View A" view={snapshot.view_a_config} accent="warning" />
-          <ViewSlot label="View B" view={snapshot.view_b_config} accent="foreground" />
+          <ViewSlot view={snapshot.view_a_config} accent="warning" letter="A" />
+          <ViewSlot view={snapshot.view_b_config} accent="foreground" letter="B" />
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
           {comparison.totalDiffers > 0 ? (
@@ -123,42 +110,21 @@ export function CompareViewsClient({
   );
 }
 
-function ViewSlot({ label, view, accent }: { label: string; view: TaskViewConfig; accent: "warning" | "foreground" }) {
+function ViewSlot({ view, accent, letter }: { view: TaskViewConfig; accent: "warning" | "foreground"; letter: string }) {
   const parts = [view.model ?? "All models"];
   if (view.effort) parts.push(view.effort);
   if (view.since) parts.push(view.since);
   return (
-    <div className="border border-border bg-card/40 p-4">
-      <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            "grid h-5 min-w-5 place-items-center px-1 font-mono text-[11px] font-semibold text-black",
-            accent === "warning" ? "bg-warning" : "bg-foreground",
-          )}
-        >
-          {label === "View A" ? "A" : "B"}
-        </span>
-        <span className="text-[12px] font-medium text-foreground/80">{label}</span>
-      </div>
-      <p className="mt-2 font-mono text-[13px] text-foreground">{parts.join(" · ")}</p>
+    <div className="flex items-center gap-2 border border-border bg-card/40 px-4 py-3">
+      <span
+        className={cn(
+          "grid h-5 min-w-5 place-items-center px-1 font-mono text-[11px] font-semibold text-black",
+          accent === "warning" ? "bg-warning" : "bg-foreground",
+        )}
+      >
+        {letter}
+      </span>
+      <span className="font-mono text-[13px] text-foreground">{parts.join(" · ")}</span>
     </div>
-  );
-}
-
-function CheckDelta({ left, right }: { left: CheckTally; right: CheckTally }) {
-  const delta = right.passed - left.passed;
-  const sign = delta > 0 ? "+" : "";
-  return (
-    <span className="font-mono tabular-nums">
-      <span className="text-muted-foreground/60">· checks </span>
-      <span className="text-muted-foreground">{left.passed}/{left.total}</span>
-      <span className="text-muted-foreground/40"> → </span>
-      <span className="text-muted-foreground">{right.passed}/{right.total}</span>
-      {delta !== 0 && (
-        <span className={cn("ml-1", delta > 0 ? "text-success" : "text-destructive")}>
-          ({sign}{delta})
-        </span>
-      )}
-    </span>
   );
 }

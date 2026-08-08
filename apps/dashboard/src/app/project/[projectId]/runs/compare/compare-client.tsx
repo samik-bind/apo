@@ -22,7 +22,7 @@ import { formatBatchExecution } from "@/lib/run-configuration";
 import { useUrlParamSet } from "@/hooks/use-url-state";
 import { conclusionStyle } from "@/components/run-outcome";
 
-import { useComparison, tallyChecks, type CheckTally } from "./use-comparison";
+import { useComparison, tallyChecks, filterVisibleFolders, type CheckTally } from "./use-comparison";
 import { FlowSection } from "./components/FlowSection";
 
 interface CompareClientProps {
@@ -93,12 +93,7 @@ export function CompareClient({
   // to be a "hide identical" toggle for this, but the toggled-off state — a
   // full aligned list where 95% of rows are identical — isn't useful in a
   // comparison, so the toggle is gone.
-  const foldersToShow = useMemo(() => {
-    return comparison.folders.flatMap((f) => {
-      const tasks = f.tasks.filter((t) => t.differs || t.left.run === null || t.right.run === null);
-      return tasks.length > 0 ? [{ ...f, tasks }] : [];
-    });
-  }, [comparison.folders]);
+  const foldersToShow = useMemo(() => filterVisibleFolders(comparison.folders), [comparison.folders]);
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -346,7 +341,7 @@ function BatchSlot({
  *  a fact about two runs. The delta is colored only to draw the eye to a
  *  meaningful change; the reader judges whether it's a regression or
  *  improvement in context. */
-function CheckDelta({ left, right }: { left: CheckTally; right: CheckTally }) {
+export function CheckDelta({ left, right }: { left: CheckTally; right: CheckTally }) {
   const delta = right.passed - left.passed;
   const sign = delta > 0 ? "+" : "";
   // Only flag a change when it's non-zero AND both sides actually ran checks.

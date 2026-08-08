@@ -123,6 +123,16 @@ export function tallyChecks(runs: { run: AgentTaskRunSummary | null }[]): CheckT
   return { passed, total };
 }
 
+/** Filter folders to only show tasks that differ or are one-sided (present in
+ *  only one batch). Identical tasks carry no comparison signal — both
+ *  /runs/compare and /compare-views use this. */
+export function filterVisibleFolders(folders: ComparisonFolder[]): ComparisonFolder[] {
+  return folders.flatMap((f) => {
+    const tasks = f.tasks.filter((t) => t.differs || t.left.run === null || t.right.run === null);
+    return tasks.length > 0 ? [{ ...f, tasks }] : [];
+  });
+}
+
 /**
  * Build the comparison model from two batches' task runs plus the project's
  * task inventory (the only source of folder_path and display names).
