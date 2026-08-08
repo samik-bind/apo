@@ -11,7 +11,6 @@ import { ArrowLeft, ChevronRight } from "lucide-react";
 
 import type { AgentTaskRunSummary, AgentTaskSummary } from "@/lib/agent-task-api";
 import type { TaskViewComparisonSnapshot, TaskViewConfig } from "@/lib/agent-task-view-api";
-import { cn } from "@/lib/utils";
 import { useUrlParamSet } from "@/hooks/use-url-state";
 
 import { tallyChecks, useComparison, filterVisibleFolders } from "../../runs/compare/use-comparison";
@@ -36,6 +35,13 @@ export function CompareViewsClient({
 
   const foldersToShow = useMemo(() => filterVisibleFolders(comparison.folders), [comparison.folders]);
 
+  const viewLabel = (v: TaskViewConfig) => {
+    const parts = [v.model ?? "All models"];
+    if (v.effort) parts.push(v.effort);
+    if (v.since) parts.push(v.since);
+    return parts.join(" · ");
+  };
+
   return (
     <div className="mx-auto w-full max-w-6xl">
       {/* Breadcrumb */}
@@ -49,13 +55,13 @@ export function CompareViewsClient({
         </div>
       </div>
 
-      {/* Header: both view configs + summary */}
-      <div className="border-b border-border bg-background px-6 py-4">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <ViewSlot view={snapshot.view_a_config} accent="warning" letter="A" />
-          <ViewSlot view={snapshot.view_b_config} accent="foreground" letter="B" />
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
+      {/* Header: both view configs + summary in one clean line */}
+      <div className="border-b border-border bg-background px-6 py-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted-foreground">
+          <span className="font-mono text-[13px] text-foreground">{viewLabel(snapshot.view_a_config)}</span>
+          <span className="text-muted-foreground/40">vs</span>
+          <span className="font-mono text-[13px] text-foreground">{viewLabel(snapshot.view_b_config)}</span>
+          <span className="text-muted-foreground/30">·</span>
           {comparison.totalDiffers > 0 ? (
             <span>
               <span className="font-mono tabular-nums text-foreground">{comparison.totalDiffers}</span>{" "}
@@ -68,8 +74,7 @@ export function CompareViewsClient({
           )}
           {comparison.totalOnlyInOne > 0 && (
             <span className="text-muted-foreground/60">
-              {" · "}
-              <span className="font-mono tabular-nums">{comparison.totalOnlyInOne}</span> task{comparison.totalOnlyInOne > 1 ? "s" : ""} only in one view
+              <span className="font-mono tabular-nums">{comparison.totalOnlyInOne}</span> only in one view
             </span>
           )}
           {comparison.leftChecks.total > 0 && comparison.rightChecks.total > 0 && (
@@ -106,25 +111,6 @@ export function CompareViewsClient({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function ViewSlot({ view, accent, letter }: { view: TaskViewConfig; accent: "warning" | "foreground"; letter: string }) {
-  const parts = [view.model ?? "All models"];
-  if (view.effort) parts.push(view.effort);
-  if (view.since) parts.push(view.since);
-  return (
-    <div className="flex items-center gap-2 border border-border bg-card/40 px-4 py-3">
-      <span
-        className={cn(
-          "grid h-5 min-w-5 place-items-center px-1 font-mono text-[11px] font-semibold text-black",
-          accent === "warning" ? "bg-warning" : "bg-foreground",
-        )}
-      >
-        {letter}
-      </span>
-      <span className="font-mono text-[13px] text-foreground">{parts.join(" · ")}</span>
     </div>
   );
 }
