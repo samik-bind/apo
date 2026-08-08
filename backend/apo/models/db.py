@@ -1243,6 +1243,34 @@ class TaskViewComparisonDB(SQLModel, table=True):
     created_by: str | None = Field(default=None, foreign_key="users.id")
 
 
+class TaskViewDB(SQLModel, table=True):
+    """SPEC-174: a user's saved evidence-view tab for a project.
+
+    Derived tabs created on the Tasks page are persisted here so they survive
+    refresh / cross-device. The permanent Main tab (model=null, effort=null,
+    since=null) is never stored — it's always present implicitly. Only
+    user-created tabs have rows. (project_id, user_id) scopes ownership.
+    """
+
+    __tablename__: ClassVar[str] = "task_view"
+
+    id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:16])
+    project_id: str = Field(foreign_key="projects.id", index=True)
+    user_id: str = Field(foreign_key="users.id", index=True)
+    label: str
+    model: str | None = None
+    effort: str | None = None
+    since: str | None = None
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+
+
 # ============================================================================
 # Execution Control Plane — Pools, Executors, Attempts
 # ============================================================================

@@ -1318,11 +1318,11 @@ def _migrate_to_v23() -> None:
 
 
 def _migrate_to_v24() -> None:
-    """Version 24 (SPEC-174): ``task_view_comparison`` snapshot table.
+    """Version 24 (SPEC-174): ``task_view_comparison`` snapshot table + ``task_view`` saved views.
 
-    Stores immutable selection-scoped view-vs-view comparisons. New tables are
-    created by ``SQLModel.metadata.create_all`` on fresh DBs, so this only
-    brings existing DBs up. Idempotent (``CREATE TABLE IF NOT EXISTS``).
+    Stores immutable selection-scoped comparisons and per-user saved evidence
+    views. New tables are created by ``SQLModel.metadata.create_all`` on fresh
+    DBs, so this only brings existing DBs up. Idempotent.
     """
     ts = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
     with engine.begin() as conn:
@@ -1342,6 +1342,22 @@ def _migrate_to_v24() -> None:
             """
         )
         _create_index_if_not_exists(conn, "ix_task_view_comparison_project_id", "task_view_comparison", "project_id")
+        conn.exec_driver_sql(
+            f"""
+            CREATE TABLE IF NOT EXISTS task_view (
+                id VARCHAR PRIMARY KEY,
+                project_id VARCHAR NOT NULL REFERENCES projects(id),
+                user_id VARCHAR NOT NULL REFERENCES users(id),
+                label VARCHAR NOT NULL,
+                model VARCHAR,
+                effort VARCHAR,
+                since VARCHAR,
+                created_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        _create_index_if_not_exists(conn, "ix_task_view_project_user", "task_view", "project_id, user_id")
 
 
 def _migrate_check_report_schema(conn: Connection) -> None:

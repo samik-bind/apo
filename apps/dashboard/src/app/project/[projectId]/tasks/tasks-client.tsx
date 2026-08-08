@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useReducer } from "react";
+import { useEffect, useMemo, useState, useReducer } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -25,11 +25,15 @@ import {
   type AgentTaskRunStats,
 } from "@/lib/agent-task-api";
 import {
+  createSavedView,
   createTaskViewComparison,
+  deleteSavedView,
+  fetchSavedViews,
   fetchTaskViewConfigFacets,
   fetchTaskViewStats,
   type RunConfigModelFacet,
   type TaskViewConfig,
+  updateSavedView,
 } from "@/lib/agent-task-view-api";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -307,6 +311,7 @@ function EvidenceViewsBar({
   loading,
   isDerived,
   viewsActive,
+  addingTab,
   query,
   onQueryChange,
   selectedCount,
@@ -324,6 +329,7 @@ function EvidenceViewsBar({
   loading: boolean;
   isDerived: boolean;
   viewsActive: boolean;
+  addingTab: boolean;
   query: string;
   onQueryChange: (value: string) => void;
   selectedCount: number;
@@ -413,8 +419,9 @@ function EvidenceViewsBar({
           <button
             type="button"
             onClick={onDuplicate}
+            disabled={addingTab}
             aria-label="Add a new view tab"
-            className="grid place-items-center border border-dashed border-foreground/20 px-3 text-foreground/60 hover:border-foreground/40 hover:bg-foreground/[0.05]"
+            className="grid place-items-center border border-dashed border-foreground/20 px-3 text-foreground/60 hover:border-foreground/40 hover:bg-foreground/[0.05] disabled:opacity-40"
             title="Add a new view tab (starts as a copy of the active one)"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -782,16 +789,25 @@ export function AgentTasksClient({
   // all-history run_stats already attached to each task by the server).
   const [viewStats, setViewStats] = useState<Record<string, AgentTaskRunStats> | null>(null);
   const [viewStatsLoading, setViewStatsLoading] = useState(false);
+  const [addingTab, setAddingTab] = useState(false);
   const activeView = views.find((v) => v.id === activeViewId) ?? views[0]!;
-  const viewSeq = useRef(0);
 
-  // Load the model/effort palette once for the project's runs.
+  // Load the model/effort palette + the user's saved views on mount.
   useEffect(() => {
     if (isDemoProject) return;
     let cancelled = false;
     fetchTaskViewConfigFacets(projectId)
       .then((f) => { if (!cancelled) setFacets(f); })
       .catch(() => { /* palette is best-effort; filters just stay empty */ });
+    fetchSavedViews(projectId)
+      .then((saved) => {
+        if (cancelled) return;
+        setViews([
+          { id: MAIN_VIEW_ID, label: "Main", model: null, effort: null, since: null },
+          ...saved.map((v) => ({ id: v.id, label: v.label, model: v.model, effort: v.effort, since: v.since })),
+        ]);
+      })
+      .catch(() => { /* saved views are best-effort; fall back to Main only */ });
     return () => { cancelled = true; };
   }, [projectId, isDemoProject]);
 
@@ -885,20 +901,37 @@ export function AgentTasksClient({
     return "some" as const;
   };
 
-  // ---- Evidence view tab operations ----
+  // ---- Evidence view tab operations (auto-persisted server-side) ----
   const updateActiveView = (patch: Partial<Pick<ViewTab, "model" | "effort" | "since" | "label">>) => {
     setViews((prev) => prev.map((v) => (v.id === activeViewId ? { ...v, ...patch } : v)));
+    // Persist to server (best-effort). Main is never stored.
+    if (activeViewId !== MAIN_VIEW_ID && !isDemoProject) {
+      updateSavedView(projectId, activeViewId, patch).catch(() => {});
+    }
   };
-  const duplicateActive = () => {
-    viewSeq.current += 1;
-    const id = `view-${viewSeq.current}`;
-    setViews((prev) => [...prev, { ...activeView, id, label: `View ${viewSeq.current}` }]);
-    setActiveViewId(id);
+  const duplicateActive = async () => {
+    if (isDemoProject || addingTab) return;
+    setAddingTab(true);
+    try {
+      const saved = await createSavedView(projectId, {
+        label: `View ${views.length}`,
+        model: activeView.model,
+        effort: activeView.effort,
+        since: activeView.since,
+      });
+      setViews((prev) => [...prev, { id: saved.id, label: saved.label, model: saved.model, effort: saved.effort, since: saved.since }]);
+      setActiveViewId(saved.id);
+    } catch {
+      toast.error("Failed to save view");
+    } finally {
+      setAddingTab(false);
+    }
   };
   const closeView = (id: string) => {
     if (id === MAIN_VIEW_ID) return;
     setViews((prev) => prev.filter((v) => v.id !== id));
     if (activeViewId === id) setActiveViewId(MAIN_VIEW_ID);
+    if (!isDemoProject) deleteSavedView(projectId, id).catch(() => {});
   };
 
   const handleSync = async () => {
@@ -1021,6 +1054,7 @@ export function AgentTasksClient({
               loading={viewStatsLoading}
               isDerived={activeView.model !== null || activeView.effort !== null}
               viewsActive={!isDemoProject}
+              addingTab={addingTab}
               query={query}
               onQueryChange={setQuery}
               selectedCount={selected.size}

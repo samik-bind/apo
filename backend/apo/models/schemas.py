@@ -360,7 +360,30 @@ class TaskViewConfig(SQLModel):
 
     model: str | None = None
     effort: str | None = None
-    since: str | None = None  # "7d" | "30d" | "90d" | None (all time)
+    since: str | None = None  # "5h" | "1d" | "30d" | None (all time)
+
+
+class TaskViewCreateRequest(SQLModel):
+    label: str
+    model: str | None = None
+    effort: str | None = None
+    since: str | None = None
+
+
+class TaskViewUpdateRequest(SQLModel):
+    label: str | None = None
+    model: str | None = None
+    effort: str | None = None
+    since: str | None = None
+
+
+class TaskViewResponse(SQLModel):
+    id: str
+    project_id: str
+    label: str
+    model: str | None = None
+    effort: str | None = None
+    since: str | None = None
 
 
 class TaskViewComparisonRequest(SQLModel):

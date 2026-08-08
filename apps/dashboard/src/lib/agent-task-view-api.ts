@@ -109,3 +109,43 @@ export const getTaskViewComparison = (
     `/v1/projects/${encodeURIComponent(projectId)}/task-view-comparisons/${encodeURIComponent(comparisonId)}`,
     NO_CACHE,
   );
+
+// ----------------------------------------------------------------------------
+// Saved evidence views (persistent tabs — SPEC-174)
+// ----------------------------------------------------------------------------
+
+export interface SavedView {
+  id: string;
+  label: string;
+  model: string | null;
+  effort: string | null;
+  since: string | null;
+}
+
+/** List the caller's saved evidence-view tabs for the project. */
+export const fetchSavedViews = (projectId: string): Promise<SavedView[]> =>
+  apiClient(`/v1/projects/${encodeURIComponent(projectId)}/task-views`, NO_CACHE);
+
+/** Create a saved evidence-view tab. Returns the persisted view with its id. */
+export const createSavedView = (
+  projectId: string,
+  body: { label: string; model: string | null; effort: string | null; since: string | null },
+): Promise<SavedView> =>
+  apiClient(`/v1/projects/${encodeURIComponent(projectId)}/task-views`, { method: "POST", body });
+
+/** Update a saved evidence-view tab (partial — only non-null fields are sent). */
+export const updateSavedView = (
+  projectId: string,
+  viewId: string,
+  body: { label?: string; model?: string | null; effort?: string | null; since?: string | null },
+): Promise<SavedView> =>
+  apiClient(`/v1/projects/${encodeURIComponent(projectId)}/task-views/${encodeURIComponent(viewId)}`, {
+    method: "PATCH",
+    body,
+  });
+
+/** Delete a saved evidence-view tab. */
+export const deleteSavedView = (projectId: string, viewId: string): Promise<void> =>
+  apiClient(`/v1/projects/${encodeURIComponent(projectId)}/task-views/${encodeURIComponent(viewId)}`, {
+    method: "DELETE",
+  });
