@@ -6,11 +6,12 @@
 // header: view configs (Model · Effort · Date) instead of batch summaries.
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 
 import type { AgentTaskRunSummary, AgentTaskSummary } from "@/lib/agent-task-api";
 import type { TaskViewComparisonSnapshot, TaskViewConfig } from "@/lib/agent-task-view-api";
+import { cn } from "@/lib/utils";
 import { useUrlParamSet } from "@/hooks/use-url-state";
 
 import { tallyChecks, useComparison, filterVisibleFolders } from "../../runs/compare/use-comparison";
@@ -32,8 +33,22 @@ export function CompareViewsClient({
 }) {
   const [expanded, toggleExpanded] = useUrlParamSet("expand");
   const comparison = useComparison(leftRuns, rightRuns, tasks);
+  const [hideErrored, setHideErrored] = useState(false);
 
-  const foldersToShow = useMemo(() => filterVisibleFolders(comparison.folders), [comparison.folders]);
+  const foldersToShow = useMemo(() => {
+    let folders = filterVisibleFolders(comparison.folders);
+    if (hideErrored) {
+      folders = folders
+        .map((f) => ({
+          ...f,
+          tasks: f.tasks.filter(
+            (t) => t.left.run?.status !== "error" && t.right.run?.status !== "error",
+          ),
+        }))
+        .filter((f) => f.tasks.length > 0);
+    }
+    return folders;
+  }, [comparison.folders, hideErrored]);
 
   const viewLabel = (v: TaskViewConfig) => {
     const parts = [v.model ?? "All models"];
@@ -80,6 +95,18 @@ export function CompareViewsClient({
           {comparison.leftChecks.total > 0 && comparison.rightChecks.total > 0 && (
             <CheckDelta left={comparison.leftChecks} right={comparison.rightChecks} />
           )}
+          <button
+            type="button"
+            onClick={() => setHideErrored((v) => !v)}
+            className={cn(
+              "ml-auto border px-2 py-0.5 text-[11px] transition-colors",
+              hideErrored
+                ? "border-foreground/30 bg-foreground/10 text-foreground"
+                : "border-border text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {hideErrored ? "✓ Hide errored" : "Hide errored"}
+          </button>
         </div>
       </div>
 
