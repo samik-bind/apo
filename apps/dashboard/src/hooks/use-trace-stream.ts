@@ -118,11 +118,10 @@ export function useTraceStream(traceId: string | null) {
       reconnectTimerRef.current = null;
     }
 
-    // A fresh connect clears the "deliberately closed" flag and resets the
-    // backoff counter. Calls already received are preserved across reconnects —
-    // only the traceId-change path (in the render-phase block above) wipes them.
+    // A fresh connect clears the "deliberately closed" flag. Calls already
+    // received are preserved across reconnects — only the traceId-change path
+    // (in the render-phase block above) wipes them.
     closedByUsRef.current = false;
-    attemptsRef.current = 0;
 
     setIsLive(true);
 
@@ -131,6 +130,13 @@ export function useTraceStream(traceId: string | null) {
     // react-doctor-disable-next-line react-doctor/effect-needs-cleanup
     const es = new EventSource(`${baseUrl}/v1/traces/${id}/stream`);
     esRef.current = es;
+
+    es.onopen = () => {
+      // A connection that actually opened breaks the consecutive-failure
+      // streak. Do not reset this in connect(): reconnect attempts that fail
+      // before opening must keep increasing the backoff and reach the cap.
+      attemptsRef.current = 0;
+    };
 
     es.onerror = () => {
       es.close();
@@ -212,6 +218,7 @@ export function useTraceStream(traceId: string | null) {
       return;
     }
 
+    attemptsRef.current = 0;
     connect(traceId);
 
     return () => {
