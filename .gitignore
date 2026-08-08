@@ -91,6 +91,7 @@ CLAUDE.md
 
 # Runtime caches
 backend/data/mock_runs_cache.json
+backend/data/artifacts/
 
 # Editor atomic-write temp files
 *.ts.*.ts
