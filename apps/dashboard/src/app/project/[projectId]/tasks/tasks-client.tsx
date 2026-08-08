@@ -79,9 +79,14 @@ interface ViewTab {
 
 const SINCE_OPTIONS = [
   { value: "__all__", label: "All time" },
-  { value: "7d", label: "Last 7 days" },
-  { value: "30d", label: "Last 30 days" },
-  { value: "90d", label: "Last 90 days" },
+  { value: "5h", label: "5 hours" },
+  { value: "1d", label: "Last day" },
+  { value: "2d", label: "2 days" },
+  { value: "3d", label: "3 days" },
+  { value: "5d", label: "5 days" },
+  { value: "7d", label: "7 days" },
+  { value: "14d", label: "14 days" },
+  { value: "30d", label: "30 days" },
 ];
 const ALL_SINCE_VALUE = "__all__";
 

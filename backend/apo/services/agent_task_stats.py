@@ -52,25 +52,23 @@ class RunStatFields:
     passed_checks: int
 
 
-# Recognised "since" presets for the date filter on evidence views. None/unknown
-# means "all time". Kept small and named (not a freeform number) so the URL and
-# the snapshot stay legible.
-_SINCE_DAYS: dict[str, int] = {"7d": 7, "30d": 30, "90d": 90}
-
-
 def since_cutoff(since: str | None) -> datetime | None:
-    """Resolve a ``since`` preset (``7d`` / ``30d`` / ``90d``) to a UTC cutoff.
+    """Resolve a ``since`` preset to a UTC cutoff.
 
-    Returns ``None`` for all-time (no preset / unknown preset). Shared by the
-    stats loader and the comparison resolver so the two paths agree on what a
-    view's date window means.
+    Accepts ``Nh`` (hours) or ``Nd`` (days), e.g. ``"5h"``, ``"3d"``. Returns
+    ``None`` for all-time (no preset / unparseable). Shared by the stats loader
+    and the comparison resolver so the two paths agree on the date window.
     """
     if not since:
         return None
-    days = _SINCE_DAYS.get(since)
-    if days is None:
-        return None
-    return datetime.now(timezone.utc) - timedelta(days=days)
+    try:
+        if since.endswith("h"):
+            return datetime.now(timezone.utc) - timedelta(hours=int(since[:-1]))
+        if since.endswith("d"):
+            return datetime.now(timezone.utc) - timedelta(days=int(since[:-1]))
+    except ValueError:
+        pass
+    return None
 
 
 def compute_run_stats(runs: Sequence[RunStatFields]) -> AgentTaskRunStats:
