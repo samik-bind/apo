@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -22,8 +22,6 @@ import { DeliverablesPanel } from "@/components/agent-task-execution/deliverable
 import { ShikiCodeBlock } from "@/components/shiki-code-block";
 import { ExpandableJson } from "@/components/ExpandableJson";
 import { Markdown } from "@/components/trace-detail/Markdown";
-import { deriveConversationFromTrace, type ChatMessage } from "@/lib/conversation-from-trace";
-import { getTraceDetail } from "@/lib/traces-api";
 import type { DeliverableSummary } from "@/lib/agent-task-deliverables-api";
 import { readTaskFile, readTaskDefinitionSource, type TaskFileContentResponse, type TaskDefinitionRevisionSummary } from "@/lib/agent-task-api";
 import { extractJudgeReasoning } from "@/lib/judge-reasoning";
@@ -44,6 +42,7 @@ import {
   groupCost,
 } from "./group-by-describe";
 import { CheckGroupHeader } from "./check-group-header";
+import { useLazyConversation } from "./use-lazy-conversation";
 
 // CodeMirror is heavy — load it only when a code check is expanded.
 const CodeViewer = dynamic(
@@ -721,54 +720,6 @@ function ChecksList({
 }
 
 // ── Main body ────────────────────────────────────────────────────────────
-
-type ConversationState =
-  | { status: "idle" | "loading" }
-  | { status: "ready"; messages: ChatMessage[] }
-  | { status: "error"; message: string };
-
-/**
- * Fetch the linked trace and derive the conversation only once the
- * transcript tab is first opened. The trace detail endpoint returns every
- * call's full input/output (megabytes for agent runs), so eagerly fetching
- * it server-side made every task-run page load pay for a tab that usually
- * stays closed. State lives at the body level so switching tabs doesn't
- * refetch.
- */
-function useLazyConversation(
-  traceRunId: string | null,
-  projectId: string | null | undefined,
-  enabled: boolean,
-): ConversationState {
-  const [state, setState] = useState<ConversationState>({ status: "idle" });
-  const startedRef = useRef(false);
-
-  useEffect(() => {
-    if (!enabled || startedRef.current) return;
-    startedRef.current = true;
-    if (!traceRunId) {
-      // No linked trace: ConversationTranscript renders its empty state.
-      setState({ status: "ready", messages: [] });
-      return;
-    }
-    setState({ status: "loading" });
-    getTraceDetail(traceRunId, projectId ?? undefined)
-      .then((trace) => {
-        setState({
-          status: "ready",
-          messages: deriveConversationFromTrace(trace).messages,
-        });
-      })
-      .catch((e: unknown) => {
-        setState({
-          status: "error",
-          message: e instanceof Error ? e.message : "Failed to load transcript",
-        });
-      });
-  }, [enabled, traceRunId, projectId]);
-
-  return state;
-}
 
 export function TaskRunDetailBody({
   checks,
