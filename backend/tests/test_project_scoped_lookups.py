@@ -9,12 +9,20 @@ function respects the Project boundary.
 """
 
 from datetime import datetime, timezone
+from typing import cast
 
+from fastapi import Request
 from sqlmodel import Session
 
 from apo.models.db import LoggedCallDB, RunDB, RunMetricDB
 from apo.metrics.aggregate import calculate_and_store_aggregate_metrics
+from types import SimpleNamespace
+
 from apo.routes.runs.navigation import get_adjacent_runs
+
+# Direct call bypasses FastAPI's Request injection; no user_id → dev/open-mode
+# permissive path (pre-enforcement behavior).
+_REQ = cast(Request, cast(object, SimpleNamespace(state=SimpleNamespace())))
 from apo.services.projection_lookup import (
     select_call,
     select_run,
@@ -50,9 +58,14 @@ def _make_call(
         created_at=datetime(2026, 7, 13, tzinfo=timezone.utc),
         observation_type="GENERATION",
         step_index=0,
-        cost=cost,
+        # Keep the historical fractional fixtures while satisfying the model's
+        # micro-USD integer annotation; SQLModel accepts the legacy value.
+        cost=cast(int, cost),
         prompt_tokens=100,
         completion_tokens=50,
+        input={},
+        messages=[],
+        output={},
     )
 
 
@@ -62,8 +75,10 @@ def test_select_run_returns_only_the_scoped_project(session: Session) -> None:
     session.add(_make_run("beta"))
     session.commit()
 
-    assert select_run(session, "shared-trace", "alpha").project == "alpha"
-    assert select_run(session, "shared-trace", "beta").project == "beta"
+    alpha = select_run(session, "shared-trace", "alpha")
+    beta = select_run(session, "shared-trace", "beta")
+    assert alpha is not None and alpha.project == "alpha"
+    assert beta is not None and beta.project == "beta"
     assert select_run(session, "shared-trace", "gamma") is None
 
 
@@ -73,8 +88,10 @@ def test_select_call_returns_only_the_scoped_project(session: Session) -> None:
     session.add(_make_call("beta"))
     session.commit()
 
-    assert select_call(session, "shared-span", "alpha").project == "alpha"
-    assert select_call(session, "shared-span", "beta").project == "beta"
+    alpha = select_call(session, "shared-span", "alpha")
+    beta = select_call(session, "shared-span", "beta")
+    assert alpha is not None and alpha.project == "alpha"
+    assert beta is not None and beta.project == "beta"
 
 
 def test_aggregate_metrics_isolate_by_project(session: Session) -> None:
@@ -146,7 +163,7 @@ def test_adjacent_runs_stay_within_project(session: Session) -> None:
     session.commit()
 
     # Alpha's r2 should resolve to alpha's row, not beta's.
-    result = get_adjacent_runs("r2", project="alpha", session=session)
+    result = get_adjacent_runs("r2", _REQ, project="alpha", session=session)
     # No adjacent runs in alpha (only r2 exists there), so both are None.
     assert result.prev_id is None
     assert result.next_id is None

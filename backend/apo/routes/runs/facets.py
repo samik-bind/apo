@@ -2,8 +2,8 @@
 
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import and_, func, or_, text
+from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy import and_, func, or_
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, select
 
@@ -12,10 +12,15 @@ from ...db_helpers import _as_column
 from ...models import LoggedCallDB, RunDB, RunMetricDB
 from ...models.schemas import FacetBucket, RunFacets
 from ...services.filters import apply_date_range, apply_tag_filters
+from ...services.project_memberships import (
+    enforce_project_read_from_request,
+    list_readable_projects_from_request,
+)
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
 
 RUN_ID_COL: ColumnElement[str] = _as_column(cast(object, RunDB.id))
+RUN_PROJECT_COL: ColumnElement[str] = _as_column(cast(object, RunDB.project))
 RUN_PRIMARY_MODEL_COL: ColumnElement[str | None] = _as_column(
     cast(object, RunDB.primary_model)
 )
@@ -60,10 +65,16 @@ def _build_filtered_run_ids(
     metric_name: str | None = None,
     created_after: str | None = None,
     created_before: str | None = None,
+    allowed_projects: list[str] | None = None,
 ) -> list[str]:
     stmt = select(RUN_ID_COL)
     if project:
         stmt = stmt.where(RunDB.project == project)
+    elif allowed_projects is not None:
+        # No single project selected: restrict the aggregate to the caller's
+        # projects so facet counts can't span tenants. A caller who is a member
+        # of nothing sees no runs.
+        stmt = stmt.where(RUN_PROJECT_COL.in_(allowed_projects))
 
     model_list = _split_csv(models)
     if model_list:
@@ -269,6 +280,7 @@ def _compute_status_facets(session: Session, run_ids: list[str]) -> list[FacetBu
 
 @router.get("/facets")
 def get_run_facets(
+    http_request: Request,
     project: str | None = None,
     models: str | None = Query(None, description="Comma-separated model list"),
     environment: str | None = Query(None, description="Comma-separated environment list"),
@@ -284,7 +296,18 @@ def get_run_facets(
     session: Session = Depends(get_session),
 ) -> RunFacets:
     """Pre-computed facet counts for filter sidebar."""
-    all_kwargs: dict[str, str | None] = dict(
+    # Same tenancy scoping as the other trace reads: enforce membership for a
+    # selected project, otherwise restrict the aggregate to the caller's
+    # projects (dev/open mode stays unscoped via allowed_projects=None).
+    allowed_projects: list[str] | None = None
+    if project:
+        _ = enforce_project_read_from_request(http_request, session, project)
+    else:
+        allowed_projects = list_readable_projects_from_request(
+            http_request, session
+        )
+
+    all_kwargs: dict[str, Any] = dict(
         project=project,
         models=models,
         environment=environment,
@@ -295,9 +318,10 @@ def get_run_facets(
         metric_name=metric_name,
         created_after=created_after,
         created_before=created_before,
+        allowed_projects=allowed_projects,
     )
 
-    def filtered_ids(**overrides: str | None) -> list[str]:
+    def filtered_ids(**overrides: Any) -> list[str]:
         kw = {**all_kwargs, **overrides}
         return _build_filtered_run_ids(session=session, **kw)
 

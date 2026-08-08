@@ -1,11 +1,16 @@
 # pyright: reportAny=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 
 import pytest
+from types import SimpleNamespace
+from typing import cast
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 from datetime import datetime, timedelta, timezone
 
 from apo.models import LoggedCallDB, RunDB
+from apo.models.db import ProjectDB, ProjectMembershipDB, UserDB
+from apo.routes.runs.crud import get_run_details, get_distinct_projects
 
 
 def test_list_runs(client: TestClient, session: Session):
@@ -140,7 +145,10 @@ def test_get_run_details_omits_messages_unless_included(client: TestClient, sess
     # of agentic traces. Default response drops it; ?include=messages restores
     # it for the CLI's verbose view.
     now = datetime.now(timezone.utc)
-    msgs = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "yo"}]
+    msgs: list[dict[str, object]] = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "yo"},
+    ]
 
     session.add(RunDB(id="r-msg", project="p", task_id="t", created_at=now, call_count=1))
     session.add(LoggedCallDB(
@@ -189,6 +197,125 @@ def test_get_run_details_accepts_nondict_json_fields(client: TestClient, session
     assert calls[0]["tool_result"] == "Before using DOCX tools, ..."
     assert calls[0]["input"] == "plain string input"
     assert calls[0]["output"] == 42
+
+
+def _req(
+    user_id: str | None,
+    *,
+    auth_method: str | None = None,
+    project: str | None = None,
+) -> Request:
+    """Fake request for direct route-function calls. ``user_id=None`` takes the
+    dev/open-mode permissive path; a value exercises membership enforcement."""
+    state = SimpleNamespace()
+    if user_id is not None:
+        state.user_id = user_id
+    if auth_method is not None:
+        state.auth_method = auth_method
+    if project is not None:
+        state.project = project
+    return cast(Request, cast(object, SimpleNamespace(state=state)))
+
+
+def _seed_membership_project(session: Session, project: str, member_id: str) -> None:
+    """A real ProjectDB row (so legacy tolerance does not apply) with one member."""
+    session.add(UserDB(id=member_id, email=f"{member_id}@t.co", name=member_id, password_hash="x"))
+    session.commit()
+    session.add(ProjectDB(id=project, name=project, created_by=member_id))
+    session.commit()
+    session.add(
+        ProjectMembershipDB(project_id=project, user_id=member_id, role="owner")
+    )
+    session.commit()
+
+
+def test_get_run_details_enforces_project_membership(session: Session):
+    now = datetime.now(timezone.utc)
+    _seed_membership_project(session, "proj-a", "member-a")
+    session.add(RunDB(id="ra", project="proj-a", task_id="t", created_at=now, call_count=1))
+    session.add(LoggedCallDB(
+        id="ca", project="proj-a", model="m", task_id="t", run_id="ra",
+        created_at=now, input={}, messages=[], output={},
+    ))
+    session.commit()
+
+    # Member reads their own project's trace.
+    detail = get_run_details(
+        "ra", _req("member-a"), project="proj-a", include=None, session=session
+    )
+    assert detail["run"]["id"] == "ra"
+
+    # Non-member passing ?project=proj-a is rejected — the pre-fix leak.
+    with pytest.raises(HTTPException) as exc:
+        _ = get_run_details(
+            "ra", _req("outsider"), project="proj-a", include=None, session=session
+        )
+    error = cast(HTTPException, exc.value)
+    assert error.status_code == 403
+
+
+def test_distinct_projects_scoped_to_caller(session: Session):
+    now = datetime.now(timezone.utc)
+    _seed_membership_project(session, "iso-a", "iso-member-a")
+    _seed_membership_project(session, "iso-b", "iso-member-b")
+    session.add(RunDB(id="iso-ra", project="iso-a", created_at=now, call_count=0))
+    session.add(RunDB(id="iso-rb", project="iso-b", created_at=now, call_count=0))
+    session.commit()
+
+    # A member of iso-a sees iso-a but cannot enumerate iso-b's existence.
+    scoped = get_distinct_projects(_req("iso-member-a"), session=session)
+    assert "iso-a" in scoped
+    assert "iso-b" not in scoped
+
+    # Dev/open mode (no user_id) stays unscoped: sees both.
+    unscoped = set(get_distinct_projects(_req(None), session=session))
+    assert {"iso-a", "iso-b"} <= unscoped
+
+
+def test_api_key_reads_only_its_bound_project(session: Session):
+    now = datetime.now(timezone.utc)
+    _seed_membership_project(session, "key-proj-a", "key-owner")
+    session.add(ProjectDB(id="key-proj-b", name="key-proj-b", created_by="key-owner"))
+    session.commit()
+    session.add(
+        ProjectMembershipDB(
+            project_id="key-proj-b", user_id="key-owner", role="owner"
+        )
+    )
+    session.add(
+        RunDB(
+            id="key-run-a",
+            project="key-proj-a",
+            task_id="t",
+            created_at=now,
+            call_count=0,
+        )
+    )
+    session.add(
+        RunDB(
+            id="key-run-b",
+            project="key-proj-b",
+            task_id="t",
+            created_at=now,
+            call_count=0,
+        )
+    )
+    session.commit()
+
+    request = _req("key-owner", auth_method="api_key", project="key-proj-a")
+
+    assert get_distinct_projects(request, session=session) == ["key-proj-a"]
+    with pytest.raises(HTTPException) as exc:
+        _ = get_run_details(
+            "key-run-b",
+            request,
+            project="key-proj-b",
+            include=None,
+            session=session,
+        )
+    error = cast(HTTPException, exc.value)
+    assert error.status_code == 403
+    assert error.detail == "API key project mismatch"
 
 
 if __name__ == "__main__":

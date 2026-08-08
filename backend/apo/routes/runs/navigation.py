@@ -2,7 +2,7 @@
 
 from typing import cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import asc, desc
 from sqlalchemy.sql.elements import ColumnElement
@@ -11,6 +11,7 @@ from sqlmodel import Session, col, select
 from ...db import get_session
 from ...db_helpers import _as_column
 from ...models import RunDB
+from ...services.project_memberships import enforce_project_read_from_request
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
 
@@ -41,12 +42,16 @@ def _get_nav_sort_column(field: str) -> ColumnElement[object]:
 @router.get("/{run_id}/adjacent", response_model=AdjacentRuns)
 def get_adjacent_runs(
     run_id: str,
+    http_request: Request,
     project: str = "default",
     sort_by: str = Query("created_at", description="Sort field"),
     sort_order: str = Query("desc", description="Sort direction: asc or desc"),
     session: Session = Depends(get_session),
 ) -> AdjacentRuns:
     """Return the previous and next run IDs relative to the given run in the sort order."""
+    # Same project-scoping as the other trace reads: don't let a caller page
+    # through another project's runs by passing its ``project``.
+    _ = enforce_project_read_from_request(http_request, session, project)
     run = session.exec(
         select(RunDB).where(
             RunDB.id == run_id, col(RunDB.project) == project

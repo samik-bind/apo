@@ -1,20 +1,22 @@
 from __future__ import annotations
 
-from typing import Any
-
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, text
-from sqlmodel import Session, select
+from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy import text
+from sqlmodel import Session
 
 from ...db import get_session
-from ...models import RunDB
 from ...models.schemas import PaginatedSessionSummary, SessionSummary
+from ...services.project_memberships import (
+    enforce_project_read_from_request,
+    list_readable_projects_from_request,
+)
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
 
 
 @router.get("/sessions")
 def list_sessions(
+    http_request: Request,
     project: str | None = None,
     page: int = Query(0, ge=0),
     page_size: int = Query(20, ge=1, le=100),
@@ -25,8 +27,22 @@ def list_sessions(
     params: dict[str, object] = {}
 
     if project:
+        _ = enforce_project_read_from_request(http_request, session, project)
         conditions.append("r.project = :project")
         params["project"] = project
+    else:
+        # No project would aggregate sessions across every tenant; scope to the
+        # caller's projects (dev/open mode, no user_id, stays unscoped).
+        allowed = list_readable_projects_from_request(http_request, session)
+        if allowed is not None:
+            if allowed:
+                placeholders = ", ".join(f":p{i}" for i in range(len(allowed)))
+                conditions.append(f"r.project IN ({placeholders})")
+                for i, pid in enumerate(allowed):
+                    params[f"p{i}"] = pid
+            else:
+                # Member of nothing: return an empty page rather than everything.
+                conditions.append("1 = 0")
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 

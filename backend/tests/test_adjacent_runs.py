@@ -2,12 +2,21 @@
 
 import pytest
 from datetime import datetime, timedelta, timezone
+from typing import cast
 
+from fastapi import Request
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
+from types import SimpleNamespace
+
 from apo.models import RunDB
 from apo.routes.runs.navigation import get_adjacent_runs
+
+# Direct function calls bypass FastAPI's Request injection. A request whose
+# state has no user_id exercises the dev/open-mode (permissive) auth path,
+# matching how these tests ran before project-membership enforcement.
+_REQ = cast(Request, cast(object, SimpleNamespace(state=SimpleNamespace())))
 
 
 def _create_run(session: Session, run_id: str, created_at: datetime, duration_ms: int | None = None, call_count: int = 1) -> RunDB:
@@ -23,7 +32,7 @@ def test_middle_run_desc_has_both_adjacent(session: Session):
     _create_run(session, "r3", now)
     session.commit()
 
-    result = get_adjacent_runs("r2", sort_by="created_at", sort_order="desc", project="p", session=session)
+    result = get_adjacent_runs("r2", _REQ, sort_by="created_at", sort_order="desc", project="p", session=session)
 
     assert result.prev_id == "r1"
     assert result.next_id == "r3"
@@ -35,7 +44,7 @@ def test_newest_run_desc_no_next(session: Session):
     _create_run(session, "r2", now)
     session.commit()
 
-    result = get_adjacent_runs("r2", sort_by="created_at", sort_order="desc", project="p", session=session)
+    result = get_adjacent_runs("r2", _REQ, sort_by="created_at", sort_order="desc", project="p", session=session)
 
     assert result.prev_id == "r1"
     assert result.next_id is None
@@ -47,7 +56,7 @@ def test_oldest_run_desc_no_prev(session: Session):
     _create_run(session, "r2", now)
     session.commit()
 
-    result = get_adjacent_runs("r1", sort_by="created_at", sort_order="desc", project="p", session=session)
+    result = get_adjacent_runs("r1", _REQ, sort_by="created_at", sort_order="desc", project="p", session=session)
 
     assert result.prev_id is None
     assert result.next_id == "r2"
@@ -58,7 +67,7 @@ def test_single_run_both_none(session: Session):
     _create_run(session, "r1", now)
     session.commit()
 
-    result = get_adjacent_runs("r1", sort_by="created_at", sort_order="desc", project="p", session=session)
+    result = get_adjacent_runs("r1", _REQ, sort_by="created_at", sort_order="desc", project="p", session=session)
 
     assert result.prev_id is None
     assert result.next_id is None
@@ -71,7 +80,7 @@ def test_ascending_order_middle(session: Session):
     _create_run(session, "r3", now)
     session.commit()
 
-    result = get_adjacent_runs("r2", sort_by="created_at", sort_order="asc", project="p", session=session)
+    result = get_adjacent_runs("r2", _REQ, sort_by="created_at", sort_order="asc", project="p", session=session)
 
     assert result.prev_id == "r3"
     assert result.next_id == "r1"
@@ -83,7 +92,7 @@ def test_oldest_run_asc_no_next(session: Session):
     _create_run(session, "r2", now)
     session.commit()
 
-    result = get_adjacent_runs("r1", sort_by="created_at", sort_order="asc", project="p", session=session)
+    result = get_adjacent_runs("r1", _REQ, sort_by="created_at", sort_order="asc", project="p", session=session)
 
     assert result.prev_id == "r2"
     assert result.next_id is None
@@ -95,7 +104,7 @@ def test_newest_run_asc_no_prev(session: Session):
     _create_run(session, "r2", now)
     session.commit()
 
-    result = get_adjacent_runs("r2", sort_by="created_at", sort_order="asc", project="p", session=session)
+    result = get_adjacent_runs("r2", _REQ, sort_by="created_at", sort_order="asc", project="p", session=session)
 
     assert result.prev_id is None
     assert result.next_id == "r1"
@@ -108,7 +117,7 @@ def test_sort_by_duration(session: Session):
     _create_run(session, "r3", now, duration_ms=300)
     session.commit()
 
-    result = get_adjacent_runs("r2", sort_by="duration_ms", sort_order="desc", project="p", session=session)
+    result = get_adjacent_runs("r2", _REQ, sort_by="duration_ms", sort_order="desc", project="p", session=session)
 
     assert result.prev_id == "r1"
     assert result.next_id == "r3"
@@ -121,7 +130,7 @@ def test_sort_by_call_count_asc(session: Session):
     _create_run(session, "r3", now, call_count=10)
     session.commit()
 
-    result = get_adjacent_runs("r2", sort_by="call_count", sort_order="asc", project="p", session=session)
+    result = get_adjacent_runs("r2", _REQ, sort_by="call_count", sort_order="asc", project="p", session=session)
 
     assert result.prev_id == "r3"
     assert result.next_id == "r1"
@@ -133,7 +142,7 @@ def test_invalid_sort_field_defaults_to_created_at(session: Session):
     _create_run(session, "r2", now)
     session.commit()
 
-    result = get_adjacent_runs("r2", sort_by="invalid_field", sort_order="desc", project="p", session=session)
+    result = get_adjacent_runs("r2", _REQ, sort_by="invalid_field", sort_order="desc", project="p", session=session)
 
     assert result.prev_id == "r1"
     assert result.next_id is None
