@@ -284,6 +284,13 @@ function EvidenceViewsBar({
   facets,
   loading,
   isDerived,
+  viewsActive,
+  query,
+  onQueryChange,
+  selectedCount,
+  onClearSelection,
+  onToggleExpandAll,
+  allExpanded,
   onSelect,
   onChange,
   onDuplicate,
@@ -294,6 +301,13 @@ function EvidenceViewsBar({
   facets: RunConfigModelFacet[];
   loading: boolean;
   isDerived: boolean;
+  viewsActive: boolean;
+  query: string;
+  onQueryChange: (value: string) => void;
+  selectedCount: number;
+  onClearSelection: () => void;
+  onToggleExpandAll: () => void;
+  allExpanded: boolean;
   onSelect: (id: string) => void;
   onChange: (patch: Partial<Pick<ViewTab, "model" | "effort" | "label">>) => void;
   onDuplicate: () => void;
@@ -319,85 +333,119 @@ function EvidenceViewsBar({
 
   return (
     <div className="border-b border-border">
-      {/* Tabs: Main is permanent; every other tab is a closable derived copy. */}
-      <div className="flex flex-wrap items-stretch gap-px px-6 py-2">
-        {views.map((v) => {
-          const isActive = v.id === activeViewId;
-          const isMain = v.id === MAIN_VIEW_ID;
-          return (
-            <div key={v.id} className="flex items-stretch">
-              <button
-                type="button"
-                onClick={() => onSelect(v.id)}
-                className={cn(
-                  "flex flex-col items-start gap-0.5 border px-2.5 py-1.5 text-left transition-colors",
-                  isActive ? "border-input bg-input/30" : "border-border hover:bg-muted/10",
-                )}
-              >
-                <span className="flex items-center gap-1.5">
-                  <span className={cn("text-[12px] font-medium", isActive ? "text-foreground" : "text-muted-foreground")}>
-                    {v.label}
-                  </span>
-                  {isMain && (
-                    <span className="border border-border px-1 font-mono text-[9px] uppercase tracking-wide text-muted-foreground/60">
-                      main
-                    </span>
-                  )}
-                </span>
-                <span className="font-mono text-[10px] text-muted-foreground/60">{viewConfigLabel(v)}</span>
-              </button>
-              {!isMain && (
+      {/* Tabs: Main is permanent; every other tab is a closable derived copy.
+          Hidden entirely for demo projects (no views there). */}
+      {viewsActive && (
+        <div className="flex flex-wrap items-stretch gap-px px-6 py-2">
+          {views.map((v) => {
+            const isActive = v.id === activeViewId;
+            const isMain = v.id === MAIN_VIEW_ID;
+            return (
+              <div key={v.id} className="flex items-stretch">
                 <button
                   type="button"
-                  aria-label={`Close ${v.label} tab`}
-                  onClick={() => onClose(v.id)}
-                  className="grid place-items-center px-1 text-muted-foreground/30 hover:text-destructive"
-                  title="Close tab"
+                  onClick={() => onSelect(v.id)}
+                  className={cn(
+                    "flex flex-col items-start gap-0.5 border px-2.5 py-1.5 text-left transition-colors",
+                    isActive ? "border-input bg-input/30" : "border-border hover:bg-muted/10",
+                  )}
                 >
-                  <X className="h-3 w-3" />
+                  <span className="flex items-center gap-1.5">
+                    <span className={cn("text-[12px] font-medium", isActive ? "text-foreground" : "text-muted-foreground")}>
+                      {v.label}
+                    </span>
+                    {isMain && (
+                      <span className="border border-border px-1 font-mono text-[9px] uppercase tracking-wide text-muted-foreground/60">
+                        main
+                      </span>
+                    )}
+                  </span>
+                  <span className="font-mono text-[10px] text-muted-foreground/60">{viewConfigLabel(v)}</span>
                 </button>
-              )}
-            </div>
-          );
-        })}
-        <button
-          type="button"
-          onClick={onDuplicate}
-          className="ml-1 flex items-center gap-1 px-2 py-1.5 text-[12px] text-muted-foreground/60 hover:text-foreground/70"
-          title="Duplicate the active tab, then edit its filters"
-        >
-          <Plus className="h-3 w-3" />
-          Duplicate
-        </button>
-      </div>
+                {!isMain && (
+                  <button
+                    type="button"
+                    aria-label={`Close ${v.label} tab`}
+                    onClick={() => onClose(v.id)}
+                    className="grid place-items-center px-1 text-muted-foreground/30 hover:text-destructive"
+                    title="Close tab"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            onClick={onDuplicate}
+            className="ml-1 flex items-center gap-1 px-2 py-1.5 text-[12px] text-muted-foreground/60 hover:text-foreground/70"
+            title="Duplicate the active tab, then edit its filters"
+          >
+            <Plus className="h-3 w-3" />
+            Duplicate
+          </button>
+        </div>
+      )}
 
-      {/* Active tab's filter: Model + model-aware Effort. */}
-      <div className="flex flex-wrap items-center gap-2 px-6 py-1.5">
-        <FilterPicker
-          label="Model"
-          value={active.model ?? ALL_MODELS_VALUE}
-          options={[
-            { value: ALL_MODELS_VALUE, label: "All models" },
-            ...facets.map((f) => ({ value: f.model, label: f.model })),
-          ]}
-          onChange={changeModel}
-        />
-        {effortOptions.length > 0 && (
-          <FilterPicker
-            label="Effort"
-            value={active.effort ?? ANY_EFFORT_VALUE}
-            options={[
-              { value: ANY_EFFORT_VALUE, label: "Any effort" },
-              ...effortOptions.map((e) => ({ value: e.effort, label: e.effort })),
-            ]}
-            onChange={(value) => onChange({ effort: value === ANY_EFFORT_VALUE ? null : value })}
+      {/* One unified filter row: text search + (Model + model-aware Effort when
+          views are active) + selection + expand. */}
+      <div className="flex flex-wrap items-center gap-2 px-6 py-2">
+        <div className="relative min-w-[200px] flex-1 max-w-sm">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
+          <Input
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            placeholder="Filter tasks..."
+            className="h-8 border-border bg-card pl-8 text-[13px] placeholder:text-muted-foreground/50 focus-visible:border-border"
           />
+        </div>
+        {viewsActive && (
+          <>
+            <FilterPicker
+              label="Model"
+              value={active.model ?? ALL_MODELS_VALUE}
+              options={[
+                { value: ALL_MODELS_VALUE, label: "All models" },
+                ...facets.map((f) => ({ value: f.model, label: f.model })),
+              ]}
+              onChange={changeModel}
+            />
+            {effortOptions.length > 0 && (
+              <FilterPicker
+                label="Effort"
+                value={active.effort ?? ANY_EFFORT_VALUE}
+                options={[
+                  { value: ANY_EFFORT_VALUE, label: "Any effort" },
+                  ...effortOptions.map((e) => ({ value: e.effort, label: e.effort })),
+                ]}
+                onChange={(value) => onChange({ effort: value === ANY_EFFORT_VALUE ? null : value })}
+              />
+            )}
+            {isDerived && (
+              <span className="font-mono text-[10px] text-muted-foreground/50">
+                {loading ? "loading scoped stats…" : "scoped to this view"}
+              </span>
+            )}
+          </>
         )}
-        {isDerived && (
-          <span className="font-mono text-[10px] text-muted-foreground/50">
-            {loading ? "loading scoped stats…" : "scoped to this view"}
-          </span>
-        )}
+        <div className="ml-auto flex items-center gap-3 text-[12px] text-muted-foreground">
+          {selectedCount > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={onClearSelection}
+                className="underline-offset-2 hover:text-foreground/70 hover:underline"
+              >
+                <span className="font-medium text-foreground/70">{selectedCount}</span> selected
+              </button>
+              <div className="h-4 w-px bg-border" />
+            </>
+          )}
+          <button type="button" onClick={onToggleExpandAll} className="hover:text-foreground/70">
+            {allExpanded ? "Collapse all" : "Expand all"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -440,14 +488,9 @@ function TasksToolbar({
   syncing,
   selectedCount,
   runRunning,
-  query,
-  onQueryChange,
   onEditSource,
   onSync,
   onRun,
-  onClearSelection,
-  onToggleExpandAll,
-  allExpanded,
 }: {
   taskSource: ProjectTaskSource | null;
   isDemoProject: boolean;
@@ -455,91 +498,49 @@ function TasksToolbar({
   syncing: boolean;
   selectedCount: number;
   runRunning: boolean;
-  query: string;
-  onQueryChange: (value: string) => void;
   onEditSource: () => void;
   onSync: () => void;
   onRun: () => void;
-  onClearSelection: () => void;
-  onToggleExpandAll: () => void;
-  allExpanded: boolean;
 }) {
   return (
     <div className="border-b border-border">
-      <div className="flex flex-col gap-3 px-6 py-5 lg:flex-row lg:items-center lg:justify-end">
-        <div className="flex items-center gap-2">
-          {taskSource && !isDemoProject && (
-            <>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={onEditSource}
-                disabled={editingSource}
-                className="h-8 gap-1.5 text-[13px] font-normal"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                Edit source
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={onSync}
-                disabled={syncing}
-                className="h-8 gap-1.5 text-[13px] font-normal"
-              >
-                <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
-                {syncing ? "Syncing…" : "Resync"}
-              </Button>
-            </>
-          )}
-          <Button type="button"
-            size="sm"
-            disabled={selectedCount === 0 || runRunning || isDemoProject}
-            onClick={onRun}
-            title={isDemoProject ? "Demo workspace is read-only" : undefined}
-            className="h-8 gap-1.5 text-[13px] font-medium disabled:opacity-40"
-          >
-            <Play className="h-3.5 w-3.5 fill-current" />
-            {runRunning ? "Starting..." : selectedCount > 0 ? `Run ${selectedCount} task${selectedCount > 1 ? "s" : ""}` : "Run selected"}
-          </Button>
-        </div>
-      </div>
-
-      {/* Filter row */}
-      <div className="flex flex-wrap items-center gap-2 border-t border-border px-6 py-2.5">
-        <div className="relative min-w-[240px] flex-1 max-w-md">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
-          <Input
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Filter tasks..."
-            className="h-8 border-border bg-card pl-8 text-[13px] placeholder:text-muted-foreground/50 focus-visible:border-border"
-          />
-        </div>
-        <div className="ml-auto flex items-center gap-3 text-[12px] text-muted-foreground">
-          {selectedCount > 0 && (
-            <>
-              <span>
-                <span className="font-medium text-foreground/70">{selectedCount}</span> selected
-              </span>
-              <button type="button"
-                onClick={onClearSelection}
-                className="underline-offset-2 hover:text-foreground/70 hover:underline"
-              >
-                Clear
-              </button>
-              <div className="h-4 w-px bg-border" />
-            </>
-          )}
-          <button type="button"
-            onClick={onToggleExpandAll}
-            className="hover:text-foreground/70"
-          >
-            {allExpanded ? "Collapse all" : "Expand all"}
-          </button>
-        </div>
+      <div className="flex items-center justify-end gap-2 px-6 py-3">
+        {taskSource && !isDemoProject && (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onEditSource}
+              disabled={editingSource}
+              className="h-8 gap-1.5 text-[13px] font-normal"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit source
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onSync}
+              disabled={syncing}
+              className="h-8 gap-1.5 text-[13px] font-normal"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
+              {syncing ? "Syncing…" : "Resync"}
+            </Button>
+          </>
+        )}
+        <Button type="button"
+          size="sm"
+          disabled={selectedCount === 0 || runRunning || isDemoProject}
+          onClick={onRun}
+          title={isDemoProject ? "Demo workspace is read-only" : undefined}
+          className="h-8 gap-1.5 text-[13px] font-medium disabled:opacity-40"
+        >
+          <Play className="h-3.5 w-3.5 fill-current" />
+          {runRunning ? "Starting..." : selectedCount > 0 ? `Run ${selectedCount} task${selectedCount > 1 ? "s" : ""}` : "Run selected"}
+        </Button>
       </div>
     </div>
   );
@@ -939,35 +940,37 @@ export function AgentTasksClient({
         </div>
       ) : (
         <>
-          {!isDemoProject && tasks.length > 0 && (
+          <TasksToolbar
+            taskSource={taskSource}
+            isDemoProject={isDemoProject}
+            editingSource={editingSource}
+            syncing={syncing}
+            selectedCount={selected.size}
+            runRunning={runState.running}
+            onEditSource={() => setEditingSource(true)}
+            onSync={handleSync}
+            onRun={handleRun}
+          />
+          {tasks.length > 0 && (
             <EvidenceViewsBar
               views={views}
               activeViewId={activeViewId}
               facets={facets}
               loading={viewStatsLoading}
               isDerived={activeView.model !== null || activeView.effort !== null}
+              viewsActive={!isDemoProject}
+              query={query}
+              onQueryChange={setQuery}
+              selectedCount={selected.size}
+              onClearSelection={() => setSelected(new Set())}
+              onToggleExpandAll={() => setExpanded(allExpanded ? new Set() : new Set(allFolderIds))}
+              allExpanded={allExpanded}
               onSelect={setActiveViewId}
               onChange={updateActiveView}
               onDuplicate={duplicateActive}
               onClose={closeView}
             />
           )}
-          <TasksToolbar
-        taskSource={taskSource}
-        isDemoProject={isDemoProject}
-        editingSource={editingSource}
-        syncing={syncing}
-        selectedCount={selected.size}
-        runRunning={runState.running}
-        query={query}
-        onQueryChange={setQuery}
-        onEditSource={() => setEditingSource(true)}
-        onSync={handleSync}
-        onRun={handleRun}
-        onClearSelection={() => setSelected(new Set())}
-        onToggleExpandAll={() => setExpanded(allExpanded ? new Set() : new Set(allFolderIds))}
-        allExpanded={allExpanded}
-      />
 
       {/* Error alerts */}
       {(error || runState.error) && (
