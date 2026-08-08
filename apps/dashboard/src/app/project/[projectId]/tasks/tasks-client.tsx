@@ -80,7 +80,7 @@ interface ViewTab {
 const SINCE_OPTIONS = [
   { value: "__all__", label: "All time" },
   { value: "5h", label: "5 hours" },
-  { value: "1d", label: "Last day" },
+  { value: "1d", label: "1 day" },
   { value: "2d", label: "2 days" },
   { value: "3d", label: "3 days" },
   { value: "5d", label: "5 days" },
