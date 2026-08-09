@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/select";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
@@ -491,27 +492,33 @@ function EvidenceViewsBar({
               onChange={(value) => onChange({ since: value === ALL_SINCE_VALUE ? null : value })}
             />
             {viewsActive && (
-              <div className="flex items-center gap-1">
-                {STATUS_FILTERS.map((s) => {
-                  const active = statusFilter.has(s.key);
-                  return (
+              <label className="flex shrink-0 items-center gap-1.5">
+                <span className="text-[11px] uppercase tracking-wide text-foreground/50">Status</span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
                     <button
-                      key={s.key}
                       type="button"
-                      onClick={() => onToggleStatus(s.key)}
-                      className={cn(
-                        "flex items-center gap-1 border px-2 py-0.5 text-[11px] transition-colors",
-                        active
-                          ? "border-foreground/20 bg-foreground/[0.05] text-foreground"
-                          : "border-border text-muted-foreground/40",
-                      )}
+                      className="flex h-7 items-center gap-1 border border-input bg-muted/40 px-2 text-[12px] text-foreground hover:bg-muted/60"
                     >
-                      <span className={cn("h-2 w-2 rounded-full", active ? s.dot : "bg-muted-foreground/20")} />
-                      {s.label}
+                      {statusFilter.size === STATUS_FILTERS.length ? "All" : `${statusFilter.size}/${STATUS_FILTERS.length}`}
+                      <ChevronDown className="h-3 w-3 opacity-60" />
                     </button>
-                  );
-                })}
-              </div>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {STATUS_FILTERS.map((s) => (
+                      <DropdownMenuCheckboxItem
+                        key={s.key}
+                        checked={statusFilter.has(s.key)}
+                        onCheckedChange={() => onToggleStatus(s.key)}
+                        className="text-[12px]"
+                      >
+                        <span className={cn("mr-1.5 inline-block h-2 w-2 rounded-full", s.dot)} />
+                        {s.label}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </label>
             )}
             {isDerived && (
               <span className="font-mono text-[10px] text-muted-foreground/50">
