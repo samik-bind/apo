@@ -19,7 +19,6 @@ import { join } from "node:path";
 import satori, { type SatoriOptions } from "satori";
 import type { ReactNode } from "react";
 import { Resvg } from "@resvg/resvg-js";
-import sharp from "sharp";
 
 const WIDTH = 1200;
 const HEIGHT = 630;
@@ -61,22 +60,21 @@ function h(
 	return { type, props: { ...(props ?? {}), children } };
 }
 
-// --- Signal sphere: resolve its CSS vars to concrete colors, rasterize to PNG ---
+// --- Signal sphere: the canonical static asset, rendered by resvg ---
 
 /**
- * The sphere is authored with CSS custom properties (var(--signal-sphere-*)).
- * satori has no notion of CSS variables, so resolve them to the concrete palette
- * here, then rasterize to PNG via sharp. A PNG round-trip is more reliable than
- * handing satori the raw SVG (its <img> handling can drop the dotted texture).
+ * Renders `signal-sphere.svg` — the single canonical brand asset (see
+ * apps/dashboard/public/brand/README.md), byte-identical across dashboard and
+ * docs. This is "the same logo used everywhere."
+ *
+ * Why resvg, not sharp: sharp rasterizes SVG via librsvg, which mangles the
+ * faint endpoint/trail opacities and makes the sphere read as a dead gray ball.
+ * resvg composites SVG opacity/glows correctly, so the green verdict trail and
+ * endpoint come through. The asset uses CSS custom properties (var(--signal-sphere-*));
+ * resvg (like any standalone renderer) can't resolve them, so splice in the
+ * concrete palette first.
  */
 async function loadSphereDataUrl(): Promise<string> {
-	// Use the FULL signal-sphere.svg (540 dots), not the -small variant
-	// (112 dots, meant for the 32px favicon) — at 420px the small one looks
-	// sparse and cheap. The sphere is authored with CSS custom properties
-	// (var(--signal-sphere-*)); satori has no notion of CSS variables, so
-	// resolve them to the concrete palette here, then rasterize to PNG via
-	// sharp. A PNG round-trip is more reliable than handing satori the raw
-	// SVG (its <img> handling can drop the dotted texture).
 	const svgRaw = await readFile(
 		join(process.cwd(), "public/brand/signal-sphere.svg"),
 		"utf8",
@@ -84,7 +82,9 @@ async function loadSphereDataUrl(): Promise<string> {
 	const svg = svgRaw
 		.replaceAll("var(--signal-sphere-fg, #f4f4f5)", COLORS.gray1)
 		.replaceAll("var(--signal-sphere-accent, #4ade80)", COLORS.accent);
-	const png = await sharp(Buffer.from(svg)).png().toBuffer();
+	// Render at 4x the 200px viewBox for a crisp downscale to 420px in satori.
+	const png = new Resvg(svg, { fitTo: { mode: "width", value: 800 } }).render()
+		.asPng();
 	return `data:image/png;base64,${png.toString("base64")}`;
 }
 

@@ -202,6 +202,14 @@ might be an OpenAI call, an Anthropic call, a Vercel AI SDK streamText, or a
 custom HTTP service. The adapter is a shim that calls your existing code as-is.
 You don't change your agent to fit apo; the adapter adapts to your system.
 
+**Canonical example:** apo's repo contains one complete, checked example — a
+real Vercel AI SDK agent wired through an adapter to a \`data-extraction\` task.
+Inspect and adapt these files rather than writing from scratch:
+- Real agent: \`apps/example-service/app/lib/agent/service.ts\`
+- Adapter: \`apps/example-service/e2e/agent-task-demo/ai-sdk-adapter.ts\`
+- Task: \`apps/example-service/e2e/agent-task-demo/tasks/ai-sdk-agent/data-extraction/\`
+- Guide: \`apps/example-service/e2e/agent-task-demo/START-HERE.md\`
+
 **The lifecycle the adapter implements:**
 
 \`\`\`
