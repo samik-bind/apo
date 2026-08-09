@@ -45,6 +45,12 @@ assertBindMount(
 const caddyfile = readFileSync("deploy/self-host/Caddyfile", "utf8");
 assert(caddyfile.includes("{$APO_CADDY_SITE_ADDRESS}"), "Caddy must use APO_CADDY_SITE_ADDRESS");
 assert(caddyfile.includes("reverse_proxy frontend:3000"), "Caddy must proxy only to the frontend");
+assertRouteBefore(
+  caddyfile,
+  "handle @raw_diagnostics",
+  "handle /backend-proxy/*",
+  "Caddy must deny diagnostic aliases before the broad backend proxy",
+);
 
 console.log("public ingress contract: ok");
 
@@ -74,6 +80,14 @@ function assertBindMount(service, target, sourceSuffix) {
       entry.read_only === true,
   );
   assert(found, `Caddy must mount ${sourceSuffix} read-only at ${target}`);
+}
+
+function assertRouteBefore(config, earlier, later, message) {
+  const earlierIndex = config.indexOf(earlier);
+  const laterIndex = config.indexOf(later);
+  assert(earlierIndex >= 0, `missing route: ${earlier}`);
+  assert(laterIndex >= 0, `missing route: ${later}`);
+  assert(earlierIndex < laterIndex, message);
 }
 
 function assert(condition, message) {

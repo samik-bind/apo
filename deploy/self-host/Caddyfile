@@ -42,16 +42,18 @@
 		reverse_proxy backend:8000
 	}
 
-	# API proxy path — backend handles its own auth (API key or session).
-	handle /backend-proxy/* {
-		encode zstd gzip
-		reverse_proxy frontend:3000
-	}
-
 	# deny raw operator diagnostic aliases through public ingress.
 	@raw_diagnostics path /backend-proxy/health/ready /backend-proxy/docs /backend-proxy/openapi.json /backend-proxy/hello /api/health/ready
 	handle @raw_diagnostics {
 		respond 404
+	}
+
+	# API proxy path — backend handles its own auth (API key or session).
+	# Keep this after the diagnostic denials: handle blocks are mutually
+	# exclusive, so the broad prefix would otherwise make the denials unreachable.
+	handle /backend-proxy/* {
+		encode zstd gzip
+		reverse_proxy frontend:3000
 	}
 
 	# Everything else (dashboard pages) — site-wide basic auth gate.

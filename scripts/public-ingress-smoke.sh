@@ -66,12 +66,12 @@ probe_json() {
 
 echo "probing $PUBLIC_URL ..."
 
-# --- Dashboard reachable (200 or 307 redirect to login) ---
+# --- Dashboard reachable (200, app redirect, or intentional Basic Auth gate) ---
 dash_status="$(curl -sS --max-time "$TIMEOUT" -o /dev/null -w '%{http_code}' "$PUBLIC_URL/" 2>/dev/null || echo "000")"
-if [[ "$dash_status" == "200" ]] || [[ "$dash_status" == "307" ]]; then
+if [[ "$dash_status" == "200" ]] || [[ "$dash_status" == "307" ]] || [[ "$dash_status" == "401" ]]; then
   PASS=$((PASS + 1))
 else
-  echo "FAIL: dashboard reachable — expected 200/307, got $dash_status" >&2
+  echo "FAIL: dashboard reachable — expected 200/307/401, got $dash_status" >&2
   FAIL=$((FAIL + 1))
 fi
 
