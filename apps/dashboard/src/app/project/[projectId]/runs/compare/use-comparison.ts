@@ -36,10 +36,14 @@ export interface ComparisonTask {
    *  "Changes" view and the differsCount badge — never the chevron. */
   differs: boolean;
   /** True when at least one side recorded checks worth inspecting. This —
-   *  not ``differs`` — drives the expand chevron: a task that failed 0/4 on
-   *  both sides still has check reasoning (a judge's explanation) worth
-   *  seeing, even when the two sides are identical. */
+    *  not ``differs`` — drives the expand chevron: a task that failed 0/4 on
+    *  both sides still has check reasoning (a judge's explanation) worth
+    *  seeing, even when the two sides are identical. */
   expandable: boolean;
+  /** False when the two runs used different task definitions (eval file
+   *  changed between runs). Check IDs won't overlap — show a warning instead
+   *  of a misleading "0 checks in common" diff. */
+  comparable: boolean;
 }
 
 /** Aggregated check counts for one side of a comparison scope (folder or
@@ -141,6 +145,7 @@ export function useComparison(
   leftRuns: AgentTaskRunSummary[],
   rightRuns: AgentTaskRunSummary[],
   inventory: AgentTaskSummary[],
+  comparability?: Map<string, boolean>,
 ): ComparisonModel {
   return useMemo(() => {
     // Inventory lookups: task_id -> folder_path (inventory) and display name.
@@ -181,7 +186,8 @@ export function useComparison(
       // nothing to expand.
       const expandable =
         (left?.total_checks ?? 0) > 0 || (right?.total_checks ?? 0) > 0;
-      return { taskId, label, folder, left: { run: left }, right: { run: right }, differs, expandable };
+      const comparable = comparability?.get(taskId) ?? true;
+      return { taskId, label, folder, left: { run: left }, right: { run: right }, differs, expandable, comparable };
     });
 
     tasks.sort((a, b) => a.label.localeCompare(b.label));

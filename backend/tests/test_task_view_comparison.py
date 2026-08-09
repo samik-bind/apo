@@ -101,11 +101,11 @@ def _create(cmp_client: TestClient, task_ids: list[str]) -> dict[str, object]:
 
 def test_comparison_resolves_and_marks_comparable_gate(cmp_client: TestClient) -> None:
     snap = _create(cmp_client, [_W, _X, _Y, _Z])
-    assert snap["coverage"] == {"both_run": 3, "comparable": 1, "scope": 4}
+    assert snap["coverage"] == {"both_run": 3, "comparable": 2, "scope": 4}
     by_task = {c["task_id"]: c for c in snap["resolved"]}
     assert by_task[_W]["comparable"] is True
     assert by_task[_X]["comparable"] is False  # def mismatch
-    assert by_task[_Y]["comparable"] is False  # exec mismatch
+    assert by_task[_Y]["comparable"] is True  # same def, different bundle — still comparable
     # Z has no DeepSeek run -> b_run_id None, not counted in both_run
     assert by_task[_Z]["b_run_id"] is None
     assert by_task[_Z]["comparable"] is False

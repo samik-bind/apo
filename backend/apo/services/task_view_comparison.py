@@ -163,16 +163,18 @@ def _resolve_side(
 
 
 def _is_comparable(a: _ResolvedRun | None, b: _ResolvedRun | None) -> bool:
-    """Both sides resolved AND def + exec revisions agree.
+    """Both sides resolved AND the task definition revision matches.
 
-    ``None == None`` is allowed for legacy runs/batches that predate the revision
-    tables, so old history isn't penalised — only an actual disagreement excludes.
+    Only ``task_definition_revision_id`` gates comparability — the eval file
+    that defines the checks must be the same on both sides. The bundle-level
+    ``exec_revision_sha`` (which spans the whole task root, not just this
+    task's eval) is intentionally NOT a gate: any edit anywhere in the task
+    tree would flip it, making two runs from different days almost never
+    comparable even when the specific task's definition is byte-identical.
     """
     if a is None or b is None:
         return False
     if a.task_definition_revision_id != b.task_definition_revision_id:
-        return False
-    if a.exec_revision_sha != b.exec_revision_sha:
         return False
     return True
 

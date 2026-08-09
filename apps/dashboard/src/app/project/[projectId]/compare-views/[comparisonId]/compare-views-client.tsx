@@ -24,15 +24,17 @@ export function CompareViewsClient({
   tasks,
   leftRuns,
   rightRuns,
+  comparability,
 }: {
   projectId: string;
   snapshot: TaskViewComparisonSnapshot;
   tasks: AgentTaskSummary[];
   leftRuns: AgentTaskRunSummary[];
   rightRuns: AgentTaskRunSummary[];
+  comparability?: Map<string, boolean>;
 }) {
   const [expanded, toggleExpanded] = useUrlParamSet("expand");
-  const comparison = useComparison(leftRuns, rightRuns, tasks);
+  const comparison = useComparison(leftRuns, rightRuns, tasks, comparability);
   const [hideErrored, setHideErrored] = useState(false);
 
   const foldersToShow = useMemo(() => {

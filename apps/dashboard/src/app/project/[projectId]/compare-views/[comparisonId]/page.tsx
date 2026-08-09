@@ -52,6 +52,9 @@ export default async function CompareViewsPage({
   const rightRuns = snapshot.resolved
     .map((cell) => (cell.b_run_id ? runMap.get(cell.b_run_id) : undefined))
     .filter((r): r is AgentTaskRunSummary => r !== undefined);
+  const comparability = new Map(
+    snapshot.resolved.map((cell) => [cell.task_id, cell.comparable]),
+  );
 
   return (
     <CompareViewsClient
@@ -60,6 +63,7 @@ export default async function CompareViewsPage({
       tasks={inventory}
       leftRuns={leftRuns}
       rightRuns={rightRuns}
+      comparability={comparability}
     />
   );
 }

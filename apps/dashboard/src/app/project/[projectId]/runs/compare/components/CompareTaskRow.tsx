@@ -50,18 +50,13 @@ export function CompareTaskRow({
   projectId,
 }: CompareTaskRowProps) {
   const isOpen = expanded.has(task.taskId);
-  const { left, right, differs, expandable } = task;
+  const { left, right, differs, expandable, comparable } = task;
 
   return (
     <div className="group/row">
-      {/* Collapsed row: checks-only verdict cell per side. Cost/time live in
-          the expand (TornadoMetrics) — the collapsed row's job is "did the
-          runs disagree, and on which checks?", not "how much did it cost?".
-          Fixed-width tracks so the count lands at the same x in every row. */}
       <div className="grid grid-cols-[1fr_auto] items-center gap-3 px-6 py-2.5 transition-colors hover:bg-muted/20 md:grid-cols-[minmax(0,1fr)_minmax(120px,1fr)_minmax(120px,1fr)]">
-        {/* Task label + expand chevron. */}
         <div className="flex min-w-0 items-center gap-2.5">
-          {expandable && (
+          {expandable && comparable && (
             <button
               type="button"
               onClick={() => onToggleExpand(task.taskId)}
@@ -79,6 +74,11 @@ export function CompareTaskRow({
           >
             {task.label}
           </span>
+          {!comparable && (
+            <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500" title="These runs used different task definitions (the eval file changed). Checks are not directly comparable.">
+              diff revision
+            </span>
+          )}
         </div>
 
         {/* Left checks cell. */}
