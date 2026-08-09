@@ -19,6 +19,10 @@ import { join } from "node:path";
 import satori, { type SatoriOptions } from "satori";
 import type { ReactNode } from "react";
 import { Resvg } from "@resvg/resvg-js";
+import {
+	buildSignalSphereScene,
+	renderSignalSphereSvg,
+} from "../components/brand/signal-sphere-scene";
 
 const WIDTH = 1200;
 const HEIGHT = 630;
@@ -63,25 +67,23 @@ function h(
 // --- Signal sphere: the canonical static asset, rendered by resvg ---
 
 /**
- * Renders `signal-sphere.svg` — the single canonical brand asset (see
- * apps/dashboard/public/brand/README.md), byte-identical across dashboard and
- * docs. This is "the same logo used everywhere."
+ * Renders the Signal Sphere through the project's own renderer — the same
+ * `renderSignalSphereSvg(buildSignalSphereScene())` that produces the committed
+ * `signal-sphere.svg` brand asset (see apps/dashboard/public/brand/README.md).
+ * No hand-rolled SVG: the OG card shows the exact canonical logo.
  *
- * Why resvg, not sharp: sharp rasterizes SVG via librsvg, which mangles the
- * faint endpoint/trail opacities and makes the sphere read as a dead gray ball.
- * resvg composites SVG opacity/glows correctly, so the green verdict trail and
- * endpoint come through. The asset uses CSS custom properties (var(--signal-sphere-*));
- * resvg (like any standalone renderer) can't resolve them, so splice in the
- * concrete palette first.
+ * Rasterized with resvg (not sharp) because sharp's librsvg mangles the faint
+ * endpoint/trail opacities; resvg composites them correctly, including the
+ * `color-mix()` fills the renderer emits for the accent trail.
+ *
+ * Palette is passed as concrete hex so the output never depends on CSS
+ * variables the standalone rasterizer can't resolve.
  */
 async function loadSphereDataUrl(): Promise<string> {
-	const svgRaw = await readFile(
-		join(process.cwd(), "public/brand/signal-sphere.svg"),
-		"utf8",
-	);
-	const svg = svgRaw
-		.replaceAll("var(--signal-sphere-fg, #f4f4f5)", COLORS.gray1)
-		.replaceAll("var(--signal-sphere-accent, #4ade80)", COLORS.accent);
+	const svg = renderSignalSphereSvg(buildSignalSphereScene(), {
+		fg: COLORS.gray1,
+		accent: COLORS.accent,
+	});
 	// Render at 4x the 200px viewBox for a crisp downscale to 420px in satori.
 	const png = new Resvg(svg, { fitTo: { mode: "width", value: 800 } }).render()
 		.asPng();

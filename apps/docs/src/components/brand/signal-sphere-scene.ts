@@ -203,6 +203,69 @@ export function buildSignalSphereScene(
   };
 }
 
+// SVG renderer for the committed static brand assets.
+// react-doctor-disable-next-line react-doctor/deslop-unused-export, deslop/unused-export
+export function renderSignalSphereSvg(
+  scene: SignalSphereScene,
+  palette: SignalSpherePalette = DEFAULT_SIGNAL_SPHERE_PALETTE,
+): string {
+  const dotsByBand = new Map<number, SignalSphereDot[]>();
+  for (const dot of scene.dots) {
+    const bandDots = dotsByBand.get(dot.bandIndex);
+    if (bandDots) {
+      bandDots.push(dot);
+    } else {
+      dotsByBand.set(dot.bandIndex, [dot]);
+    }
+  }
+
+  const bandGroups = scene.bands
+    .flatMap((band) => {
+      const dots = dotsByBand.get(band.index) ?? [];
+      if (dots.length === 0) return [];
+      const circles = dots
+        .map((dot) => renderSvgDot(dot, palette))
+        .join("\n");
+      return [`  <g id="${band.id}">\n${circles}\n  </g>`];
+    })
+    .join("\n");
+
+  const endpoint = [
+    `    <circle cx="${formatNumber(scene.endpoint.x)}" cy="${formatNumber(scene.endpoint.y)}" r="${formatNumber(scene.endpoint.glowRadius)}" fill="${palette.accent}" opacity="${formatNumber(scene.endpoint.glowOpacity)}"/>`,
+    `    <circle cx="${formatNumber(scene.endpoint.x)}" cy="${formatNumber(scene.endpoint.y)}" r="${formatNumber(scene.endpoint.radius)}" fill="${palette.accent}" opacity="${formatNumber(scene.endpoint.coreOpacity)}"/>`,
+  ].join("\n");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${scene.viewBox.width} ${scene.viewBox.height}" width="${scene.viewBox.width}" height="${scene.viewBox.height}">
+  <g id="endpoint">
+${endpoint}
+  </g>
+${bandGroups}
+</svg>`;
+}
+
+function renderSvgDot(
+  dot: SignalSphereDot,
+  palette: SignalSpherePalette,
+): string {
+  const baseCircle =
+    `      <circle cx="${formatNumber(dot.x)}" cy="${formatNumber(dot.y)}" r="${formatNumber(dot.radius)}" fill="${palette.fg}" opacity="${formatNumber(dot.opacity)}"/>`;
+
+  if (dot.overlayTint <= 0.02 || dot.overlayOpacity <= 0) {
+    return baseCircle;
+  }
+
+  const overlayFill =
+    `color-mix(in srgb, ${palette.accent} ${formatNumber(dot.overlayTint * 100)}%, ${palette.fg})`;
+  const overlayCircle =
+    `      <circle cx="${formatNumber(dot.x)}" cy="${formatNumber(dot.y)}" r="${formatNumber(dot.overlayRadius)}" fill="${overlayFill}" opacity="${formatNumber(dot.overlayOpacity)}"/>`;
+
+  return `${baseCircle}\n${overlayCircle}`;
+}
+
+function formatNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
 function generateScenePoints(
   config: SignalSphereConfig,
   spin: number,

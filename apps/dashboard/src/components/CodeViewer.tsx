@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 // react-doctor-disable-next-line react-doctor/prefer-dynamic-import
-import { EditorState } from "@codemirror/state";
+import { EditorState, StateEffect, StateField } from "@codemirror/state";
 // react-doctor-disable-next-line react-doctor/prefer-dynamic-import
 import { EditorView, lineNumbers, ViewPlugin, Decoration, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { javascript } from "@codemirror/lang-javascript";
@@ -77,6 +77,88 @@ const apoHighlighter = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 );
 
+// ── Diagnostic-line hover affordance ──────────────────────────────────
+// Lights up the diagnostic line under the cursor (red for errors, neutral
+// for passing assertions) and turns the whole line into a click target, so
+// the drawer is discoverable without aiming for the tiny wavy underline.
+// Mirrors the landing-page RunDetailMock's "Inspect" affordance.
+
+const setDiagLines = StateEffect.define<ReadonlyMap<number, "error" | "info">>();
+const diagLinesField = StateField.define<ReadonlyMap<number, "error" | "info">>({
+  create: () => new Map(),
+  update: (value, tr) => {
+    for (const e of tr.effects) if (e.is(setDiagLines)) return e.value;
+    return value;
+  },
+});
+
+const setHoveredLine = StateEffect.define<number | null>();
+const hoverField = StateField.define<number | null>({
+  create: () => null,
+  update: (value, tr) => {
+    for (const e of tr.effects) if (e.is(setHoveredLine)) return e.value;
+    return value;
+  },
+});
+
+// posAtCoords is documented to return null for unresolvable coordinates, but
+// its block→line resolution can also throw on transient layouts — treat both
+// as "no position here" (same defensive pattern as the click handler).
+function posFromCoordsSafe(view: EditorView, x: number, y: number): number | null {
+  try {
+    return view.posAtCoords({ x, y });
+  } catch {
+    return null;
+  }
+}
+
+function buildHoverDecorations(view: EditorView): DecorationSet {
+  const hovered = view.state.field(hoverField);
+  if (hovered === null) return Decoration.none;
+  const severity = view.state.field(diagLinesField).get(hovered);
+  if (!severity) return Decoration.none;
+  const lineClass = severity === "error" ? "cm-diag-line--error" : "cm-diag-line--info";
+  let line;
+  try {
+    line = view.state.doc.line(hovered);
+  } catch {
+    return Decoration.none;
+  }
+  return Decoration.set([Decoration.line({ class: lineClass }).range(line.from)], true);
+}
+
+const hoverHighlight = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) { this.decorations = buildHoverDecorations(view); }
+    update(u: ViewUpdate) { this.decorations = buildHoverDecorations(u.view); }
+  },
+  {
+    decorations: (v) => v.decorations,
+    eventHandlers: {
+      mousemove: (e, view) => {
+        const pos = posFromCoordsSafe(view, e.clientX, e.clientY);
+        if (pos === null) return;
+        let lineNum: number;
+        try {
+          lineNum = view.state.doc.lineAt(pos).number;
+        } catch {
+          return;
+        }
+        // Only dispatch on line crossings — bounded by line count, not pixels.
+        if (lineNum === view.state.field(hoverField)) return;
+        const has = view.state.field(diagLinesField).has(lineNum);
+        view.dispatch({ effects: setHoveredLine.of(has ? lineNum : null) });
+      },
+      mouseleave: (_e, view) => {
+        if (view.state.field(hoverField) !== null) {
+          view.dispatch({ effects: setHoveredLine.of(null) });
+        }
+      },
+    },
+  },
+);
+
 const githubDarkHighlight = HighlightStyle.define([
   { tag: [t.comment, t.lineComment, t.blockComment], color: "#6a737d", fontStyle: "italic" },
   { tag: [t.keyword, t.controlKeyword, t.definitionKeyword, t.moduleKeyword, t.operatorKeyword], color: "#f97583" },
@@ -132,6 +214,32 @@ const theme = EditorView.theme({
   },
   ".cm-diagnostic-error": { borderLeftColor: "var(--destructive)" },
   ".cm-diagnostic-info": { borderLeftColor: "var(--success)" },
+  // Diagnostic-line hover: red tint on failures, neutral on passes, pointer
+  // cursor on both. The ::after "Inspect" badge appears on hover to signal
+  // that the whole line opens the assertion drawer.
+  ".cm-diag-line--error": {
+    backgroundColor: "oklch(0.5 0.22 25 / 0.12)",
+    cursor: "pointer",
+  },
+  ".cm-diag-line--info": {
+    backgroundColor: "oklch(0.7 0 0 / 0.06)",
+    cursor: "pointer",
+  },
+  ".cm-diag-line--error::after, .cm-diag-line--info::after": {
+    content: '"Inspect"',
+    marginLeft: "0.75rem",
+    padding: "0 0.375rem",
+    border: "1px solid oklch(0.4 0 0)",
+    fontSize: "10px",
+    fontWeight: "500",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    color: "oklch(0.6 0 0)",
+  },
+  ".cm-diag-line--error::after": {
+    color: "var(--destructive)",
+    borderColor: "oklch(0.5 0.22 25 / 0.55)",
+  },
 });
 
 export function CodeViewer({
@@ -164,30 +272,31 @@ export function CodeViewer({
         langExt,
         syntaxHighlighting(githubDarkHighlight),
         apoHighlighter,
+        diagLinesField,
+        hoverField,
+        hoverHighlight,
         lintGutter(),
         theme,
       ],
     });
     const view = new EditorView({ state, parent: host });
 
-    // Click handler — maps click position to line number, calls callback
-    // if the clicked line has a diagnostic.
+    // Click handler — opens the assertion drawer when the click lands on a
+    // diagnostic. Marker/underline clicks always open it; any other click on
+    // a diagnostic line opens it too (the whole line is a target), except
+    // when the click finishes a drag-selection (don't hijack text selection).
     const clickHandler = (e: MouseEvent) => {
       const handler = onDiagnosticClickRef.current;
       if (!handler) return;
       const target = e.target as HTMLElement;
-      // Only respond to clicks on lint markers or the diagnostic underline
       const isMarker = target.classList.contains("cm-lint-marker-error") ||
         target.classList.contains("cm-lint-marker-info") ||
-        target.closest(".cm-lintRange");
-      if (!isMarker) return;
-      e.preventDefault();
-      e.stopPropagation();
+        !!target.closest(".cm-lintRange");
       // Map the click to a document line. posAtCoords is documented to return
       // null for coordinates it can't resolve, but its internal block→line
-      // resolution can also throw (e.g. when the click lands on a widget/gap
-      // block, or during a transient layout pass right after re-render). Treat
-      // both "null" and "threw" as "no line here" rather than crashing the page.
+      // resolution can also throw (e.g. on a widget/gap block, or during a
+      // transient layout pass right after re-render). Treat both "null" and
+      // "threw" as "no line here" rather than crashing the page.
       let pos: number | null;
       try {
         pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
@@ -196,6 +305,18 @@ export function CodeViewer({
       }
       if (pos === null) return;
       const line = view.state.doc.lineAt(pos).number;
+      if (isMarker) {
+        e.preventDefault();
+        e.stopPropagation();
+        handler(line, e.clientX, e.clientY);
+        return;
+      }
+      // Line-body click: only respond on diagnostic lines, and never when the
+      // user just finished selecting a range of text.
+      if (!view.state.selection.main.empty) return;
+      if (!view.state.field(diagLinesField).has(line)) return;
+      e.preventDefault();
+      e.stopPropagation();
       handler(line, e.clientX, e.clientY);
     };
     host.addEventListener("click", clickHandler);
@@ -222,7 +343,14 @@ export function CodeViewer({
         severity: d.severity ?? "error",
       };
     });
+    // Mirror diagnostic line → severity so the hover plugin can light up the
+    // right lines without re-reading @codemirror/lint's internal state.
+    const lineMap = new Map<number, "error" | "info">();
+    for (const d of diagnostics) {
+      lineMap.set(d.line, d.severity === "info" ? "info" : "error");
+    }
     view.dispatch(setDiagnostics(view.state, diags));
+    view.dispatch({ effects: setDiagLines.of(lineMap) });
   }, [diagnostics, code]);
 
   return <div ref={hostRef} className={className} />;

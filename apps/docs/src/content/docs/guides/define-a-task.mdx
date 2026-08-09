@@ -95,14 +95,13 @@ Each `test(...)` is one assertion. Code assertions (`t.calledTool`, `t.check`) a
 
 ## Done
 
-The task is now discoverable. Sync it into the project and run it:
+The task is now discoverable. Publish it to the project and run it:
 
 <TerminalDemo
+	command="apo task publish"
 	lines={[
-		{ text: "" },
-		{ text: "→ syncing task source…" },
-		{ text: "  found 1 new task: extract-parties" },
-		{ parts: [{ text: "  ", tone: "default" }, { text: "synced", tone: "success" }] },
+		{ parts: [{ text: "✓ Published 1 task", tone: "success" }] },
+		{ text: "  digest: sha256:a1b2c3d4..." },
 	]}
 />
 

@@ -132,11 +132,15 @@
 				<div class="rdm__codeviewer">
 					<div class="cm-line"><span class="cm-ln">1</span><span class="cm-tok-kw">test</span>(<span class="cm-tok-str">"follows-review-workflow"</span>, (t) =&gt; {'{'}</div>
 					<div class="cm-line"><span class="cm-ln">2</span>  <span class="cm-tok-cmt">// Review workflow: read → search → generate, in that order.</span></div>
-					<div class="cm-line rdm__cm-line--fail"><span class="cm-ln"><span class="cm-marker"></span>3</span>  <span class="cm-tok-api">t.toolOrder</span>([</div>
+					{/* Clickable diagnostic block — mirrors the dashboard: clicking the
+				    failing assertion (red gutter marker) opens the AssertionDrawer. */}
+				<div class="rdm__diag" data-assertion-trigger role="button" tabindex="0" aria-label="Inspect toolOrder assertion">
+					<div class="cm-line rdm__cm-line--fail"><span class="cm-ln"><span class="cm-marker"></span>3</span>  <span class="cm-tok-api">t.toolOrder</span>([<span class="rdm__diag-hint">Inspect</span></div>
 					<div class="cm-line rdm__cm-line--fail"><span class="cm-ln">4</span>    <span class="cm-tok-str">"read_file"</span>,</div>
 					<div class="cm-line rdm__cm-line--fail"><span class="cm-ln">5</span>    <span class="cm-tok-str">"search_content"</span>,</div>
 					<div class="cm-line rdm__cm-line--fail"><span class="cm-ln">6</span>    <span class="cm-tok-str">"generate_review"</span>,</div>
 					<div class="cm-line rdm__cm-line--fail"><span class="cm-ln">7</span>  ]');</div>
+				</div>
 					<div class="cm-line"><span class="cm-ln">8</span>{'}'});</div>
 				</div>
 			</div>
@@ -163,6 +167,31 @@
 			</div>
 		</div>
 	</div>
+
+	{/* ── Assertion drawer (overlay) ─────────────────────────────────────
+	    Slides in from the right edge of the run-detail window when the
+	    failing t.toolOrder diagnostic is clicked — a faithful recreation
+	    of the dashboard's AssertionDrawer. Contained within the figure
+	    (overflow: hidden clips the translated state), not the viewport. */}
+	<div class="rdm__drawer-scrim" data-assertion-close></div>
+	<aside class="rdm__drawer" data-assertion-drawer role="dialog" aria-label="Assertion details" aria-hidden="true">
+		<header class="rdm__drawer-head">
+			<span class="rdm__badge rdm__badge--fail">✗</span>
+			<span class="rdm__drawer-id">toolOrder(read_file → search_content → generate_review)</span>
+			<button class="rdm__drawer-close" type="button" data-assertion-close aria-label="Close">✕</button>
+		</header>
+		<div class="rdm__drawer-body">
+			<p class="rdm__drawer-reasoning">expected "search_content" after "read_file"; actual order search_content → read_file → generate_review</p>
+			<div class="rdm__labeled">
+				<p class="rdm__labeled-label">Expected</p>
+				<p class="rdm__labeled-value">read_file → search_content → generate_review</p>
+			</div>
+			<div class="rdm__labeled">
+				<p class="rdm__labeled-label">Received</p>
+				<p class="rdm__labeled-value rdm__labeled-value--fail">search_content → read_file → generate_review</p>
+			</div>
+		</div>
+	</aside>
 </figure>
 
 <style>
@@ -184,6 +213,7 @@
 		background: var(--bg);
 		font-family: var(--sl-font);
 		overflow: hidden;
+		position: relative;  /* anchor for the AssertionDrawer overlay */
 	}
 
 	/* ── Head: breadcrumb + pill + title + meta ────────────────────────── */
@@ -572,6 +602,154 @@
 		text-underline-offset: 3px;
 	}
 
+	/* ── Clickable diagnostic block ──────────────────────────────────────
+	   The whole failing t.toolOrder span is one click target. Hover/focus
+	   signals clickability; the inline "Inspect" hint appears on hover. */
+	.rdm__diag {
+		cursor: pointer;
+		transition: background 0.12s ease;
+	}
+
+	.rdm__diag:hover,
+	.rdm__diag:focus-visible {
+		background: oklch(0.5 0.22 25 / 14%);
+		outline: none;
+	}
+
+	.rdm__diag:focus-visible {
+		box-shadow: inset 2px 0 0 var(--destructive);
+	}
+
+	.rdm__diag-hint {
+		margin-left: 0.75rem;
+		padding: 0.0625rem 0.375rem;
+		border: 1px solid var(--border);
+		font-size: 10px;
+		font-weight: 500;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--destructive);
+		opacity: 0;
+		transition: opacity 0.12s ease;
+	}
+
+	.rdm__diag:hover .rdm__diag-hint,
+	.rdm__diag:focus-visible .rdm__diag-hint {
+		opacity: 1;
+	}
+
+	/* ── Assertion drawer ────────────────────────────────────────────────
+	   Slides in from the right edge of the run-detail window. Always in
+	   the DOM but translated off-screen + pointer-events none when closed;
+	   the figure's overflow: hidden clips the translated state. */
+	.rdm__drawer-scrim {
+		position: absolute;
+		inset: 0;
+		z-index: 15;
+		pointer-events: none;
+	}
+
+	.rdm[data-drawer-open] .rdm__drawer-scrim {
+		pointer-events: auto;
+	}
+
+	.rdm__drawer {
+		position: absolute;
+		inset: 0 0 0 auto;
+		width: min(26rem, 92%);
+		display: flex;
+		flex-direction: column;
+		background: var(--card);
+		border-left: 1px solid var(--border);
+		box-shadow: -12px 0 32px oklch(0 0 0 / 50%);
+		transform: translateX(100%);
+		transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+		pointer-events: none;
+		z-index: 20;
+	}
+
+	.rdm[data-drawer-open] .rdm__drawer {
+		transform: translateX(0);
+		pointer-events: auto;
+	}
+
+	.rdm__drawer-head {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.625rem 0.75rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.rdm__drawer-id {
+		flex: 1;
+		min-width: 0;
+		font-family: var(--sl-font-mono, monospace);
+		font-size: 12px;
+		color: var(--fg);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.rdm__drawer-close {
+		flex-shrink: 0;
+		background: transparent;
+		border: none;
+		color: var(--muted);
+		font-size: 14px;
+		line-height: 1;
+		cursor: pointer;
+		padding: 0.125rem 0.25rem;
+		transition: color 0.12s ease;
+	}
+
+	.rdm__drawer-close:hover {
+		color: var(--fg);
+	}
+
+	.rdm__drawer-body {
+		padding: 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		overflow-y: auto;
+	}
+
+	.rdm__drawer-reasoning {
+		margin: 0;
+		font-size: 13px;
+		line-height: 1.5;
+		color: var(--fg);
+	}
+
+	.rdm__labeled {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.rdm__labeled-label {
+		margin: 0;
+		font-size: 10px;
+		font-weight: 500;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--muted);
+	}
+
+	.rdm__labeled-value {
+		margin: 0;
+		font-family: var(--sl-font-mono, monospace);
+		font-size: 12px;
+		color: var(--fg);
+		word-break: break-word;
+	}
+
+	.rdm__labeled-value--fail {
+		color: var(--destructive);
+	}
+
 	/* GitHub-Dark syntax tokens (verbatim from githubDarkHighlight). */
 	.cm-tok-kw { color: #f97583; }
 	.cm-tok-str { color: #9ecbff; }
@@ -591,6 +769,7 @@
 		}
 		.rdm__bar-pass { width: 75% !important; }
 		.rdm__bar-fail { width: 25% !important; }
+		.rdm__drawer { transition: none !important; }
 	}
 </style>
 
@@ -626,5 +805,43 @@
 				chevron?.classList.remove("rdm__chevron--open");
 			}
 		});
+	}
+
+	// Assertion drawer: open when the failing diagnostic is clicked, close on
+	// scrim/close-button/Escape — mirrors the dashboard's AssertionDrawer.
+	const drawerHost = document.querySelector<HTMLElement>("[data-rdm]");
+	const drawer = drawerHost?.querySelector<HTMLElement>("[data-assertion-drawer]");
+	const trigger = document.querySelector<HTMLElement>("[data-assertion-trigger]");
+	if (drawerHost && drawer && trigger) {
+		const sync = () => {
+			const open = drawerHost.hasAttribute("data-drawer-open");
+			drawer.setAttribute("aria-hidden", open ? "false" : "true");
+		};
+		const openDrawer = () => {
+			drawerHost.setAttribute("data-drawer-open", "");
+			sync();
+		};
+		const closeDrawer = () => {
+			drawerHost.removeAttribute("data-drawer-open");
+			sync();
+			trigger.focus();
+		};
+
+		trigger.addEventListener("click", openDrawer);
+		trigger.addEventListener("keydown", (e) => {
+			if (e.key === "Enter" || e.key === " ") {
+				e.preventDefault();
+				openDrawer();
+			}
+		});
+		for (const el of drawerHost.querySelectorAll<HTMLElement>("[data-assertion-close]")) {
+			el.addEventListener("click", closeDrawer);
+		}
+		document.addEventListener("keydown", (e) => {
+			if (e.key === "Escape" && drawerHost.hasAttribute("data-drawer-open")) {
+				closeDrawer();
+			}
+		});
+		sync();
 	}
 </script>
