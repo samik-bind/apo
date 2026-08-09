@@ -1,0 +1,472 @@
+---
+/**
+ * EndToEndLoopDemo — two passes through the same agent test loop.
+ *
+ * User-defined tests enter as a fixed definition of done. The first Task Run
+ * fails, its evidence informs a caller-owned implementation change, and the
+ * second Task Run passes. The improved agent exits; the tests never change.
+ *
+ * Motion is illustrative rather than decorative: a token makes two literal
+ * laps around the loop. Reduced-motion users get the completed static frame.
+ */
+---
+
+<figure class="test-loop not-content" data-test-loop>
+	<figcaption class="test-loop__sr-only">
+		User-defined tests stay fixed while the real agent runs twice. The first run
+		fails and returns tests, trace, and deliverables. The caller improves the
+		implementation and starts a second run. When the same tests pass, the
+		improved agent exits the loop.
+	</figcaption>
+
+	<div class="test-loop__flow" aria-hidden="true">
+		<div class="test-loop__card test-loop__card--input">
+			<span>Input</span>
+			<strong>Your tests</strong>
+			<small>Definition of done</small>
+		</div>
+
+		<span class="test-loop__flow-arrow">→</span>
+
+		<div class="test-loop__ring" data-ring>
+			<svg class="test-loop__track" viewBox="0 0 272 272" focusable="false">
+				<circle cx="136" cy="136" r="100"></circle>
+			</svg>
+
+			<span class="test-loop__token" data-token></span>
+
+			<div class="test-loop__node test-loop__node--run" data-node="run">
+				Run agent
+			</div>
+			<div class="test-loop__node test-loop__node--verdict" data-node="verdict" data-state="pending">
+				<span data-verdict>Verdict</span>
+			</div>
+			<div class="test-loop__node test-loop__node--evidence" data-node="evidence">
+				<span>Read evidence</span>
+				<small>tests · trace · deliverables</small>
+			</div>
+			<div class="test-loop__node test-loop__node--improve" data-node="improve">
+				Caller improves
+			</div>
+
+			<div class="test-loop__center">
+				<span class="test-loop__brand">apo</span>
+				<strong data-run-label>run 1 / 2</strong>
+			</div>
+		</div>
+
+		<span class="test-loop__flow-arrow test-loop__flow-arrow--output" data-output-arrow>→</span>
+
+		<div class="test-loop__card test-loop__card--output" data-output>
+			<span>Output</span>
+			<strong>Improved agent</strong>
+			<small>Same tests now pass</small>
+		</div>
+	</div>
+</figure>
+
+<style>
+	.test-loop {
+		margin: 1.5rem 0 2rem;
+		padding: 1.25rem 1rem;
+		border: 1px solid var(--sl-color-gray-5);
+		background: var(--sl-color-black);
+		font-family: var(--sl-font-mono, ui-monospace, monospace);
+		overflow: hidden;
+	}
+
+	.test-loop__sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
+	}
+
+	.test-loop__flow {
+		display: grid;
+		grid-template-columns: minmax(7rem, 1fr) 1.5rem 17rem 1.5rem minmax(7rem, 1fr);
+		align-items: center;
+	}
+
+	.test-loop__card {
+		padding: 0.75rem;
+		border: 1px solid var(--sl-color-gray-5);
+		background: var(--sl-color-gray-6);
+		transition: border-color 300ms ease, opacity 300ms ease;
+	}
+
+	.test-loop__card span,
+	.test-loop__card strong,
+	.test-loop__card small {
+		display: block;
+	}
+
+	.test-loop__card span {
+		margin-bottom: 0.35rem;
+		color: var(--sl-color-gray-4);
+		font-size: 0.62rem;
+		font-weight: 600;
+		letter-spacing: 0.07em;
+		text-transform: uppercase;
+	}
+
+	.test-loop__card strong {
+		color: var(--sl-color-white);
+		font-family: var(--sl-font, ui-sans-serif, sans-serif);
+		font-size: 0.82rem;
+		font-weight: 600;
+		line-height: 1.3;
+	}
+
+	.test-loop__card small {
+		margin-top: 0.25rem;
+		color: var(--sl-color-gray-3);
+		font-size: 0.66rem;
+		line-height: 1.4;
+	}
+
+	.test-loop__card--output,
+	.test-loop__flow-arrow--output {
+		opacity: 0.2;
+	}
+
+	.test-loop__card--output[data-visible] {
+		border-color: var(--sl-color-accent);
+		opacity: 1;
+	}
+
+	.test-loop__flow-arrow--output[data-visible] {
+		color: var(--sl-color-accent);
+		opacity: 1;
+	}
+
+	.test-loop__flow-arrow {
+		color: var(--sl-color-gray-4);
+		font-size: 0.8rem;
+		text-align: center;
+		transition: color 300ms ease, opacity 300ms ease;
+	}
+
+	.test-loop__ring {
+		position: relative;
+		width: 17rem;
+		height: 17rem;
+		margin: 0 auto;
+	}
+
+	.test-loop__track {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		overflow: visible;
+	}
+
+	.test-loop__track circle {
+		fill: none;
+		stroke: var(--sl-color-gray-5);
+		stroke-width: 1;
+		stroke-dasharray: 3 5;
+	}
+
+	.test-loop__token {
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 0.55rem;
+		height: 0.55rem;
+		border: 2px solid var(--sl-color-black);
+		border-radius: 999px;
+		background: var(--sl-color-white);
+		offset-path: path("M 136 36 A 100 100 0 1 1 135.99 36");
+		offset-distance: 0%;
+		offset-anchor: center;
+		z-index: 1;
+	}
+
+	.test-loop__node {
+		position: absolute;
+		z-index: 2;
+		min-width: 4.75rem;
+		padding: 0.35rem 0.45rem;
+		border: 1px solid var(--sl-color-gray-5);
+		background: var(--sl-color-black);
+		color: var(--sl-color-gray-3);
+		font-size: 0.65rem;
+		font-weight: 600;
+		line-height: 1.25;
+		text-align: center;
+		transition:
+			border-color 220ms ease,
+			color 220ms ease,
+			background-color 220ms ease;
+	}
+
+	.test-loop__node[data-active] {
+		border-color: var(--sl-color-gray-2);
+		background: var(--sl-color-gray-6);
+		color: var(--sl-color-white);
+	}
+
+	.test-loop__node--run {
+		top: 2.25rem;
+		left: 50%;
+		transform: translate(-50%, -50%);
+	}
+
+	.test-loop__node--verdict {
+		top: 50%;
+		right: 2.25rem;
+		transform: translate(50%, -50%);
+	}
+
+	.test-loop__node--evidence {
+		bottom: 2.25rem;
+		left: 50%;
+		min-width: 8.75rem;
+		transform: translate(-50%, 50%);
+	}
+
+	.test-loop__node--evidence span,
+	.test-loop__node--evidence small {
+		display: block;
+	}
+
+	.test-loop__node--evidence small {
+		margin-top: 0.15rem;
+		color: var(--sl-color-gray-4);
+		font-size: 0.52rem;
+		font-weight: 400;
+	}
+
+	.test-loop__node--improve {
+		top: 50%;
+		left: 2.25rem;
+		transform: translate(-50%, -50%);
+	}
+
+	.test-loop__node--verdict[data-state="fail"] {
+		border-color: oklch(0.8 0.16 25);
+		color: oklch(0.8 0.16 25);
+	}
+
+	.test-loop__node--verdict[data-state="pass"] {
+		border-color: var(--sl-color-accent);
+		color: var(--sl-color-accent-high);
+	}
+
+	.test-loop__center {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		width: 8.5rem;
+		transform: translate(-50%, -50%);
+		text-align: center;
+	}
+
+	.test-loop__center > span,
+	.test-loop__center > strong {
+		display: block;
+	}
+
+	.test-loop__brand {
+		margin-bottom: 0.35rem;
+		color: var(--sl-color-gray-4);
+		font-size: 0.65rem;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+	}
+
+	.test-loop__center strong {
+		color: var(--sl-color-white);
+		font-family: var(--sl-font, ui-sans-serif, sans-serif);
+		font-size: 0.8rem;
+		font-weight: 600;
+	}
+
+	@media (max-width: 52rem) {
+		.test-loop__flow {
+			grid-template-columns: 1fr;
+			justify-items: center;
+			gap: 0.75rem;
+		}
+
+		.test-loop__card {
+			width: min(100%, 17rem);
+		}
+
+		.test-loop__flow-arrow {
+			transform: rotate(90deg);
+		}
+	}
+
+	@media (max-width: 24rem) {
+		.test-loop {
+			padding-inline: 0.5rem;
+		}
+
+		.test-loop__ring {
+			transform: scale(0.92);
+			margin-block: -0.7rem;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.test-loop__card,
+		.test-loop__flow-arrow,
+		.test-loop__node {
+			transition: none;
+		}
+	}
+</style>
+
+<script>
+	import { onVisible, prefersReducedMotion } from "./demo-motion";
+
+	type NodeName = "run" | "verdict" | "evidence" | "improve";
+	type VerdictState = "pending" | "fail" | "pass";
+
+	const LAP_MS = 4_500;
+	const PASS_EXIT_MS = 1_150;
+	const CYCLE_MS = 9_500;
+
+	function setupTestLoop(root: HTMLElement) {
+		const nodes = new Map<NodeName, HTMLElement>();
+		for (const node of root.querySelectorAll<HTMLElement>("[data-node]")) {
+			nodes.set(node.dataset.node as NodeName, node);
+		}
+
+		const token = root.querySelector<HTMLElement>("[data-token]");
+		const verdictNode = nodes.get("verdict");
+		const verdictLabel = root.querySelector<HTMLElement>("[data-verdict]");
+		const runLabel = root.querySelector<HTMLElement>("[data-run-label]");
+		const output = root.querySelector<HTMLElement>("[data-output]");
+		const outputArrow = root.querySelector<HTMLElement>("[data-output-arrow]");
+		let tokenAnimation: Animation | undefined;
+		let timers: number[] = [];
+		let cycleGeneration = 0;
+
+		function setActive(name?: NodeName) {
+			for (const [nodeName, element] of nodes) {
+				element.toggleAttribute("data-active", nodeName === name);
+			}
+		}
+
+		function setVerdict(state: VerdictState) {
+			if (verdictNode) verdictNode.dataset.state = state;
+			if (!verdictLabel) return;
+			verdictLabel.textContent =
+				state === "fail" ? "FAIL" : state === "pass" ? "PASS" : "Verdict";
+		}
+
+		function setCenter(label: string) {
+			if (runLabel) runLabel.textContent = label;
+		}
+
+		function showOutput(visible: boolean) {
+			output?.toggleAttribute("data-visible", visible);
+			outputArrow?.toggleAttribute("data-visible", visible);
+		}
+
+		function clearCycle() {
+			cycleGeneration += 1;
+			for (const timer of timers) window.clearTimeout(timer);
+			timers = [];
+			tokenAnimation?.cancel();
+			tokenAnimation = undefined;
+		}
+
+		function schedule(generation: number, delay: number, action: () => void) {
+			const timer = window.setTimeout(() => {
+				if (generation === cycleGeneration) action();
+			}, delay);
+			timers.push(timer);
+		}
+
+		function showStaticFrame() {
+			setActive();
+			setVerdict("pass");
+			setCenter("2 runs");
+			showOutput(true);
+		}
+
+		function playCycle() {
+			clearCycle();
+			const generation = cycleGeneration;
+			setActive("run");
+			setVerdict("pending");
+			setCenter("run 1 / 2");
+			showOutput(false);
+
+			if (token) {
+				tokenAnimation = token.animate(
+					[{ offsetDistance: "0%" }, { offsetDistance: "100%" }],
+					{ duration: LAP_MS, easing: "linear", fill: "forwards" },
+				);
+			}
+
+			schedule(generation, 1_100, () => {
+				setActive("verdict");
+				setVerdict("fail");
+			});
+			schedule(generation, 2_200, () => {
+				setActive("evidence");
+			});
+			schedule(generation, 3_350, () => {
+				setActive("improve");
+			});
+			schedule(generation, LAP_MS, () => {
+				setActive("run");
+				setVerdict("pending");
+				setCenter("run 2 / 2");
+				if (token) {
+					tokenAnimation = token.animate(
+						[{ offsetDistance: "0%" }, { offsetDistance: "25%" }],
+						{ duration: PASS_EXIT_MS, easing: "linear", fill: "forwards" },
+					);
+				}
+			});
+			schedule(generation, LAP_MS + PASS_EXIT_MS, () => {
+				setActive("verdict");
+				setVerdict("pass");
+				showOutput(true);
+			});
+			schedule(generation, CYCLE_MS, playCycle);
+		}
+
+		if (prefersReducedMotion()) {
+			showStaticFrame();
+			return;
+		}
+
+		const disposeVisibility = onVisible(
+			root,
+			(state) => {
+				if (state === "visible") {
+					playCycle();
+				} else {
+					clearCycle();
+				}
+			},
+			{ threshold: 0.35 },
+		);
+
+		document.addEventListener(
+			"astro:before-swap",
+			() => {
+				clearCycle();
+				disposeVisibility();
+			},
+			{ once: true },
+		);
+	}
+
+	document
+		.querySelectorAll<HTMLElement>("[data-test-loop]")
+		.forEach((root) => setupTestLoop(root));
+</script>

@@ -3,15 +3,15 @@ title: Overview
 description: Give every agent task an executable definition of done.
 ---
 
+import EndToEndLoopDemo from '../../components/demos/EndToEndLoopDemo.astro';
+
 **apo** is an end-to-end testing framework for agent systems. It turns the behavior you expect into an executable definition of done: write the tests, run the real agent, and get a pass/fail verdict backed by the test breakdown, trace, and deliverables. If evaluation cannot complete, apo surfaces an execution error instead of inventing a verdict.
 
-```text
-expected behavior → real agent run → PASS / FAIL + evidence → improve → run again
-```
+<EndToEndLoopDemo />
 
-The loop can be driven by a developer, CI, or a coding agent. apo owns one Task Run and its evidence. The caller owns the code change and decides whether to start another Task Run.
+The loop can be driven by a developer, CI, or a coding agent. apo owns one Task Run and its evidence. The caller owns the code change and decides whether to run again.
 
-This is why apo is a testing framework rather than an eval dashboard. The result is not just a score to monitor. It is a control signal you can act on.
+That separation is why apo is a testing framework rather than an eval dashboard: it returns a control signal you can act on, not just a score to monitor.
 
 ## It runs in your system
 
