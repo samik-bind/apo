@@ -12,8 +12,10 @@ import TerminalDemo from '../../components/demos/TerminalDemo.astro';
 Self-host from source:
 
 ```bash
-git clone https://github.com/samikuikka/apo.git && cd apo
-docker compose up -d --build
+git clone https://github.com/samikuikka/apo.git
+cd apo
+scripts/self-host init --profile local
+scripts/self-host up --build
 ```
 
 Wait for readiness:
@@ -26,6 +28,12 @@ curl -fsS http://localhost:8000/health/ready | jq
 Open `http://localhost:3000` and create the first admin account. Full details in [Self-Hosting](/self-hosting/topology/).
 
 ## 2. Authenticate
+
+Install the CLI, then log in:
+
+```bash
+npm install -g @apo-ai/cli
+```
 
 <TerminalDemo
   command="apo login"

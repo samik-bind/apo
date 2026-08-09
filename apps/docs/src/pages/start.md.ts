@@ -158,7 +158,8 @@ apo is source-open and self-hosted. It runs as a Docker Compose stack:
 \`\`\`bash
 git clone https://github.com/samikuikka/apo.git apo
 cd apo
-docker compose up -d --build
+scripts/self-host init --profile local
+scripts/self-host up --build
 \`\`\`
 
 **Wait for readiness** — the healthcheck confirms the database, task cache, and

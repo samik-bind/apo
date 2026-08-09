@@ -51,7 +51,7 @@ Manage which project you're operating against and where its tasks come from.
 |---|---|
 | [`apo project list`](/cli/project/) | List projects you can access. |
 | [`apo project use`](/cli/project/) | Switch the active project. |
-| [`apo project source`](/cli/project/) | Show, set, or sync the task source. |
+| [`apo project`](/cli/project/) | Create, list, and select projects. |
 
 ## Authentication
 

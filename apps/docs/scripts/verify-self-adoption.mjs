@@ -31,14 +31,15 @@ const SCAN_DIRS = [
 const BANNED = [
   // Placeholder URLs
   { pattern: /git clone <repo-url>/, reason: "placeholder repo URL" },
-  // Retired CLI commands
-  { pattern: /apo project source sync/, reason: "retired command 'apo project source sync'" },
+  // Retired CLI commands (whole families)
+  { pattern: /apo project source\b/, reason: "retired command family 'apo project source'" },
   { pattern: /apo project init-tasks/, reason: "retired command 'apo project init-tasks'" },
   { pattern: /apo project sync-tasks/, reason: "retired command 'apo project sync-tasks'" },
   { pattern: /apo batch create/, reason: "retired command 'apo batch create'" },
   // Retired executor topology (current-state pages only)
-  { pattern: /\bBundled Executor\b/, reason: "retired 'Bundled Executor' topology" },
+  { pattern: /\bBundled\s+Executor\b/, reason: "retired 'Bundled Executor' topology" },
   { pattern: /APO_BUNDLED_EXECUTOR_ENABLED/, reason: "retired executor variable" },
+  { pattern: /apo_executor_bootstrap/, reason: "retired executor bootstrap" },
   { pattern: /apo_executor_state/, reason: "retired executor state" },
   { pattern: /task_source_cache/, reason: "retired task source cache" },
 ];

@@ -53,6 +53,8 @@ jobs:
       - run: pnpm test:public-ingress
       - name: Public docs deployment contract
         run: pnpm test:public-docs
+      - name: Self-adoption docs contract
+        run: pnpm test:self-adoption-docs
 
   backend:
     name: Typecheck + Test (Backend)

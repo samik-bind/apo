@@ -167,21 +167,16 @@ apps/example-service/e2e/agent-task-demo/tasks/
 
 This keeps dashboard grouping aligned with real product areas instead of flattening everything into one task bucket.
 
-### CLI Project Task Sources
+### CLI Task Catalog
 
-The CLI should be able to drive the same project-scoped agent-task model as the dashboard instead of assuming a local `taskRoot`.
+Tasks are published to a project via `apo task publish`, which sends bounded
+metadata (not full source) to the backend. Execution stays in the source-owning
+environment via `apo task run` (one-shot) or `apo connect` (persistent).
 
-- Preferred setup path:
-  - This configures the Git task source, attempts sync immediately, and only falls back to GitHub OAuth when a GitHub-hosted repo needs authentication.
-- Preferred maintenance path:
-  - `apo task list`
-  - `apo task run <task-id>`
-- Use `apo project source show --project <id>` to inspect the configured task source.
-- Use `apo project source set --project <id> --type git --repo <url> --ref <branch-or-tag> [--subpath <path>]` to point a project at a Git-backed task tree.
-- Use `apo project source set --project <id> --type filesystem --path <server-path> [--subpath <path>]` for self-hosted or local-server task roots.
-- When `--project` is present, `apo task list`, `apo task show`, `apo task run`, `apo task files`, and `apo task read` should prefer the project-scoped backend APIs over ad hoc local discovery.
-
-This keeps agents, dashboard users, and backend execution on the same source-of-truth task inventory.
+- `apo task publish --dir <task-root>` — publish task definitions to the catalog.
+- `apo task list` — list published tasks.
+- `apo task run <task-id> --dir <task-root>` — run a task locally, record the result.
+- `apo connect --dir <task-root>` — connect as a persistent executor for dashboard/schedule dispatch.
 
 ### Published CLI Task Child
 
@@ -408,23 +403,18 @@ function buildHierarchy(items: Item[]): Item[] {
 
 ### Agent Task Runtime Bundle
 
-The Executor runs agent tasks by spawning
-`node /app/agent-task-runtime/runner.mjs`. The backend image and Bundled
-Executor currently share an image, but only the Executor process invokes the
-runtime. In local development the packaged path falls back to the repo's
-`tsx` binary against `packages/sdk/src/agent-task/runner-entry.ts`.
-
-When you change anything under `packages/sdk/src/agent-task/`, rebuild the bundle so the runtime matches the source:
+Under Source-Owned Execution, the CLI (`apo task run` / `apo connect`) spawns
+the task runner in the source-owning environment. The runner imports the SDK
+and executes the task's adapter lifecycle. When you change anything under
+`packages/sdk/src/agent-task/`, rebuild the SDK so the runtime matches source:
 
 ```bash
-pnpm --filter @apo-ai/sdk build:agent-task-runtime
+pnpm --filter @apo-ai/sdk build
 ```
 
-The Dockerfile runs this for you during `docker compose build`. Locally, you only need to rebuild when you want to test the packaged path (set `AGENT_TASK_RUNTIME_DIR=packages/sdk/dist/agent-task-runtime` before starting the backend).
-
-The backend image also runs the regular `@apo-ai/sdk` build before assembling
-the runner. Demo and synced task modules import the package through its
-published `dist` exports, so copying SDK source without those artifacts makes
+The backend Docker image also runs the regular `@apo-ai/sdk` build before
+assembling the runner for compatibility, but the primary execution path is
+the CLI-spawned child, not a server-side process.
 the runner start successfully but fail as soon as it loads a task definition.
 Install the copied SDK package's production dependencies at its final
 `/app/_sdk-source` location before installing it into the bundled demo

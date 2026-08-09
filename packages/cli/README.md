@@ -1,12 +1,18 @@
 # @apo-ai/cli
 
-Command-line interface for the [Apo](https://github.com/samikuikka/apo) agent testing and observability platform.
+Command-line interface for [Apo](https://github.com/samikuikka/apo) — an opinionated agent testing framework.
 
 ## Installation
 
 ```bash
-pnpm add @apo-ai/cli
-# or: npm install @apo-ai/cli
+npm install -g @apo-ai/cli
+apo --version
+```
+
+Or run without a global install:
+
+```bash
+npx @apo-ai/cli --version
 ```
 
 Requires Node.js ≥ 20.

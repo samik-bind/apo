@@ -9,6 +9,8 @@
 </p>
 
 <p align="center">
+  <a href="https://docs.test-apo.online/">Docs</a> ·
+  <a href="https://docs.test-apo.online/quickstart/">Quickstart</a> ·
   <a href="PROJECT-BELIEFS.md">Beliefs</a> ·
   <a href="docs/self-hosted-alpha.md">Self-hosting</a>
 </p>
@@ -33,22 +35,23 @@ The full reasoning lives in [`PROJECT-BELIEFS.md`](PROJECT-BELIEFS.md).
 
 ## Self-host
 
-Apo runs on a single host. Bring up the backend, dashboard, and database with Docker Compose:
+Apo runs on a single host. Bring up the backend, dashboard, and database with the self-host helper, which generates the `AUTH_SECRET` for you before anything starts:
 
 ```bash
-git clone https://github.com/samikuikka/apo.git && cd apo
-docker compose up -d --build
+git clone https://github.com/samikuikka/apo.git
+cd apo
+scripts/self-host init --profile local
+scripts/self-host up --build
 # dashboard  → http://localhost:3000
 # readiness  → curl -fsS http://localhost:8000/health/ready | jq
 ```
 
 Operator guide — single-host topology, env vars, TLS, deployment profiles — is in [`docs/self-hosted-alpha.md`](docs/self-hosted-alpha.md).
 
-To make the same installation reachable by teammates and sandboxed agents,
-set `APO_PUBLIC_URL` to your HTTPS domain and start the public Server Profile:
+To make the same installation reachable by teammates and sandboxed agents, switch to the server profile with `scripts/self-host init --profile server` and bring it up:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+scripts/self-host up --build
 # dashboard  → https://apo.example.com
 # CLI API    → https://apo.example.com/backend-proxy
 # OTLP       → https://apo.example.com/api/public/otel/v1/traces
@@ -111,9 +114,10 @@ Deterministic tests pin down objective facts so judges can't be gamed by plausib
 
 ## Run it
 
-The CLI talks to your self-hosted instance. Authenticate once, point at a project, then run and inspect tasks:
+The CLI talks to your self-hosted instance. Install it once, authenticate, point at a project, then run and inspect tasks:
 
 ```bash
+npm install -g @apo-ai/cli   # one-time: install the Apo CLI
 apo login                   # one-time: save credentials to ~/.apo/credentials
 apo project list            # pick a project
 apo project use <id>        # set it as the current project

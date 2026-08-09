@@ -19,6 +19,7 @@
     "test:alpha:backend": "cd backend && uv run pytest tests/test_alpha_scheduler_recovery.py tests/test_alpha_project_isolation.py tests/test_runtime_config.py tests/test_agent_task_runtime.py tests/test_task_dependency_installer.py -q",
     "test:public-ingress": "bash tests/deployment/public-ingress-contract.sh",
     "test:public-docs": "bash tests/deployment/public-docs-contract.sh",
+    "test:self-adoption-docs": "node apps/docs/scripts/verify-self-adoption.mjs",
     "test:tunnel-trial-validation": "bash tests/deployment/tunnel-trial-validation-contract.sh"
   },
   "devDependencies": {

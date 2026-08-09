@@ -880,7 +880,7 @@ export function AgentTasksClient({
       .catch(() => { /* keep previous overlay on transient failure */ })
       .finally(() => { if (!controller.signal.aborted) setViewStatsLoading(false); });
     return () => controller.abort();
-  }, [projectId, activeView.model, activeView.effort, isDemoProject]);
+  }, [projectId, activeView.model, activeView.effort, activeView.since, isDemoProject]);
 
   // The task table renders against this: original tasks for Main, or the same
   // tasks with view-scoped stats overlaid for a derived tab (tasks with no run

@@ -4,12 +4,11 @@ Documentation site for [apo](../..), built with [Astro Starlight](https://starli
 
 ## Status
 
-**Proof of concept** — docs-only, default Starlight look. The goal of this
-stage is to validate **content and structure** so users get readable
-documentation instead of raw code or markdown files in the repo.
-
-Theming to the apo dark/monochrome/sharp-cornered identity (see
-[`docs/design.md`](../../docs/design.md)) is the next step.
+Live at **[docs.test-apo.online](https://docs.test-apo.online/)**. Themed to
+apo's dark/monochrome/sharp-cornered identity (see
+[`docs/design.md`](../../docs/design.md)). Includes a custom landing page,
+section-based header navigation, agent-readable `.md` routes, and a
+publication verifier that catches broken links and stale references.
 
 ## Run it
 

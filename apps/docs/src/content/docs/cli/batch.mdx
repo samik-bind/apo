@@ -34,43 +34,6 @@ A batch run executes multiple tasks in one operation and reports the aggregate r
     { text: "        trace: a7b8c9d0", tone: "default" },
   ]}
 />
-
-
-Create a new batch run on the backend.
-
-### Synopsis
-
-```bash
-```
-
-### Options
-
-| Option | Default | Description |
-|---|---|---|
-| `--tasks <id1,id2,...>` | (required) | Comma-separated task ids. |
-| `--executor <pool-id>` | Project default | Queue on this exact Pool. |
-
-Without a `--project`, the ids are resolved against local `--dir` discovery and the filesystem paths are sent. With a `--project`, the ids are sent directly.
-
-Every Batch is durable queued work. The backend never runs Task code. Without
-`--executor`, Apo uses the Project default Pool; if no valid default exists,
-creation fails instead of silently choosing Caller or another Pool.
-
-### Output
-
-<TerminalOutput
-  lines={[
-    { text: "Batch created: b9c0d1e2" },
-    { text: "  Status:    queued" },
-    { text: "  Tasks:     3" },
-    { text: "" },
-    { text: "  Runs:", tone: "default" },
-    { text: "    - extract-parties: pending" },
-    { text: "    - code-review: queued" },
-    { text: "    - document-qa: queued" },
-  ]}
-/>
-
 ## `apo batch show`
 
 Show a batch run's details — aggregate counts, per-task results, costs, and trace ids.
