@@ -37,9 +37,9 @@ const COLORS = {
 
 const SITE_URL = "docs.test-apo.online";
 const WORDMARK = "apo";
-const TAGLINE = "Opinionated agent testing framework.";
+const TAGLINE = "Give every agent task a definition of done.";
 const SUB =
-	"Runs your real agent. Evaluates the outcomes. Shows you exactly what went wrong.";
+	"End-to-end tests. Real agent runs. Verdicts backed by tests, traces, and deliverables.";
 
 // --- Minimal hyperscript: builds the element-shaped objects satori consumes. ---
 

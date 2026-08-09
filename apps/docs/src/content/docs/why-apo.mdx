@@ -1,13 +1,21 @@
 ---
 title: Why apo
-description: The reasoning behind the design.
+description: Why agent systems need executable definitions of done.
 ---
 
 import GradedAcrossRunsDemo from '../../components/demos/GradedAcrossRunsDemo.astro';
 import DeliverableDemo from '../../components/demos/DeliverableDemo.astro';
 import SchedulesDemo from '../../components/demos/SchedulesDemo.astro';
 
-**apo** is a testing framework for agents. You write a test, apo runs your real agent against it, and the run comes back green or red. It's the same loop you already know from Jest or pytest, with one difference: an agent's output usually isn't exact-match, so a test can also hand the result to an LLM and ask *is this actually good?*
+Agent development needs a definition of done. **apo** turns that definition into executable tests, runs the real agent system, and returns a pass/fail verdict with enough evidence to understand the result. If evaluation cannot complete, the Task Run surfaces an error instead.
+
+```text
+expected behavior → real agent run → PASS / FAIL + evidence → improve → run again
+```
+
+That is the familiar end-to-end testing loop, adapted to systems whose outputs are not always exact-match. A test can assert a concrete fact in code or hand a deliverable to an LLM and ask *is this actually good?*
+
+The result is useful to both humans and machines. A developer, CI workflow, or coding agent can use pass/fail as a control signal, read the failed tests, trace, and deliverables, change the implementation, and run again. apo owns the Task Run and evidence; it does not edit the implementation or autonomously start another Task Run to improve a failed verdict.
 
 Most of the choices below fall out of taking that idea seriously.
 
@@ -17,7 +25,7 @@ Most of the choices below fall out of taking that idea seriously.
 
 An agent is not a prompt. It's a prompt plus tools plus the code that wires them together. Scoring the prompt in isolation tells you about the prompt. It tells you nothing about whether the agent actually works.
 
-So apo runs the full implementation, the same code path you ship, and judges what comes back. No mocks of the agent, no stubbed tool responses, no shortcuts. If you change a tool, the next run reflects it. If you ship a regression, the next run catches it.
+So apo runs your real agent orchestration through the adapter and judges what comes back. The task may use safe test data, sandboxed tools, or test dependencies; what matters is that you exercise the implementation as a system instead of scoring a prompt-only proxy. If you change the orchestration, the next run reflects it. If you introduce a behavioral regression, the tests can catch it.
 
 ## Judge the deliverable, not the chat
 
@@ -70,11 +78,11 @@ We didn't want two systems, with "checks" over here and "evals" over there, beca
 
 ## Binary results
 
-**A run passes or fails. There is no score.**
+**A completed evaluation passes or fails. There is no score.**
 
 `0.78` doesn't tell you whether to ship. It doesn't tell you whether the run met the standard. And it lets a near-pass quietly feel like a win, which is the most dangerous failure mode in evaluation, the one you don't investigate.
 
-The question for a single run is binary: did it meet the bar, or didn't it? If any test fails, the run fails. No weighting, no averaging, no partial credit.
+The question for a completed evaluation is binary: did it meet the bar, or didn't it? If any test fails, the run fails. No weighting, no averaging, no partial credit. If evaluation cannot complete, the Task Run reports an error rather than pretending it received a verdict.
 
 ## Graded across runs
 
@@ -82,7 +90,7 @@ The question for a single run is binary: did it meet the bar, or didn't it? If a
 
 Here's the problem. A run that fails 1 of 15 tests and a run that fails 14 of 15 are both "fail." Collapse them to a 0% pass-rate and you've thrown away the single most useful signal in evaluation: *did the last change help?*
 
-So apo keeps the per-test counts. Each run is still pass or fail; the result doesn't soften, but across runs you can read the direction. `14/15 → 9/15` is a regression even though both are red. `2/15 → 11/15` is real progress even though neither ships yet.
+So apo keeps the per-test counts. Each evaluated run is still pass or fail; the result doesn't soften, but across runs you can read the direction. `14/15 → 9/15` is a regression even though both are red. `2/15 → 11/15` is real progress even though neither ships yet.
 
 <GradedAcrossRunsDemo />
 
@@ -106,11 +114,13 @@ A task says *what* to evaluate. When it runs is a separate concern, and the righ
 
 <SchedulesDemo />
 
-## The loop, without you in it
+## Close the loop without watching every run
 
 **A coding agent can run this whole loop itself.** You write the tests once, encoding your expert judgment, then hand the loop to the agent: it runs the task from the CLI, reads the result, opens the trace, iterates on the codebase, and runs again until the tests pass. Your expertise lives in the tests; the agent applies it without you watching each run.
 
-See [Loop engineering with apo](/guides/loop-engineering/) for the workflow.
+apo is the harness inside that loop, not the repair agent. It runs one Task Run at a time and reports what happened. The coding agent owns the edits and decides when to start another Task Run.
+
+See [Close the loop with a coding agent](/guides/loop-engineering/) for the workflow.
 
 ---
 

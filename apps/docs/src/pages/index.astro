@@ -20,14 +20,14 @@ import { docsSections, docsHref } from "../lib/docs-navigation";
 
 const GITHUB_URL = "https://github.com/samikuikka/apo";
 const COPY_PROMPT_TEXT =
-	`Read ${Astro.site}start.md then help me set up apo and run my first task.`;
+	`Read ${Astro.site}start.md then help me give one agent task an executable definition of done and run it.`;
 
 // Open Graph / Twitter card metadata. The preview image is generated at build
 // time by src/pages/og-landing.png.ts — see that file for the design. Keep these
 // in sync with the <title>/<meta description> below (single source via consts).
-const PAGE_TITLE = "apo — Opinionated agent testing framework";
+const PAGE_TITLE = "apo — A definition of done for agent systems";
 const PAGE_DESCRIPTION =
-	"A testing framework for agent systems. It runs your real agent, evaluates the outcomes, and shows you exactly what went wrong when something breaks.";
+	"End-to-end testing for agent systems. Define expected behavior, run the real agent, and get pass/fail with the tests, trace, and deliverables.";
 const OG_IMAGE = new URL("/og-landing.png", Astro.site).href;
 const CANONICAL = new URL("/", Astro.site).href;
 ---
@@ -56,7 +56,7 @@ const CANONICAL = new URL("/", Astro.site).href;
 		<meta property="og:image" content={OG_IMAGE} />
 		<meta property="og:image:width" content="1200" />
 		<meta property="og:image:height" content="630" />
-		<meta property="og:image:alt" content="apo — opinionated agent testing framework" />
+		<meta property="og:image:alt" content="apo — give every agent task a definition of done" />
 		{/* Twitter / X — summary_large_image gives the big banner card. */}
 		<meta name="twitter:card" content="summary_large_image" />
 		<meta name="twitter:title" content={PAGE_TITLE} />
@@ -111,13 +111,13 @@ const CANONICAL = new URL("/", Astro.site).href;
 			<section class="landing-section landing-section--hero">
 				<div class="landing-container landing-hero">
 					<div class="landing-hero__text">
-					<span class="landing-alpha-badge">Public Alpha</span>
-					<h1 class="landing-hero__title">
-							Opinionated agent testing framework.
+						<span class="landing-alpha-badge">Public Alpha</span>
+						<h1 class="landing-hero__title">
+							Give every agent task a definition of done.
 						</h1>
-					<p class="landing-hero__sub">
-						A testing framework for agent systems. It runs your real agent, evaluates the outcomes, and shows you exactly what went wrong when something breaks.
-					</p>
+						<p class="landing-hero__sub">
+							Apo turns expected behavior into end-to-end tests, runs the real agent, and returns pass/fail with the test breakdown, trace, and deliverables—so humans or coding agents can close the loop.
+						</p>
 						<div class="landing-cta">
 							<CopyPromptButton text={COPY_PROMPT_TEXT} />
 							<a
@@ -135,10 +135,30 @@ const CANONICAL = new URL("/", Astro.site).href;
 								<span>Star on GitHub</span>
 							</a>
 						</div>
+						<p class="landing-hero__boundary">
+							Self-hosted public alpha. This site is the documentation, not a hosted Apo service.
+						</p>
 					</div>
 					<div class="landing-hero__visual">
 						<SignalSphereIsland client:load size={260} />
 					</div>
+				</div>
+			</section>
+
+			<!-- The control loop -->
+			<section class="landing-section landing-section--tight landing-section--bordered">
+				<div class="landing-container">
+					<h2 class="landing-section__heading">Close the engineering loop</h2>
+					<p class="landing-section__sub">
+						Apo owns one Task Run and its evidence. Your team, CI, or coding agent owns the change and chooses whether to start another.
+					</p>
+					<ol class="landing-loop" aria-label="Agent engineering loop">
+						<li class="landing-loop__step"><span>01</span>Define expected behavior</li>
+						<li class="landing-loop__step"><span>02</span>Run the real agent</li>
+						<li class="landing-loop__step"><span>03</span>Get PASS / FAIL—or an explicit error</li>
+						<li class="landing-loop__step"><span>04</span>Read tests, trace, and deliverables</li>
+						<li class="landing-loop__step"><span>05</span>Improve, then rerun ↺</li>
+					</ol>
 				</div>
 			</section>
 
@@ -163,7 +183,7 @@ const CANONICAL = new URL("/", Astro.site).href;
 
 		<footer class="landing-footer">
 			<div class="landing-container landing-footer__inner">
-				<span>apo — opinionated agent testing framework.</span>
+				<span>apo — end-to-end testing for agent systems.</span>
 				<span class="landing-footer__links">
 					<a href="/overview/">Docs</a>
 					<a href={GITHUB_URL} target="_blank" rel="noopener noreferrer">GitHub</a>

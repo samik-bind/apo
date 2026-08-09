@@ -5,7 +5,7 @@
 <h1 align="center">Apo</h1>
 
 <p align="center">
-  An opinionated framework for testing agent systems end-to-end.
+  Give every agent task a definition of done.
 </p>
 
 <p align="center">
@@ -17,16 +17,31 @@
 
 ---
 
-Apo runs your **real agent implementation**, judges **real deliverables**, and reduces every task run to a **binary verdict** — pass or fail. Failures are explained through tests and debuggable through traces.
+Apo is an opinionated end-to-end testing framework for agent systems. Define the behavior you expect as executable tests, run your **real agent implementation**, and get a **binary verdict** — pass or fail — backed by the test breakdown, trace, and deliverables. Execution problems are surfaced separately as errors.
 
-It is not a prompt-scoring tool, not an LLM-call optimizer, and not an observability dashboard. It is a testing framework: define what *good* means, run the real thing, get a verdict, debug the failure.
+It is not a prompt-scoring tool, an LLM-call optimizer, or an observability dashboard. It answers a more useful engineering question: **did the agent system actually do what we said it must do?**
+
+## Close the loop
+
+```text
+expected behavior
+       ↓
+run the real agent
+       ↓
+PASS / FAIL + tests + trace + deliverables
+       ↓
+improve the implementation
+       ↺
+```
+
+Apo owns one Task Run and the evidence it produces. A developer, CI workflow, or coding agent reads that evidence, changes the system, and decides whether to start another Task Run. Apo does not edit your agent or autonomously rerun a failed task to improve it.
 
 ## The model
 
 | Term | Meaning |
 |---|---|
 | **Task** | One reusable validation case with inputs, an adapter, and tests. |
-| **Task Run** | One execution of one task. Produces a binary verdict — pass or fail. |
+| **Task Run** | One execution of one task. A completed evaluation produces pass or fail; execution failures surface as errors. |
 | **Batch Run** | One container that may produce one or more task runs. |
 | **Test** | One assertion within a task — deterministic code or an LLM-backed judgment. |
 | **Trace** | The runtime debugging surface — a core product surface, not garnish. |
@@ -122,7 +137,7 @@ apo login                   # one-time: save credentials to ~/.apo/credentials
 apo project list            # pick a project
 apo project use <id>        # set it as the current project
 apo task list               # see available tasks
-apo task run data-extraction    # one execution → binary verdict
+apo task run data-extraction    # completed evaluation → binary verdict; execution errors exit 2
 apo task show data-extraction   # test breakdown: which passed, which failed
 apo traces show <run-id>        # debug the failure
 ```

@@ -6,7 +6,11 @@ It exists so future work stays aligned with the actual point of view of the prod
 
 ## What This Product Is
 
-This project is moving toward an opinionated end-to-end agent testing framework.
+This project is an opinionated end-to-end testing framework for agent systems.
+
+Its job is to give every agent task an **executable definition of done**. A team states the behavior it expects, apo runs the real system, and a completed evaluation produces a machine-actionable control signal: pass or fail, backed by the test breakdown, trace, and deliverables. Runtime and infrastructure failures are surfaced separately as errors.
+
+That makes apo useful in both a normal engineering workflow and an agent-driven one. A human, CI system, or coding agent can use the result to decide what to change and when to run again. apo does not edit the implementation or autonomously start another Task Run to improve a failed verdict; it grounds each verdict in inspectable evidence.
 
 The emphasis is on:
 
@@ -15,6 +19,8 @@ The emphasis is on:
 - making pass/fail decisions explicit
 - making failures debuggable through traces
 - letting teams choose how often different subsets should run
+
+The testing framework is the product category. Closing the engineering loop is what that framework enables.
 
 ## Core Beliefs
 
@@ -51,7 +57,7 @@ So a task uses **both**, and they are **the same kind of thing**: a judged asser
 
 ### 5. Per-run verdicts are binary; comparison needs graded signal
 
-At the level of a single task run, the verdict is a clear decision: **pass** or **fail**. If any test fails, the run fails. The question for one run is whether it met the standard, not what score it got.
+At the level of a completed evaluation, the verdict is a clear decision: **pass** or **fail**. If any test fails, the run fails. The question is whether it met the standard, not what score it got. A Task Run that cannot complete evaluation has an error status rather than a false verdict.
 
 But binary verdicts do not survive aggregation. A run that failed 1 of 15 tests and a run that failed 14 of 15 are both "fail," yet they are not equally bad. When comparing runs — across versions, changes, or time — collapsing both to the same binary loses the signal needed to tell whether a change improved things.
 
@@ -121,11 +127,13 @@ When making product or UI decisions, prefer solutions that reinforce these ideas
 
 1. Run a real task.
 2. Judge real deliverables.
-3. Show a binary verdict per run.
+3. Show a binary verdict for every completed evaluation and an explicit error when evaluation cannot complete.
 4. Explain failure through tests (which passed, which failed).
 5. Preserve graded signal across runs for comparison.
 6. Let teams choose cadence through schedules.
 7. Make traces the path for debugging.
+8. Return evidence that a human or coding agent can act on without inventing a second evaluation layer.
+9. Keep the repair loop outside apo: one completed evaluation produces one verdict; the caller decides what changes and whether to start another Task Run.
 
 ## Current Status
 

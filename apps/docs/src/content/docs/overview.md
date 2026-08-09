@@ -1,13 +1,21 @@
 ---
 title: Overview
-description: What apo is, in a minute.
+description: Give every agent task an executable definition of done.
 ---
 
-**apo** is a testing framework for agents. You write a test, apo runs your real agent against it, and the run comes back pass or fail: the same loop as Jest or pytest, extended for the fact that an agent's output usually isn't exact-match.
+**apo** is an end-to-end testing framework for agent systems. It turns the behavior you expect into an executable definition of done: write the tests, run the real agent, and get a pass/fail verdict backed by the test breakdown, trace, and deliverables. If evaluation cannot complete, apo surfaces an execution error instead of inventing a verdict.
+
+```text
+expected behavior → real agent run → PASS / FAIL + evidence → improve → run again
+```
+
+The loop can be driven by a developer, CI, or a coding agent. apo owns one Task Run and its evidence. The caller owns the code change and decides whether to start another Task Run.
+
+This is why apo is a testing framework rather than an eval dashboard. The result is not just a score to monitor. It is a control signal you can act on.
 
 ## It runs in your system
 
-apo doesn't host a copy of your agent. It doesn't score a prompt in a sandbox. It runs against the agent you actually ship (the same code path, the same tools, the same model), driven through an [adapter](/concepts/adapters/) you write. The adapter is the only place real code runs during a task: it loads the inputs, invokes your agent, and collects the structured deliverable the tests assert on.
+apo doesn't host a copy of your agent or score a prompt in a sandbox. An [adapter](/concepts/adapters/) you write invokes your real orchestration and agent code, with whatever safe test environment and dependencies the task requires. The adapter loads the inputs, invokes your agent, and collects the structured deliverable the tests assert on.
 
 You don't change your agent to fit apo. The adapter is a shim that calls your existing code (your chat function, your tool definitions, your model client) as-is. apo adapts to your system; your system doesn't adapt to apo.
 
@@ -15,14 +23,15 @@ This is the part that's yours to build, because it has to be. No framework can s
 
 ## It judges what the agent produced
 
-Most agent eval tools grade the conversation. apo judges the **deliverable**: the file written, the state changed, the structured output the agent was asked to produce. A polite, fluent, wrong response fails. A terse one that produced the right artifact passes.
+apo judges the **deliverable**: the file written, the state changed, or the structured output the agent was asked to produce. A polite, fluent, wrong response fails. A terse one that produced the right artifact passes.
 
 The deliverable is declared up front, collected by the adapter after the run, and schema-validated before the tests see it. You're asserting on what the agent *did*, not on whether the chat *sounded right*.
 
 ## How to use these docs
 
-- **[Why apo](/why-apo/)**: the core of the product. The beliefs the whole framework is built on, and the trade-offs behind each one. **Read this next.**
+- **[Why apo](/why-apo/)**: why executable definitions of done, real runs, binary verdicts, deliverables, and traces belong together. **Read this next.**
 - **[Quickstart](/quickstart/)**: clone to first result. Skip here if you want to be running a task in five minutes.
+- **[Close the loop](/guides/loop-engineering/)**: hand the same run → inspect → improve workflow to a coding agent.
 - **[Mental model](/concepts/mental-model/)**: the layers a run moves through (task, run, batch, trace) and the one rule that ties them together.
 - **[Adapters](/concepts/adapters/)**: the bridge to your real application, and the part you write. This is the load-bearing concept.
 - **[Tests](/concepts/tests/)**: the assertion vocabulary, every `t.*` method and what it does.

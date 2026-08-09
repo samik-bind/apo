@@ -20,18 +20,22 @@ import type { APIRoute } from 'astro';
 
 const ORIGIN = import.meta.env.SITE;
 
-const START_INSTRUCTIONS = `# Skill: Set up apo and run a first task
+const START_INSTRUCTIONS = `# Skill: Set up apo and run a first end-to-end test
 
-You are helping the user set up **apo** — an opinionated testing framework for
-agent systems. Your goal: get the user from zero to a real run result — a task
-that passes or fails against their actual agent.
+You are helping the user set up **apo** — an opinionated end-to-end testing
+framework for agent systems. Your goal: give one real agent task an executable
+definition of done, then get a pass/fail result with evidence.
 
 ## What apo is (and isn't)
 
-apo is a testing framework for AI agents, the same way Jest or pytest is for
-code. You write tests that say what "good" means, apo runs the **real** agent
-(not a mock), and each run comes back **pass or fail**. When it fails, a trace
-shows exactly what the agent did wrong.
+apo turns expected agent behavior into executable tests. It runs the **real**
+agent orchestration, and each completed evaluation comes back **pass or fail**
+with the test breakdown, trace, and deliverables. A human, CI workflow, or
+coding agent can use that evidence to change the system and decide when to run
+again. apo itself
+does not edit the implementation or autonomously start another Task Run to
+improve a failed verdict. Transport or finalization work may retry without
+creating a new Task Run.
 
 What apo is **not**: it's not a prompt-scoring tool, not an LLM-call optimizer,
 and not an observability dashboard. It doesn't grade the chat conversation — it
@@ -60,9 +64,9 @@ produced).
    agent *produced*. An LLM judge (\`t.judge\`) can evaluate quality that code
    can't.
 
-5. **Every run gets a binary verdict (pass/fail) plus a trace.** The trace is
-   the full runtime record — call tree, tokens, messages. When a run fails, the
-   trace is where you find out why.
+5. **Every completed evaluation gets a binary verdict (pass/fail) plus a
+   trace.** The trace is the full runtime record — call tree, tokens, messages.
+   When evaluation cannot complete, apo surfaces an execution error instead.
 
 > **Deeper docs:** ${ORIGIN}/overview.md (what apo is),
 > ${ORIGIN}/concepts/mental-model.md (the canonical vocabulary),
@@ -412,10 +416,12 @@ apo task run my-task
 apo connect --dir ./my-tasks
 \`\`\`
 
-The run produces a **binary verdict** — pass or fail. Read the result:
+If evaluation completes, the run produces a **binary verdict** — pass or fail.
+An adapter, configuration, or infrastructure failure is reported as an error
+instead. Read the exact result:
 
 \`\`\`bash
-apo runs show                 # breakdown: which tests passed/failed
+apo runs show <run-id>        # exact breakdown: which tests passed/failed
 apo traces show <trace-id>    # the trace: every call, token, message
 \`\`\`
 
@@ -424,15 +430,20 @@ frontend for the server you configured in Step 2), go to the task or runs page �
 you'll see the verdict, cost, tokens, duration, and a full trace breakdown.
 
 **If it fails** (expected on the first try):
-1. Read which test failed and its reasoning (\`apo runs show\`)
-2. Open the trace to see what the agent actually did (\`apo traces show\`)
-3. Fix the agent code or the task
-4. Re-run: \`apo task run my-task\`
-5. Repeat until green
+1. Capture the run id printed by \`apo task run\` and inspect that exact run
+2. Read which test failed and its reasoning (\`apo runs show <run-id>\`)
+3. Open the matching trace to see what the agent actually did
+4. Treat the confirmed task, tests, and fixtures as read-only; fix the agent code
+5. Re-run with a limit of 5 Task Runs, stopping earlier on pass, error, or two
+   iterations without progress
+
+If the loop stops without a pass, report the failed tests, trace evidence,
+changes tried, and the next hypothesis to the user. Never weaken the definition
+of done to make the result green.
 
 This loop — run → read failure → trace → fix → re-run — is the core apo
-workflow. It's also the loop a coding agent can close on its own: write the
-tests, then let the agent run/read/fix/re-run without human intervention.
+workflow. A coding agent can drive it without a human watching every run, while
+the confirmed behavioral contract and stopping policy stay fixed.
 
 > **Deeper docs:**
 > ${ORIGIN}/guides/run-and-debug.md (the debug loop),
@@ -447,10 +458,10 @@ tests, then let the agent run/read/fix/re-run without human intervention.
 Before declaring done, confirm:
 - [ ] The CLI is installed (\`apo --version\` works)
 - [ ] The CLI can reach the server (\`apo project list\` works)
-- [ ] The adapter is written and calls the **real** agent (not a mock)
+- [ ] The adapter calls the user's real agent orchestration in the chosen test environment
 - [ ] The trace context is threaded (tool calls appear in traces)
 - [ ] At least one task exists with tests (\`apo task list\` shows it)
-- [ ] \`apo task run my-task\` produces a verdict (pass or fail)
+- [ ] \`apo task run my-task\` produces a verdict (pass or fail), or an explicit execution error to resolve
 - [ ] The user knows how to read the breakdown and trace on failure
 
 Restate the final state: task name, adapter name, verdict, and next steps.

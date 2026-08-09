@@ -492,6 +492,13 @@ header [data-theme] {
   text-wrap: pretty;
 }
 
+.landing-hero__boundary {
+  max-width: 66ch;
+  margin: 1.25rem 0 0;
+  color: var(--sl-color-gray-4);
+  font-size: 0.75rem;
+}
+
 /* ---- CTA row: Copy Prompt (primary) + GitHub (outline), left-aligned. -- */
 .landing-cta {
   display: flex;
@@ -551,6 +558,49 @@ header [data-theme] {
   max-width: 48ch;
   margin: 0 auto 3rem;
   text-wrap: balance;
+}
+
+/* ---- Engineering loop: the product's five-step control flow. ---------- */
+.landing-loop {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  padding: 1px;
+  margin: 0;
+  list-style: none;
+  background: var(--sl-color-gray-5);
+}
+
+.landing-loop__step {
+  min-height: 7.5rem;
+  padding: 1rem;
+  background: var(--sl-color-black);
+  color: var(--sl-color-gray-2);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.landing-loop__step span {
+  display: block;
+  margin-bottom: 1.5rem;
+  color: var(--sl-color-gray-4);
+  font-family: var(--sl-font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+}
+
+@media (max-width: 48rem) {
+  .landing-loop {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-loop__step {
+    min-height: auto;
+  }
+
+  .landing-loop__step span {
+    display: inline-block;
+    margin: 0 1rem 0 0;
+  }
 }
 
 /* ---- Footer: thin, full-width. ----------------------------------------- */
