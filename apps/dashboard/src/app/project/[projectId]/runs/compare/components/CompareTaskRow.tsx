@@ -56,7 +56,7 @@ export function CompareTaskRow({
     <div className="group/row">
       <div className="grid grid-cols-[1fr_auto] items-center gap-3 px-6 py-2.5 transition-colors hover:bg-muted/20 md:grid-cols-[minmax(0,1fr)_minmax(120px,1fr)_minmax(120px,1fr)]">
         <div className="flex min-w-0 items-center gap-2.5">
-          {expandable && comparable && (
+          {expandable && (
             <button
               type="button"
               onClick={() => onToggleExpand(task.taskId)}
@@ -75,8 +75,11 @@ export function CompareTaskRow({
             {task.label}
           </span>
           {!comparable && (
-            <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500" title="These runs used different task definitions (the eval file changed). Checks are not directly comparable.">
-              diff revision
+            <span
+              className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-500"
+              title="These two runs used different versions of the eval file (e.g. 12 checks vs 32 checks). Re-run both models against the same eval to get a fair comparison."
+            >
+              different eval version
             </span>
           )}
         </div>
@@ -96,7 +99,14 @@ export function CompareTaskRow({
       </div>
 
       {isOpen && expandable && (
-        <CheckDiff taskId={task.taskId} leftId={left.run?.id} rightId={right.run?.id} projectId={projectId} />
+        <>
+          {!comparable && (
+            <div className="mx-6 mb-2 rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[12px] text-amber-600 dark:text-amber-500">
+              These runs used different versions of the eval file. Check counts and IDs won't align — re-run both models against the current eval for a fair comparison.
+            </div>
+          )}
+          <CheckDiff taskId={task.taskId} leftId={left.run?.id} rightId={right.run?.id} projectId={projectId} />
+        </>
       )}
     </div>
   );
