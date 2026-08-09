@@ -67,7 +67,8 @@ describe("CompareViewsClient (SPEC-174)", () => {
         projectId="acme-evals"
         snapshot={snapshot}
         tasks={[task("evals/alpha", "Alpha", "evals"), task("evals/beta", "Beta", "evals")]}
-        // alpha: A passed(3/5), B failed(0/5) → differs. beta: both passed → identical (hidden).
+        // alpha differs; beta has equal verdict/check counts but must remain
+        // visible because its output, reasoning, trace, time, or cost may differ.
         leftRuns={[run("ra", "evals/alpha", "passed", true), run("rc", "evals/beta", "passed", true)]}
         rightRuns={[run("rb", "evals/alpha", "failed", false, 5, 0), run("rd", "evals/beta", "passed", true)]}
       />,
@@ -75,10 +76,11 @@ describe("CompareViewsClient (SPEC-174)", () => {
     // Header shows both view configs.
     expect(screen.getByText("claude-opus-4.1")).toBeInTheDocument();
     expect(screen.getByText("deepseek-v3")).toBeInTheDocument();
-    // Summary: 1 of 2 tasks differ (alpha differs, beta is identical → hidden).
+    // Summary: 1 of 2 tasks differs, while both task rows remain inspectable.
     expect(screen.getByText("1")).toBeInTheDocument();
     expect(screen.getByText(/tasks differ/)).toBeInTheDocument();
-    // The alpha task appears in the rendered FlowSection.
     expect(screen.getByText("evals/alpha")).toBeInTheDocument();
+    expect(screen.getByText("evals/beta")).toBeInTheDocument();
+    expect(screen.queryByText(/No differing tasks/)).not.toBeInTheDocument();
   });
 });

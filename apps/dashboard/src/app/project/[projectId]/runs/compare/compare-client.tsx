@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
 import {
   ArrowLeft,
   ChevronRight,
@@ -22,7 +21,7 @@ import { formatBatchExecution } from "@/lib/run-configuration";
 import { useUrlParamSet } from "@/hooks/use-url-state";
 import { conclusionStyle } from "@/components/run-outcome";
 
-import { useComparison, tallyChecks, filterVisibleFolders, type CheckTally } from "./use-comparison";
+import { useComparison, tallyChecks, type CheckTally } from "./use-comparison";
 import { FlowSection } from "./components/FlowSection";
 
 interface CompareClientProps {
@@ -86,14 +85,10 @@ export function CompareClient({
 
   const comparison = useComparison(leftRuns, rightRuns, inventory);
 
-  // The comparison's job is to show what CHANGED between two runs. Identical
-  // tasks (same verdict, same check breakdown on both sides) carry no signal,
-  // so they're always hidden. A task present in only one batch IS a change
-  // (it appeared or disappeared), so one-sided rows stay visible. There used
-  // to be a "hide identical" toggle for this, but the toggled-off state — a
-  // full aligned list where 95% of rows are identical — isn't useful in a
-  // comparison, so the toggle is gone.
-  const foldersToShow = useMemo(() => filterVisibleFolders(comparison.folders), [comparison.folders]);
+  // A comparison is an evidence view, not a diff-only report. Keep every
+  // aligned task visible: equal verdicts can still hide meaningful differences
+  // in output, judge reasoning, trace shape, latency, tokens, and cost.
+  const foldersToShow = comparison.folders;
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -179,11 +174,6 @@ export function CompareClient({
                 projectId={projectId}
               />
             ))}
-            {foldersToShow.length === 0 && (
-              <div className="px-6 py-10 text-center text-[13px] text-muted-foreground">
-                No differing tasks — all aligned tasks are identical.
-              </div>
-            )}
           </div>
         </>
       )}

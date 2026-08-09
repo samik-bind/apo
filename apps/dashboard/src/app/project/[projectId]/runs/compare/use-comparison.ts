@@ -31,9 +31,9 @@ export interface ComparisonTask {
   folder: string;
   left: ComparisonSide;
   right: ComparisonSide;
-  /** True only when BOTH sides ran and their verdicts are not equal. A
-   *  fact about two rows, not a judgment about direction. Drives the
-   *  "Changes" view and the differsCount badge — never the chevron. */
+  /** True only when BOTH sides ran and their recorded outcome differs. A
+   *  fact about two rows, not a judgment about direction. Drives badges and
+   *  default emphasis, never whether the task belongs in the comparison. */
   differs: boolean;
   /** True when at least one side recorded checks worth inspecting. This —
     *  not ``differs`` — drives the expand chevron: a task that failed 0/4 on
@@ -127,16 +127,6 @@ export function tallyChecks(runs: { run: AgentTaskRunSummary | null }[]): CheckT
   return { passed, total };
 }
 
-/** Filter folders to only show tasks that differ or are one-sided (present in
- *  only one batch). Identical tasks carry no comparison signal — both
- *  /runs/compare and /compare-views use this. */
-export function filterVisibleFolders(folders: ComparisonFolder[]): ComparisonFolder[] {
-  return folders.flatMap((f) => {
-    const tasks = f.tasks.filter((t) => t.differs || t.left.run === null || t.right.run === null);
-    return tasks.length > 0 ? [{ ...f, tasks }] : [];
-  });
-}
-
 /**
  * Build the comparison model from two batches' task runs plus the project's
  * task inventory (the only source of folder_path and display names).
@@ -222,5 +212,5 @@ export function useComparison(
       leftChecks: tallyChecks(tasks.map((t) => t.left)),
       rightChecks: tallyChecks(tasks.map((t) => t.right)),
     };
-  }, [leftRuns, rightRuns, inventory]);
+  }, [leftRuns, rightRuns, inventory, comparability]);
 }

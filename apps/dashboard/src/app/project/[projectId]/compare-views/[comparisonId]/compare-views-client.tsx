@@ -14,7 +14,7 @@ import type { TaskViewComparisonSnapshot, TaskViewConfig } from "@/lib/agent-tas
 import { cn } from "@/lib/utils";
 import { useUrlParamSet } from "@/hooks/use-url-state";
 
-import { tallyChecks, useComparison, filterVisibleFolders } from "../../runs/compare/use-comparison";
+import { tallyChecks, useComparison } from "../../runs/compare/use-comparison";
 import { CheckDelta } from "../../runs/compare/compare-client";
 import { FlowSection } from "../../runs/compare/components/FlowSection";
 
@@ -38,26 +38,14 @@ export function CompareViewsClient({
   const [hideErrored, setHideErrored] = useState(false);
 
   const foldersToShow = useMemo(() => {
-    let folders = filterVisibleFolders(comparison.folders);
-    if (hideErrored) {
-      folders = folders
-        .map((f) => ({
-          ...f,
-          tasks: f.tasks.filter(
-            (t) => t.left.run?.status !== "error" && t.right.run?.status !== "error",
-          ),
-        }))
-        .filter((f) => f.tasks.length > 0);
-    }
-    return folders;
+    if (!hideErrored) return comparison.folders;
+    return comparison.folders.flatMap((folder) => {
+      const tasks = folder.tasks.filter(
+        (task) => task.left.run?.status !== "error" && task.right.run?.status !== "error",
+      );
+      return tasks.length > 0 ? [{ ...folder, tasks }] : [];
+    });
   }, [comparison.folders, hideErrored]);
-
-  const viewLabel = (v: TaskViewConfig) => {
-    const parts = [v.model ?? "All models"];
-    if (v.effort) parts.push(v.effort);
-    if (v.since) parts.push(v.since);
-    return parts.join(" · ");
-  };
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -133,13 +121,20 @@ export function CompareViewsClient({
               projectId={projectId}
             />
           ))}
-          {foldersToShow.length === 0 && (
+          {foldersToShow.length === 0 && hideErrored && (
             <div className="px-6 py-10 text-center text-[13px] text-muted-foreground">
-              No differing tasks — all aligned tasks are identical.
+              All compared tasks are errored and currently hidden.
             </div>
           )}
         </div>
       )}
     </div>
   );
+}
+
+function viewLabel(view: TaskViewConfig): string {
+  const parts = [view.model ?? "All models"];
+  if (view.effort) parts.push(view.effort);
+  if (view.since) parts.push(view.since);
+  return parts.join(" · ");
 }
