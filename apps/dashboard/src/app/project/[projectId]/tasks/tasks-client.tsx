@@ -101,6 +101,23 @@ const SINCE_OPTIONS = [
 ];
 const ALL_SINCE_VALUE = "__all__";
 
+const STATUS_FILTERS = [
+  { key: "passed", label: "Passed", dot: "bg-success" },
+  { key: "failed", label: "Failed", dot: "bg-destructive" },
+  { key: "errored", label: "Errored", dot: "bg-warning" },
+  { key: "idle", label: "Not Run", dot: "bg-muted-foreground/30" },
+] as const;
+const STATUS_FILTER_KEYS = STATUS_FILTERS.map((s) => s.key);
+
+function taskFilterStatus(task: AgentTaskSummary): string {
+  const stats = task.run_stats;
+  if (!stats || !stats.last_run_status) return "idle";
+  if (stats.last_run_status === "error") return "errored";
+  if (stats.last_run_status === "running" || stats.last_run_status === "pending") return "running";
+  if (stats.last_run_passed === true) return "passed";
+  return "failed";
+}
+
 function groupByFolder(tasks: AgentTaskSummary[]): FolderNode[] {
   const groups: Record<string, AgentTaskSummary[]> = {};
   for (const task of tasks) {
@@ -318,6 +335,8 @@ function EvidenceViewsBar({
   onClearSelection,
   onToggleExpandAll,
   allExpanded,
+  statusFilter,
+  onToggleStatus,
   onSelect,
   onChange,
   onDuplicate,
@@ -336,6 +355,8 @@ function EvidenceViewsBar({
   onClearSelection: () => void;
   onToggleExpandAll: () => void;
   allExpanded: boolean;
+  statusFilter: Set<string>;
+  onToggleStatus: (status: string) => void;
   onSelect: (id: string) => void;
   onChange: (patch: Partial<Pick<ViewTab, "model" | "effort" | "since" | "label">>) => void;
   onDuplicate: () => void;
@@ -469,6 +490,29 @@ function EvidenceViewsBar({
               options={SINCE_OPTIONS}
               onChange={(value) => onChange({ since: value === ALL_SINCE_VALUE ? null : value })}
             />
+            {viewsActive && (
+              <div className="flex items-center gap-1">
+                {STATUS_FILTERS.map((s) => {
+                  const active = statusFilter.has(s.key);
+                  return (
+                    <button
+                      key={s.key}
+                      type="button"
+                      onClick={() => onToggleStatus(s.key)}
+                      className={cn(
+                        "flex items-center gap-1 border px-2 py-0.5 text-[11px] transition-colors",
+                        active
+                          ? "border-foreground/20 bg-foreground/[0.05] text-foreground"
+                          : "border-border text-muted-foreground/40",
+                      )}
+                    >
+                      <span className={cn("h-2 w-2 rounded-full", active ? s.dot : "bg-muted-foreground/20")} />
+                      {s.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {isDerived && (
               <span className="font-mono text-[10px] text-muted-foreground/50">
                 {loading ? "loading scoped stats…" : "scoped to this view"}
@@ -778,6 +822,7 @@ export function AgentTasksClient({
     return new Set(folders.map((f) => f.id));
   });
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(() => new Set(STATUS_FILTER_KEYS));
 
   // ---- Evidence views (SPEC-174): a permanent "Main" tab (all-history) plus
   // closable derived tabs narrowed by model (+ model-aware effort). The stats
@@ -853,7 +898,12 @@ export function AgentTasksClient({
     { running: false, error: null },
   );
 
-  const folders = useMemo(() => groupByFolder(effectiveTasks), [effectiveTasks]);
+  const statusFilteredTasks = useMemo<AgentTaskSummary[]>(() => {
+    if (statusFilter.size === STATUS_FILTER_KEYS.length) return effectiveTasks;
+    return effectiveTasks.filter((t) => statusFilter.has(taskFilterStatus(t)));
+  }, [effectiveTasks, statusFilter]);
+
+  const folders = useMemo(() => groupByFolder(statusFilteredTasks), [statusFilteredTasks]);
 
   const filtered = useMemo(() => {
     if (!query) return folders;
@@ -1061,6 +1111,19 @@ export function AgentTasksClient({
               onClearSelection={() => setSelected(new Set())}
               onToggleExpandAll={() => setExpanded(allExpanded ? new Set() : new Set(allFolderIds))}
               allExpanded={allExpanded}
+              statusFilter={statusFilter}
+              onToggleStatus={(key) =>
+                setStatusFilter((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(key)) {
+                    next.delete(key);
+                    if (next.size === 0) return new Set(STATUS_FILTER_KEYS); // don't allow empty
+                  } else {
+                    next.add(key);
+                  }
+                  return next;
+                })
+              }
               onSelect={setActiveViewId}
               onChange={updateActiveView}
               onDuplicate={duplicateActive}
