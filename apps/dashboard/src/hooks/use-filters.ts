@@ -196,9 +196,11 @@ function parseTraceFilters(searchParams: URLSearchParams): TraceFilters {
 function buildTraceQueryString(filters: TraceFilters): string {
   const params = new URLSearchParams();
 
+  // When timePreset is "all", explicitly drop date params so the URL is clean
+  // and a stale created_after/created_before can't persist across navigation.
   if (filters.timePreset !== "all") params.set("timePreset", filters.timePreset);
-  if (filters.created_after) params.set("created_after", filters.created_after);
-  if (filters.created_before) params.set("created_before", filters.created_before);
+  if (filters.timePreset !== "all" && filters.created_after) params.set("created_after", filters.created_after);
+  if (filters.timePreset !== "all" && filters.created_before) params.set("created_before", filters.created_before);
   if (filters.project) params.set("project", filters.project);
   if (filters.task_id) params.set("task_id", filters.task_id);
   if (filters.environment) params.set("environment", filters.environment);
