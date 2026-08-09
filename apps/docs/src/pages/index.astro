@@ -21,6 +21,15 @@ import { docsSections, docsHref } from "../lib/docs-navigation";
 const GITHUB_URL = "https://github.com/samikuikka/apo";
 const COPY_PROMPT_TEXT =
 	`Read ${Astro.site}start.md then help me set up apo and run my first task.`;
+
+// Open Graph / Twitter card metadata. The preview image is generated at build
+// time by src/pages/og-landing.png.ts — see that file for the design. Keep these
+// in sync with the <title>/<meta description> below (single source via consts).
+const PAGE_TITLE = "apo — Opinionated agent testing framework";
+const PAGE_DESCRIPTION =
+	"A testing framework for agent systems. It runs your real agent, evaluates the outcomes, and shows you exactly what went wrong when something breaks.";
+const OG_IMAGE = new URL("/og-landing.png", Astro.site).href;
+const CANONICAL = new URL("/", Astro.site).href;
 ---
 
 <!doctype html>
@@ -28,11 +37,9 @@ const COPY_PROMPT_TEXT =
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<title>apo — Opinionated agent testing framework</title>
-		<meta
-			name="description"
-			content="A testing framework for agent systems. It runs your real agent, evaluates the outcomes, and shows you exactly what went wrong when something breaks."
-		/>
+		<title>{PAGE_TITLE}</title>
+		<meta name="description" content={PAGE_DESCRIPTION} />
+		<link rel="canonical" href={CANONICAL} />
 		<link rel="icon" href="/brand/signal-sphere-favicon-32.png" />
 		<link rel="preconnect" href="https://fonts.googleapis.com" />
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -40,6 +47,21 @@ const COPY_PROMPT_TEXT =
 			href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
 			rel="stylesheet"
 		/>
+		{/* Open Graph — what Facebook, LinkedIn, Slack, etc. render. */}
+		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="apo" />
+		<meta property="og:title" content={PAGE_TITLE} />
+		<meta property="og:description" content={PAGE_DESCRIPTION} />
+		<meta property="og:url" content={CANONICAL} />
+		<meta property="og:image" content={OG_IMAGE} />
+		<meta property="og:image:width" content="1200" />
+		<meta property="og:image:height" content="630" />
+		<meta property="og:image:alt" content="apo — opinionated agent testing framework" />
+		{/* Twitter / X — summary_large_image gives the big banner card. */}
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content={PAGE_TITLE} />
+		<meta name="twitter:description" content={PAGE_DESCRIPTION} />
+		<meta name="twitter:image" content={OG_IMAGE} />
 	</head>
 	<body>
 		<!-- Nav — matches the docs header: brand mark + wordmark, section tabs,

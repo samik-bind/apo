@@ -222,7 +222,8 @@ export async function handleChat(request: ChatRequest): Promise<ChatResponse> {
   // agent's actual response as the generation's output.
   if (telemetryEnabled && responseText) {
     try {
-      // @ts-expect-error — @opentelemetry/api is a transitive dep of `ai`
+      // @ts-ignore — @opentelemetry/api is a transitive dep of `ai`;
+      // resolves in some environments but not others.
       const { trace } = await import("@opentelemetry/api");
       const activeSpan = trace.getActiveSpan();
       if (activeSpan) activeSpan.setAttribute("ai.response.text", responseText);

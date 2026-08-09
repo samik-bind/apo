@@ -20,6 +20,7 @@
     "test:public-ingress": "bash tests/deployment/public-ingress-contract.sh",
     "test:public-docs": "bash tests/deployment/public-docs-contract.sh",
     "test:self-adoption-docs": "node apps/docs/scripts/verify-self-adoption.mjs",
+    "test:external-example": "pnpm --filter @apo/example-service verify:external-example",
     "test:tunnel-trial-validation": "bash tests/deployment/tunnel-trial-validation-contract.sh"
   },
   "devDependencies": {

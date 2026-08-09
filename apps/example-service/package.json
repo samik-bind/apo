@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "verify:external-example": "node scripts/verify-external-example.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.96",
