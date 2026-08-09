@@ -40,7 +40,6 @@ Run many tasks at once and watch the aggregate result.
 
 | Command | Purpose |
 |---|---|
-| [`apo batch create`](/cli/batch/) | Create a batch run across multiple tasks. |
 | [`apo batch show`](/cli/batch/) | Show batch details. `--watch` auto-refreshes. |
 | [`apo batch list`](/cli/batch/) | List batch runs. |
 
@@ -52,9 +51,7 @@ Manage which project you're operating against and where its tasks come from.
 |---|---|
 | [`apo project list`](/cli/project/) | List projects you can access. |
 | [`apo project use`](/cli/project/) | Switch the active project. |
-| [`apo project init-tasks`](/cli/project/) | Configure a GitHub-backed task source in one step. |
 | [`apo project source`](/cli/project/) | Show, set, or sync the task source. |
-| [`apo project sync-tasks`](/cli/project/) | Sync the task inventory and report the count. |
 
 ## Authentication
 

@@ -117,7 +117,6 @@ The CLI talks to your self-hosted instance. Authenticate once, point at a projec
 apo login                   # one-time: save credentials to ~/.apo/credentials
 apo project list            # pick a project
 apo project use <id>        # set it as the current project
-apo project source sync     # pull task inventory into the project
 apo task list               # see available tasks
 apo task run data-extraction    # one execution → binary verdict
 apo task show data-extraction   # test breakdown: which passed, which failed

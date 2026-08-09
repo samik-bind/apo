@@ -471,18 +471,19 @@ For multi-instance deployments, replace the in-memory broadcaster with Redis pub
 ## Self-Hosted Alpha Topology
 
 The supported self-hosted shape for internal alpha is **single-node**: one host
-runs a frontend, one backend Control Plane, one private Bundled Executor, and a
-database. The backend owns API + scheduler + durable execution state; the
-Executor owns dependency installation and Task subprocesses. Multi-replica
-backends remain unsupported. See
-[`docs/self-hosted-alpha.md`](self-hosted-alpha.md) for the operator guide.
+runs a frontend and one backend Control Plane, backed by a database. Task
+execution is Source-Owned: Tasks run on the user's machine via `apo task run`
+or `apo connect`, so the server never executes Task code. The backend owns API
++ scheduler + durable execution state. Multi-replica backends remain
+unsupported. See [`docs/self-hosted-alpha.md`](self-hosted-alpha.md) for the
+operator guide.
 
 Operator-visible runtime state is exposed via:
 
 - `GET /health/ready` — Control Plane readiness (database, ArtifactStore, auth
-  secret). Executor availability is Pool health, not API
-  readiness.
-- `GET /v1/system/runtime-config` — admin-only descriptor of the running topology (backend URL, frontend URL, database URL, cache dir, scheduler state, supported topology).
+  secret). Task execution is Source-Owned and happens on the user's machine,
+  so it is not part of server-side readiness.
+- `GET /v1/system/runtime-config` — admin-only descriptor of the running topology (backend URL, frontend URL, database URL, scheduler state, supported topology).
 
 Both are surfaced in the dashboard under **Settings → System → Deployment Topology**. The Compose healthchecks use `/health/ready` instead of the basic liveness probe so a deployed backend is only marked healthy when it can actually serve.
 

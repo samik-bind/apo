@@ -85,7 +85,6 @@ The `Trace:` id in the breakdown is that run's one trace — there's never ambig
 A batch run is one execution that may produce several task runs. Batches are how selection-driven and scheduled runs work: you define a subset of tasks and run them together. A batch provides shared context (the selection, the trigger, the timing) across its task runs, but each task run still gets its own result, breakdown, and trace.
 
 <TerminalDemo
-	command="apo batch create --project my-project"
 	lines={[
 		{ text: "" },
 		{ parts: [{ text: "Batch: 7f2a8e90", tone: "bold" }] },

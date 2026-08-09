@@ -4,36 +4,38 @@ description: The single-node self-hosted topology supported for alpha.
 ---
 
 The agent-testing platform has exactly **one supported self-host topology for alpha**:
-one node with separate frontend, Control Plane, and Bundled Executor processes.
-The split keeps Task code and provider secrets out of the API process without
-adding a queue broker.
+one node with separate frontend and Control Plane (backend) processes. Task
+execution is Source-Owned: Tasks run on the user's machine via `apo task run`
+or `apo connect`, never on the server.
 
 ## Supported shape
 
 ```
-                 ┌────────────────────────┐
-                 │  Reverse proxy / TLS    │
-                 │  (Caddy, nginx, Traefik)│
-                 └──────────┬─────────────┘
-                            │ HTTPS
-                            ▼
-        ┌───────────────────────────────────────────┐
-        │  One host (VM or bare metal)              │
-        │                                           │
-        │  ┌─────────────┐    ┌──────────────────┐  │
-        │  │  frontend   │◀──▶│ Control Plane    │  │
-        │  │  dashboard  │    │ API + scheduler  │  │
-        │  └─────────────┘    └────────┬─────────┘  │
-        │                              │ HTTP pull   │
-        │                     ┌────────▼─────────┐  │
-        │                     │ Bundled Executor │  │
-        │                     │ Task subprocess │  │
-        │                     └──────────────────┘  │
-        │  ┌────────────┐  ┌─────────────────────┐ │
-        │  │ SQLite or  │  │ persistent source, │ │
-        │  │ Postgres   │  │ artifact + state   │ │
-        │  └────────────┘  └─────────────────────┘ │
-        └───────────────────────────────────────────┘
+   ┌───────────────────────────────────────────┐
+   │  User machine (separate, trusted)         │
+   │  `apo task run` / `apo connect`           │
+   │  runs Task code locally (Source-Owned)    │
+   └──────────────────┬────────────────────────┘
+                      │ HTTPS / OTLP
+                      ▼
+                  ┌────────────────────────┐
+                  │  Reverse proxy / TLS    │
+                  │  (Caddy, nginx, Traefik)│
+                  └──────────┬─────────────┘
+                             │ HTTPS
+                             ▼
+         ┌───────────────────────────────────────────┐
+         │  One host (VM or bare metal)              │
+         │                                           │
+         │  ┌─────────────┐    ┌──────────────────┐  │
+         │  │  frontend   │◀──▶│ Control Plane    │  │
+         │  │  dashboard  │    │ API + scheduler  │  │
+         │  └─────────────┘    └──────────────────┘  │
+         │  ┌────────────┐  ┌─────────────────────┐ │
+         │  │ SQLite or  │  │ persistent data +  │ │
+         │  │ Postgres   │  │ artifacts          │ │
+         │  └────────────┘  └─────────────────────┘ │
+         └───────────────────────────────────────────┘
 ```
 
 | Component | Alpha role |
@@ -41,9 +43,9 @@ adding a queue broker.
 | Reverse proxy | TLS termination and one public ingress. The Server Profile includes Caddy. |
 | Frontend dashboard (Next.js) | One container, one replica. |
 | Control Plane (FastAPI) | One container, **one replica**. Owns Projects, schedules, durable queue/leases, Runs, and authorization. It never executes Task code. |
-| Bundled Executor | One private container by default. Pulls work outbound from the Control Plane and runs trusted-team Task subprocesses. |
+| User machine (Source-Owned Execution) | Runs Task code locally via `apo task run` or `apo connect`, then sends traces and results back to the Control Plane over HTTPS. |
 | Database | SQLite is the supported default. Postgres is an explicit opt-in for longer-lived shared installations or heavier concurrent writes. |
-| Persistent volumes | Database data + task-source cache must survive container restarts. |
+| Persistent volumes | Database data and Artifacts must survive container restarts. |
 
 ## What is explicitly unsupported in alpha
 
@@ -89,33 +91,32 @@ This is the canonical alpha deploy path. It assumes Docker and Docker Compose on
    docker compose up -d --build
    ```
 
-   Expect `frontend`, `backend`, and `executor`. The backend creates one
-   Bundled Pool per writable Project and enrolls the installation Executor
-   through a one-time bootstrap file shared only by those two containers.
+   Expect `frontend` and `backend` only — there is no server-side executor
+   service. Task execution is Source-Owned: you run Tasks on your own machine
+   with `apo task run` or `apo connect`.
 
-   SQLite data is persisted in the `apo_db` Docker volume. Executor identity
-   is persisted separately in `apo_executor_state`. Use the
+   SQLite data is persisted in the `apo_db` Docker volume. Use the
    [Postgres profile](/self-hosting/configuration/#choose-a-database) when you
    want Postgres; it is not required to try apo or run a small alpha team.
 
 3. **Wait for readiness**: the backend healthcheck verifies Control Plane
-   prerequisites. Executor availability is visible under **Settings →
-   Executors** but does not make the API unready.
+   prerequisites (database, artifact store, auth secret).
 
    ```bash
    curl -fsS http://localhost:8000/health/ready | jq
    ```
 
-   Expect `{"ok": true, "checks": {...}}`. Then open **Settings → Executors**
-   and confirm the Bundled Pool reports `online`.
+   Expect `{"ok": true, "checks": {...}}`. The API is ready once these pass —
+   Task execution readiness is determined on your machine when you run
+   `apo task run` or `apo connect`.
 
 4. **Create the first admin user.** Either visit the dashboard and walk the account-creation flow, or (for headless first boot only) set `INIT_USER_EMAIL` / `INIT_USER_PASSWORD` / `INIT_USER_NAME` env vars on the backend. The bootstrap runs once (idempotent: no-op when any users exist).
 
 After the first user exists, all further onboarding goes through normal account creation + project invite. See [Configuration](/self-hosting/configuration/) for env vars and email delivery.
 
-:::caution[Trusted process boundary]
-The Bundled Executor separates customer Task code from FastAPI, but its
-subprocess driver is not a hostile multi-tenant sandbox. Use it for trusted
-self-hosted teams. Use a Connected Pool in the customer environment when
-credentials or network access must stay outside the Apo host.
+:::caution[Source-Owned Execution boundary]
+Task code runs on the user's machine, not on the server. `apo task run` and
+`apo connect` execute locally with whatever credentials and network access the
+user has — the server only stores results and traces. Treat Task repositories
+as trusted code, since they run in the developer's own environment.
 :::

@@ -1,13 +1,20 @@
 # Self-Hosted Alpha Topology
 
 The agent-testing platform has exactly **one supported self-hosted topology for
-alpha**: a single node with separate frontend, Control Plane, and Bundled
-Executor processes. This keeps Task code and provider secrets out of FastAPI
-without adding a queue broker.
+alpha**: a single node with separate frontend and Control Plane (backend)
+processes. Task execution is Source-Owned: Tasks run on the user's machine via
+`apo task run` or `apo connect`, never on the server.
 
 ## Supported shape
 
 ```
+   ┌───────────────────────────────────────────┐
+   │  User machine (separate, trusted)         │
+   │  `apo task run` / `apo connect`           │
+   │  runs Task code locally (Source-Owned)    │
+   └──────────────────┬────────────────────────┘
+                      │ HTTPS / OTLP
+                      ▼
                  ┌────────────────────────┐
                  │  Reverse proxy / TLS    │
                  │  (Caddy, nginx, Traefik)│
@@ -20,15 +27,10 @@ without adding a queue broker.
         │  ┌─────────────┐    ┌──────────────────┐  │
         │  │  frontend   │◀──▶│ Control Plane    │  │
         │  │  dashboard  │    │ API + scheduler  │  │
-        │  └─────────────┘    └────────┬─────────┘  │
-        │                              │ HTTP pull   │
-        │                     ┌────────▼─────────┐  │
-        │                     │ Bundled Executor │  │
-        │                     │ Task subprocess │  │
-        │                     └──────────────────┘  │
+        │  └─────────────┘    └──────────────────┘  │
         │  ┌────────────┐  ┌─────────────────────┐ │
-        │  │ SQLite or  │  │ persistent source, │ │
-        │  │ Postgres   │  │ artifact + state   │ │
+        │  │ SQLite or  │  │ persistent data +  │ │
+        │  │ Postgres   │  │ artifacts          │ │
         │  └────────────┘  └─────────────────────┘ │
         └───────────────────────────────────────────┘
 ```
@@ -40,9 +42,9 @@ Components:
 | Reverse proxy | TLS termination, single ingress, no path-based routing tricks. |
 | Frontend dashboard (Next.js) | One container, one replica. |
 | Backend / Control Plane | One container, **one replica**. Owns API, scheduler, queue/leases, Runs, and authorization. Never executes Task code. |
-| Bundled Executor | Private container. Pulls work outbound and owns dependency installation + Task subprocesses. |
+| User machine (Source-Owned Execution) | Runs Task code locally via `apo task run` or `apo connect`, then sends traces and results back to the Control Plane over HTTPS. |
 | Database | SQLite is the supported default. Postgres is an explicit opt-in for longer-lived shared installations or heavier concurrent writes. |
-| Persistent volumes | Database data + task-source cache must survive container restarts. |
+| Persistent volumes | Database data and Artifacts must survive container restarts. |
 
 ## What is explicitly unsupported in alpha
 
@@ -202,8 +204,7 @@ This endpoint is intentionally separate from the basic `/health` liveness probe,
     "credentials_configured": false,
     "shared_use_recommended": false
   },
-  "task_source_cache_dir": "/var/lib/apo/task-sources",
-  "task_execution_mode": "executor_pools",
+  "task_execution_mode": "source_owned",
   "scheduler_enabled": true,
   "supported_topology": "single-node-alpha"
 }
@@ -215,27 +216,18 @@ dashboard at **Settings → System → Deployment Topology**.
 
 ## Task execution dependencies
 
-Real synced Git sources almost always need dependencies before `runner.mjs`
-can load their task modules. The Executor performs this deterministic install
-inside its private workspace before importing Task code.
-
-### Policy
-
-| Question | Answer |
-|----------|--------|
-| When does install happen? | Lazily, before each task run, but only when the lockfile hash has changed since the last successful install. |
-| What lockfiles are supported? | Node: `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`. Python: `pyproject.toml` + `uv.lock` / `poetry.lock`, or `requirements.txt`. |
-| Where is the cache? | `<TASK_SOURCE_CACHE_DIR>/installs`, keyed by workspace path + every lockfile's content hash. |
-| What commands are used? | `npm ci --no-audit --no-fund`, `pnpm install --frozen-lockfile`, `yarn install --immutable`, `uv sync --frozen`, `poetry install --no-root`, `pip install -r requirements.txt`. |
-| What timeout applies? | `TASK_INSTALL_TIMEOUT_SECONDS` (default 180s, clamped to minimum 30s). |
-| How do I disable it? | `TASK_INSTALL_DISABLE=true` — escape hatch for air-gapped deploys that pre-install dependencies in the image. |
-| How do failures surface? | The Attempt fails as `dependency_install_failed` with bounded diagnostics. The Control Plane remains healthy. |
+Under Source-Owned Execution, Tasks run from your own checkout via
+`apo task run` or `apo connect`, so dependency installation happens in your
+local environment — the server never clones sources or installs packages.
 
 ### Operator notes
 
-- The Executor image must include every package manager your synced sources need (`node`, `npm`, `pnpm`, `yarn`, `python`, `uv`, `poetry`).
-- The install cache should live on a persistent volume so it survives container restarts. The default location already inherits from `TASK_SOURCE_CACHE_DIR`, so the Compose `task_source_cache` volume covers it.
-- If a source repo intentionally ships without a lockfile (e.g. the bundled example-service tasks that rely on the SDK resolved via the monorepo), no install runs and execution proceeds normally.
+- Install dependencies in your Task repository before running (`pnpm install`,
+  `npm install`, `uv sync`, etc.). `apo task run` executes against your local
+  workspace as-is.
+- If a source repo intentionally ships without a lockfile (e.g. the bundled
+  example-service tasks that rely on the SDK resolved via the monorepo), no
+  install is needed and execution proceeds normally.
 
 ## Choose a database
 
@@ -279,11 +271,8 @@ Alpha defaults are intentionally cheap:
 |---------|-------------|-----|
 | The backend still behaves like an older checkout after `docker compose up --build` | The source checkout was stale, the image build did not complete, or the existing backend container was not recreated. A container restart alone reuses its old image. | From the repository root, update the checkout, run `docker compose build backend`, then `docker compose up -d --no-deps --force-recreate backend`. Confirm the image and container creation times with `docker compose images backend` and `docker compose ps backend`. Preserve the database volume; never use `down -v` for an application update. |
 | `/health/ready` returns 503 with `auth_secret` failing | You left `AUTH_SECRET` set to the placeholder or unset in non-dev mode. | Generate a strong secret with `openssl rand -hex 32`. |
-| `executor` service restart-loops; backend logs `Bundled executor is enabled but the bootstrap token file could not be written` | The `apo_executor_bootstrap` named volume was created root-owned (a stack created before the Dockerfile seeded the mountpoint as `appuser`). | Run `docker compose run --rm --user 0:0 backend chown -R 1000:1000 /var/lib/apo/executor-bootstrap`, or remove the volume (`docker volume rm apo_executor_bootstrap`) and recreate the stack. Fresh stacks built from the current image are unaffected. |
 | Schedules visible but never fire | `SCHEDULER_ENABLED=false`. | Either set it to `true` (one backend process only) or run an external dispatcher. |
-| Attempt fails because the task runtime is unavailable | The Executor image is missing the packaged runtime. | Rebuild or replace the Executor image; the backend remains healthy. |
-| Tasks fail with "Task dependency install failed" | The synced Git source's lockfile requires a package manager that isn't in the backend image (e.g. `pnpm`, `uv`), or the install command returned non-zero. | Bake the missing package manager into the image; or set `TASK_INSTALL_DISABLE=true` and pre-install dependencies in the source repo. |
-| Tasks fail with "Task dependency install timed out" | The workspace has a large dependency tree. | Raise `TASK_INSTALL_TIMEOUT_SECONDS` or pre-install dependencies in the image. |
+| `apo task run` fails to import the Task module | Your local checkout is missing its dependencies. | Run the matching install command in your Task repo (`pnpm install`, `npm install`, `uv sync`, etc.) before running the Task. |
 | SQLite shows sustained lock contention or write latency | The installation has outgrown the default database profile. | Back up the installation, configure the Postgres override, and migrate the data deliberately. Do not use `docker compose down -v`; it deletes volumes. |
 
 ## Operator checklist
@@ -295,7 +284,7 @@ Before declaring an internal alpha instance production-ready for coworkers:
 - [ ] The chosen database profile matches the expected write load; SQLite is
       supported for a small alpha, while Postgres is preferred for sustained
       shared use.
-- [ ] `task_source_cache` is on a persistent volume.
+- [ ] The artifact volume (`/app/data`) is persistent.
 - [ ] Reverse proxy terminates TLS with a valid certificate.
 - [ ] `/health/ready` returns 200 from outside the host.
 - [ ] System settings → Deployment Topology shows the values you expect.

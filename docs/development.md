@@ -172,16 +172,13 @@ This keeps dashboard grouping aligned with real product areas instead of flatten
 The CLI should be able to drive the same project-scoped agent-task model as the dashboard instead of assuming a local `taskRoot`.
 
 - Preferred setup path:
-  - `apo project init-tasks --repo owner/repo --branch main --subpath e2e/tasks`
   - This configures the Git task source, attempts sync immediately, and only falls back to GitHub OAuth when a GitHub-hosted repo needs authentication.
 - Preferred maintenance path:
-  - `apo project sync-tasks`
   - `apo task list`
   - `apo task run <task-id>`
 - Use `apo project source show --project <id>` to inspect the configured task source.
 - Use `apo project source set --project <id> --type git --repo <url> --ref <branch-or-tag> [--subpath <path>]` to point a project at a Git-backed task tree.
 - Use `apo project source set --project <id> --type filesystem --path <server-path> [--subpath <path>]` for self-hosted or local-server task roots.
-- Use `apo project source sync --project <id>` to refresh the persisted task inventory after changing source config or repo contents.
 - When `--project` is present, `apo task list`, `apo task show`, `apo task run`, `apo task files`, and `apo task read` should prefer the project-scoped backend APIs over ad hoc local discovery.
 
 This keeps agents, dashboard users, and backend execution on the same source-of-truth task inventory.

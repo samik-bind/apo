@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "build": "astro build && node scripts/copy-public-contracts.mjs && node scripts/verify-publication.mjs",
+    "build": "astro build && node scripts/copy-public-contracts.mjs && node scripts/verify-publication.mjs && node scripts/verify-self-adoption.mjs",
     "verify": "node scripts/verify-publication.mjs",
     "preview": "astro preview",
     "astro": "astro"

@@ -35,14 +35,12 @@ A batch run executes multiple tasks in one operation and reports the aggregate r
   ]}
 />
 
-## `apo batch create`
 
 Create a new batch run on the backend.
 
 ### Synopsis
 
 ```bash
-apo batch create --tasks <id1,id2,...> [--executor <pool-id>]
 ```
 
 ### Options
@@ -102,7 +100,6 @@ apo batch show <batch-id> [--watch]
     { text: "  Errored:  0" },
     { text: "  Cost:     $0.0153" },
     { text: "  Created:  7/16/2026, 9:42 AM" },
-    { text: "  Source:   cli · sami · apo batch create" },
     { text: "" },
     { text: "  Task Runs:", tone: "default" },
     { text: "    FAIL extract-parties (completed) [real-agent] 0.8s $0.0034", tone: "danger" },
