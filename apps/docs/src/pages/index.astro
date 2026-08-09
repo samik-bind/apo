@@ -145,6 +145,17 @@ const CANONICAL = new URL("/", Astro.site).href;
 				</div>
 			</section>
 
+			<!-- A task run -->
+			<section class="landing-section landing-section--bordered">
+				<div class="landing-container">
+					<h2 class="landing-section__heading">A task run in apo</h2>
+					<p class="landing-section__sub">
+						The real agent ran. Three tests passed and one failed. Open a test to see what apo checked.
+					</p>
+					<RunDetailMock />
+				</div>
+			</section>
+
 			<!-- The control loop -->
 			<section class="landing-section landing-section--tight landing-section--bordered">
 				<div class="landing-container">
@@ -169,16 +180,6 @@ const CANONICAL = new URL("/", Astro.site).href;
 				</div>
 			</section>
 
-			<!-- Failure evidence -->
-			<section class="landing-section landing-section--bordered">
-				<div class="landing-container">
-					<h2 class="landing-section__heading">Failures come with evidence</h2>
-					<p class="landing-section__sub">
-						Open a failed test to see the assertion behind it and the exact reason the run missed the bar.
-					</p>
-					<RunDetailMock />
-				</div>
-			</section>
 		</main>
 
 		<footer class="landing-footer">
