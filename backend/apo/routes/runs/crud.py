@@ -640,17 +640,25 @@ def get_run_details(
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    calls = session.exec(
-        select(LoggedCallDB)
-        .where(
-            LoggedCallDB.run_id == run_id,
-            LoggedCallDB.project == project,
-        )
-        .order_by(
-            asc(LOGGED_CALL_STEP_INDEX_COL).nulls_last(),
-            asc(LOGGED_CALL_CREATED_AT_COL),
-        )
-    ).all()
+    calls_query = select(
+        LoggedCallDB
+    ).where(
+        LoggedCallDB.run_id == run_id,
+        LoggedCallDB.project == project,
+    ).order_by(
+        asc(LOGGED_CALL_STEP_INDEX_COL).nulls_last(),
+        asc(LOGGED_CALL_CREATED_AT_COL),
+    )
+
+    # Issue #142/#143 audit: the trace DETAIL page renders call messages
+    # in expand panels, not all at once. Defer the heaviest columns so they
+    # lazy-load only when a panel is opened. This cuts the base payload from
+    # MB-scale (50-200 calls × full input/output/messages/tool_result) to
+    # scalar-level metadata.
+    if not (include and "messages" in include):
+        calls_query = calls_query.options(*_CALL_LIGHT)
+
+    calls = session.exec(calls_query).all()
 
     stored_metrics = session.exec(
         select(RunMetricDB).where(
