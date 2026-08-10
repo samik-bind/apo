@@ -420,10 +420,16 @@ class TestCacheWriteIsPricedForEveryProvider:
         assert not missing, message
 
     def test_cache_write_uses_provider_rate(self, session: Session) -> None:
-        """Most providers bill cache creation as ordinary input, while GPT-5.6
-        applies its documented 1.25x write premium."""
+        """These providers bill cache creation as ordinary input — there is no
+        write premium outside Anthropic.
+
+        GPT-5.6 carried a 1.25x premium until it was re-measured on 2026-08-10:
+        two cold calls reporting 15017 and 30020 ``cache_write_tokens`` billed
+        ``upstream_inference_prompt_cost`` $0.01877425 and $0.037528, i.e.
+        $1.2502/1M and $1.2501/1M — the uncached input rate, not 1.25x it.
+        """
         load_default_prices(session)
-        for name in ("gemini-3.6-flash", "glm-5.2"):
+        for name in ("gemini-3.6-flash", "glm-5.2", "gpt-5.6-luna", "gpt-5.6-terra"):
             write_only = compute_cost(
                 session, name, {"cache_write_5m": 1_000_000}, "__global__", NOW
             )
@@ -431,14 +437,6 @@ class TestCacheWriteIsPricedForEveryProvider:
             assert write_only is not None and input_only is not None, name
             assert write_only.total > 0, f"{name} cache writes must not be free"
             assert write_only.total == input_only.total, name
-
-        for name in ("gpt-5.6-luna", "gpt-5.6-terra"):
-            write_only = compute_cost(
-                session, name, {"cache_write_5m": 1_000_000}, "__global__", NOW
-            )
-            input_only = compute_cost(session, name, {"input": 1_000_000}, "__global__", NOW)
-            assert write_only is not None and input_only is not None, name
-            assert write_only.total == int(input_only.total * 1.25), name
 
     def test_cache_heavy_worker_costs_more_than_output_alone(self, session: Session) -> None:
         """The shape this bug hid: a fan-out worker whose usage is almost
