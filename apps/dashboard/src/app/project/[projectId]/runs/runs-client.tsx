@@ -278,30 +278,25 @@ export function RunsClient({
             />
           </div>
 
-          {/* Status filter pills */}
-          <div className="flex items-center gap-1">
-            {[
-              { label: "All", value: "" },
-              { label: "Passed", value: "passed" },
-              { label: "Failed", value: "failed" },
-              { label: "Error", value: "error" },
-              { label: "Running", value: "running" },
-            ].map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setStatusFilter(opt.value || null)}
-                className={cn(
-                  "rounded px-2 py-1 text-[11px] font-medium transition-colors",
-                  urlStatus === opt.value
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+          {/* Status dropdown */}
+          <label className="flex shrink-0 items-center gap-1.5">
+            <span className="text-[11px] uppercase tracking-wide text-foreground/50">Status</span>
+            <Select
+              value={urlStatus || "all"}
+              onValueChange={(v) => setStatusFilter(v === "all" ? null : v)}
+            >
+              <SelectTrigger size="sm" className="h-7 w-[110px] bg-muted/40 text-[12px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-[12px]">All</SelectItem>
+                <SelectItem value="passed" className="text-[12px]">Passed</SelectItem>
+                <SelectItem value="failed" className="text-[12px]">Failed</SelectItem>
+                <SelectItem value="error" className="text-[12px]">Error</SelectItem>
+                <SelectItem value="running" className="text-[12px]">Running</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
 
           {/* Model dropdown */}
           <label className="flex shrink-0 items-center gap-1.5">
