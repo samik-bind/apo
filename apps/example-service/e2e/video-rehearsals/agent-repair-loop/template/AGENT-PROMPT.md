@@ -32,18 +32,24 @@ not weaken the task.
 
 Repeat at most three times. Stop on PASS or after 3 Task Runs.
 
+> Run every `apo` command from the **repository root** as `pnpm apo ...` (the
+> repo's dev CLI). The globally-installed `apo` is older and cannot load this
+> task.
+
 1. Run `pnpm video:rehearsal:verify` and confirm protected files are intact.
 2. Run:
    ```
-   apo task run analytics-report --dir {{WORKSPACE_TASK_ROOT}} --json
+   pnpm apo task run analytics-report --dir {{WORKSPACE_TASK_ROOT}} --json
    ```
-3. Capture the **exact Task Run id** printed by that command.
+3. Capture the **exact Task Run id** printed by that command (the JSON has no
+   `id` field — read it from the `Executor:` / dashboard, or open the run in
+   the Apo dashboard for this project).
 4. Inspect that exact run:
    ```
-   apo runs show <exact-run-id> --json
+   pnpm apo runs show <exact-run-id> --json
    ```
    If a Trace is shown, capture its exact Trace id and use it for any
-   `apo traces show <exact-trace-id>`.
+   `pnpm apo traces show <exact-trace-id>`.
 5. Change **only** implementation code when the evidence points to an
    implementation defect.
 6. Stop on PASS, or after 3 Task Runs, or if Apo reports an execution /
