@@ -429,12 +429,12 @@
       "_doc": "cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero."
     },
     {
-      "_doc": "Issue #101: was arriving unpriced. Rates measured from OpenRouter per-call cost on 2026-08-03 (includes OpenRouter 50%% promotion \u2014 re-measure before relying). compute_cost strips the openai/ slug before matching. cache_write_5m equals the input rate \u2014 the 1.25x write premium recorded here earlier is an Anthropic convention that does not transfer. Re-measured 2026-08-10 on two cold calls: 15017 cache_write_tokens billed $0.01877425 ($1.2502/1M) and 30020 billed $0.037528 ($1.2501/1M), i.e. the uncached input rate. Same as every other OpenAI entry in this file.",
+      "_doc": "Issue #101: was arriving unpriced. OpenRouter rates verified 2026-08-10: ordinary input is $1.00/1M and cache writes are $1.25/1M. Two cold calls independently confirmed the write rate: 15017 cache_write_tokens billed $0.01877425 ($1.2502/1M) and 30020 billed $0.037528 ($1.2501/1M). compute_cost strips the openai/ slug before matching. Re-measure before relying on these promotional rates.",
       "match_pattern": "(?i)^gpt-5\\.6-terra$",
       "provider": "openai",
       "display_name": "GPT-5.6 Terra",
       "start_date": null,
-      "updated_at": "2026-08-10T12:00:00Z",
+      "updated_at": "2026-08-10T00:00:00Z",
       "last_reviewed": "2026-08",
       "pricing_tiers": [
         {
@@ -443,7 +443,7 @@
           "priority": 0,
           "conditions": [],
           "prices": {
-            "input": 1.25,
+            "input": 1.0,
             "cache_read": 0.1,
             "cache_write_5m": 1.25,
             "output": 6.0
@@ -452,12 +452,12 @@
       ]
     },
     {
-      "_doc": "Issue #101: was arriving unpriced. Rates measured from OpenRouter per-call cost on 2026-08-03 (includes OpenRouter 50%% promotion \u2014 re-measure before relying). compute_cost strips the openai/ slug before matching. cache_write_5m equals the input rate, for the same reason as the terra entry above.",
+      "_doc": "Issue #101: was arriving unpriced. OpenRouter rates verified 2026-08-10: ordinary input is $0.10/1M and cache writes are $0.125/1M. compute_cost strips the openai/ slug before matching. Re-measure before relying on these promotional rates.",
       "match_pattern": "(?i)^gpt-5\\.6-luna$",
       "provider": "openai",
       "display_name": "GPT-5.6 Luna",
       "start_date": null,
-      "updated_at": "2026-08-10T12:00:00Z",
+      "updated_at": "2026-08-10T00:00:00Z",
       "last_reviewed": "2026-08",
       "pricing_tiers": [
         {
@@ -466,7 +466,7 @@
           "priority": 0,
           "conditions": [],
           "prices": {
-            "input": 0.125,
+            "input": 0.1,
             "cache_read": 0.01,
             "cache_write_5m": 0.125,
             "output": 0.6
