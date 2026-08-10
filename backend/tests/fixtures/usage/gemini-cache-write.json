@@ -1,0 +1,17 @@
+{
+  "description": "Gemini reached over an OpenAI-dialect router, which reports cache-write tokens alongside cached tokens. Cache creation is a distinct billed dimension, NOT a subset of input_tokens, so it is not subtracted; cache_read is.",
+  "source": "gemini",
+  "provider": "gemini",
+  "input": {
+    "gen_ai.usage.input_tokens": 8000,
+    "gen_ai.usage.output_tokens": 300,
+    "gen_ai.usage.cache_read.input_tokens": 6000,
+    "gen_ai.usage.cache_creation.input_tokens": 1500
+  },
+  "expected": {
+    "input": 2000,
+    "cache_read": 6000,
+    "cache_write_5m": 1500,
+    "output": 300
+  }
+}

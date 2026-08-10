@@ -143,6 +143,83 @@ class TestBareModelCacheCreation:
         assert result.get("cache_read") == 21773
 
 
+class TestOpenAICacheCreation:
+    """The OpenAI half of issue #125: OpenAI-dialect routers (OpenRouter) report
+    ``prompt_tokens_details.cache_write_tokens`` and bill those tokens at the
+    full input rate. The openai normalizer read no cache-creation key at all, so
+    an emitter forwarding them lost the dimension outright — tokens and cost
+    both zero."""
+
+    def test_cache_creation_is_recognized(self) -> None:
+        result = normalize_usage(
+            {
+                "gen_ai.usage.input_tokens": 12915,
+                "gen_ai.usage.output_tokens": 111,
+                "gen_ai.usage.cache_read.input_tokens": 12912,
+                "gen_ai.usage.cache_creation.input_tokens": 2830,
+            },
+            model_name="gpt-5.6-terra",
+        )
+        assert result.get("cache_write_5m") == 2830
+
+    def test_underscored_alias_is_recognized(self) -> None:
+        """The wider pi/OTel ecosystem spells the key without the dot."""
+        result = normalize_usage(
+            {
+                "gen_ai.usage.input_tokens": 100,
+                "gen_ai.usage.output_tokens": 20,
+                "gen_ai.usage.cache_creation_input_tokens": 900,
+            },
+            "openai",
+        )
+        assert result.get("cache_write_5m") == 900
+
+    def test_cold_call_conserves_prompt_tokens(self) -> None:
+        """A cold call writes the whole prompt to cache. Before the fix this
+        normalized to ``input=3`` — a 12912-token prompt billed as 3 tokens."""
+        result = normalize_usage(
+            {
+                "gen_ai.usage.input_tokens": 3,
+                "gen_ai.usage.output_tokens": 94,
+                "gen_ai.usage.cache_read.input_tokens": 0,
+                "gen_ai.usage.cache_creation.input_tokens": 12909,
+            },
+            model_name="gpt-5.6-terra",
+        )
+        input_side = result["input"] + result["cache_read"] + result["cache_write_5m"]
+        assert input_side == 12912
+
+    def test_cache_creation_is_not_subtracted_from_input(self) -> None:
+        """Cache creation is a distinct dimension, never a subset of
+        input_tokens — only cache_read is subtracted."""
+        result = normalize_usage(
+            {
+                "gen_ai.usage.input_tokens": 1000,
+                "gen_ai.usage.output_tokens": 200,
+                "gen_ai.usage.cache_read.input_tokens": 400,
+                "gen_ai.usage.cache_creation.input_tokens": 5000,
+            },
+            "openai",
+        )
+        assert result["input"] == 600
+        assert result["cache_write_5m"] == 5000
+
+    def test_gemini_over_openai_dialect_router(self) -> None:
+        """Gemini spans reached over an OpenAI-dialect router carry the same
+        cache-write key, and had the same dimension dropped."""
+        result = normalize_usage(
+            {
+                "gen_ai.usage.input_tokens": 8000,
+                "gen_ai.usage.output_tokens": 300,
+                "gen_ai.usage.cache_read.input_tokens": 6000,
+                "gen_ai.usage.cache_creation.input_tokens": 1500,
+            },
+            model_name="gemini-3.6-flash",
+        )
+        assert result.get("cache_write_5m") == 1500
+        assert result["input"] == 2000
+
+
 class TestPlainUsage:
     def test_genai_semconv_input_output(self) -> None:
         result = normalize_usage(

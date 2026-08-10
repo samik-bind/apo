@@ -7,6 +7,11 @@ Gemini via official OTel genai instrumentation reports ``input_tokens`` /
 semconv). This covers Gemini 2.5 thinking models (reasoning is a distinct
 billed output dimension). See ``wayfinder/assets/03-normalizer-research.md``
 §4.
+
+Cache *creation* is a separate dimension, not a subset of ``input_tokens``.
+Gemini reached over an OpenAI-dialect router reports cache writes the same way
+OpenAI-dialect routers do, so the key is read here for the same reason as in
+``openai.py`` — dropping it billed those tokens at zero.
 """
 
 from __future__ import annotations
@@ -34,6 +39,12 @@ def normalize(attrs: dict[str, Any]) -> dict[str, int]:
     cache_read = get_int(attrs, "gen_ai.usage.cache_read.input_tokens")
     if cache_read is not None:
         usage["cache_read"] = cache_read
+
+    cache_write = get_int(attrs, "gen_ai.usage.cache_creation.input_tokens")
+    if cache_write is None:
+        cache_write = get_int(attrs, "gen_ai.usage.cache_creation_input_tokens")
+    if cache_write is not None:
+        usage["cache_write_5m"] = cache_write
 
     reasoning = get_int(attrs, "gen_ai.usage.reasoning.output_tokens")
     if reasoning is None:
