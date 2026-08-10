@@ -32,17 +32,17 @@ not weaken the task.
 
 Repeat at most three times. Stop on PASS or after 3 Task Runs.
 
+Set the task root once, then use bare commands:
+
+```
+export APO_TASK_ROOT={{WORKSPACE_TASK_ROOT}}
+```
+
 1. Run `pnpm video:rehearsal:verify` and confirm protected files are intact.
-2. Run:
-   ```
-   apo task run analytics-report --dir {{WORKSPACE_TASK_ROOT}} --json
-   ```
+2. Run `apo task run analytics-report --json`.
 3. Capture the **exact Task Run id** printed by that command.
-4. Inspect that exact run:
-   ```
-   apo runs show <exact-run-id> --json
-   ```
-   If a Trace is shown, capture its exact Trace id and use it for any
+4. Inspect that exact run: `apo runs show <exact-run-id> --json`.
+   If a Trace is shown, capture its exact Trace id and use it for
    `apo traces show <exact-trace-id>`.
 5. Change **only** implementation code when the evidence points to an
    implementation defect.
