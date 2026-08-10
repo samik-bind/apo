@@ -70,9 +70,15 @@ export interface AgentTaskRunConfiguration {
 
 export type BatchRunConfigurationState = "uniform" | "mixed" | "partial" | "unknown";
 
+export interface EffortFacetOption {
+  effort: string;
+  count: number;
+}
+
 export interface ModelFacetOption {
   model: string;
   count: number;
+  efforts: EffortFacetOption[];
 }
 
 export interface PaginatedBatchRunSummary {

@@ -173,7 +173,7 @@ export function RunsClient({
     [selectedModels, updateUrl],
   );
   const clearModels = useCallback(() => {
-    updateUrl({ model: null, page: null });
+    updateUrl({ model: null, effort: null, page: null });
   }, [updateUrl]);
 
   const modelOptions: ModelOption[] = useMemo(
@@ -182,6 +182,39 @@ export function RunsClient({
         .map((f) => ({ model: f.model, count: f.count }))
         .sort((a, b) => a.model.localeCompare(b.model)),
     [modelFacets],
+  );
+
+  // Status filter (single-select pills).
+  const urlStatus = searchParams.get("status") ?? "";
+  const setStatusFilter = useCallback(
+    (status: string | null) => {
+      updateUrl({ status, page: null });
+    },
+    [updateUrl],
+  );
+
+  // Effort filter — only show when exactly one model is selected and that
+  // model has 2+ effort tiers (same pattern as the tasks page).
+  const selectedModelArr = Array.from(selectedModels);
+  const effortOptions = useMemo(() => {
+    if (selectedModelArr.length !== 1) return [];
+    const facet = modelFacets.find((f) => f.model === selectedModelArr[0]);
+    return facet && facet.efforts.length > 1 ? facet.efforts : [];
+  }, [modelFacets, selectedModelArr]);
+
+  const selectedEfforts = useMemo(() => {
+    const raw = searchParams.get("effort") ?? "";
+    return new Set(raw.split(",").filter(Boolean));
+  }, [searchParams]);
+
+  const toggleEffort = useCallback(
+    (effort: string) => {
+      const next = new Set(selectedEfforts);
+      if (next.has(effort)) next.delete(effort);
+      else next.add(effort);
+      updateUrl({ effort: Array.from(next).join(",") || null, page: null });
+    },
+    [selectedEfforts, updateUrl],
   );
 
   const handlePageChange = useCallback(
@@ -237,6 +270,54 @@ export function RunsClient({
               className="h-8 border-border bg-card pl-8 text-[13px] placeholder:text-muted-foreground/50 focus-visible:ring-1"
             />
           </div>
+
+          {/* Status filter pills */}
+          <div className="flex items-center gap-1">
+            {[
+              { label: "All", value: "" },
+              { label: "Passed", value: "passed" },
+              { label: "Failed", value: "failed" },
+              { label: "Error", value: "error" },
+              { label: "Running", value: "running" },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setStatusFilter(opt.value || null)}
+                className={cn(
+                  "rounded px-2 py-1 text-[11px] font-medium transition-colors",
+                  urlStatus === opt.value
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Effort filter — shown only when one model selected with 2+ tiers */}
+          {effortOptions.length > 0 && (
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-muted-foreground">Effort:</span>
+              {effortOptions.map((e) => (
+                <button
+                  key={e.effort}
+                  type="button"
+                  onClick={() => toggleEffort(e.effort)}
+                  className={cn(
+                    "rounded px-2 py-1 text-[11px] font-medium transition-colors",
+                    selectedEfforts.has(e.effort)
+                      ? "bg-foreground text-background"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                >
+                  {e.effort}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="ml-auto flex items-center gap-3 text-[12px] text-muted-foreground">
             <span>
               <span className="font-medium text-foreground">{totalCount}</span> runs

@@ -80,9 +80,15 @@ AGENT_TASK_BATCH_RUN_CREATED_AT_COL: ColumnElement[object] = as_column(
 )
 
 
+class EffortFacetOption(BaseModel):
+    effort: str
+    count: int
+
+
 class ModelFacetOption(BaseModel):
     model: str
     count: int
+    efforts: list[EffortFacetOption] = []
 
 
 class PaginatedBatchRunSummary(BaseModel):
@@ -615,21 +621,41 @@ async def list_agent_task_batch_runs(
             col(AgentTaskBatchRunDB.grep).ilike(pattern),
         ))
 
-    # Model facets: distinct configured_model with batch counts, from the
-    # base query (before model/effort filter) so the dropdown is stable.
+    # Model facets: distinct configured_model with batch counts + effort
+    # sub-facets, from the base query (before model/effort filter) so the
+    # dropdown is stable.
     facet_ids = base.with_only_columns(col(AgentTaskBatchRunDB.id))
     facet_stmt = select(
         AgentTaskRunDB.configured_model,
+        AgentTaskRunDB.configured_effort,
         func.count(func.distinct(AgentTaskRunDB.batch_run_id)),
     ).where(
         col(AgentTaskRunDB.batch_run_id).in_(facet_ids),
         col(AgentTaskRunDB.configured_model).isnot(None),
-    ).group_by(AgentTaskRunDB.configured_model)
+    ).group_by(
+        AgentTaskRunDB.configured_model,
+        AgentTaskRunDB.configured_effort,  # pyright: ignore[reportArgumentType]
+    )
     facet_rows = session.exec(facet_stmt).all()
+
+    # Group (model, effort, count) rows into model facets with effort sub-lists.
+    _by_model: dict[str, dict[str, int]] = {}
+    for m, e, c in facet_rows:
+        if not m:
+            continue
+        if m not in _by_model:
+            _by_model[m] = {}
+        _by_model[m][e or ""] = c
     model_facets = [
-        ModelFacetOption(model=m, count=c)
-        for m, c in facet_rows
-        if m
+        ModelFacetOption(
+            model=m,
+            count=sum(efforts.values()),
+            efforts=[
+                EffortFacetOption(effort=e, count=c)
+                for e, c in sorted(efforts.items()) if e
+            ],
+        )
+        for m, efforts in sorted(_by_model.items())
     ]
 
     # Apply model/effort filter for the data query.
