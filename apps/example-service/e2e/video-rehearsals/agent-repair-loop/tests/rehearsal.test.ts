@@ -250,7 +250,7 @@ describe("protected integrity verification", () => {
     // exporter of runAnalyticsReport.
     const impl = join(WORK_DIR, "implementation/analytics-report-agent.ts");
     const src = readFileSync(impl, "utf-8");
-    writeFileSync(impl, src.replace("maxSteps: 2,", "maxSteps: 8,"));
+    writeFileSync(impl, src.replace("maxSteps: 1,", "maxSteps: 8,"));
 
     const { status, stdout } = runVerifyRaw(["--json"]);
     expect(status).toBe(0);

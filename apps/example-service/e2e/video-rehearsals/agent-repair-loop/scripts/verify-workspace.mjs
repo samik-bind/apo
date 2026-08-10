@@ -96,7 +96,7 @@ function detectStartingDefect() {
   const code = src
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/\/\/.*$/gm, "");
-  return /maxSteps:\s*2\b/.test(code);
+  return /maxSteps:\s*1\b/.test(code);
 }
 
 async function main() {

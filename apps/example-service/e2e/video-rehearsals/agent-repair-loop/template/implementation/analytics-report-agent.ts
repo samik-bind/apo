@@ -6,15 +6,16 @@
  * ----------------------------
  * This file is copied into a disposable `work/` directory and is intentionally
  * incomplete. It calls the real example-service `handleChat()` but with a step
- * budget (`maxSteps: 2`) that allows `list_files` and `read_file` while
- * preventing the required `compute` step. The Golden Task's trajectory check
- * therefore fails on a fresh workspace — that failure is the visible gap the
- * coding agent must close.
+ * budget (`maxSteps: 1`) that allows a single tool step. The agent reads
+ * `metrics.json` in that step but has no second step in which to call
+ * `compute`, so the Golden Task's trajectory check fails on a fresh workspace
+ * — that failure is the visible gap the coding agent must close.
  *
  * The intended repair is general orchestration behavior (a sufficient step
- * budget and a clear calculation policy), NOT a hardcoded report. Do not embed
- * fixture-specific metric values (840, 42%, 126000, ...) in implementation
- * code — the report must come from running the agent, not from literals here.
+ * budget so the full read -> compute workflow can run), NOT a hardcoded
+ * report. Do not embed fixture-specific metric values (840, 42%, 126000, ...)
+ * in implementation code — the report must come from running the agent, not
+ * from literals here.
  */
 
 import { handleChat, type ChatRequest } from "../../../../../app/lib/agent/service.ts";
@@ -64,11 +65,11 @@ export async function runAnalyticsReport(
     files: input.files,
     taskDir: input.taskDir,
     system: REPORT_SYSTEM_PROMPT,
-    // INTENTIONAL REHEARSAL DEFECT: maxSteps: 2 lets the agent call list_files
-    // and read_file, but the run stops before the required `compute` step.
-    // Raise this budget (and ensure a clear calculation policy) so the report
-    // workflow can complete.
-    maxSteps: 2,
+    // INTENTIONAL REHEARSAL DEFECT: maxSteps: 1 gives the agent a single tool
+    // step. It reads metrics.json there but has no second step in which to call
+    // compute, so the trajectory check deterministically fails. Raise this
+    // budget so the full read -> compute workflow can run.
+    maxSteps: 1,
   });
 
   return {

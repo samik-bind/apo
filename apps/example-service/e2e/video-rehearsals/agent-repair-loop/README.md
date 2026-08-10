@@ -63,12 +63,12 @@ only the generated `work/` directory.
 
 ## The intentional defect
 
-The starting implementation calls the real `handleChat()` with `maxSteps: 2`.
-That allows `list_files` and `read_file` but stops the run before the required
-`compute` step. The `used-report-workflow` Test therefore fails on every fresh
-start — the visible gap the coding agent must close. The intended repair is
-general orchestration behavior (a sufficient step budget and a clear calculation
-policy), **not** a hardcoded report.
+The starting implementation calls the real `handleChat()` with `maxSteps: 1`.
+That gives the agent a single tool step — it reads `metrics.json` but has no
+second step in which to call `compute`. The `used-report-workflow` Test
+therefore fails on every fresh start — the visible gap the coding agent must
+close. The intended repair is general orchestration behavior (a sufficient step
+budget so the full read → compute workflow runs), **not** a hardcoded report.
 
 ## Video-ready gate (manual)
 

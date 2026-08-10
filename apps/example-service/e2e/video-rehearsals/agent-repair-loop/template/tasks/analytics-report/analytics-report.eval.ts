@@ -43,12 +43,13 @@ const { test: check } = task("analytics-report", {
 });
 
 // ── Layer 1: trajectory ──────────────────────────────────────────────────
-// The required report workflow is list_files -> read_file(metrics.json) ->
-// compute -> final report. With the rehearsal's starting step budget, compute
-// cannot occur, so this check deterministically FAILS on a fresh workspace —
-// the visible gap the coding agent must close.
+// The required report workflow is read_file(metrics.json) -> compute ->
+// final report. `list_files` is recommended in the instructions but not a
+// hard gate: a competent agent that reads the right file and computes via the
+// tool has done the honest process. With the rehearsal's starting step budget,
+// compute cannot occur, so this check deterministically FAILS on a fresh
+// workspace — the visible gap the coding agent must close.
 check("used-report-workflow", (t) => {
-  t.calledTool("list_files");
   t.calledTool("read_file", { input: { path: /metrics\.json/ } });
   t.calledTool("compute");
   t.noFailedActions();
@@ -60,22 +61,24 @@ check("used-report-workflow", (t) => {
 
 // ── Layer 2: objective, computed facts ───────────────────────────────────
 // Deterministic matchers over the final report. Each requires its metric to
-// appear in context so the two 5% growth figures and the 42% retention figure
-// are distinguishable — not merely the bare tokens.
+// appear on the same line as its label so the two 5% growth figures and the
+// 42% retention figure are distinguishable — not merely the bare tokens.
+// Percent values accept trailing-zero decimals (5%, 5.0%, 42.00%, ...) since
+// models legitimately format computed ratios with varying precision.
 const REQUIRED_METRICS = [
-  { label: "active users = 840", pattern: /840/ },
+  { label: "active users = 840", pattern: /(?<![\d.])840(?!\d)/ },
   {
     label: "active-user growth = 5%",
-    pattern: /(active[- ]?user[\s\S]{0,80}?5\s*%)|(5\s*%[\s\S]{0,80}?active[- ]?user)/i,
+    pattern: /active[- ]?user[^\n]{0,40}?5(?:\.0+)?\s*%/i,
   },
-  { label: "30-day retention = 42%", pattern: /42\s*%/ },
+  { label: "30-day retention = 42%", pattern: /(?<![\d.])42(?:\.0+)?\s*%/ },
   {
     label: "revenue = $126,000",
     pattern: /126[,.]?000/,
   },
   {
     label: "revenue growth = 5%",
-    pattern: /(revenue[\s\S]{0,80}?5\s*%)|(5\s*%[\s\S]{0,80}?revenue)/i,
+    pattern: /revenue[^\n]{0,40}?5(?:\.0+)?\s*%/i,
   },
 ] as const;
 
