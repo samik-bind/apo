@@ -1,19 +1,10 @@
 /**
- * analytics-report Adapter — the thin membrane between apo and the rehearsal
- * agent implementation.
+ * analytics-report Adapter — the thin bridge between apo and the agent.
  *
- * This adapter follows the same lifecycle as the canonical
- * `agent-task-demo/ai-sdk-adapter.ts` and `real-agent-adapter.ts`: it owns no
- * agent logic. It hands each turn to the implementation wrapper
- * (`./implementation/analytics-report-agent.ts`) and shapes the accumulated
- * session into the validated `{ result, tool_log, stats }` deliverable shape.
- *
- * The implementation wrapper calls the REAL example-service `handleChat()`.
- * This adapter is self-contained (no deep imports into the demo lib) because it
- * is copied into a disposable `work/` directory during preparation.
- *
- * This file is PROTECTED during a Repair Trial. The coding agent may only edit
- * `work/implementation/`.
+ * Owns no agent logic. Hands each turn to the implementation
+ * (`./implementation/analytics-report-agent.ts`) and shapes the session into
+ * the `{ result, tool_log, stats }` deliverables. The implementation calls the
+ * real example-service `handleChat()`.
  */
 import { defineAdapter, registerApoTracing } from "@apo-ai/sdk/agent-task";
 import type { FileEntry } from "@apo-ai/sdk/agent-task";

@@ -34,10 +34,11 @@ const TASK_ROOT_REL = "tasks";
 
 // Paths protected during a Repair Trial (relative to work/). Hashes of these are
 // recorded in the ownership marker and verified before any reset and by
-// verify-workspace.mjs.
+// verify-workspace.mjs. NOTE: AGENT-PROMPT.md is deliberately NOT in work/ —
+// the workspace must look like a normal codebase, with no manual for the agent
+// to read. The coding agent discovers the fix from the Apo verdict.
 const PROTECTED_FILES = [
   "adapter.ts",
-  "AGENT-PROMPT.md",
   "tasks/analytics-report/analytics-report.eval.ts",
   "tasks/analytics-report/files/instructions.md",
   "tasks/analytics-report/files/metrics.json",
@@ -83,17 +84,10 @@ function copyTemplate() {
   rmSync(WORK_DIR, { recursive: true, force: true });
   mkdirSync(WORK_DIR, { recursive: true });
   cpSync(TEMPLATE_DIR, WORK_DIR, { recursive: true });
-}
-
-function substitutePromptPaths() {
-  // The generated AGENT-PROMPT.md carries absolute paths so a coding agent can
-  // paste it verbatim. The template uses placeholders; no credentials are ever
-  // substituted.
-  const promptPath = join(WORK_DIR, "AGENT-PROMPT.md");
-  let text = readFileSync(promptPath, "utf-8");
-  text = text.replaceAll("{{WORKSPACE_DIR}}", WORK_DIR);
-  text = text.replaceAll("{{WORKSPACE_TASK_ROOT}}", join(WORK_DIR, TASK_ROOT_REL));
-  writeFileSync(promptPath, text);
+  // The workspace must contain only real code — no rehearsal meta. AGENT-PROMPT.md
+  // lives in the template as the controlled-trial reference but must not leak
+  // into the agent's workspace.
+  rmSync(join(WORK_DIR, "AGENT-PROMPT.md"), { force: true });
 }
 
 function writeMarker() {
@@ -115,11 +109,16 @@ function printSuccess() {
   console.log("Video rehearsal prepared");
   console.log(`Workspace: ${WORK_DIR}`);
   console.log(`Editable:  work/implementation/`);
-  console.log(`Protected: work/adapter.ts, work/tasks/, work/AGENT-PROMPT.md`);
+  console.log(`Protected: work/adapter.ts, work/tasks/`);
   console.log(`Task root: ${join(WORK_DIR, TASK_ROOT_REL)}`);
   console.log(`Task id:   analytics-report`);
   console.log(`Expected first result: FAIL — used-report-workflow (compute was not called)`);
-  console.log(`Next: open ${join(WORK_DIR, "AGENT-PROMPT.md")} in the coding agent`);
+  console.log("");
+  console.log("Suggested prompt for the coding agent (type it — do not hand it a file):");
+  console.log(`  The analytics-report agent in ${WORK_DIR} is failing its Apo task.`);
+  console.log("  Run it with Apo to see the failure, then fix the implementation so all");
+  console.log("  checks pass. Only edit work/implementation/.");
+  console.log(`  (set APO_TASK_ROOT=${join(WORK_DIR, TASK_ROOT_REL)})`);
 }
 
 function main() {
@@ -134,7 +133,6 @@ function main() {
   }
 
   copyTemplate();
-  substitutePromptPaths();
   writeMarker();
   printSuccess();
 }

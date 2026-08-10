@@ -174,6 +174,8 @@ describe("preparation & reset safety", () => {
     expect(existsSync(join(WORK_DIR, "adapter.ts"))).toBe(true);
     expect(existsSync(join(WORK_DIR, "implementation/analytics-report-agent.ts"))).toBe(true);
     expect(existsSync(join(ANALYTICS_TASK_DIR, "analytics-report.eval.ts"))).toBe(true);
+    // The workspace contains only real code — no rehearsal meta leaked in.
+    expect(existsSync(join(WORK_DIR, "AGENT-PROMPT.md"))).toBe(false);
 
     const marker = JSON.parse(
       readFileSync(join(WORK_DIR, ".apo-video-rehearsal.json"), "utf-8"),
@@ -183,7 +185,6 @@ describe("preparation & reset safety", () => {
     expect(marker.taskId).toBe("analytics-report");
     expect(Object.keys(marker.protectedFiles).sort()).toEqual(
       [
-        "AGENT-PROMPT.md",
         "adapter.ts",
         "tasks/analytics-report/analytics-report.eval.ts",
         "tasks/analytics-report/files/instructions.md",
@@ -212,13 +213,13 @@ describe("preparation & reset safety", () => {
     const impl = join(WORK_DIR, "implementation/analytics-report-agent.ts");
     writeFileSync(impl, "// agent repaired this\n");
     const before = readFileSync(impl, "utf-8");
-    expect(before).not.toContain("INTENTIONAL REHEARSAL DEFECT");
+    expect(before).not.toContain("runAnalyticsReport");
 
     // Re-prepare (reset).
     runPrepare();
 
     const after = readFileSync(impl, "utf-8");
-    expect(after).toContain("INTENTIONAL REHEARSAL DEFECT");
+    expect(after).toContain("runAnalyticsReport");
     // Marker hashes are freshly recorded against the new copy.
     const marker = JSON.parse(
       readFileSync(join(WORK_DIR, ".apo-video-rehearsal.json"), "utf-8"),
@@ -342,14 +343,15 @@ describe("Golden Task contract", () => {
   });
 });
 
-describe("generated coding-agent prompt", () => {
+describe("controlled-trial prompt contract (template reference)", () => {
   it("permits only implementation edits, bounds the loop, and carries no credentials", () => {
-    runPrepare();
-    const prompt = readFileSync(join(WORK_DIR, "AGENT-PROMPT.md"), "utf-8");
-
-    // Absolute paths substituted in.
-    expect(prompt).toContain(WORK_DIR);
-    expect(prompt).not.toContain("{{WORKSPACE_DIR}}");
+    // The detailed prompt is a template reference for controlled Repair Trials,
+    // not something handed to the agent in the workspace (work/ has no
+    // AGENT-PROMPT.md). Validate its contract here.
+    const prompt = readFileSync(
+      join(SCENARIO_DIR, "template/AGENT-PROMPT.md"),
+      "utf-8",
+    );
 
     // Implementation-only edits.
     expect(prompt).toMatch(/implementation\/\*\*/);

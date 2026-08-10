@@ -1,28 +1,4 @@
-/**
- * analytics-report — the Golden Task for the agent-repair-loop video rehearsal.
- *
- * This file is part of a disposable rehearsal workspace. It is NOT the
- * canonical newcomer example and is intentionally never imported by the main
- * example service. The starting implementation copied alongside it contains a
- * deliberate orchestration defect (see work/implementation/).
- *
- * The suite is intentionally layered the same way as the canonical
- * data-extraction task:
- *
- *   1. Trajectory (deterministic) — the right tools ran in the right order.
- *   2. Facts (deterministic) — the report contains the computed metrics.
- *   3. Judge (one focused LLM judge) — conclusions are supported by the data.
- *   4. Fixture sanity — both input files are present.
- *
- * Loading this file makes no model request. The deterministic layers (1, 2, 4)
- * stay useful even when the judge provider is unavailable.
- */
-import {
-  task,
-  includes,
-  filePaths,
-  satisfies,
-} from "@apo-ai/sdk/agent-task";
+import { task, includes, filePaths, satisfies } from "@apo-ai/sdk/agent-task";
 import { analyticsReportAdapter } from "../../adapter.ts";
 
 // Anti-flail ceilings shared with the trajectory check. The task's own
@@ -37,18 +13,11 @@ const DESTRUCTIVE_TOOLS = /^(write_file|delete_file|edit)$/;
 const { test: check } = task("analytics-report", {
   adapter: analyticsReportAdapter,
   description: "Produce an evidence-grounded product analytics report.",
-  metadata: { category: "video-rehearsal", difficulty: "medium" },
+  metadata: { category: "reporting", difficulty: "medium" },
   maxTurns: 1,
   deliverables: ["result", "tool_log", "stats"],
 });
 
-// ── Layer 1: trajectory ──────────────────────────────────────────────────
-// The required report workflow is read_file(metrics.json) -> compute ->
-// final report. `list_files` is recommended in the instructions but not a
-// hard gate: a competent agent that reads the right file and computes via the
-// tool has done the honest process. With the rehearsal's starting step budget,
-// compute cannot occur, so this check deterministically FAILS on a fresh
-// workspace — the visible gap the coding agent must close.
 check("used-report-workflow", (t) => {
   t.calledTool("read_file", { input: { path: /metrics\.json/ } });
   t.calledTool("compute");
@@ -59,12 +28,6 @@ check("used-report-workflow", (t) => {
   t.maxDurationMs(MAX_DURATION_MS);
 });
 
-// ── Layer 2: objective, computed facts ───────────────────────────────────
-// Deterministic matchers over the final report. Each requires its metric to
-// appear on the same line as its label so the two 5% growth figures and the
-// 42% retention figure are distinguishable — not merely the bare tokens.
-// Percent values accept trailing-zero decimals (5%, 5.0%, 42.00%, ...) since
-// models legitimately format computed ratios with varying precision.
 const REQUIRED_METRICS = [
   { label: "active users = 840", pattern: /(?<![\d.])840(?!\d)/ },
   {
@@ -96,11 +59,6 @@ check("report-contains-required-metrics", (t, { deliverables }) => {
   }
 });
 
-// ── Layer 3: judged quality (one focused judge) ──────────────────────────
-// Are the report's conclusions supported by the supplied metrics? This is the
-// subjective dimension code cannot assess. It fails unsupported causal claims
-// (e.g. "retention fell because onboarding is broken") the fixture has no
-// evidence for. Numbers themselves are pinned by Layer 2, not this judge.
 check("conclusions-are-supported", async (t, { deliverables }) => {
   await t.judge(
     deliverables.result,
@@ -113,18 +71,12 @@ check("conclusions-are-supported", async (t, { deliverables }) => {
   );
 });
 
-// ── Layer 4: fixture sanity ──────────────────────────────────────────────
 check("report-inputs-present", (t, { files }) => {
   const paths = filePaths(files);
   t.check(paths, includes("instructions.md"));
   t.check(paths, includes("metrics.json"));
 });
 
-/**
- * Flatten the `result` deliverable into one searchable string. The deliverable
- * shape is the validated `{ summary, findings }` form shared with the canonical
- * example service — not a video-only format.
- */
 function reportText(result: unknown): string {
   if (typeof result === "string") return result;
   if (result && typeof result === "object") {
