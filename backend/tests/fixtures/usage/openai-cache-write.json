@@ -1,0 +1,17 @@
+{
+  "description": "OpenAI-dialect router reporting cache creation (cache_write_tokens). Routers like OpenRouter return prompt_tokens_details.cache_write_tokens; these are a distinct billed dimension, NOT a subset of input_tokens. Non-overlap: cache_read is subtracted from input; cache_write_5m is not.",
+  "source": "openai",
+  "provider": "openai",
+  "input": {
+    "gen_ai.usage.input_tokens": 12912,
+    "gen_ai.usage.output_tokens": 95,
+    "gen_ai.usage.cache_read.input_tokens": 0,
+    "gen_ai.usage.cache_creation.input_tokens": 12909
+  },
+  "expected": {
+    "input": 12912,
+    "cache_read": 0,
+    "output": 95,
+    "cache_write_5m": 12909
+  }
+}

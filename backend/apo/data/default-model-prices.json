@@ -1,5 +1,5 @@
 {
-  "_comment": "Bundled default model prices for apo. Loaded idempotently on startup; this file is the SOLE source of truth for __global__ models. Per-project overrides come via the API (ticket 10). Units: USD per 1M tokens, human-readable (e.g. 2.50 = $2.50/1M); converted to micro-USD-per-million ints at load (ticket 02 #3). Pricing keys are the canonical UsageKeys (ticket 01): input, cache_read, cache_write_5m, cache_write_1h, output, reasoning. Tier conditions use ticket 05's {keys,operator,threshold} shape; the large-context tier sums input+cache_read (cached tokens occupy the context window). updated_at is pinned from JSON (NOT now()) and used for per-model exact-equality idempotency. Maintenance: see ticket 08 — review cadence is on-demand, ownership is 'whoever ships a release'.",
+  "_comment": "Bundled default model prices for apo. Loaded idempotently on startup; this file is the SOLE source of truth for __global__ models. Per-project overrides come via the API (ticket 10). Units: USD per 1M tokens, human-readable (e.g. 2.50 = $2.50/1M); converted to micro-USD-per-million ints at load (ticket 02 #3). Pricing keys are the canonical UsageKeys (ticket 01): input, cache_read, cache_write_5m, cache_write_1h, output, reasoning. Tier conditions use ticket 05's {keys,operator,threshold} shape; the large-context tier sums input+cache_read (cached tokens occupy the context window). updated_at is pinned from JSON (NOT now()) and used for per-model exact-equality idempotency. Maintenance: see ticket 08 \u2014 review cadence is on-demand, ownership is 'whoever ships a release'.",
   "_format": {
     "match_pattern": "anchored regex; matched via re.fullmatch(pattern, name, re.IGNORECASE)",
     "prices": "USD per 1M tokens; canonical usage keys: input, cache_read, cache_write_5m, cache_write_1h, output, reasoning",
@@ -102,7 +102,7 @@
       ]
     },
     {
-      "_doc": "Cache-tiered model (golden shape #3, ticket 13 §5): exercises the cache_read / cache_write_5m / cache_write_1h distinct priced dimensions.",
+      "_doc": "Cache-tiered model (golden shape #3, ticket 13 \u00a75): exercises the cache_read / cache_write_5m / cache_write_1h distinct priced dimensions.",
       "match_pattern": "(?i)^claude-3[.-]5-sonnet.*$",
       "provider": "anthropic",
       "display_name": "Claude 3.5 Sonnet",
@@ -147,7 +147,7 @@
       ]
     },
     {
-      "_doc": "$1/$5 per MTok. Pattern allows a date suffix — the canonical id is dated (claude-haiku-4-5-20251001). Distinct from the Claude 3.5 Haiku entry below, which is a different model at $0.80/$4.",
+      "_doc": "$1/$5 per MTok. Pattern allows a date suffix \u2014 the canonical id is dated (claude-haiku-4-5-20251001). Distinct from the Claude 3.5 Haiku entry below, which is a different model at $0.80/$4.",
       "match_pattern": "(?i)^claude-haiku-4-5.*$",
       "provider": "anthropic",
       "display_name": "Claude Haiku 4.5",
@@ -383,7 +383,7 @@
       "_doc": "cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero."
     },
     {
-      "_doc": "Reasoning model (golden shape #4, ticket 13 §5): exercises the reasoning output dimension and the unpriced-key skip when reasoning has no price row. Note: o3 prices reasoning as part of output here (OpenAI bills o3 output including thinking); a model that prices reasoning separately would add a 'reasoning' key. cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero.",
+      "_doc": "Reasoning model (golden shape #4, ticket 13 \u00a75): exercises the reasoning output dimension and the unpriced-key skip when reasoning has no price row. Note: o3 prices reasoning as part of output here (OpenAI bills o3 output including thinking); a model that prices reasoning separately would add a 'reasoning' key. cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero.",
       "match_pattern": "(?i)^o3$",
       "provider": "openai",
       "display_name": "o3",
@@ -429,7 +429,7 @@
       "_doc": "cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero."
     },
     {
-      "_doc": "Issue #101: was arriving unpriced. Rates measured from OpenRouter per-call cost on 2026-08-03 (includes OpenRouter 50%% promotion — re-measure before relying). compute_cost strips the openai/ slug before matching. GPT-5.6 cache writes are billed at 1.25x uncached input.",
+      "_doc": "Issue #101: was arriving unpriced. Rates measured from OpenRouter per-call cost on 2026-08-03 (includes OpenRouter 50%% promotion \u2014 re-measure before relying). compute_cost strips the openai/ slug before matching. GPT-5.6 cache writes are billed at 1.25x uncached input.",
       "match_pattern": "(?i)^gpt-5\\.6-terra$",
       "provider": "openai",
       "display_name": "GPT-5.6 Terra",
@@ -452,7 +452,7 @@
       ]
     },
     {
-      "_doc": "Issue #101: was arriving unpriced. Rates measured from OpenRouter per-call cost on 2026-08-03 (includes OpenRouter 50%% promotion — re-measure before relying). compute_cost strips the openai/ slug before matching. GPT-5.6 cache writes are billed at 1.25x uncached input.",
+      "_doc": "Issue #101: was arriving unpriced. Rates measured from OpenRouter per-call cost on 2026-08-03 (includes OpenRouter 50%% promotion \u2014 re-measure before relying). compute_cost strips the openai/ slug before matching. GPT-5.6 cache writes are billed at 1.25x uncached input.",
       "match_pattern": "(?i)^gpt-5\\.6-luna$",
       "provider": "openai",
       "display_name": "GPT-5.6 Luna",
@@ -475,7 +475,7 @@
       ]
     },
     {
-      "_doc": "Large-context-tiered model (golden shape #2, ticket 13 §5): the threshold sums input+cache_read (cached tokens occupy the context window). When the read-side family exceeds 200k, the large-context tier doubles input price. cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero.",
+      "_doc": "Large-context-tiered model (golden shape #2, ticket 13 \u00a75): the threshold sums input+cache_read (cached tokens occupy the context window). When the read-side family exceeds 200k, the large-context tier doubles input price. cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero.",
       "match_pattern": "(?i)^gemini-2\\.5-pro$",
       "provider": "gemini",
       "display_name": "Gemini 2.5 Pro",

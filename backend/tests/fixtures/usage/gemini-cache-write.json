@@ -1,0 +1,17 @@
+{
+  "description": "Gemini over OpenAI-dialect reporting cache creation. Same shape as openai-cache-write but through the gemini normalizer path.",
+  "source": "gemini",
+  "provider": "gemini",
+  "input": {
+    "gen_ai.usage.input_tokens": 15745,
+    "gen_ai.usage.output_tokens": 95,
+    "gen_ai.usage.cache_read.input_tokens": 15742,
+    "gen_ai.usage.cache_creation.input_tokens": 3
+  },
+  "expected": {
+    "input": 3,
+    "cache_read": 15742,
+    "output": 95,
+    "cache_write_5m": 3
+  }
+}

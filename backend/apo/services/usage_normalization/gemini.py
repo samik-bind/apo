@@ -35,6 +35,12 @@ def normalize(attrs: dict[str, Any]) -> dict[str, int]:
     if cache_read is not None:
         usage["cache_read"] = cache_read
 
+    # Cache creation (issue #142): Gemini over OpenAI-dialect routers reports
+    # cache_creation.input_tokens. Distinct billed dimension, NOT a subset.
+    cache_write = get_int(attrs, "gen_ai.usage.cache_creation.input_tokens")
+    if cache_write is not None:
+        usage["cache_write_5m"] = cache_write
+
     reasoning = get_int(attrs, "gen_ai.usage.reasoning.output_tokens")
     if reasoning is None:
         reasoning = get_int(attrs, "llm.token_count.completion_details.reasoning")
