@@ -1,0 +1,6 @@
+{
+  "name": "analytics-report-agent",
+  "private": true,
+  "type": "module",
+  "description": "Product analytics report agent, evaluated with Apo."
+}
