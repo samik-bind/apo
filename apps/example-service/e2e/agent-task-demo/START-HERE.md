@@ -51,3 +51,10 @@ Replace `app/lib/agent/service.ts` with your real agent, write an Adapter that
 calls it through `sendUserTurn`, and define a Task that asserts what "good"
 means. See the [Adapter API reference](https://docs.test-apo.online/reference/adapter/)
 for the full lifecycle.
+
+## Maintainer video rehearsal
+
+If you are preparing the first Apo product demo (a coding-agent repair loop),
+see the separate [`e2e/video-rehearsals/agent-repair-loop/README.md`](../video-rehearsals/agent-repair-loop/README.md).
+It is a disposable rehearsal scenario with a deliberately incomplete starting
+implementation, not part of this canonical newcomer flow.
