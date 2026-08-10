@@ -133,7 +133,7 @@ export const createSavedView = (
 ): Promise<SavedView> =>
   apiClient(`/v1/projects/${encodeURIComponent(projectId)}/task-views`, { method: "POST", body });
 
-/** Update a saved evidence-view tab (partial — only non-null fields are sent). */
+/** Update supplied fields on a saved view; explicit null clears nullable filters. */
 export const updateSavedView = (
   projectId: string,
   viewId: string,

@@ -10,7 +10,7 @@ manage them so derived tabs persist across refresh / cross-device.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import cast
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
@@ -28,6 +28,7 @@ from ..services.project_memberships import require_project_member
 from ..services.task_view_comparison import create_comparison, get_comparison, to_snapshot
 
 router = APIRouter(prefix="/v1/projects/{project_id}", tags=["task-views"])
+SessionDependency = Annotated[Session, Depends(get_session)]
 
 
 def _get_user_id(request: Request) -> str:
@@ -42,7 +43,7 @@ def _authorize(session: Session, project_id: str, request: Request) -> None:
     project = session.get(ProjectDB, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    require_project_member(session, project_id, _get_user_id(request))
+    _ = require_project_member(session, project_id, _get_user_id(request))
 
 
 def _to_response(row: TaskViewDB) -> TaskViewResponse:
@@ -65,7 +66,7 @@ async def create_task_view_comparison(
     project_id: str,
     body: TaskViewComparisonRequest,
     request: Request,
-    session: Session = Depends(get_session),
+    session: SessionDependency,
 ) -> TaskViewComparisonSnapshot:
     """Resolve + freeze a selection-scoped comparison, return the snapshot."""
     _authorize(session, project_id, request)
@@ -87,7 +88,7 @@ async def get_task_view_comparison(
     project_id: str,
     comparison_id: str,
     request: Request,
-    session: Session = Depends(get_session),
+    session: SessionDependency,
 ) -> TaskViewComparisonSnapshot:
     """Read a snapshot by id (shareable, reload-stable). Scoped to its project."""
     _authorize(session, project_id, request)
@@ -105,7 +106,7 @@ async def get_task_view_comparison(
 async def list_task_views(
     project_id: str,
     request: Request,
-    session: Session = Depends(get_session),
+    session: SessionDependency,
 ) -> list[TaskViewResponse]:
     """List the caller's saved evidence-view tabs for the project."""
     _authorize(session, project_id, request)
@@ -123,7 +124,7 @@ async def create_task_view(
     project_id: str,
     body: TaskViewCreateRequest,
     request: Request,
-    session: Session = Depends(get_session),
+    session: SessionDependency,
 ) -> TaskViewResponse:
     """Create a saved evidence-view tab."""
     _authorize(session, project_id, request)
@@ -148,7 +149,7 @@ async def update_task_view(
     view_id: str,
     body: TaskViewUpdateRequest,
     request: Request,
-    session: Session = Depends(get_session),
+    session: SessionDependency,
 ) -> TaskViewResponse:
     """Update a saved evidence-view tab (label / model / effort / since)."""
     _authorize(session, project_id, request)
@@ -156,10 +157,14 @@ async def update_task_view(
     row = session.get(TaskViewDB, view_id)
     if row is None or row.project_id != project_id or row.user_id != user_id:
         raise HTTPException(status_code=404, detail="View not found")
-    for field in ("label", "model", "effort", "since"):
-        val = getattr(body, field)
-        if val is not None:
-            setattr(row, field, val)
+    # PATCH distinguishes an omitted field from an explicit null. The latter
+    # clears nullable filters (for example, ``since=null`` means All time).
+    # ``label`` is not nullable, so a null label remains a no-op.
+    if "label" in body.model_fields_set and body.label is not None:
+        row.label = body.label
+    for field in ("model", "effort", "since"):
+        if field in body.model_fields_set:
+            setattr(row, field, getattr(body, field))
     row.updated_at = datetime.now(timezone.utc)
     session.add(row)
     session.commit()
@@ -172,7 +177,7 @@ async def delete_task_view(
     project_id: str,
     view_id: str,
     request: Request,
-    session: Session = Depends(get_session),
+    session: SessionDependency,
 ) -> None:
     """Delete a saved evidence-view tab."""
     _authorize(session, project_id, request)
