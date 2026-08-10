@@ -134,19 +134,48 @@ class TestReasoningCost:
         assert result.breakdown == {"input": 2_000_000, "output": 8_000_000, "reasoning": 16_000_000}
         assert result.total == 26_000_000
 
-    def test_unpriced_key_skipped(self, session: Session) -> None:
-        """A key in usage that the model doesn't price is skipped (0), kept in raw."""
+    def test_unpriced_reasoning_falls_back_to_output_rate(self, session: Session) -> None:
+        """Issue #143: reasoning without an explicit price row must be billed
+        at the output rate, not skipped (providers bill reasoning as output
+        tokens when there's no separate rate)."""
         _flat_model(session)
         result = compute_cost(
             session,
             "gpt-4o-mini",
-            {"input": 1_000_000, "output": 0, "reasoning": 999_999},  # reasoning unpriced
+            {"input": 1_000_000, "output": 0, "reasoning": 999_999},
             "__global__",
             _NOW,
         )
         assert result is not None
-        assert "reasoning" not in result.breakdown  # skipped, not priced
-        assert result.breakdown == {"input": 150_000}
+        # reasoning billed at output rate (600_000 micro-per-1M)
+        assert result.breakdown == {"input": 150_000, "reasoning": 599_999}
+
+    def test_reasoning_without_price_row_falls_back_to_output_rate(self, session: Session) -> None:
+        """Issue #143: when reasoning has no explicit price row, it must be
+        billed at the output rate — providers bill reasoning as output tokens
+        when there's no separate rate. Splitting reasoning out of output must
+        not make it free."""
+        _flat_model(session)
+        # Split: reasoning separated from output (as the normalizer does)
+        split = compute_cost(
+            session,
+            "gpt-4o-mini",
+            {"input": 100, "output": 200, "reasoning": 300},
+            "__global__",
+            _NOW,
+        )
+        # Merged: reasoning still inside output (the old pre-normalization shape)
+        merged = compute_cost(
+            session,
+            "gpt-4o-mini",
+            {"input": 100, "output": 500},
+            "__global__",
+            _NOW,
+        )
+        assert split is not None and merged is not None
+        # The split must cost the same as the merged — reasoning tokens are
+        # billed at the output rate when no separate reasoning price exists.
+        assert split.total == merged.total
 
 
 class TestNoMatch:

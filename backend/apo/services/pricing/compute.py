@@ -13,6 +13,7 @@ from datetime import datetime
 
 from sqlmodel import Session
 
+from ...models.usage_keys import UsageKey
 from .resolution import load_tier_prices, match_tier, resolve_model_era
 
 logger = logging.getLogger(__name__)
@@ -79,8 +80,15 @@ def compute_cost(
     for key_str, units in raw_usage.items():
         price_per_1m = prices.get(key_str)
         if price_per_1m is None:
-            # Key in usage but unpriced for this tier -> skip (contributes 0).
-            continue
+            # Issue #143: reasoning tokens billed as output when no separate
+            # reasoning price row exists. Providers bill reasoning as output
+            # tokens when they don't price it separately. Without this fallback,
+            # the normalizer's split of reasoning out of output makes reasoning
+            # free — the tokens vanish from both the output bill and any bill.
+            if key_str == UsageKey.REASONING.value and UsageKey.OUTPUT.value in prices:
+                price_per_1m = prices[UsageKey.OUTPUT.value]
+            else:
+                continue
         if units < 0:
             logger.warning("negative token count for %s on %s: %d; clamping to 0", key_str, model_name, units)
             units = 0
