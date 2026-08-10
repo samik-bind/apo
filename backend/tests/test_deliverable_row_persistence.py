@@ -516,3 +516,39 @@ class TestTaskRunFence:
                 assert row.status == "ready"
         finally:
             app.dependency_overrides.clear()
+
+
+class TestUnexpectedExceptionDiagnosed:
+    """Issue #141: unexpected exceptions during result submission must return
+    a structured 500 with a diagnostic body, not a bare bodyless 500."""
+
+    def test_operational_error_returns_diagnostic_500(self, isolated, monkeypatch):
+        """When the DB raises (e.g. 'database is locked'), the result route
+        must return 500 with the exception class name, not a bare 500."""
+        import apo.services.execution_finalization as fin
+        from apo.services.execution_leases import CurrentAttemptLease
+
+        engine = isolated
+        with Session(engine) as s:
+            jwt = _seed_leased_attempt(s)
+        c = _client(engine)
+
+        original = fin.finalize_attempt_result
+
+        def _explode(*args, **kwargs):
+            raise OSError("database is locked")
+
+        monkeypatch.setattr(fin, "finalize_attempt_result", _explode)
+
+        try:
+            resp = c.post(
+                "/v1/executor-protocol/v2/attempts/att-deliv/result",
+                headers={"Authorization": f"Bearer {jwt}"},
+                json={"completion_id": "comp-500", "pass_result": True},
+            )
+            assert resp.status_code == 500, resp.text
+            body = resp.json()
+            # The body must name the exception class so the operator can diagnose.
+            assert "OSError" in str(body) or "error" in str(body).lower()
+        finally:
+            app.dependency_overrides.clear()

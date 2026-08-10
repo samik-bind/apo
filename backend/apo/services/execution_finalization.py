@@ -354,7 +354,7 @@ async def finalize_attempt_with_deliverables(
 
         attempt_row = session.get(TaskExecutionAttemptDB, lease.attempt_id)
         if attempt_row is not None:
-            store = get_store("local")
+            store = get_store(None)
             for name, value in deliverables.items():
                 await persist_json_deliverable(
                     session,

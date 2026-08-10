@@ -225,6 +225,15 @@ async def attempt_result(
         raise HTTPException(code, detail={"kind": "deliverable_error", "msg": msg})
     except LeaseError as exc:
         raise lease_error_to_http(exc)
+    except Exception as exc:
+        import logging
+        logging.getLogger("apo.routes.executor_protocol").exception(
+            "Unexpected error finalizing attempt %s: %s", attempt_id, type(exc).__name__
+        )
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"kind": "internal_error", "error": type(exc).__name__, "msg": str(exc)[:500]},
+        )
     return {"attempt_id": attempt.id, "status": attempt.status}
 
 
