@@ -419,9 +419,7 @@ class TestCacheWriteIsPricedForEveryProvider:
         message += "cache-creation tokens silently cost $0: " + ", ".join(missing)
         assert not missing, message
 
-    def test_cache_write_uses_provider_rate(self, session: Session) -> None:
-        """Most providers bill cache creation as ordinary input, while GPT-5.6
-        applies its documented 1.25x write premium."""
+    def test_no_premium_providers_price_writes_as_input(self, session: Session) -> None:
         load_default_prices(session)
         for name in ("gemini-3.6-flash", "glm-5.2"):
             write_only = compute_cost(
@@ -432,13 +430,26 @@ class TestCacheWriteIsPricedForEveryProvider:
             assert write_only.total > 0, f"{name} cache writes must not be free"
             assert write_only.total == input_only.total, name
 
-        for name in ("gpt-5.6-luna", "gpt-5.6-terra"):
-            write_only = compute_cost(
-                session, name, {"cache_write_5m": 1_000_000}, "__global__", NOW
-            )
-            input_only = compute_cost(session, name, {"input": 1_000_000}, "__global__", NOW)
-            assert write_only is not None and input_only is not None, name
-            assert write_only.total == int(input_only.total * 1.25), name
+    def test_gpt56_uses_openrouter_prompt_and_write_rates(self, session: Session) -> None:
+        """OpenRouter lists cache writes at 1.25x ordinary input for GPT-5.6.
+
+        Cold-call costs independently verify the write side, but cannot measure
+        ordinary input because nearly the entire prompt is a cache write.
+        Assert both published rates so a stale input row cannot make an
+        equality-based test pass accidentally.
+        """
+        load_default_prices(session)
+        expected_micro_usd = {
+            "gpt-5.6-luna": {"input": 100_000, "cache_write_5m": 125_000},
+            "gpt-5.6-terra": {"input": 1_000_000, "cache_write_5m": 1_250_000},
+        }
+        for name, expected in expected_micro_usd.items():
+            for usage_key, expected_cost in expected.items():
+                cost = compute_cost(
+                    session, name, {usage_key: 1_000_000}, "__global__", NOW
+                )
+                assert cost is not None, name
+                assert cost.total == expected_cost, f"{name} {usage_key}"
 
     def test_cache_heavy_worker_costs_more_than_output_alone(self, session: Session) -> None:
         """The shape this bug hid: a fan-out worker whose usage is almost
