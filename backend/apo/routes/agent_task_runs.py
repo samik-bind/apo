@@ -590,6 +590,7 @@ async def list_agent_task_batch_runs(
     q: str | None = Query(default=None),
     model: str | None = Query(default=None),
     effort: str | None = Query(default=None),
+    since: str | None = Query(default=None),
     page: int = Query(0, ge=0),
     page_size: int = Query(20, ge=1, le=100),
     session: Session = Depends(get_session),
@@ -612,6 +613,12 @@ async def list_agent_task_batch_runs(
         base = base.where(AgentTaskBatchRunDB.project == project)
     if status:
         base = base.where(AgentTaskBatchRunDB.status == status)
+    if since:
+        from datetime import datetime, timedelta, timezone as tz
+        hours = {"1h": 1, "24h": 24, "7d": 168, "30d": 720}.get(since, 0)
+        if hours:
+            cutoff = datetime.now(tz.utc) - timedelta(hours=hours)
+            base = base.where(col(AgentTaskBatchRunDB.created_at) >= cutoff)
     if q:
         pattern = f"%{q}%"
         base = base.where(or_(

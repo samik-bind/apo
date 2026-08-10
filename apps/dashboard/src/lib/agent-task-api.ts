@@ -565,6 +565,7 @@ export const listAgentTaskBatchRuns = (
     q?: string;
     model?: string[];
     effort?: string[];
+    since?: string;
     page?: number;
     page_size?: number;
   },
@@ -577,6 +578,7 @@ export const listAgentTaskBatchRuns = (
       q: opts?.q,
       model: opts?.model?.join(",") || undefined,
       effort: opts?.effort?.join(",") || undefined,
+      since: opts?.since,
       page: opts?.page,
       page_size: opts?.page_size,
     },

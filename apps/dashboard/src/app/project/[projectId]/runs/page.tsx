@@ -25,6 +25,7 @@ export default async function RunsPage({
   const pageSize = query.page_size ? Number(query.page_size) : 20;
   const q = typeof query.q === "string" ? query.q : undefined;
   const status = typeof query.status === "string" ? query.status : undefined;
+  const since = typeof query.since === "string" ? query.since : undefined;
   const modelParam = typeof query.model === "string" ? query.model : undefined;
   const models = modelParam ? modelParam.split(",").filter(Boolean) : undefined;
   const effortParam = typeof query.effort === "string" ? query.effort : undefined;
@@ -44,6 +45,7 @@ export default async function RunsPage({
     const paginated = await listAgentTaskBatchRuns(projectId, {
       q,
       status,
+      since,
       model: models,
       effort: efforts,
       page,

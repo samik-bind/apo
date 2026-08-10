@@ -39,12 +39,19 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { parseUTC, formatCostMicro, formatTokenTotal } from "@/lib/format";
-import { formatBatchExecution, formatRunExecution, formatRunExecutionFull } from "@/lib/run-configuration";
+import { formatBatchExecution, formatRunExecution, formatRunExecutionFull, shortModel } from "@/lib/run-configuration";
 
 import { useProjectId } from "@/lib/project-router";
 import { useClientNow } from "@/hooks/use-client-now";
 import { conclusionStyle } from "@/components/run-outcome";
 import { RunsModelFilter, type ModelOption } from "./runs-model-filter";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const COL = {
   chevron: 28,
@@ -296,27 +303,75 @@ export function RunsClient({
             ))}
           </div>
 
+          {/* Model dropdown */}
+          <label className="flex shrink-0 items-center gap-1.5">
+            <span className="text-[11px] uppercase tracking-wide text-foreground/50">Model</span>
+            <Select
+              value={selectedModels.size === 1 ? Array.from(selectedModels)[0] : selectedModels.size > 1 ? "__multi" : "__all"}
+              onValueChange={(v) => {
+                if (v === "__all") updateUrl({ model: null, effort: null, page: null });
+                else updateUrl({ model: v, effort: null, page: null });
+              }}
+            >
+              <SelectTrigger size="sm" className="h-7 w-[140px] bg-muted/40 text-[12px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all" className="text-[12px]">All models</SelectItem>
+                {modelOptions.map((opt) => (
+                  <SelectItem key={opt.model} value={opt.model} className="text-[12px] font-mono">
+                    {shortModel(opt.model)} ({opt.count})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+
           {/* Effort filter — shown only when one model selected with 2+ tiers */}
           {effortOptions.length > 0 && (
-            <div className="flex items-center gap-1">
-              <span className="text-[11px] text-muted-foreground">Effort:</span>
-              {effortOptions.map((e) => (
-                <button
-                  key={e.effort}
-                  type="button"
-                  onClick={() => toggleEffort(e.effort)}
-                  className={cn(
-                    "rounded px-2 py-1 text-[11px] font-medium transition-colors",
-                    selectedEfforts.has(e.effort)
-                      ? "bg-foreground text-background"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                  )}
-                >
-                  {e.effort}
-                </button>
-              ))}
-            </div>
+            <label className="flex shrink-0 items-center gap-1.5">
+              <span className="text-[11px] uppercase tracking-wide text-foreground/50">Effort</span>
+              <Select
+                value={selectedEfforts.size === 1 ? Array.from(selectedEfforts)[0] : "__any"}
+                onValueChange={(v) => {
+                  if (v === "__any") updateUrl({ effort: null, page: null });
+                  else updateUrl({ effort: v, page: null });
+                }}
+              >
+                <SelectTrigger size="sm" className="h-7 w-[100px] bg-muted/40 text-[12px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__any" className="text-[12px]">Any</SelectItem>
+                  {effortOptions.map((e) => (
+                    <SelectItem key={e.effort} value={e.effort} className="text-[12px]">
+                      {e.effort} ({e.count})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
           )}
+
+          {/* Date filter */}
+          <label className="flex shrink-0 items-center gap-1.5">
+            <span className="text-[11px] uppercase tracking-wide text-foreground/50">Date</span>
+            <Select
+              value={searchParams.get("since") ?? "all"}
+              onValueChange={(v) => updateUrl({ since: v === "all" ? null : v, page: null })}
+            >
+              <SelectTrigger size="sm" className="h-7 w-[90px] bg-muted/40 text-[12px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-[12px]">All time</SelectItem>
+                <SelectItem value="1h" className="text-[12px]">1 hour</SelectItem>
+                <SelectItem value="24h" className="text-[12px]">24 hours</SelectItem>
+                <SelectItem value="7d" className="text-[12px]">7 days</SelectItem>
+                <SelectItem value="30d" className="text-[12px]">30 days</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
 
           <div className="ml-auto flex items-center gap-3 text-[12px] text-muted-foreground">
             <span>
