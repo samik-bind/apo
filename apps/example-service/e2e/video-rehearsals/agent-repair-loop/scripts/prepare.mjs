@@ -10,6 +10,11 @@
  *   names scenario `agent-repair-loop-v1`, and its `workspace` field points at
  *   this exact `work/` directory. Otherwise exit non-zero and touch nothing.
  *
+ * The workspace (`work/`) must look like a normal codebase to the coding agent:
+ * NO marker file, NO .env, NO rehearsal docs live inside it. The ownership
+ * marker lives one level up (in the scenario dir) so the agent never sees it,
+ * and provider keys come from the shell environment, not a workspace file.
+ *
  * `prepare` is both prepare and reset. There is no separate destructive flag.
  */
 import { createHash } from "node:crypto";
@@ -29,16 +34,14 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const SCENARIO_DIR = resolve(SCRIPT_DIR, "..");
 const TEMPLATE_DIR = join(SCENARIO_DIR, "template");
 const WORK_DIR = join(SCENARIO_DIR, "work");
-const EXAMPLE_SERVICE_ROOT = resolve(SCENARIO_DIR, "../../..");
-const REPO_ROOT = resolve(EXAMPLE_SERVICE_ROOT, "../..");
-const MARKER_PATH = join(WORK_DIR, ".apo-video-rehearsal.json");
+// The marker lives OUTSIDE work/ so a coding agent operating in work/ never
+// sees rehearsal metadata.
+const MARKER_PATH = join(SCENARIO_DIR, ".rehearsal-marker.json");
 const TASK_ROOT_REL = "tasks";
 
 // Paths protected during a Repair Trial (relative to work/). Hashes of these are
 // recorded in the ownership marker and verified before any reset and by
-// verify-workspace.mjs. NOTE: AGENT-PROMPT.md is deliberately NOT in work/ —
-// the workspace must look like a normal codebase, with no manual for the agent
-// to read. The coding agent discovers the fix from the Apo verdict.
+// verify-workspace.mjs.
 const PROTECTED_FILES = [
   "adapter.ts",
   "tasks/analytics-report/analytics-report.eval.ts",
@@ -92,36 +95,6 @@ function copyTemplate() {
   rmSync(join(WORK_DIR, "AGENT-PROMPT.md"), { force: true });
 }
 
-/**
- * Write work/.env with the provider vars the agent + judge need, sourced from
- * the repo's .env files. The workspace is meant to be operated in standalone
- * (the coding agent runs from inside work/), so apo's cwd-relative .env search
- * would not find the keys otherwise. work/ is gitignored and disposable.
- */
-function writeWorkspaceEnv() {
-  const ENVS = [
-    join(REPO_ROOT, ".env"),
-    join(EXAMPLE_SERVICE_ROOT, ".env"),
-  ];
-  const WANTED = ["OPENROUTER_API_KEY", "OPENROUTER_MODEL", "OPENROUTER_BASE_URL"];
-  const found = {};
-  for (const p of ENVS) {
-    if (!existsSync(p)) continue;
-    for (const line of readFileSync(p, "utf-8").split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const eq = trimmed.indexOf("=");
-      if (eq < 0) continue;
-      const key = trimmed.slice(0, eq).trim();
-      const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
-      if (WANTED.includes(key) && !(key in found) && val) found[key] = val;
-    }
-  }
-  const lines = WANTED.filter((k) => k in found).map((k) => `${k}=${found[k]}`);
-  if (lines.length === 0) return;
-  writeFileSync(join(WORK_DIR, ".env"), lines.join("\n") + "\n");
-}
-
 function writeMarker() {
   const protectedFiles = {};
   for (const rel of PROTECTED_FILES) {
@@ -146,10 +119,13 @@ function printSuccess() {
   console.log(`Task id:   analytics-report`);
   console.log(`Expected first result: FAIL — used-report-workflow (compute was not called)`);
   console.log("");
+  console.log("Before filming, export the provider keys in your shell (apo reads the env):");
+  console.log("  export OPENROUTER_API_KEY=... OPENROUTER_MODEL=...");
+  console.log("");
   console.log("Film from inside the workspace so the agent treats it as the project:");
   console.log(`  cd ${WORK_DIR}`);
   console.log("");
-  console.log("Prompt to type to the coding agent (it reads work/README.md — uses apo naturally):");
+  console.log("Prompt to type to the coding agent (work/README.md tells it to use apo):");
   console.log("  Run `apo task run analytics-report` and fix whatever it reports until all");
   console.log("  checks pass. The agent code is in implementation/. (APO_TASK_ROOT=tasks)");
 }
@@ -166,7 +142,6 @@ function main() {
   }
 
   copyTemplate();
-  writeWorkspaceEnv();
   writeMarker();
   printSuccess();
 }

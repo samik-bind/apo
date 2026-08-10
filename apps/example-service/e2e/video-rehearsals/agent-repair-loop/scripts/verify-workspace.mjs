@@ -29,7 +29,8 @@ const EXPECTED_TEST_NAMES = [
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const SCENARIO_DIR = resolve(SCRIPT_DIR, "..");
 const WORK_DIR = join(SCENARIO_DIR, "work");
-const MARKER_PATH = join(WORK_DIR, ".apo-video-rehearsal.json");
+// The marker lives outside work/ so the coding agent never sees it.
+const MARKER_PATH = join(SCENARIO_DIR, ".rehearsal-marker.json");
 const TASK_ROOT = join(WORK_DIR, "tasks");
 const ANALYTICS_TASK_DIR = join(TASK_ROOT, "analytics-report");
 const IMPLEMENTATION_FILE = join(WORK_DIR, "implementation/analytics-report-agent.ts");

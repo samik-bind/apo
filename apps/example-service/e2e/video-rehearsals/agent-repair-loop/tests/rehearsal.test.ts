@@ -57,8 +57,11 @@ function runVerifyRaw(args: string[] = []): { status: number; stdout: string; st
   }
 }
 
+const MARKER_PATH = join(SCENARIO_DIR, ".rehearsal-marker.json");
+
 function removeAllWork() {
   rmSync(WORK_DIR, { recursive: true, force: true });
+  rmSync(MARKER_PATH, { force: true });
 }
 
 beforeEach(() => removeAllWork());
@@ -176,9 +179,11 @@ describe("preparation & reset safety", () => {
     expect(existsSync(join(ANALYTICS_TASK_DIR, "analytics-report.eval.ts"))).toBe(true);
     // The workspace contains only real code — no rehearsal meta leaked in.
     expect(existsSync(join(WORK_DIR, "AGENT-PROMPT.md"))).toBe(false);
+    expect(existsSync(join(WORK_DIR, ".apo-video-rehearsal.json"))).toBe(false);
+    expect(existsSync(join(WORK_DIR, ".env"))).toBe(false);
 
     const marker = JSON.parse(
-      readFileSync(join(WORK_DIR, ".apo-video-rehearsal.json"), "utf-8"),
+      readFileSync(MARKER_PATH, "utf-8"),
     );
     expect(marker.scenario).toBe("agent-repair-loop-v1");
     expect(marker.workspace).toBe(WORK_DIR);
@@ -222,7 +227,7 @@ describe("preparation & reset safety", () => {
     expect(after).toContain("runAnalyticsReport");
     // Marker hashes are freshly recorded against the new copy.
     const marker = JSON.parse(
-      readFileSync(join(WORK_DIR, ".apo-video-rehearsal.json"), "utf-8"),
+      readFileSync(MARKER_PATH, "utf-8"),
     );
     const evalHash = sha256(
       readFileSync(join(ANALYTICS_TASK_DIR, "analytics-report.eval.ts")),
