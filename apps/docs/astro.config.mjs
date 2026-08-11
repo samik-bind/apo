@@ -126,7 +126,7 @@ export default defineConfig({
 						label: 'batch',
 						collapsed: false,
 						items: [
-							{ label: 'batch create / show / list', slug: 'cli/batch' },
+							{ label: 'batch show / list', slug: 'cli/batch' },
 						],
 					},
 				],
@@ -159,6 +159,9 @@ export default defineConfig({
 				// Section tabs (Guide / Reference / CLI / Ecosystem) in the
 				// header. See src/lib/docs-navigation.ts for the section model.
 				Header: './src/components/Header.astro',
+				// Logo node is persisted across navigations so the SVG doesn't
+				// re-decode/flash on each view transition. See SiteTitle.astro.
+				SiteTitle: './src/components/SiteTitle.astro',
 				// Filters the sidebar to only the active section's groups.
 				// See src/lib/docs-navigation.ts.
 				Sidebar: './src/components/Sidebar.astro',
