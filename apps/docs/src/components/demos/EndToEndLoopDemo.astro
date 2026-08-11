@@ -331,9 +331,26 @@
 	type NodeName = "run" | "verdict" | "evidence" | "improve";
 	type VerdictState = "pending" | "fail" | "pass";
 
-	const LAP_MS = 4_500;
-	const PASS_EXIT_MS = 1_150;
-	const CYCLE_MS = 9_500;
+	// Per-segment motion model: the token travels MOVE_MS between adjacent
+	// nodes, then DWELLS at each node so each step of the loop reads as a
+	// distinct beat rather than a continuous spin.
+	const MOVE_MS = 650;
+	const DWELL_MS = 800;
+	const LAP_MS = 4 * (MOVE_MS + DWELL_MS);
+	const PASS_REACH_MS = DWELL_MS + MOVE_MS;
+	const HOLD_PASS_MS = 2_200;
+	const CYCLE_MS = LAP_MS + PASS_REACH_MS + HOLD_PASS_MS;
+
+	/** Builds offset-distance keyframes that hold (`dist`) at each waypoint. */
+	function buildLapKeyframes(
+		waypoints: Array<{ t: number; dist: string }>,
+		total: number,
+	) {
+		return waypoints.map(({ t, dist }) => ({
+			offset: total === 0 ? 0 : t / total,
+			offsetDistance: dist,
+		}));
+	}
 
 	function setupTestLoop(root: HTMLElement) {
 		const nodes = new Map<NodeName, HTMLElement>();
@@ -405,19 +422,32 @@
 
 			if (token) {
 				tokenAnimation = token.animate(
-					[{ offsetDistance: "0%" }, { offsetDistance: "100%" }],
+					buildLapKeyframes(
+						[
+							{ t: 0, dist: "0%" },
+							{ t: DWELL_MS, dist: "0%" },
+							{ t: DWELL_MS + MOVE_MS, dist: "25%" },
+							{ t: 2 * DWELL_MS + MOVE_MS, dist: "25%" },
+							{ t: 2 * (DWELL_MS + MOVE_MS), dist: "50%" },
+							{ t: 3 * DWELL_MS + 2 * MOVE_MS, dist: "50%" },
+							{ t: 3 * (DWELL_MS + MOVE_MS), dist: "75%" },
+							{ t: 4 * DWELL_MS + 3 * MOVE_MS, dist: "75%" },
+							{ t: LAP_MS, dist: "100%" },
+						],
+						LAP_MS,
+					),
 					{ duration: LAP_MS, easing: "linear", fill: "forwards" },
 				);
 			}
 
-			schedule(generation, 1_100, () => {
+			schedule(generation, DWELL_MS + MOVE_MS, () => {
 				setActive("verdict");
 				setVerdict("fail");
 			});
-			schedule(generation, 2_200, () => {
+			schedule(generation, 2 * (DWELL_MS + MOVE_MS), () => {
 				setActive("evidence");
 			});
-			schedule(generation, 3_350, () => {
+			schedule(generation, 3 * (DWELL_MS + MOVE_MS), () => {
 				setActive("improve");
 			});
 			schedule(generation, LAP_MS, () => {
@@ -426,12 +456,19 @@
 				setCenter("run 2 / 2");
 				if (token) {
 					tokenAnimation = token.animate(
-						[{ offsetDistance: "0%" }, { offsetDistance: "25%" }],
-						{ duration: PASS_EXIT_MS, easing: "linear", fill: "forwards" },
+						buildLapKeyframes(
+							[
+								{ t: 0, dist: "0%" },
+								{ t: DWELL_MS, dist: "0%" },
+								{ t: PASS_REACH_MS, dist: "25%" },
+							],
+							PASS_REACH_MS,
+						),
+						{ duration: PASS_REACH_MS, easing: "linear", fill: "forwards" },
 					);
 				}
 			});
-			schedule(generation, LAP_MS + PASS_EXIT_MS, () => {
+			schedule(generation, LAP_MS + PASS_REACH_MS, () => {
 				setActive("verdict");
 				setVerdict("pass");
 				showOutput(true);
