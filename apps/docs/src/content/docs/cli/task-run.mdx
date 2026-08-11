@@ -11,31 +11,22 @@ import TerminalOutput from '../../../components/demos/TerminalOutput.astro';
 <TerminalDemo
   command="apo task run extract-parties"
   lines={[
+    { text: "Running task from ./tasks/extract-parties...", tone: "dim" },
     { text: "" },
-    { text: "Run: de89cab0", tone: "default" },
-    { text: "  Task:      extract-parties" },
-    { text: "  Status:    completed" },
-    { text: "  Result:    FAIL", tone: "danger" },
-    { text: "  Started:   7/4/2026, 5:12:30 PM" },
-    { text: "  Cost:      $0.003400" },
-    { text: "  Tokens:    1,247" },
-    { text: "  Trace:     f1a2b3c4", tone: "default" },
-    { text: "" },
-    { text: "  Checks:", tone: "default" },
-    { text: "    FAIL parties-are-complete", tone: "danger" },
+    { parts: [{ text: "FAIL", tone: "danger" }, { text: " extract-parties", tone: "bold" }] },
+    { parts: [{ text: "  Checks:", tone: "bold" }] },
+    { parts: [{ text: "    " }, { text: "FAIL", tone: "danger" }, { text: " parties-are-complete" }] },
     { text: "      ✗ parties-match-schema", tone: "danger" },
     { text: "        − Expected: every named party captured", tone: "danger" },
     { text: "        + Received: missing \"acme-corp\"", tone: "danger" },
-    { text: "      ✓ no-duplicate-parties", tone: "success" },
-    { text: "" },
-    { text: "  Inspect: apo runs show de89cab0", tone: "default" },
+    { parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " no-duplicate-parties" }] },
   ]}
 />
 
 ## Synopsis
 
 ```bash
-apo task run <task-id | path> [--ci] [--no-record]
+apo task run <task-id | path> [--ci] [--no-record] [--executor <caller|pool-id>]
 ```
 
 ## Description
@@ -68,34 +59,27 @@ The folder scoping is why two families can each define `task("cost-inquiry")` wi
 |---|---|---|
 | `<task-id \| path>` | (required) | Task id (folder name) or filesystem path. |
 | `--ci` | off | CI mode: records CI metadata, uses strict exit codes. |
-| `--no-record` | off | Run on this machine without creating a backend Run. |
+| `--no-record` | off | Run on this machine without creating a backend Run. Conflicts with a Pool target. |
+| `--executor <caller\|pool-id>` | `caller` | Target executor: `caller` (this machine) or an exact Pool id. |
+| `--local` | — | (compat) alias for `--executor caller`; deprecated. |
+| `--remote` | — | (compat) force a Bundled Pool; deprecated — errors if none is configured. |
 
 ## Output
 
-The result block carries the verdict and the per-check breakdown. The verdict is `PASS` (green) or `FAIL` (red) — the AND of all tests. Each check shows its result with failure reasons:
+The result is the verdict and the per-check breakdown. The verdict is `PASS` (green) or `FAIL` (red) — the AND of all tests. Each check shows its result with failure reasons:
 
 <TerminalOutput
   lines={[
-    { text: "Run: de89cab0" },
-    { text: "  Task:      extract-parties" },
-    { text: "  Adapter:   real-agent" },
-    { text: "  Status:    completed" },
-    { text: "  Result:    FAIL", tone: "danger" },
-    { text: "  Started:   7/16/2026, 9:42 AM" },
-    { text: "  Cost:      $0.003400" },
-    { text: "  Source:    cli · sami · apo task run" },
-    { text: "  Trace:     f1a2b3c4" },
+    { text: "Running task from ./tasks/extract-parties...", tone: "dim" },
     { text: "" },
-    { text: "  Checks:", tone: "default" },
-    { text: "    FAIL parties-are-complete", tone: "danger" },
-    { text: "      ✗ parties-match-schema", tone: "danger" },
-    { text: "        − Expected: every named party captured", tone: "danger" },
-    { text: "        + Received: missing \"acme-corp\"", tone: "danger" },
-    { text: "      ✓ no-duplicate-parties", tone: "success" },
+    { parts: [{ text: "PASS", tone: "success" }, { text: " extract-parties", tone: "bold" }] },
+    { parts: [{ text: "  Checks:", tone: "bold" }] },
+    { parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " used-source-document" }] },
+    { parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " parties-are-complete" }] },
   ]}
 />
 
-The `Inspect:` line at the bottom hints the next command — `apo runs show <run-id>` for the full breakdown, `apo traces show <trace-id>` for the call tree.
+`apo task run` prints the verdict and checks directly. For the full run detail — batch, cost, tokens, trace id, timestamps — use [`apo runs show`](/cli/runs-show/); for the call tree use [`apo traces show`](/cli/traces-show/).
 
 ## Exit codes
 

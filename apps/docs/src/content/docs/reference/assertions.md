@@ -194,9 +194,11 @@ Every `t.*` assertion is gated by an **evidence capability** — whether the tra
 
 | Capability | `available` | `partial` | `unavailable` |
 |---|---|---|---|
-| Positive (`calledTool`, `loadedSkill`, `calledSubagent`, `messageIncludes`) | normal evaluation | pass if a match is found; otherwise `unsupported` | `unsupported` |
+| Positive (`calledTool`, `loadedSkill`, `calledSubagent`, `messageIncludes`) | normal evaluation | `unsupported` (inconclusive) | `unsupported` |
 | Negative / upper-bound (`notCalledTool`, `usedNoTools`, `maxToolCalls`, `maxTurns`, `maxDurationMs`) | normal evaluation | `unsupported` (absence is inconclusive) | `unsupported` |
-| `noFailedActions` | normal evaluation | fail if a known error exists; otherwise `unsupported` | `unsupported` |
+| `noFailedActions` | normal evaluation | `unsupported` (inconclusive) | `unsupported` |
+
+When a capability is `partial` or `unavailable`, the assertion immediately records `unsupported` without scanning for matches — a partial projection cannot prove a positive or a negative.
 
 An `unsupported` outcome records `pass: false` — it is never a silent pass. This is why a complete `apo-agent-task-v1` run with zero tools still has `tools = available`: the projection can *prove* `usedNoTools()`, not just fail to find tools.
 

@@ -30,6 +30,8 @@ type RunTaskOptions = {
   tracing?: AgentTaskTraceOptions;
   /** Called after each turn with the turn number, input, and response. */
   onTurn?: (turnNumber: number, userAction: unknown, agentResponse: unknown) => void;
+  /** Skip the internal `loadTask` call and reuse an already-loaded task. Keeps the eval import count at one per run. */
+  loaded?: LoadedTask;
 };
 ```
 
@@ -39,11 +41,12 @@ type RunTaskOptions = {
 |---|---|---|
 | `result` | `TaskEvaluationResult` | The evaluation: `{ pass: boolean, checks: EvaluationItemResult[] }`. Read `result.pass` for the verdict. |
 | `deliverables` | `Record<string, unknown>` | What `collectDeliverables` returned. |
-| `transcript` | `{ turns: TaskTranscriptTurn[] }` | The turn-by-turn record (`{ turnNumber, userAction, agentResponse }`). |
+| `transcript` | `TaskTranscript` | The turn-by-turn record (`{ turns: TaskTranscriptTurn[] }`). |
 | `task` | `TaskDefinition` | The task definition that ran. |
 | `taskDir` | `string` | The absolute path the task loaded from. |
 | `files` | `FileEntry[]` | The task's input files. |
 | `traceRunId?` | `string` | The trace run id, if `tracing` was set. |
+| `runConfiguration?` | `AgentTaskRunConfiguration` | The adapter's resolved model/effort. Absent for adapters that do not report configuration. |
 
 ## `loadTask(dir)`
 
@@ -91,6 +94,11 @@ console.log(summary.pass ? "✓" : "✗");
 | `taskId` | `string` | The task id. |
 | `taskDir` | `string` | The task directory. |
 | `checks` | `EvaluationItemResult[]` | The per-test results. |
+| `adapterName?` | `string` | The adapter that ran the task. Forwarded to the backend when recording locally. |
+| `traceRunId?` | `string` | The trace id this run claimed (when tracing was enabled). |
+| `deliverables?` | `Record<string, unknown>` | The deliverables the adapter produced. |
+| `transcript?` | `Record<string, unknown>` | The per-turn transcript of the run. |
+| `runConfiguration?` | `AgentTaskRunConfiguration` | The adapter-reported model/effort. |
 
 ## Lower-level entry points
 

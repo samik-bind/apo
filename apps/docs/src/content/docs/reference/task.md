@@ -1,9 +1,9 @@
 ---
 title: Task API
-description: "task(), turn(), test() — the three calls that make up a .eval.ts file. Signatures, fields, and examples."
+description: "task(), turn(), test(), describe() — the calls that make up a .eval.ts file. Signatures, fields, and examples."
 ---
 
-The three calls that make up a `.eval.ts` file: `task()`, `turn()`, `test()`. Together they define *what* to run, *what the agent sees* each turn, and *what good means*. For the folder convention and writing flow, see [Tasks](/concepts/tasks/) and [Define a Task](/guides/define-a-task/).
+The calls that make up a `.eval.ts` file: `task()`, `turn()`, `test()`, and `describe()`. Together they define *what* to run, *what the agent sees* each turn, and *what good means*. For the folder convention and writing flow, see [Tasks](/concepts/tasks/) and [Define a Task](/guides/define-a-task/).
 
 ```typescript title="my-task.eval.ts"
 import { task, turn } from "@apo-ai/sdk/agent-task";
@@ -11,10 +11,10 @@ import { task, turn } from "@apo-ai/sdk/agent-task";
 
 ## `task(name, config)`
 
-Register a task: its id, its adapter, and the deliverables tests assert on. `task()` returns the `test(...)` function for that task, typed from the adapter's `collectDeliverables()` result.
+Register a task: its id, its adapter, and the deliverables tests assert on. `task()` returns a scope with `test(...)` and `describe(...)` for that task, typed from the adapter's `collectDeliverables()` result.
 
 ```typescript title="my-task.eval.ts"
-const { test } = task("extract-parties", {
+const { test, describe } = task("extract-parties", {
   adapter: legalDocumentAdapter,
   deliverables: ["parties", "amounts", "dates"],
   maxTurns: 3,
@@ -24,21 +24,28 @@ const { test } = task("extract-parties", {
 ```
 
 ```typescript
-function task<TTaskId, TAdapter, TSelected>(
+function task<TTaskId, TAdapterName, TDeliverableDefs, TCollected, TSelected>(
   name: TTaskId,
   config: {
-    adapter: TAdapter;
+    adapter: TypedAdapterDefinition<TAdapterName, TDeliverableDefs, TCollected>;
     deliverables: TSelected;
     maxTurns?: number;
     description?: string;
     metadata?: Record<string, unknown>;
+    execution?: "local" | "bundled";
   },
-): {
-  test: TestRegistration<
-    Pick<CollectedBy<TAdapter>, TSelected[number]>
-  >;
+): TaskScope<SelectedDeliverables<TCollected, TSelected>>;
+
+// The returned scope:
+type TaskScope<TDeliverables> = {
+  /** Register a check, typed to this task's selected deliverables. */
+  test: TestRegistration<TDeliverables>;
+  /** Register a single-level group of checks. */
+  describe: DescribeRegistration;
 };
 ```
+
+The deliverable types in `test(...)` callbacks are inferred from the adapter's `collectDeliverables()` return, narrowed to the keys selected in `deliverables: [...]`.
 
 ### `adapter`
 
@@ -153,8 +160,8 @@ The second argument to the test callback:
 | Field | Type | Purpose |
 |---|---|---|
 | `deliverables` | `TDeliverables` | What your adapter's `collectDeliverables` returned. |
-| `files` | `unknown` | The task's auto-discovered file list. `filePaths(files)` extracts relative paths. |
-| `task` | `unknown` | The task definition. |
+| `files?` | `unknown` | The task's auto-discovered file list (optional). `filePaths(files)` extracts relative paths. |
+| `task?` | `unknown` | The task definition (optional). |
 
 ## See also
 

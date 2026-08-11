@@ -5,25 +5,26 @@ description: Publish your Task catalog so the dashboard and apo connect can see 
 
 # apo task publish
 
-Publish a metadata-only Task catalog from your local workspace. The catalog tells the server which Tasks exist — their IDs, display names, adapters, and check flags — without uploading source code, prompts, or file contents.
+Publish a Task catalog from your local workspace. The catalog tells the server which Tasks exist and includes each Task's canonical `*.eval.ts` definition source (so the dashboard can render the historical code behind stored check evidence). It does **not** upload fixtures, application source, repository credentials, prompts, or environment values.
 
 ## Synopsis
 
 ```bash
-apo task publish [--dir <path>]
+apo task publish [--dir <path>] [--project <id>] [--dry-run] [--allow-empty] [--json]
 ```
 
 ## Why publish
 
-The dashboard's Tasks page, Schedules, and `apo connect` all need to know which Tasks exist in your workspace. `apo task publish` sends only bounded metadata:
+The dashboard's Tasks page, Schedules, and `apo connect` all need to know which Tasks exist in your workspace. `apo task publish` sends:
 
 - Task IDs (hierarchical, e.g. `support/refund`)
 - Display names
 - Adapter names
 - Whether each Task has checks
 - Tags
+- The canonical Task Definition — the normalized `*.eval.ts` text (capped at 1 MB), so the dashboard can show the exact source that produced stored evidence
 
-No source files, repository credentials, prompts, fixtures, or environment values are sent.
+No fixtures (`files/`), application source, repository credentials, or environment values are sent.
 
 ## Usage
 
@@ -62,6 +63,10 @@ The server computes a canonical SHA-256 digest over the normalized catalog (sort
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--dir <path>` | Current directory | Task workspace root |
+| `--project <id>` | Configured project | Override the target project. |
+| `--dry-run` | off | Print the catalog that would be published without sending it. |
+| `--allow-empty` | off | Allow publishing a catalog with zero discovered Tasks. |
+| `--json` | off | Emit machine-readable JSON. |
 
 ## See also
 

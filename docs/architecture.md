@@ -7,11 +7,11 @@ The project is a monorepo structured as follows:
 ```mermaid
 graph TD
     UserApp[User Application] --> SDK[TypeScript SDK]
-    SDK --> |Logs Calls + Traces| Backend[FastAPI Backend]
+    SDK --> |OTLP Traces| Backend[FastAPI Backend]
     Backend --> DB[(SQLite / SQLModel)]
     Dashboard[Next.js Dashboard] --> |Reads/Writes| Backend
-    Backend --> |Launches Subprocess| TaskRun[Agent Task Runner]
-    TaskRun --> |Emits Run Events| Backend
+    Executor[Executor / apo task run] --> |Runs Task Locally| SDK
+    Executor --> |Results + Traces| Backend
     Backend --> |SSE| Dashboard
     Backend --> |Webhook| Webhooks[Webhook Delivery]
 ```
@@ -19,17 +19,17 @@ graph TD
 ### 1. Backend (`/backend`)
 - **Language**: Python (FastAPI)
 - **Persistence**: SQLite via SQLModel
-- **Responsibility**: Central hub for logging, parameter registration, eval management, and triggering optimization routines
+- **Responsibility**: Central hub for trace ingestion (OTLP), agent-task state, scheduling, execution queue/leases, pricing, and authorization. The Control Plane never executes Task code.
 - **Key Modules**:
-  - `telemetry`: Handles the ingestion of `LoggedCall` data
-  - `parameters`: Manages `ParameterDefinition` and `ParameterSetCandidate`
-  - `eval_sets`: Manages test cases for optimization
-  - `optimization`: Handles callback configurations and triggering external optimization logic
+  - `otlp_traces` / `trace_*`: OTLP-native trace ingestion, projection, and streaming
+  - `agent_task_*`: Task Runs, Batch Runs, Schedules, Revisions, Deliverables
+  - `executor_*`: Executor Pools, enrollment, claim/lease protocol, Attempt JWTs
+  - `pricing`: Model-era/tier/price tables and per-call cost computation
 
 ### 2. SDK (`/packages/sdk`)
 - **Language**: TypeScript
-- **Responsibility**: A lightweight wrapper around the OpenAI client. It automatically intercepts calls to log them to the backend and provides utilities for registering typed parameters.
-- **Integration**: Designed to be a drop-in replacement for the standard client.
+- **Responsibility**: OpenTelemetry-native tracing (`@apo-ai/sdk/otel`) plus the agent-task authoring and runner API (`@apo-ai/sdk/agent-task`). Instrumentation exports standard OTLP; apo does not require a custom wire format.
+- **Integration**: Framework integrations for OpenAI, Anthropic, Vercel AI SDK, and LangChain are registered through standard OTel providers.
 
 ### 3. Dashboard (`/apps/dashboard`)
 - **Tech Stack**: Next.js, Tailwind CSS
@@ -398,16 +398,19 @@ The recommended cleanup strategy is:
 3. delete obsolete product-facing legacy code in stages,
 4. remove backend/domain compatibility only after active UI migration is complete.
 
-See [Legacy Archive And Removal Plan](./legacy-archive-removal-plan.md). (Plan doc pending; the optimizer-era code has already been removed from source.)
+See `specs/171-public-docs-on-existing-vps.md` for the full contract. The optimizer-era code has already been removed from source; the historical cleanup intent is documented above.
 
 ## Data Flow
 
-### Logging
-1. User App calls `sdk.chatCompletion`
-2. SDK sends the request to OpenAI
-3. SDK asynchronously sends the input, output, and metadata (runId, taskId, version, etc.) to Backend `/v1/log-call`
-4. Backend persists the call to `logged_calls` table, including a `version` identifier
-5. Aggregated metrics (call counts, average scores) can be retrieved via `/v1/analytics/versions` grouped by these identifiers
+### Tracing (OTLP)
+1. User App is instrumented with OpenTelemetry (OpenAI, Anthropic, Vercel AI SDK, LangChain, or custom spans)
+2. SDK's OTel exporter sends OTLP to the backend's public route `/api/public/otel/v1/traces`
+3. Auth middleware derives the Project from the API key or short-lived service token
+4. The receiver validates and persists the decoded OTLP graph once (resource, scope, span, event, link attributes)
+5. Projection materializes `RunDB` and `LoggedCallDB` rows for current product APIs, stamping the canonical span with the normalizer version
+6. Cost is computed once at ingestion against the pricing tables and frozen on the call
+
+Canonical OTLP spans remain the replayable source of truth when conventions or projection schemas change.
 
 ## Real-Time Updates with Server-Sent Events (SSE)
 

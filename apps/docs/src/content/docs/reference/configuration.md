@@ -112,7 +112,8 @@ The tracing SDK reads these environment variables:
 | `APO_PUBLIC_KEY` | Public identifier (`pk-apo-…`) for HTTP Basic auth. Server-side only — pair with `APO_SECRET_KEY`. |
 | `APO_SECRET_KEY` | Secret key (`sk-apo-…`) for HTTP Basic auth. Server-side only. |
 | `APO_API_KEY` | Legacy single-key auth (alternative auth). |
-| `APO_AUTH_TOKEN` | Bearer token for short-lived task-run/attempt tokens, or secret-bearing legacy keys. |
+
+`APO_AUTH_TOKEN` (Bearer token for short-lived task-run/attempt tokens) is **not** read by the base SDK's `readConfig`. It is read by `@apo-ai/sdk/otel` (in `buildApoAuthHeaders`) and by the task runner when it sets up the Attempt-scoped credential.
 
 `NEXT_PUBLIC_APO_PUBLIC_KEY` is intentionally **not** read. The
 public identifier does not authorize ingestion by itself, and publishing

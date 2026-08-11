@@ -60,6 +60,10 @@ Manage which project you're operating against and where its tasks come from.
 | [`apo login`](/cli/auth/) | Authenticate and save a project-scoped API key. |
 | [`apo logout`](/cli/auth/) | Clear saved credentials. |
 
+## Operator
+
+`apo reprice` is an operator-only command that recomputes the cost of stored calls against current pricing tiers. It uses a kick-off + poll pattern (the backend CLI times out at 15s) and requires an admin key. Run `apo reprice --help` for the full flag set (`--project`, `--model-id`, `--since`, `--until`, `--dry-run`, `--admin-key`). See [Self-Hosting → Configuration](/self-hosting/configuration/) for the pricing model.
+
 ## Global options
 
 These apply to every command:

@@ -39,7 +39,10 @@ Re-importing the same source trace is idempotent: deterministic IDs fill the sam
 |---|---|---|
 | `--langfuse-host <url>` | `LANGFUSE_HOST` or `https://cloud.langfuse.com` | Override the source Langfuse deployment. Only the origin is retained (no path, query, or credentials). |
 | `--max-observations <count>` | `10000` | Safety ceiling on the number of observations fetched before any apo write. Range `1..50000`. |
-| `--wait <seconds>` | off | Poll the Langfuse Observations API with exponential backoff until the source trace has at least one observation, or the deadline elapses. Absorbs the ~30-90s ingestion lag typical of Langfuse Cloud right after a run. `0` disables polling. |
+| `--wait <seconds>` | off | Poll the Langfuse Observations API until the source trace looks fully ingested — a quiet observation count held for the settle window with no dangling parent links — or the deadline elapses. Absorbs the ~30-90s ingestion lag typical of Langfuse Cloud right after a run. `0` disables polling. |
+| `--settle <seconds>` | `15` | The quiet period the observation count must hold before the trace counts as ingested. Only meaningful alongside `--wait`. |
+| `--trace-id <apo-trace-id>` | off | Merge mode: emit spans under this apo trace id instead of the namespaced hash, merging imported spans into an existing run trace (propagated-traceparent case). Expects a 32-hex W3C trace id. |
+| `--parent-span-id <span-id>` | off | The span in the target apo trace that the imported subtree hangs under. Declares an expected external parent so the completeness check can tell it apart from a not-yet-ingested parent. Expects a 16-hex W3C span id. |
 | `--json` | off | Emit a `LangfuseImportResult` JSON document instead of human-readable output. |
 
 ## Environment
@@ -109,6 +112,14 @@ Wait for source ingestion before giving up — the right flag for a CI/e2e loop 
 
 ```bash
 apo traces import langfuse <id> --wait 120
+```
+
+Merge an imported subtree into an existing apo run trace (when the harness propagated apo's traceparent into the agent runtime):
+
+```bash
+apo traces import langfuse <id> \
+  --trace-id ba304669483e53622109e9a6c8905143 \
+  --parent-span-id 6de9bd236dec787a
 ```
 
 ## Exit codes

@@ -10,15 +10,15 @@ import TerminalOutput from '../../../components/demos/TerminalOutput.astro';
 ## Synopsis
 
 ```bash
-apo runs deliverable <run-id> [name]
+apo runs deliverable <run-id> [name] [--output <path>]
 ```
 
 ## Description
 
 The first argument is a **run id**, a unique prefix, or `last` (the most recent run). The optional second argument is a **deliverable name**.
 
-- **No name** — print a manifest of every deliverable: its name, type, and size. Nothing large is dumped.
-- **With a name** — print that deliverable's full content (strings as-is, structured values as pretty JSON).
+- **No name** — print a manifest of every deliverable: its name, kind (`json` or `artifact`), and size in bytes. Nothing large is dumped.
+- **With a name** — fetch that deliverable's content. JSON deliverables print as pretty JSON; binary **artifacts** stream to a file via `--output` (dumping binary bytes to an interactive TTY is refused).
 
 ## Arguments
 
@@ -32,6 +32,7 @@ The first argument is a **run id**, a unique prefix, or `last` (the most recent 
 | Option | Default | Purpose |
 |---|---|---|
 | `--task <id>` | — | When using `last`, scope to the latest run of this task. |
+| `--output <path>` | — | Write a binary artifact to a file. Use `.` or a trailing `/` dir to auto-derive the filename from the deliverable's original name. |
 
 Supports the global `--json` flag.
 
@@ -45,19 +46,26 @@ apo runs deliverable de89cab0
 
 <TerminalOutput
   lines={[
-    { text: "Deliverables for run de89cab0:" },
-    { text: "  memorandum  string  20,000 chars" },
-    { text: "  summary     string     342 chars" },
-    { text: "  stats       object       4 keys" },
+    { text: "Deliverables for run de89cab0:", tone: "bold" },
+    { text: "  memorandum  json      20,000 bytes" },
+    { text: "  summary     json         342 bytes" },
+    { text: "  report      artifact  18,432 bytes (invoice-report.pdf)" },
     { text: "" },
-    { text: "Read one: apo runs deliverable <run-id> <name>" },
+    { text: "Read one: apo runs deliverable <run-id> <name>", tone: "dim" },
   ]}
 />
 
-Read one deliverable's full content:
+Read one JSON deliverable's full content:
 
 ```bash
 apo runs deliverable de89cab0 memorandum
+```
+
+Download a binary artifact to a file:
+
+```bash
+apo runs deliverable de89cab0 report --output .
+# writes invoice-report.pdf in the current directory
 ```
 
 Machine-readable manifest for scripting:
@@ -67,10 +75,30 @@ apo runs deliverable de89cab0 --json
 ```
 
 ```json
-{
-  "memorandum": { "type": "string", "chars": 20000 },
-  "summary": { "type": "string", "chars": 342 }
-}
+[
+  {
+    "id": "dlv_01",
+    "name": "memorandum",
+    "kind": "json",
+    "status": "ready",
+    "media_type": "application/json",
+    "display_filename": null,
+    "size_bytes": 20000,
+    "sha256": "a1b2…",
+    "download_url": null
+  },
+  {
+    "id": "dlv_02",
+    "name": "report",
+    "kind": "artifact",
+    "status": "ready",
+    "media_type": "application/pdf",
+    "display_filename": "invoice-report.pdf",
+    "size_bytes": 18432,
+    "sha256": "c3d4…",
+    "download_url": null
+  }
+]
 ```
 
 ## Exit codes

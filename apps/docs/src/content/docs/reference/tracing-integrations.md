@@ -76,11 +76,16 @@ async sendUserTurn(turn, { trace, parentSpanId }) {
 async function registerApoTracing(options?: RegisterApoTracingOptions): Promise<void>;
 
 interface RegisterApoTracingOptions {
-  setGlobal?: boolean; // default true
+  /**
+   * Reserved. The processor is currently always picked up by
+   * `configureApoTelemetry` via a single global provider; this flag has no
+   * effect in this release.
+   */
+  setGlobal?: boolean;
 }
 ```
 
-Registration is idempotent — calling it more than once is a no-op.
+Registration is idempotent — calling it more than once is a no-op. The function creates apo's `ApoSpanProcessor` but does not attach it to a provider itself; `configureApoTelemetry` (called by the task runner) picks up the registered processor and adds it to the OTLP-exporting global provider.
 
 :::note[This recipe is for adapter authors]
 The example assumes you're inside a task-run adapter — the task runner builds the OTel provider (`configureApoTelemetry`) that picks up the processor `registerApoTracing()` created, so spans reach both the local projection and the backend. If you're tracing **outside** a task run (a standalone service, a script), skip `registerApoTracing` and call [`configureApoTelemetry`](/reference/tracing/) directly — that's the path that owns the provider.

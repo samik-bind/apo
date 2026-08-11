@@ -16,6 +16,7 @@ Schedules are created and updated via the backend API (`POST` / `PATCH` `/v1/age
 | `project` | `string` | (required) | Project id. |
 | `name` | `string` | (required) | Display name. |
 | `selection_type` | `string` | `"tasks"` | How tasks are selected: `"task"`, `"tasks"`, `"folder"`, or `"all"`. |
+| `selection` | `object` | — | Typed catalog selection for source-owned schedules. When present, the authenticated admin becomes the fixed Execution Owner and the schedule is `source_owned` (no pool/path/root/grep accepted). |
 | `task_paths` | `string[]` | `[]` | Task ids or paths to include. Used by `task`, `tasks`, and `folder` selections. |
 | `task_root` | `string` | — | Override the task root for this schedule. |
 | `grep` | `string` | — | Filter tasks by a grep pattern on the id. |
@@ -65,9 +66,15 @@ Same fields as create, except `project` and `selection_type` are not accepted. E
   disabled_reason: string | null;
   last_triggered_at: string | null;
   last_batch_run_id: string | null;
-  last_batch: { id: string; status: string; total_tasks: number; passed_tasks: number; failed_tasks: number; errored_tasks: number } | null;
+  last_batch: { id: string; status: string; total_tasks: number; passed_tasks: number; failed_tasks: number; errored_tasks: number; created_at: string; completed_at: string | null; failure_breakdown: FailureBreakdownItem[] } | null;
   next_run_at: string | null;
   consecutive_failures: number;
+  execution_kind: "source_owned" | "bundled";
+  execution_owner: { id: string; name: string } | null;
+  connected_environment_state: string | null;
+  active_batch_run_id: string | null;
+  latest_occurrence: { id: string; kind: "scheduled" | "manual"; scheduled_for: string; status: string; batch_run_id: string | null; missed_reason: string | null; resolved_at: string | null } | null;
+  missed_occurrences: number;
   created_at: string;
   updated_at: string;
 }

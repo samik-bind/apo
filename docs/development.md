@@ -8,9 +8,9 @@ This guide covers the technical standards and coding patterns used in the codeba
 
 ### Tech Stack
 
-- **Backend**: FastAPI (Python 3.10+), SQLModel (Pydantic + SQLAlchemy), SQLite/Alembic
-- **SDK**: TypeScript, Effect-TS, Zod
-- **Dashboard**: Next.js 14 (App Router), React, Tailwind CSS
+- **Backend**: FastAPI (Python 3.13+), SQLModel (Pydantic + SQLAlchemy), SQLite
+- **SDK**: TypeScript, OpenTelemetry-native, Zod
+- **Dashboard**: Next.js 16 (App Router), React, Tailwind CSS
 
 ### SDK Auth Env Vars
 
@@ -40,12 +40,12 @@ Important:
 
 ### Core Schema Overview
 
-The system centers around the following models (defined in `backend/apo/models/db.py`):
+The system centers around the following models (defined in `backend/apo/models/`):
 
-- **LoggedCall**: Records of LLM inputs, outputs, and metadata
-- **PromptSlot**: Stable identifiers for prompt locations in code
-- **PromptVariant**: Specific versions of a prompt for a given slot
-- **EvalSet**: Collections of inputs for testing prompts
+- **LoggedCallDB**: Records of LLM inputs, outputs, metadata, and frozen cost breakdowns
+- **Agent task models** (`execution.py`): Tasks, Task Runs, Batch Runs, Schedules, Attempts, Executor Pools, Task Revisions
+- **Trace models** (`trace_ingestion.py`, `trace_projection.py`): Canonical OTLP spans and projected run/call views
+- **Pricing models** (`pricing.py`): Model eras, pricing tiers, and per-key prices
 
 ---
 
@@ -286,8 +286,7 @@ Page-level content should reinforce the same grouping:
 - Supporting surfaces like `Datasets`, `Evaluations`, and `Sessions` should explain how they support tasks, runs, traces, or schedules instead of presenting themselves as independent product centers.
 - If `Settings` only exposes legacy callback or optimizer-era configuration, it should explicitly label that state as legacy support rather than sounding like a core agent-testing control surface.
 - `Optimization` should self-identify as legacy whenever shown in the product.
-- Legacy optimization should stay reachable by direct route only when needed; do not keep it in the main shell navigation once agent-testing replacements exist.
-- For staged cleanup and git safety before larger removals, follow [Legacy Archive And Removal Plan](./legacy-archive-removal-plan.md).
+- Legacy optimization should stay reachable by direct route only when needed; do not keep it in the main shell navigation once agent-testing replacements exist. The optimizer-era code has already been removed from source; these references document the historical cleanup intent.
 
 ### SQLite JSON Filtering
 
@@ -315,7 +314,7 @@ if tags:
 
 - Use **Tailwind CSS** for all styling
 - Prefer **Server Components** by default
-- Use the `backend.ts` helper for API calls
+- Use the `backend-fetch.ts` / `backend-fetch.server.ts` bridge for API calls, plus per-domain `*-api.ts` helpers (e.g. `traces-api.ts`, `agent-task-api.ts`)
 
 ### Suspense Boundary for useSearchParams
 
@@ -414,12 +413,12 @@ pnpm --filter @apo-ai/sdk build
 
 The backend Docker image also runs the regular `@apo-ai/sdk` build before
 assembling the runner for compatibility, but the primary execution path is
-the CLI-spawned child, not a server-side process.
-the runner start successfully but fail as soon as it loads a task definition.
-Install the copied SDK package's production dependencies at its final
-`/app/_sdk-source` location before installing it into the bundled demo
-workspace. Local npm installs link back to that real path, so dependencies
-installed only beside the demo task tree are invisible to ESM resolution.
+the CLI-spawned child, not a server-side process. Install the copied SDK
+package's production dependencies at its final `/app/_sdk-source` location
+before installing it into the bundled demo workspace. Without this, the runner
+would start successfully but fail as soon as it loads a task definition. Local
+npm installs link back to that real path, so dependencies installed only
+beside the demo task tree are invisible to ESM resolution.
 The image also copies `apps/example-service/app/lib/agent`, because the demo
 adapters drive that real agent implementation. Its parent
 `apps/example-service/node_modules` is linked to the demo workspace's installed
@@ -444,15 +443,20 @@ entrypoint and can accidentally execute library code as a second CLI.
 
 ### Local Development
 
-1. Start the backend: `cd backend && venv/bin/python -m apo.api`
-2. Start the dashboard: `cd apps/dashboard && pnpm dev`
-3. Run the example service (OpenRouter/Gemini by default): `cd apps/example-service && pnpm dev` (configure `.env.local` from `.env.example`)
+The fastest path is the root `pnpm dev`, which starts all five services concurrently (dashboard, backend, executor, example-service, example-service-py) and frees ports 3000–8000 first:
+
+1. **Start everything**: `pnpm dev` (from the repo root)
+2. **Individual services** (if needed):
+   - Backend: `pnpm --filter backend dev` (runs `uvicorn apo.api:app --reload --port 8000` via `uv`)
+   - Dashboard: `pnpm --filter dashboard dev`
+   - Example service: `pnpm --filter example-service dev` (configure `.env.local` from `.env.example`)
+3. **Installing dependencies**: `pnpm i` after `package.json` changes; `cd backend && uv sync` after backend dependency changes.
 
 ### Verification Guidelines
 
 - **Unit Tests**: Always run `pytest` in the backend and `pnpm test` in the packages/apps
 - **Integration**: Use the `example-service` to verify that SDK changes correctly log to the backend
-- **Linting**: Ensure all TypeScript code passes `eslint`
+- **Linting**: Ensure all TypeScript code passes `oxlint` (`pnpm lint`) and Python passes `basedpyright`
 - **Alpha release gate**: `pnpm test:alpha` combines focused backend tests with the structural Playwright alpha specs.
 - **Public ingress contract**: `pnpm test:public-ingress` renders the Server
   Profile and asserts Caddy is the only public ingress, runtime URLs agree, and
@@ -494,7 +498,7 @@ entrypoint and can accidentally execute library code as a second CLI.
 
 ### Server-Sent Events (SSE)
 
-The GEPA optimizer uses SSE for real-time updates. When working with SSE:
+The backend pushes real-time updates to the dashboard over Server-Sent Events. Both live event streams are built on the same generic in-memory broadcaster (see the SSE section of [Architecture](architecture.md#real-time-updates-with-server-sent-events-sse) for the full design).
 
 **Backend:**
 - Use `asyncio.Queue.put_nowait()` for non-blocking event publishing
