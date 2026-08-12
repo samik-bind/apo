@@ -7,6 +7,7 @@ dist
 build
 out
 .next
+release
 
 # Env & secrets
 .env
@@ -95,7 +96,3 @@ backend/data/artifacts/
 
 # Editor atomic-write temp files
 *.ts.*.ts
-
-# Video rehearsal generated workspace (scenario-owned, never tracked)
-apps/example-service/e2e/video-rehearsals/agent-repair-loop/work/
-apps/example-service/e2e/video-rehearsals/agent-repair-loop/.rehearsal-marker.json
