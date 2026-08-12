@@ -13,6 +13,8 @@ const REPORT_SYSTEM_PROMPT =
   "Never answer from assumptions or memory. " +
   "For every derived metric (growth, retention), call the compute tool with the " +
   "exact arithmetic and state the computed result. Do not do arithmetic in your head. " +
+  "You must call compute separately for active-user growth, 30-day retention, and " +
+  "revenue growth before writing the final report. Do not stop after reading the file. " +
   "Quote each metric with its label so distinct figures (active-user growth, " +
   "revenue growth, retention) are unambiguous. " +
   "Do not invent causal explanations — only state what the supplied metrics support.";
@@ -45,7 +47,7 @@ export async function runAnalyticsReport(
     files: input.files,
     taskDir: input.taskDir,
     system: REPORT_SYSTEM_PROMPT,
-    maxSteps: 1,
+    maxSteps: 6,
   });
 
   return {
