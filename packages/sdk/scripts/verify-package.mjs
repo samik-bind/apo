@@ -37,7 +37,6 @@ const PKG_DIR = resolve(__dirname, "..");
 const REPO_ROOT = resolve(PKG_DIR, "..", "..");
 
 const PUBLIC_EXPORTS = [
-  ".",
   "./otel",
   "./agent-task",
   "./agent-task/integrations/ai-sdk",
@@ -252,19 +251,16 @@ function verifyLicenseAndReadme(installedPkgDir) {
 }
 
 function verifyNodeImports(installedPkgDir, consumerDir) {
-  step("Node ESM import of all six entry points");
+  step("Node ESM import of all five entry points");
   // Write a tiny ESM module that imports every entry point under ordinary
   // Node resolution (no --conditions=development, no tsx).
   const probe = `
-import { readConfig, ClientError } from "@apo-ai/sdk";
 import { configureApoTelemetry, withApoTrace, score } from "@apo-ai/sdk/otel";
 import { task, defineAdapter, runTask, includes, matches } from "@apo-ai/sdk/agent-task";
 import { createApoTracer } from "@apo-ai/sdk/agent-task/integrations/ai-sdk";
 import { createApoOpenAI } from "@apo-ai/sdk/agent-task/integrations/openai";
 import { createApoAnthropic } from "@apo-ai/sdk/agent-task/integrations/anthropic";
 
-if (typeof readConfig !== "function") throw new Error("readConfig not a function");
-if (typeof ClientError !== "function") throw new Error("ClientError not a function");
 if (typeof configureApoTelemetry !== "function") throw new Error("configureApoTelemetry not a function");
 if (typeof withApoTrace !== "function") throw new Error("withApoTrace not a function");
 if (typeof score !== "function") throw new Error("score not a function");
@@ -276,7 +272,7 @@ if (typeof createApoOpenAI !== "function") throw new Error("createApoOpenAI not 
 if (typeof createApoAnthropic !== "function") throw new Error("createApoAnthropic not a function");
 
 console.log(JSON.stringify({
-  root: true, otel: true, agentTask: true,
+  otel: true, agentTask: true,
   aiSdk: true, openai: true, anthropic: true,
 }));
 `;
@@ -286,13 +282,13 @@ console.log(JSON.stringify({
     const out = run("node", [probePath], { cwd: consumerDir });
     const parsed = JSON.parse(out);
     const entries = Object.keys(parsed).sort();
-    const expected = ["aiSdk", "agentTask", "anthropic", "openai", "otel", "root"].sort();
+    const expected = ["aiSdk", "agentTask", "anthropic", "openai", "otel"].sort();
     if (JSON.stringify(entries) !== JSON.stringify(expected)) {
       fail(`probe returned wrong keys: ${entries.join(", ")}`);
     }
     const allTrue = Object.values(parsed).every((v) => v === true);
     if (!allTrue) fail(`probe did not import every entry point cleanly: ${out}`);
-    console.log(`  imports:      6/6 entry points resolved under Node ESM`);
+    console.log(`  imports:      5/5 entry points resolved under Node ESM`);
   } catch (err) {
     fail(`Node import probe failed: ${err.message}`);
   }
@@ -328,15 +324,12 @@ function verifyTypeScriptConsumer(installedPkgDir, consumerDir) {
   writeFileSync(
     join(consumerDir, "consumer.ts"),
     `
-import { readConfig, type EnvConfig, ClientError } from "@apo-ai/sdk";
 import { configureApoTelemetry, type ApoTelemetryHandle } from "@apo-ai/sdk/otel";
 import { task, defineAdapter, runTask, includes, matches } from "@apo-ai/sdk/agent-task";
 import { createApoTracer } from "@apo-ai/sdk/agent-task/integrations/ai-sdk";
 import { createApoOpenAI } from "@apo-ai/sdk/agent-task/integrations/openai";
 import { createApoAnthropic } from "@apo-ai/sdk/agent-task/integrations/anthropic";
 
-const config: EnvConfig = readConfig();
-const err = new ClientError({ code: "HTTP", message: "boom", cause: new Error("x") });
 void configureApoTelemetry;
 void task;
 void defineAdapter;
@@ -346,8 +339,6 @@ void matches;
 void createApoTracer;
 void createApoOpenAI;
 void createApoAnthropic;
-void config;
-void err;
 type _Handle = ApoTelemetryHandle;
 `,
   );

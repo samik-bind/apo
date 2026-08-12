@@ -3,8 +3,6 @@
   "version": "0.2.2",
   "description": "TypeScript SDK for testing and observing AI agents with Apo",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "files": [
     "dist",
     "LICENSE",
@@ -24,11 +22,6 @@
     "url": "https://github.com/samikuikka/apo/issues"
   },
   "exports": {
-    ".": {
-      "development": "./src/index.ts",
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    },
     "./otel": {
       "development": "./src/otel/index.ts",
       "types": "./dist/otel/index.d.ts",
@@ -59,11 +52,6 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/",
     "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "import": "./dist/index.js",
-        "default": "./dist/index.js"
-      },
       "./otel": {
         "types": "./dist/otel/index.d.ts",
         "import": "./dist/otel/index.js",
@@ -119,7 +107,6 @@
     "@opentelemetry/exporter-trace-otlp-http": "^0.220.0",
     "@opentelemetry/resources": "^2.9.0",
     "@opentelemetry/sdk-trace-base": "^2.9.0",
-    "@opentelemetry/semantic-conventions": "^1.43.0",
-    "effect": "^3.19.12"
+    "@opentelemetry/semantic-conventions": "^1.43.0"
   }
 }

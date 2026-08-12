@@ -28,7 +28,6 @@ const external = [
   "@opentelemetry/resources",
   "@opentelemetry/sdk-trace-base",
   "@opentelemetry/semantic-conventions",
-  "effect",
   // Node builtins used by the source (not in package.json).
   "fs",
   "fs/promises",
@@ -58,7 +57,6 @@ export default defineConfig([
   {
     ...shared,
     entry: {
-      index: "src/index.ts",
       "otel/index": "src/otel/index.ts",
       "agent-task/public": "src/agent-task/public.ts",
       "agent-task/integrations/ai-sdk": "src/agent-task/integrations/ai-sdk.ts",

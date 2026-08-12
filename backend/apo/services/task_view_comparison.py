@@ -1,16 +1,18 @@
 """SPEC-174 Phase 2 — selection-scoped view-vs-view comparison.
 
 A comparison snapshot freezes, for a chosen set of tasks and two model/effort
-views, the resolved run on each side plus the def/exec revisions actually used.
-Snapshots are immutable and shareable by a short opaque id.
+views, the resolved run on each side plus the task-definition revision each
+side used. Snapshots are immutable and shareable by a short opaque id.
 
 Resolution rule (matches the throwaway prototype's ``resolveCell`` and the
 spec): latest *completed* run per task under the view (most recent non-errored
 by ``started_at``); if only errored attempts exist, the latest errored attempt;
 if no runs match, the side is unresolved (Not Run). Two sides are *comparable*
-only when both resolved AND their task-definition revisions agree AND their
-execution (batch) revisions agree — legacy batches with no ``TaskRevisionDB``
-row compare as ``None == None`` (don't penalise pre-revision history).
+only when both are resolved AND their task-definition revisions agree. The
+bundle-level exec (batch) revision is intentionally NOT a gate — it spans the
+whole task root, so any edit anywhere in the tree would flip it and make two
+runs from different days almost never comparable even when the specific task's
+definition is byte-identical.
 """
 
 from __future__ import annotations
@@ -28,7 +30,6 @@ from ..db_helpers import _as_column
 from ..models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
-    TaskRevisionDB,
     TaskViewComparisonDB,
 )
 from ..models.schemas import (
@@ -58,8 +59,6 @@ _RUN_MODEL_COL: ColumnElement[str | None] = _as_column(cast(object, AgentTaskRun
 _RUN_EFFORT_COL: ColumnElement[str | None] = _as_column(cast(object, AgentTaskRunDB.configured_effort))
 _BATCH_ID_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskBatchRunDB.id))
 _BATCH_PROJECT_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskBatchRunDB.project))
-_REV_BATCH_COL: ColumnElement[str] = _as_column(cast(object, TaskRevisionDB.batch_run_id))
-_REV_SHA_COL: ColumnElement[str] = _as_column(cast(object, TaskRevisionDB.content_sha256))
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +68,6 @@ class _RunRow:
     run_id: str
     status: str
     started_at: object
-    batch_run_id: str
     task_definition_revision_id: str | None
 
 
@@ -78,7 +76,6 @@ class _ResolvedRun:
     run_id: str
     status: str | None
     task_definition_revision_id: str | None
-    exec_revision_sha: str | None
 
 
 def _short_id() -> str:
@@ -118,7 +115,6 @@ def _resolve_side(
             _RUN_ID_COL,
             _RUN_STATUS_COL,
             _RUN_STARTED_COL,
-            _RUN_BATCH_COL,
             _RUN_DEF_REV_COL,
         )
         .join(AgentTaskBatchRunDB, _RUN_BATCH_COL == _BATCH_ID_COL)
@@ -128,35 +124,21 @@ def _resolve_side(
     # group matching runs by task, preserving started_at DESC order so the first
     # completed run seen per task is the latest completed.
     runs_by_task: dict[str, list[_RunRow]] = {}
-    for task_id, run_id, status, started_at, batch_run_id, def_rev in session.execute(stmt).all():
+    for task_id, run_id, status, started_at, def_rev in session.execute(stmt).all():
         runs_by_task.setdefault(task_id, []).append(
-            _RunRow(run_id, status, started_at, batch_run_id, def_rev)
+            _RunRow(run_id, status, started_at, def_rev)
         )
 
-    # one lookup of the exec (batch) revision shas for every batch referenced by
-    # a chosen run, so we don't N+1 per task.
-    chosen: list[_RunRow] = []
     latest_by_task: dict[str, _RunRow] = {}
     for task_id, runs in runs_by_task.items():
         completed = [r for r in runs if r.status != _ERRORED]
-        pick = (completed or runs)[0]
-        latest_by_task[task_id] = pick
-        chosen.append(pick)
-
-    exec_shas: dict[str, str] = {}
-    if chosen:
-        batch_ids = {r.batch_run_id for r in chosen}
-        rev_rows = session.execute(
-            sa_select(_REV_BATCH_COL, _REV_SHA_COL).where(_REV_BATCH_COL.in_(batch_ids))
-        ).all()
-        exec_shas = {batch_id: sha for batch_id, sha in rev_rows}
+        latest_by_task[task_id] = (completed or runs)[0]
 
     return {
         task_id: _ResolvedRun(
             run_id=run.run_id,
             status=run.status,
             task_definition_revision_id=run.task_definition_revision_id,
-            exec_revision_sha=exec_shas.get(run.batch_run_id),
         )
         for task_id, run in latest_by_task.items()
     }
@@ -167,7 +149,7 @@ def _is_comparable(a: _ResolvedRun | None, b: _ResolvedRun | None) -> bool:
 
     Only ``task_definition_revision_id`` gates comparability — the eval file
     that defines the checks must be the same on both sides. The bundle-level
-    ``exec_revision_sha`` (which spans the whole task root, not just this
+    exec (batch) revision (which spans the whole task root, not just this
     task's eval) is intentionally NOT a gate: any edit anywhere in the task
     tree would flip it, making two runs from different days almost never
     comparable even when the specific task's definition is byte-identical.
@@ -234,7 +216,7 @@ def create_comparison(
     session.add(row)
     session.commit()
     session.refresh(row)
-    return _to_snapshot(row)
+    return to_snapshot(row)
 
 
 def get_comparison(
@@ -244,12 +226,12 @@ def get_comparison(
     return session.get(TaskViewComparisonDB, comparison_id) if comparison_id.startswith("tvc_") else None
 
 
-def _to_snapshot(row: TaskViewComparisonDB) -> TaskViewComparisonSnapshot:
+def to_snapshot(row: TaskViewComparisonDB) -> TaskViewComparisonSnapshot:
     """Deserialize the stored JSON columns into the API view-model.
 
     JSON columns come back as ``object``-typed values, so the nested models are
     rebuilt via Pydantic ``model_validate`` (which validates + coerces) rather
-    than ``**`` unpacking.
+    than ``from_orm`` or ``**`` unpacking.
     """
     return TaskViewComparisonSnapshot(
         id=row.id,
@@ -262,8 +244,3 @@ def _to_snapshot(row: TaskViewComparisonDB) -> TaskViewComparisonSnapshot:
         created_at=row.created_at,
         created_by=row.created_by,
     )
-
-
-def to_snapshot(row: TaskViewComparisonDB) -> TaskViewComparisonSnapshot:
-    """Public deserialize wrapper for route handlers."""
-    return _to_snapshot(row)

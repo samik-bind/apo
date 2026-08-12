@@ -18,8 +18,6 @@ interface SdkPackageJson {
   version: string;
   description: string;
   type: string;
-  main: string;
-  types: string;
   license: string;
   files: string[];
   engines?: { node?: string };
@@ -40,8 +38,7 @@ function readSdkManifest(): SdkPackageJson {
   ) as SdkPackageJson;
 }
 
-const SIX_PUBLIC_EXPORTS = [
-  ".",
+const FIVE_PUBLIC_EXPORTS = [
   "./otel",
   "./agent-task",
   "./agent-task/integrations/ai-sdk",
@@ -64,11 +61,6 @@ describe("@apo-ai/sdk package manifest", () => {
 
     it("is ESM-only (type: module)", () => {
       expect(pkg.type).toBe("module");
-    });
-
-    it("declares main and types pointing at dist", () => {
-      expect(pkg.main).toBe("./dist/index.js");
-      expect(pkg.types).toBe("./dist/index.d.ts");
     });
 
     it("ships dist, LICENSE, and README only", () => {
@@ -109,7 +101,7 @@ describe("@apo-ai/sdk package manifest", () => {
 
     it("declares exactly the six public export keys", () => {
       const keys = Object.keys(pkg.publishConfig?.exports ?? {}).sort();
-      expect(keys).toEqual([...SIX_PUBLIC_EXPORTS].sort());
+      expect(keys).toEqual([...FIVE_PUBLIC_EXPORTS].sort());
     });
 
     it("never exposes a development condition in the packed manifest", () => {
@@ -142,11 +134,11 @@ describe("@apo-ai/sdk package manifest", () => {
   describe("source vs published export parity", () => {
     const pkg = readSdkManifest();
 
-    it("exposes the same six export keys from source and from publishConfig", () => {
+    it("exposes the same five export keys from source and from publishConfig", () => {
       const srcKeys = Object.keys(pkg.exports ?? {}).sort();
       const pubKeys = Object.keys(pkg.publishConfig?.exports ?? {}).sort();
-      expect(srcKeys).toEqual([...SIX_PUBLIC_EXPORTS].sort());
-      expect(pubKeys).toEqual([...SIX_PUBLIC_EXPORTS].sort());
+      expect(srcKeys).toEqual([...FIVE_PUBLIC_EXPORTS].sort());
+      expect(pubKeys).toEqual([...FIVE_PUBLIC_EXPORTS].sort());
     });
 
     it("keeps the development condition only in the source manifest", () => {
@@ -159,7 +151,7 @@ describe("@apo-ai/sdk package manifest", () => {
     });
 
     it("points the published import/default at the same dist file the source declares", () => {
-      for (const key of SIX_PUBLIC_EXPORTS) {
+      for (const key of FIVE_PUBLIC_EXPORTS) {
         const src = pkg.exports?.[key];
         const pub = pkg.publishConfig?.exports?.[key];
         if (!src || !pub) continue;
