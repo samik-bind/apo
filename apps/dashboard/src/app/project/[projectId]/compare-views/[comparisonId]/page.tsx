@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 
 import {
   listProjectAgentTasks,
@@ -7,11 +8,14 @@ import {
 import {
   getTaskViewComparisonOverview,
 } from "@/lib/agent-task-view-api";
+import { isNotFoundStatus } from "@/lib/api-error";
 import { CompareViewsClient } from "./compare-views-client";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Compare views" };
+
+const CRAWLER_UA = /(?:Slackbot|Twitterbot|facebookexternalhit|LinkedInBot|TelegramBot|WhatsApp|Discordbot|Googlebot|Bingbot|Bytespider|Applebot)/i;
 
 export default async function CompareViewsPage({
   params,
@@ -20,13 +24,34 @@ export default async function CompareViewsPage({
 }) {
   const { projectId, comparisonId } = await params;
 
+  const headerList = await headers();
+  const isCrawler = CRAWLER_UA.test(headerList.get("user-agent") ?? "");
+
   // SPEC-177: fetch only the lightweight overview (snapshot + scalar
   // summaries). Check Reports, Task Definition bodies, transcripts, and
   // Deliverable JSON are loaded progressively when a task is expanded.
-  const [overview, inventory] = await Promise.all([
-    getTaskViewComparisonOverview(projectId, comparisonId).catch(() => notFound()),
-    listProjectAgentTasks(projectId).catch(() => [] as AgentTaskSummary[]),
-  ]);
+  let overview: Awaited<ReturnType<typeof getTaskViewComparisonOverview>> | null = null;
+  try {
+    overview = await getTaskViewComparisonOverview(projectId, comparisonId);
+  } catch (error) {
+    // Real 404 (comparison doesn't exist) → show 404 for everyone.
+    // Auth failures (401/403) → crawlers get a 200 so OG meta tags work;
+    // real users were already redirected to /login by the project layout.
+    if (isNotFoundStatus(error) || !isCrawler) {
+      notFound();
+    }
+  }
+
+  if (!overview) {
+    // Crawler with no auth: render a minimal shell so the page returns 200.
+    // The og:image meta tags come from the route segment's opengraph-image.
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+        <p>Sign in to view this comparison.</p>
+      </div>
+    );
+  }
+
   const { snapshot } = overview;
   const runMap = new Map(overview.runs.map((run) => [run.id, run]));
   const leftRuns = snapshot.resolved
@@ -44,7 +69,7 @@ export default async function CompareViewsPage({
       projectId={projectId}
       comparisonId={comparisonId}
       snapshot={snapshot}
-      tasks={inventory}
+      tasks={[]}
       leftRuns={leftRuns}
       rightRuns={rightRuns}
       stateByTask={comparisonStates}
