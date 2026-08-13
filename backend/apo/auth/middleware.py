@@ -85,6 +85,10 @@ _TASK_RUN_DELIVERABLES_RE = re.compile(
 )
 _ARTIFACT_UPLOAD_RE = re.compile(r"^/v1/agent-task-artifact-uploads/[^/]+$")
 _TASK_RUN_RESULT_RE = re.compile(r"^/v1/agent-task-runs/[^/]+/result$")
+# Public comparison card: returns only view model names for OG image previews.
+_COMPARISON_CARD_RE = re.compile(
+    r"^/v1/projects/[^/]+/task-view-comparisons/[^/]+/card$"
+)
 _warned_no_secret = False
 AuthContextValue: TypeAlias = str | bool | int
 AuthContext: TypeAlias = dict[str, AuthContextValue]
@@ -132,7 +136,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 
 def _is_public(path: str) -> bool:
-    return any(path == prefix or path.startswith(prefix + "/") for prefix in PUBLIC_PATHS)
+    if any(path == prefix or path.startswith(prefix + "/") for prefix in PUBLIC_PATHS):
+        return True
+    return _COMPARISON_CARD_RE.match(path) is not None
 
 
 def _is_open_dev_bypass_allowed() -> bool:
