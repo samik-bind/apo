@@ -56,6 +56,15 @@
 		reverse_proxy frontend:3000
 	}
 
+	# Social media crawlers (Slack, Twitter, etc.) can't send Basic Auth
+	# credentials. Exempt them so link previews read OG meta tags and fetch
+	# the opengraph-image. App-level auth still protects actual data.
+	@crawlers header_regexp User-Agent (?i)(Slackbot|Twitterbot|facebookexternalhit|LinkedInBot|TelegramBot|WhatsApp|Discordbot|Googlebot|Bingbot|Bytespider|Applebot)
+	handle @crawlers {
+		encode zstd gzip
+		reverse_proxy frontend:3000
+	}
+
 	# Everything else (dashboard pages) — site-wide basic auth gate.
 	handle {
 		import /etc/caddy/auth.fragment
