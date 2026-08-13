@@ -33,6 +33,23 @@ async function tryFetchCard(projectId: string, comparisonId: string): Promise<Ca
   }
 }
 
+let _sphereSvg: string | null = null;
+async function sphereDataUrl(): Promise<string> {
+  if (_sphereSvg) return _sphereSvg;
+  try {
+    const resp = await fetch("http://localhost:3000/brand/signal-sphere-small.svg");
+    if (!resp.ok) return "";
+    let svg = await resp.text();
+    // Replace CSS variables with concrete colors (satori can't resolve var())
+    svg = svg.replace(/var\(--signal-sphere-accent,\s*([^)]+)\)/g, "$1");
+    svg = svg.replace(/var\(--signal-sphere-fg,\s*([^)]+)\)/g, "$1");
+    _sphereSvg = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+    return _sphereSvg;
+  } catch {
+    return "";
+  }
+}
+
 export default async function Image({
   params,
 }: {
@@ -41,7 +58,7 @@ export default async function Image({
   const { projectId, comparisonId } = await params;
 
   const card = await tryFetchCard(projectId, comparisonId);
-  const sphere = "http://localhost:3000/brand/signal-sphere-small.png";
+  const sphere = await sphereDataUrl();
   const leftModel = card?.view_a ?? "All models";
   const rightModel = card?.view_b ?? "All models";
 
