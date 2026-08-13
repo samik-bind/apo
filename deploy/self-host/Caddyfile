@@ -56,6 +56,14 @@
 		reverse_proxy frontend:3000
 	}
 
+	# OG images must be public so social media crawlers can fetch them
+	# regardless of user-agent (image fetchers often use generic UAs).
+	@og_image path_regexp ^/project/.*/compare-views/.*/opengraph-image
+	handle @og_image {
+		encode zstd gzip
+		reverse_proxy frontend:3000
+	}
+
 	# Social media crawlers (Slack, Twitter, etc.) can't send Basic Auth
 	# credentials. Exempt them so link previews read OG meta tags and fetch
 	# the opengraph-image. App-level auth still protects actual data.
