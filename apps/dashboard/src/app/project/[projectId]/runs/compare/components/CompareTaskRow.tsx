@@ -100,17 +100,17 @@ export function CompareTaskRow({
         </div>
 
         {/* Left checks cell. */}
-        <ChecksCell run={left.run} />
+        <ChecksCell run={left.run} hideCount={state === "different_definition"} />
         {/* Right checks cell — separate column at md+, wraps under on narrow.
             md:grid (not md:flex): the cell's internal layout IS a grid, and
             md:flex would override it, collapsing the bar slot. */}
-        <ChecksCell run={right.run} className="hidden md:grid" />
+        <ChecksCell run={right.run} className="hidden md:grid" hideCount={state === "different_definition"} />
       </div>
 
       {/* On narrow screens, stack the two cells so both are visible. */}
       <div className="grid grid-cols-2 gap-3 px-6 pb-2 md:hidden">
-        <ChecksCell run={left.run} compact />
-        <ChecksCell run={right.run} compact />
+        <ChecksCell run={left.run} compact hideCount={state === "different_definition"} />
+        <ChecksCell run={right.run} compact hideCount={state === "different_definition"} />
       </div>
 
       {isOpen && expandable && (
@@ -147,10 +147,12 @@ function ChecksCell({
   run,
   className,
   compact,
+  hideCount = false,
 }: {
   run: AgentTaskRunDetail | AgentTaskRunSummary | null;
   className?: string;
   compact?: boolean;
+  hideCount?: boolean;
 }) {
   if (!run) {
     return (
@@ -187,7 +189,9 @@ function ChecksCell({
         className,
       )}
     >
-      {hasChecks ? (
+      {hideCount ? (
+        <span className={cn("h-2 w-2 justify-self-center rounded-full", barColor)} aria-hidden />
+      ) : hasChecks ? (
         <div className="h-1.5 overflow-hidden rounded-full bg-border">
           <div className={cn("h-full", barColor)} style={{ width: `${checkRate}%` }} />
         </div>
@@ -201,7 +205,7 @@ function ChecksCell({
           running ? "text-muted-foreground" : errored ? "text-warning" : "text-muted-foreground",
         )}
       >
-        {hasChecks ? `${passedChecks}/${run.total_checks}` : ""}
+        {hideCount || !hasChecks ? "" : `${passedChecks}/${run.total_checks}`}
       </span>
     </div>
   );
