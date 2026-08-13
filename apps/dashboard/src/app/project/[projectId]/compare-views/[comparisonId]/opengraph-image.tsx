@@ -55,7 +55,7 @@ export default async function Image({
     (
       <div style={{ display: "flex", width: "100%", height: "100%", backgroundColor: C.black, fontFamily: "sans-serif", color: C.white }}>
         {/* Left column */}
-        <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", flexGrow: 1, padding: "80px" }}>
+        <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", width: "720px", padding: "80px" }}>
           {/* Badge */}
           <div style={{ display: "flex", alignSelf: "flex-start", padding: "8px 18px", borderRadius: "999px", backgroundColor: C.gray6, border: `1px solid ${C.gray5}`, color: C.gray3, fontSize: "18px", fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase" }}>
             Comparison
@@ -80,9 +80,9 @@ export default async function Image({
           </div>
         </div>
         {/* Right column — signal sphere */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "380px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flexGrow: 1 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={sphere} width={280} height={280} style={{ display: "flex" }} alt="" />
+          <img src={sphere} width={340} height={340} style={{ display: "flex" }} alt="" />
         </div>
       </div>
     ),
