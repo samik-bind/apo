@@ -1,6 +1,4 @@
 import { ImageResponse } from "next/og";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { getServerBackendBaseUrl } from "@/lib/config.server";
 import { getServerCookieHeader } from "@/lib/backend-fetch.server";
 
@@ -19,23 +17,6 @@ const C = {
   border: "#262626",
   accent: "#4ade80",
 };
-
-let _sphereDataUrl: string | null = null;
-function sphereDataUrl(): string {
-  if (_sphereDataUrl) return _sphereDataUrl;
-  const candidates = [
-    join(process.cwd(), "public", "brand", "signal-sphere-small.png"),
-    join(process.cwd(), "apps", "dashboard", "public", "brand", "signal-sphere-small.png"),
-  ];
-  for (const p of candidates) {
-    try {
-      const buf = readFileSync(p);
-      _sphereDataUrl = `data:image/png;base64,${buf.toString("base64")}`;
-      return _sphereDataUrl;
-    } catch { /* try next */ }
-  }
-  return "";
-}
 
 type OverviewData = {
   snapshot: {
@@ -79,7 +60,7 @@ export default async function Image({
     overview = null;
   }
 
-  const sphere = sphereDataUrl();
+  const sphere = "http://localhost:3000/brand/signal-sphere-small.png";
   const taskCount = overview ? `${overview.snapshot.resolved.length} tasks` : null;
   const leftModel = overview ? (overview.snapshot.view_a_config.model ?? "All models") : null;
   const rightModel = overview ? (overview.snapshot.view_b_config.model ?? "All models") : null;
@@ -94,7 +75,8 @@ export default async function Image({
         {/* Header: logo + wordmark + badge */}
         <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
           {sphere ? (
-            <img src={sphere} width="72" height="72" style={{ display: "flex", borderRadius: "16px" }} alt="" />
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={sphere} width={72} height={72} style={{ display: "flex", borderRadius: "16px" }} alt="" />
           ) : null}
           <div style={{ display: "flex", fontSize: "56px", fontWeight: 700, letterSpacing: "-2px", color: C.white }}>apo</div>
           <div style={{ display: "flex", marginLeft: "auto", padding: "8px 18px", borderRadius: "999px", backgroundColor: C.gray6, border: `1px solid ${C.border}`, color: C.gray2, fontSize: "20px", fontWeight: 500 }}>Comparison</div>
