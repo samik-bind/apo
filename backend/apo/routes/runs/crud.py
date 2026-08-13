@@ -1,12 +1,10 @@
 # pyright: reportCallInDefaultInitializer=false
 
-import json
 from datetime import datetime, timezone
 from typing import cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import asc, delete
 from sqlmodel import Session, select
@@ -32,6 +30,7 @@ from ...models import (
 )
 from ...metrics import calculate_and_store_aggregate_metrics
 from ...services.demo_workspace import require_project_not_demo, require_run_not_demo
+from .bulk_export import BulkExportRequest, export_runs
 from .columns import (
     CALL_LIGHT,
     LOGGED_CALL_CREATED_AT_COL,
@@ -497,138 +496,13 @@ def bulk_delete_runs(
     }
 
 
-class BulkExportRequest(BaseModel):
-    run_ids: list[str]
-    format: str = "json"
-
-
 @router.post("/bulk-export")
 def bulk_export_runs(
     request: BulkExportRequest,
     project: str = "default",
     session: Session = Depends(get_session),
 ):
-    if not request.run_ids:
-        raise HTTPException(status_code=400, detail="No run IDs provided")
-
-    runs_in_db = session.exec(
-        select(RunDB).where(
-            RUN_ID_COL.in_(request.run_ids), RUN_PROJECT_COL == project
-        )
-    ).all()
-    run_id_map = {r.id: r for r in runs_in_db}
-
-    export_run_ids = [rid for rid in request.run_ids if rid in run_id_map]
-
-    all_metrics = session.exec(
-        select(RunMetricDB).where(
-            RUN_METRIC_RUN_ID_COL.in_(export_run_ids),
-            RUN_METRIC_PROJECT_COL == project,
-        )
-    ).all()
-    metrics_by_run: dict[str, list[RunMetricDB]] = {}
-    for m in all_metrics:
-        if m.run_id is not None:
-            metrics_by_run.setdefault(m.run_id, []).append(m)
-
-    all_calls = session.exec(
-        select(LoggedCallDB)
-        .where(
-            LOGGED_CALL_RUN_ID_COL.in_(export_run_ids),
-            LOGGED_CALL_PROJECT_COL == project,
-        )
-        .order_by(
-            asc(LOGGED_CALL_STEP_INDEX_COL).nulls_last(),
-            asc(LOGGED_CALL_CREATED_AT_COL),
-        )
-    ).all()
-    calls_by_run: dict[str, list[LoggedCallDB]] = {}
-    for c in all_calls:
-        if c.run_id is not None:
-            calls_by_run.setdefault(c.run_id, []).append(c)
-
-    runs_data: list[dict[str, object]] = []
-    for run_id in export_run_ids:
-        run = run_id_map[run_id]
-        runs_data.append(
-            {
-                "run": Run.model_validate(run).model_dump(by_alias=True),
-                "metrics": [
-                    RunMetric.model_validate(m).model_dump(by_alias=True)
-                    for m in metrics_by_run.get(run_id, [])
-                ],
-                "calls": [
-                    LoggedCall.model_validate(c, from_attributes=True).model_dump(by_alias=True)
-                    for c in calls_by_run.get(run_id, [])
-                ],
-            }
-        )
-
-    if request.format == "csv":
-        import csv
-        from io import StringIO
-
-        output = StringIO()
-        writer = csv.writer(output)
-
-        writer.writerow(
-            [
-                "Run ID",
-                "Project",
-                "Flow Name",
-                "Task ID",
-                "Version",
-                "Environment",
-                "Created At",
-                "Completed At",
-                "Duration (ms)",
-                "Call Count",
-                "Tags",
-                "Metrics Count",
-            ]
-        )
-
-        for run_item in runs_data:
-            run = cast(dict[str, object], run_item["run"])
-            metrics = cast(list[object], run_item["metrics"])
-            tags_value = run.get("tags")
-            tags: list[object] = (
-                cast(list[object], tags_value) if isinstance(tags_value, list) else []
-            )
-            writer.writerow(
-                [
-                    run.get("id"),
-                    run.get("project"),
-                    run.get("flow_name") or "",
-                    run.get("task_id") or "",
-                    run.get("version") or "",
-                    run.get("environment") or "",
-                    run.get("created_at") or "",
-                    run.get("completed_at") or "",
-                    run.get("duration_ms") or "",
-                    run.get("call_count") or 0,
-                    ",".join(str(tag) for tag in tags),
-                    len(metrics),
-                ]
-            )
-
-        csv_content = output.getvalue()
-        return JSONResponse(
-            content={
-                "data": csv_content,
-                "filename": f"runs_export_{len(request.run_ids)}_runs.csv",
-                "media_type": "text/csv",
-            }
-        )
-    else:
-        json_content = json.dumps(runs_data, indent=2, default=str)
-        return JSONResponse(
-            content={
-                "data": json_content,
-                "filename": f"runs_export_{len(request.run_ids)}_runs.json",
-                "media_type": "application/json",
-            }
-        )
+    return export_runs(session, request.run_ids, project, request.format)
 
 
 # ── Replay / re-projection ─────────────────────────

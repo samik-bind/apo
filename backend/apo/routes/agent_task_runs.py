@@ -23,15 +23,11 @@ from sqlmodel.sql.expression import SelectOfScalar
 from ..db import get_session
 from ..db_helpers import as_column
 from ..models import (
-    AgentTaskBatchRunConfigurationSummary,
     AgentTaskBatchRunDB,
     AgentTaskBatchRunDetail,
-    AgentTaskBatchRunExternalDetail,
-    AgentTaskBatchRunSummary,
     AgentTaskDetail,
     AgentTaskRunDB,
     AgentTaskRunDetail,
-    AgentTaskRunExternalSummary,
     AgentTaskRunTrigger,
     AgentTaskRunSummary,
     AgentTaskSummary,
@@ -42,6 +38,12 @@ from ..models import (
 )
 from ..models.db import ProjectMembershipDB
 from ..services.agent_task_configuration import configuration_from_row
+from ..services.agent_task_batch_listing import (
+    BatchRunListFilters,
+    BatchRunListPagination,
+    PaginatedBatchRunSummary,
+    list_batch_run_summaries,
+)
 from ..services.check_report_storage import load_check_report
 from ..services.agent_task_discovery import (
     DiscoveredAgentTask,
@@ -50,8 +52,6 @@ from ..services.agent_task_discovery import (
 )
 from ..services.agent_task_outcome import classify_run_outcome
 from ..services.agent_task_projection import (
-    child_task_ids,
-    group_batch_configuration_summaries,
     parse_trigger,
     to_batch_run_detail,
     to_batch_run_summary,
@@ -75,37 +75,11 @@ from ..services.project_memberships import enforce_project_role_from_request
 router = APIRouter(prefix="/v1", tags=["agent-tasks"])
 
 
-AGENT_TASK_BATCH_RUN_CREATED_AT_COL: ColumnElement[object] = as_column(
-    cast(object, AgentTaskBatchRunDB.created_at)
-)
-
-
-class EffortFacetOption(BaseModel):
-    effort: str
-    count: int
-
-
-class ModelFacetOption(BaseModel):
-    model: str
-    count: int
-    efforts: list[EffortFacetOption] = []
-
-
-class PaginatedBatchRunSummary(BaseModel):
-    data: list[AgentTaskBatchRunSummary]
-    total_count: int
-    page: int
-    page_size: int
-    total_pages: int
-    model_facets: list[ModelFacetOption] = []
-
-
 # Defer the heavy JSON columns on list/summary paths that only read scalars.
-# The columns lazy-load on access, so code that needs them still works.
 _TASK_RUN_LIGHT = (
-    defer(AgentTaskRunDB.transcript_json),  # pyright: ignore[reportArgumentType]
-    defer(AgentTaskRunDB.deliverables_json),  # pyright: ignore[reportArgumentType]
-    defer(AgentTaskRunDB.checks_json),  # pyright: ignore[reportArgumentType]
+    defer(AgentTaskRunDB.transcript_json),
+    defer(AgentTaskRunDB.deliverables_json),
+    defer(AgentTaskRunDB.checks_json),
 )
 
 
@@ -214,6 +188,51 @@ def _load_primary_models(
                 model_map[call.run_id] = call.model
 
     return model_map
+
+
+def _build_task_run_detail(
+    session: Session,
+    task_run: AgentTaskRunDB,
+    *,
+    trigger: AgentTaskRunTrigger | None = None,
+    include_transcript: bool = False,
+    task_definition: dict[str, object] | None = None,
+) -> AgentTaskRunDetail:
+    return AgentTaskRunDetail(
+        id=task_run.id,
+        batch_run_id=task_run.batch_run_id,
+        task_id=task_run.task_id,
+        task_path=task_run.task_path,
+        adapter_name=task_run.adapter_name,
+        status=task_run.status,
+        pass_result=task_run.pass_result,
+        started_at=task_run.started_at,
+        completed_at=task_run.completed_at,
+        trace_run_id=task_run.trace_run_id,
+        task_source_commit_sha=task_run.task_source_commit_sha,
+        error_message=task_run.error_message,
+        trace_persistence_status=task_run.trace_persistence_status,
+        trace_error_message=task_run.trace_error_message,
+        total_cost=task_run.total_cost,
+        unpriced_call_count=task_run.unpriced_call_count,
+        total_tokens=task_run.total_tokens,
+        total_checks=task_run.total_checks,
+        passed_checks=task_run.passed_checks,
+        failed_checks=task_run.failed_checks,
+        trigger=trigger,
+        checks_json=load_check_report(session, task_run.id),
+        transcript_json=task_run.transcript_json if include_transcript else None,
+        deliverables_json=task_run.deliverables_json,
+        error_category=classify_run_outcome(
+            task_run.status,
+            task_run.error_message,
+            task_run.trace_persistence_status,
+        ),
+        run_configuration=configuration_from_row(
+            task_run.configured_model, task_run.configured_effort
+        ),
+        task_definition=task_definition,
+    )
 
 
 # ============================================================================
@@ -604,130 +623,20 @@ async def list_agent_task_batch_runs(
     filtered set (before model/effort filtering) so the dropdown always
     shows what other models are available.
     """
-    model_list = [m.strip() for m in model.split(",") if m.strip()] if model else None
-    effort_list = [e.strip() for e in effort.split(",") if e.strip()] if effort else None
+    model_list = [m.strip() for m in model.split(",") if m.strip()] if model else []
+    effort_list = [e.strip() for e in effort.split(",") if e.strip()] if effort else []
 
-    base = select(AgentTaskBatchRunDB)
-
-    if project:
-        base = base.where(AgentTaskBatchRunDB.project == project)
-    if status:
-        base = base.where(AgentTaskBatchRunDB.status == status)
-    if since:
-        from datetime import datetime, timedelta, timezone as tz
-        hours = {"1h": 1, "24h": 24, "7d": 168, "30d": 720}.get(since, 0)
-        if hours:
-            cutoff = datetime.now(tz.utc) - timedelta(hours=hours)
-            base = base.where(col(AgentTaskBatchRunDB.created_at) >= cutoff)
-    if q:
-        pattern = f"%{q}%"
-        base = base.where(or_(
-            col(AgentTaskBatchRunDB.id).ilike(pattern),
-            col(AgentTaskBatchRunDB.selection_type).ilike(pattern),
-            col(AgentTaskBatchRunDB.environment).ilike(pattern),
-            col(AgentTaskBatchRunDB.grep).ilike(pattern),
-        ))
-
-    # Model facets: distinct configured_model with batch counts + effort
-    # sub-facets, from the base query (before model/effort filter) so the
-    # dropdown is stable.
-    facet_ids = base.with_only_columns(col(AgentTaskBatchRunDB.id))
-    facet_stmt = select(
-        AgentTaskRunDB.configured_model,
-        AgentTaskRunDB.configured_effort,
-        func.count(func.distinct(AgentTaskRunDB.batch_run_id)),
-    ).where(
-        col(AgentTaskRunDB.batch_run_id).in_(facet_ids),
-        col(AgentTaskRunDB.configured_model).isnot(None),
-    ).group_by(
-        AgentTaskRunDB.configured_model,
-        AgentTaskRunDB.configured_effort,  # pyright: ignore[reportArgumentType]
-    )
-    facet_rows = session.exec(facet_stmt).all()
-
-    # Group (model, effort, count) rows into model facets with effort sub-lists.
-    _by_model: dict[str, dict[str, int]] = {}
-    for m, e, c in facet_rows:
-        if not m:
-            continue
-        if m not in _by_model:
-            _by_model[m] = {}
-        _by_model[m][e or ""] = c
-    model_facets = [
-        ModelFacetOption(
-            model=m,
-            count=sum(efforts.values()),
-            efforts=[
-                EffortFacetOption(effort=e, count=c)
-                for e, c in sorted(efforts.items()) if e
-            ],
-        )
-        for m, efforts in sorted(_by_model.items())
-    ]
-
-    # Apply model/effort filter for the data query.
-    query = base
-    if model_list or effort_list:
-        matching = select(AgentTaskRunDB.batch_run_id)
-        if model_list:
-            matching = matching.where(
-                col(AgentTaskRunDB.configured_model).in_(model_list)
-            )
-        if effort_list:
-            matching = matching.where(
-                col(AgentTaskRunDB.configured_effort).in_(effort_list)
-            )
-        query = query.where(col(AgentTaskBatchRunDB.id).in_(matching))
-
-    # Total count (after all filters, before pagination).
-    count_stmt = select(func.count()).select_from(query.subquery())
-    total_count: int = session.exec(count_stmt).one()
-    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 0
-
-    # Paginate.
-    query = query.order_by(desc(AGENT_TASK_BATCH_RUN_CREATED_AT_COL))
-    query = query.offset(page * page_size).limit(page_size)
-    batches = session.exec(query).all()
-
-    # Cost + configuration for the page's batches only.
-    batch_ids = [br.id for br in batches]
-    cost_by_batch: dict[str, float] = {}
-    tokens_by_batch: dict[str, int] = {}
-    configuration_by_batch: dict[str, AgentTaskBatchRunConfigurationSummary] = {}
-    task_ids_by_batch: dict[str, list[str]] = {}
-    if batch_ids:
-        all_task_runs = session.exec(
-            select(AgentTaskRunDB).options(*_TASK_RUN_LIGHT).where(col(AgentTaskRunDB.batch_run_id).in_(batch_ids))
-        ).all()
-        for tr in all_task_runs:
-            cost_by_batch[tr.batch_run_id] = cost_by_batch.get(tr.batch_run_id, 0.0) + (
-                tr.total_cost or 0.0
-            )
-            tokens_by_batch[tr.batch_run_id] = tokens_by_batch.get(tr.batch_run_id, 0) + (
-                tr.total_tokens or 0
-            )
-        configuration_by_batch = group_batch_configuration_summaries(all_task_runs)
-        for batch_id in batch_ids:
-            task_ids_by_batch[batch_id] = child_task_ids(
-                [tr for tr in all_task_runs if tr.batch_run_id == batch_id]
-            )
-
-    return PaginatedBatchRunSummary(
-        data=[
-            to_batch_run_summary(
-                br,
-                cost_by_batch.get(br.id),
-                tokens_by_batch.get(br.id),
-                configuration=configuration_by_batch.get(br.id),
-                derived_task_ids=task_ids_by_batch.get(br.id, ()),
-            )
-            for br in batches
-        ],
-        total_count=total_count,
-        page=page,
-        page_size=page_size,
-        total_pages=total_pages,
-        model_facets=model_facets,
+    return list_batch_run_summaries(
+        session,
+        BatchRunListFilters(
+            project=project,
+            status=status,
+            search=q,
+            since=since,
+            models=model_list,
+            efforts=effort_list,
+        ),
+        BatchRunListPagination(page=page, page_size=page_size),
     )
 
 
@@ -849,7 +758,6 @@ async def get_agent_task_run(
         task_run.batch_run_id
     )
 
-    # SPEC-169: resolve Task Definition summary for CodeMirror display.
     task_definition_summary: dict[str, object] | None = None
     if task_run.task_definition_revision_id:
         from apo.models.db import TaskDefinitionRevisionDB
@@ -858,39 +766,11 @@ async def get_agent_task_run(
         if def_rev is not None:
             task_definition_summary = to_definition_summary(def_rev)
 
-    return AgentTaskRunDetail(
-        id=task_run.id,
-        batch_run_id=task_run.batch_run_id,
-        task_id=task_run.task_id,
-        task_path=task_run.task_path,
-        adapter_name=task_run.adapter_name,
-        status=task_run.status,
-        pass_result=task_run.pass_result,
-        started_at=task_run.started_at,
-        completed_at=task_run.completed_at,
-        trace_run_id=task_run.trace_run_id,
-        task_source_commit_sha=task_run.task_source_commit_sha,
-        error_message=task_run.error_message,
-        trace_persistence_status=task_run.trace_persistence_status,
-        trace_error_message=task_run.trace_error_message,
-        total_cost=task_run.total_cost,
-        unpriced_call_count=task_run.unpriced_call_count,
-        total_tokens=task_run.total_tokens,
-        total_checks=task_run.total_checks,
-        passed_checks=task_run.passed_checks,
-        failed_checks=task_run.failed_checks,
+    return _build_task_run_detail(
+        session,
+        task_run,
         trigger=trigger,
-        checks_json=load_check_report(session, task_run.id),
-        transcript_json=task_run.transcript_json if include and "transcript" in include else None,
-        deliverables_json=task_run.deliverables_json,
-        error_category=classify_run_outcome(
-            task_run.status,
-            task_run.error_message,
-            task_run.trace_persistence_status,
-        ),
-        run_configuration=configuration_from_row(
-            task_run.configured_model, task_run.configured_effort
-        ),
+        include_transcript=bool(include and "transcript" in include),
         task_definition=task_definition_summary,
     )
 

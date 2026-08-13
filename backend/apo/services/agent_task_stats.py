@@ -6,12 +6,13 @@ was duplicated (and kept in sync by a docstring promise) across
 ``routes/projects.py`` and ``routes/agent_task_runs.py``; both now delegate
 here so the numbers cannot drift.
 
-Performance contract: the loader (``load_run_stat_fields``) SELECTs only the
-scalar columns + ``checks_json`` that aggregation reads. It deliberately does
-NOT fetch ``transcript_json`` / ``deliverables_json`` — those JSON blobs can
-be MBs per row and loading them for every historical run caused the backend
-to be OOM-killed on the task list page in production. ``RunStatFields`` is
-the explicit minimal shape, so the cost cannot silently regress: there is no
+Performance contract: ``load_run_stat_fields`` delegates cohort selection to
+``runs_in_view`` (the shared seam with ``task_view_comparison``) and projects
+each cohort row into ``RunStatFields``. The cohort query never fetches
+``transcript_json`` / ``deliverables_json`` — those JSON blobs can be MBs per
+row and loading them for every historical run caused the backend to be
+OOM-killed on the task list page in production. ``RunStatFields`` is the
+explicit minimal shape, so the cost cannot silently regress: there is no
 attribute on it that *could* hold a transcript.
 """
 
@@ -19,16 +20,17 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import cast
 
-from sqlalchemy import desc, select as sa_select
+from sqlalchemy import select as sa_select
 from sqlmodel import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from ..db_helpers import _as_column
 from ..models.db import AgentTaskBatchRunDB, AgentTaskRunDB
-from ..models.schemas import AgentTaskRunStats, RunConfigEffortFacet, RunConfigModelFacet
+from ..models.schemas import AgentTaskRunStats, RunConfigEffortFacet, RunConfigModelFacet, TaskViewConfig
+from .view_runs import runs_in_view
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,25 +52,6 @@ class RunStatFields:
     pass_result: bool | None
     total_checks: int
     passed_checks: int
-
-
-def since_cutoff(since: str | None) -> datetime | None:
-    """Resolve a ``since`` preset to a UTC cutoff.
-
-    Accepts ``Nh`` (hours) or ``Nd`` (days), e.g. ``"5h"``, ``"3d"``. Returns
-    ``None`` for all-time (no preset / unparseable). Shared by the stats loader
-    and the comparison resolver so the two paths agree on the date window.
-    """
-    if not since:
-        return None
-    try:
-        if since.endswith("h"):
-            return datetime.now(timezone.utc) - timedelta(hours=int(since[:-1]))
-        if since.endswith("d"):
-            return datetime.now(timezone.utc) - timedelta(days=int(since[:-1]))
-    except ValueError:
-        pass
-    return None
 
 
 def compute_run_stats(runs: Sequence[RunStatFields]) -> AgentTaskRunStats:
@@ -124,99 +107,46 @@ def load_run_stat_fields(
     effort: str | None = None,
     since: str | None = None,
 ) -> dict[str, list[RunStatFields]]:
-    """Load only the run columns stats needs, grouped by task id.
+    """Load the run columns stats needs, grouped by task id.
 
-    This is the OOM fix: it projects a handful of scalar columns (including the
-    Verdict counters) and never touches ``checks_json`` /
-    ``transcript_json`` / ``deliverables_json``. Runs are returned in descending
-    ``started_at`` order so the first element of each group is the most recent
-    run (which ``compute_run_stats`` treats as ``latest``). Scoped to
-    ``project_id`` via the parent batch run so two projects' runs never mix even
-    if they share a task id.
+    Delegates cohort selection to ``runs_in_view`` — the shared seam between
+    this aggregator and ``task_view_comparison`` — and projects each wide
+    cohort row into the narrower ``RunStatFields`` shape that
+    ``compute_run_stats`` reads. The OOM-safety contract is preserved:
+    ``runs_in_view`` projects only scalar columns, never ``checks_json`` /
+    ``transcript_json`` / ``deliverables_json``.
 
-    ``model`` / ``effort`` / ``since`` optionally scope the cohort to a single
-    view (the Tasks page evidence views). All default to ``None`` = all-history,
-    which is the original behavior and what the Main tab shows.
+    Runs are returned in descending ``started_at`` order (the cohort's
+    contract) so the first element of each task group is the most recent run,
+    which ``compute_run_stats`` treats as ``latest``.
     """
-    if not task_ids:
-        return {}
-
-    conditions: list[ColumnElement[bool]] = [
-        _TASK_ID_COL.in_(task_ids),
-        _BATCH_PROJECT_COL == project_id,
-    ]
-    if model is not None:
-        conditions.append(_CONFIGURED_MODEL_COL == model)
-    if effort is not None:
-        conditions.append(_CONFIGURED_EFFORT_COL == effort)
-    cutoff = since_cutoff(since)
-    if cutoff is not None:
-        conditions.append(_STARTED_AT_COL >= cutoff)
-
-    stmt = (
-        sa_select(
-            _TASK_ID_COL,
-            _STATUS_COL,
-            _STARTED_AT_COL,
-            _COMPLETED_AT_COL,
-            _TOTAL_COST_COL,
-            _PASS_RESULT_COL,
-            _TOTAL_CHECKS_COL,
-            _PASSED_CHECKS_COL,
-        )
-        .join(AgentTaskBatchRunDB, _BATCH_RUN_ID_COL == _BATCH_ID_COL)
-        .where(*conditions)
-        .order_by(desc(_STARTED_AT_COL))
+    cohort = runs_in_view(
+        session,
+        project_id=project_id,
+        task_ids=task_ids,
+        view=TaskViewConfig(model=model, effort=effort, since=since),
     )
-    rows = session.execute(stmt).all()
-
     grouped: dict[str, list[RunStatFields]] = {}
-    for (
-        task_id,
-        status,
-        started_at,
-        completed_at,
-        total_cost,
-        pass_result,
-        total_checks,
-        passed_checks,
-    ) in rows:
-        grouped.setdefault(task_id, []).append(
+    for run in cohort:
+        grouped.setdefault(run.task_id, []).append(
             RunStatFields(
-                status=status,
-                started_at=started_at,
-                completed_at=completed_at,
-                total_cost=total_cost,
-                pass_result=pass_result,
-                total_checks=total_checks,
-                passed_checks=passed_checks,
+                status=run.status,
+                started_at=run.started_at,
+                completed_at=run.completed_at,
+                total_cost=run.total_cost,
+                pass_result=run.pass_result,
+                total_checks=run.total_checks,
+                passed_checks=run.passed_checks,
             )
         )
     return grouped
 
 
-# Typed column handles mirroring ``routes/analytics.py``. The specific
-# ``ColumnElement[T]`` parametrization (not ``[object]``) is what lets the
-# core ``sa_select`` overloads resolve — and keeps these columns out of the
-# SQLModel ``select`` overload that only accepts full models.
-_TASK_ID_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.task_id))
-_STATUS_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.status))
-_STARTED_AT_COL: ColumnElement[datetime | None] = _as_column(
-    cast(object, AgentTaskRunDB.started_at)
-)
-_COMPLETED_AT_COL: ColumnElement[datetime | None] = _as_column(
-    cast(object, AgentTaskRunDB.completed_at)
-)
-_TOTAL_COST_COL: ColumnElement[float | None] = _as_column(
-    cast(object, AgentTaskRunDB.total_cost)
-)
-_PASS_RESULT_COL: ColumnElement[bool | None] = _as_column(
-    cast(object, AgentTaskRunDB.pass_result)
-)
-_TOTAL_CHECKS_COL: ColumnElement[int] = _as_column(cast(object, AgentTaskRunDB.total_checks))
-_PASSED_CHECKS_COL: ColumnElement[int] = _as_column(
-    cast(object, AgentTaskRunDB.passed_checks)
-)
+# Typed column handles used only by ``compute_run_config_facets`` below. The
+# cohort columns (task / status / started_at / cost / verdict counters) live
+# in ``view_runs`` now that ``load_run_stat_fields`` delegates the cohort
+# query there. The specific ``ColumnElement[T]`` parametrization (not
+# ``[object]``) is what lets the core ``sa_select`` overloads resolve.
 _BATCH_RUN_ID_COL: ColumnElement[str] = _as_column(
     cast(object, AgentTaskRunDB.batch_run_id)
 )

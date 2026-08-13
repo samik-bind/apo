@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { getServerBackendBaseUrl } from "@/lib/config.server";
 
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -20,8 +21,9 @@ type CardData = { view_a: string | null; view_b: string | null };
 
 async function tryFetchCard(projectId: string, comparisonId: string): Promise<CardData | null> {
   try {
+    const base = getServerBackendBaseUrl();
     const resp = await fetch(
-      `http://localhost:3000/backend-proxy/v1/projects/${encodeURIComponent(projectId)}/task-view-comparisons/${encodeURIComponent(comparisonId)}/card`,
+      `${base}/v1/projects/${encodeURIComponent(projectId)}/task-view-comparisons/${encodeURIComponent(comparisonId)}/card`,
       { cache: "no-store" },
     );
     if (!resp.ok) return null;
