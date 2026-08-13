@@ -5,7 +5,7 @@ Provides endpoints for discovering tasks, managing batch runs,
 and inspecting individual task runs.
 """
 
-# pyright: reportCallInDefaultInitializer=false
+# pyright: reportCallInDefaultInitializer=false, reportArgumentType=false
 
 import os
 from collections.abc import Sequence
@@ -14,9 +14,8 @@ from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import asc, desc, func, or_
+from sqlalchemy import asc, desc
 from sqlalchemy.orm import defer
-from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, col, select
 from sqlmodel.sql.expression import SelectOfScalar
 
@@ -54,7 +53,6 @@ from ..services.agent_task_outcome import classify_run_outcome
 from ..services.agent_task_projection import (
     parse_trigger,
     to_batch_run_detail,
-    to_batch_run_summary,
     to_task_run_summary,
 )
 from ..services.agent_task_stats import (
@@ -837,37 +835,4 @@ async def report_agent_task_run_result(
         task_run.batch_run_id
     )
 
-    return AgentTaskRunDetail(
-        id=task_run.id,
-        batch_run_id=task_run.batch_run_id,
-        task_id=task_run.task_id,
-        task_path=task_run.task_path,
-        adapter_name=task_run.adapter_name,
-        status=task_run.status,
-        pass_result=task_run.pass_result,
-        started_at=task_run.started_at,
-        completed_at=task_run.completed_at,
-        trace_run_id=task_run.trace_run_id,
-        task_source_commit_sha=task_run.task_source_commit_sha,
-        error_message=task_run.error_message,
-        trace_persistence_status=task_run.trace_persistence_status,
-        trace_error_message=task_run.trace_error_message,
-        total_cost=task_run.total_cost,
-        unpriced_call_count=task_run.unpriced_call_count,
-        total_tokens=task_run.total_tokens,
-        total_checks=task_run.total_checks,
-        passed_checks=task_run.passed_checks,
-        failed_checks=task_run.failed_checks,
-        trigger=trigger,
-        checks_json=load_check_report(session, task_run.id),
-        transcript_json=None,
-        deliverables_json=task_run.deliverables_json,
-        error_category=classify_run_outcome(
-            task_run.status,
-            task_run.error_message,
-            task_run.trace_persistence_status,
-        ),
-        run_configuration=configuration_from_row(
-            task_run.configured_model, task_run.configured_effort
-        ),
-    )
+    return _build_task_run_detail(session, task_run, trigger=trigger)

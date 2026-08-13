@@ -11,7 +11,7 @@ FastAPI.
 import csv
 import json
 from io import StringIO
-from typing import Any, cast
+from typing import cast
 
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel

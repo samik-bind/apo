@@ -34,12 +34,9 @@ from .bulk_export import BulkExportRequest, export_runs
 from .columns import (
     CALL_LIGHT,
     LOGGED_CALL_CREATED_AT_COL,
-    LOGGED_CALL_PROJECT_COL,
-    LOGGED_CALL_RUN_ID_COL,
     LOGGED_CALL_STEP_INDEX_COL,
     RUN_ID_COL,
     RUN_METRIC_PROJECT_COL,
-    RUN_METRIC_RUN_ID_COL,
     RUN_PROJECT_COL,
 )
 from .list_query import (

@@ -17,17 +17,11 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Literal, cast
 
-from sqlalchemy import desc, select as sa_select
-from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session
 
-from ..db_helpers import _as_column
 from ..models.db import (
-    AgentTaskBatchRunDB,
-    AgentTaskRunDB,
     TaskViewComparisonDB,
 )
 from ..models.schemas import (
@@ -35,38 +29,11 @@ from ..models.schemas import (
     TaskViewComparisonSnapshot,
     TaskViewConfig,
 )
-from .agent_task_stats import since_cutoff
+from .view_runs import ViewRun, runs_in_view
 
 # Status that means "the run did not complete" (no usable verdict). Mirrors
 # ``compute_run_stats``, which counts "error" separately from "failed".
 _ERRORED = "error"
-
-# Typed column handles (mirrors ``agent_task_stats``): the explicit
-# ``ColumnElement[T]`` lets the core ``sa_select`` overloads resolve and keeps
-# these columns out of the SQLModel ``select`` overload that only accepts full
-# models.
-_RUN_ID_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.id))
-_RUN_TASK_ID_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.task_id))
-_RUN_STATUS_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.status))
-_RUN_STARTED_COL: ColumnElement[datetime | None] = _as_column(cast(object, AgentTaskRunDB.started_at))
-_RUN_BATCH_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.batch_run_id))
-_RUN_DEF_REV_COL: ColumnElement[str | None] = _as_column(
-    cast(object, AgentTaskRunDB.task_definition_revision_id)
-)
-_RUN_MODEL_COL: ColumnElement[str | None] = _as_column(cast(object, AgentTaskRunDB.configured_model))
-_RUN_EFFORT_COL: ColumnElement[str | None] = _as_column(cast(object, AgentTaskRunDB.configured_effort))
-_BATCH_ID_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskBatchRunDB.id))
-_BATCH_PROJECT_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskBatchRunDB.project))
-
-
-@dataclass(frozen=True, slots=True)
-class _RunRow:
-    """Minimal projection of a run that comparison resolution reads."""
-
-    run_id: str
-    status: str
-    started_at: object
-    task_definition_revision_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,44 +57,19 @@ def _resolve_side(
     """Resolve the latest-completed run per task under one view.
 
     Returns ``{task_id: _ResolvedRun}``; tasks with no matching run are absent.
-    Bounded by the selection size, so this scalar projection is cheap.
+    Delegates cohort selection to ``runs_in_view`` (the shared seam with
+    ``agent_task_stats``) and applies the per-task "latest completed, else
+    latest errored" resolution rule on top.
     """
-    if not task_ids:
-        return {}
+    cohort = runs_in_view(session, project_id=project_id, task_ids=task_ids, view=view)
 
-    conditions: list[ColumnElement[bool]] = [
-        _RUN_TASK_ID_COL.in_(task_ids),
-        _BATCH_PROJECT_COL == project_id,
-    ]
-    if view.model is not None:
-        conditions.append(_RUN_MODEL_COL == view.model)
-    if view.effort is not None:
-        conditions.append(_RUN_EFFORT_COL == view.effort)
-    cutoff = since_cutoff(view.since)
-    if cutoff is not None:
-        conditions.append(_RUN_STARTED_COL >= cutoff)
+    # cohort is already DESC by started_at, so the first run seen per task is
+    # the most recent. Group preserving that order, then pick latest-completed.
+    runs_by_task: dict[str, list[ViewRun]] = {}
+    for run in cohort:
+        runs_by_task.setdefault(run.task_id, []).append(run)
 
-    stmt = (
-        sa_select(
-            _RUN_TASK_ID_COL,
-            _RUN_ID_COL,
-            _RUN_STATUS_COL,
-            _RUN_STARTED_COL,
-            _RUN_DEF_REV_COL,
-        )
-        .join(AgentTaskBatchRunDB, _RUN_BATCH_COL == _BATCH_ID_COL)
-        .where(*conditions)
-        .order_by(_RUN_TASK_ID_COL, desc(_RUN_STARTED_COL))
-    )
-    # group matching runs by task, preserving started_at DESC order so the first
-    # completed run seen per task is the latest completed.
-    runs_by_task: dict[str, list[_RunRow]] = {}
-    for task_id, run_id, status, started_at, def_rev in session.execute(stmt).all():
-        runs_by_task.setdefault(task_id, []).append(
-            _RunRow(run_id, status, started_at, def_rev)
-        )
-
-    latest_by_task: dict[str, _RunRow] = {}
+    latest_by_task: dict[str, ViewRun] = {}
     for task_id, runs in runs_by_task.items():
         completed = [r for r in runs if r.status != _ERRORED]
         latest_by_task[task_id] = (completed or runs)[0]
@@ -154,7 +96,7 @@ def _comparison_state(
 
     Only ``task_definition_revision_id`` gates the definition check — the eval
     file that defines the checks must be the same on both sides. The
-    bundle-level ``exec_revision_sha`` (which spans the whole task root, not
+    bundle-level exec (batch) revision (which spans the whole task root, not
     just this task's eval) is intentionally NOT a gate: any edit anywhere in
     the task tree would flip it, making two runs from different days almost
     never ``aligned`` even when the specific task's definition is byte-identical.

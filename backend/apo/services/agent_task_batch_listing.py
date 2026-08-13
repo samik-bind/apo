@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportExplicitAny=false, reportCallInDefaultInitializer=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedCallResult=false
+# pyright: reportAny=false, reportExplicitAny=false, reportArgumentType=false, reportCallInDefaultInitializer=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedCallResult=false
 
 """Batch-run listing: filtering, model facets, pagination, and hydration.
 
@@ -11,7 +11,7 @@ parses query params and delegates; everything from the base
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, cast
+from typing import cast
 
 from pydantic import BaseModel
 from sqlalchemy import desc, func, or_
@@ -227,16 +227,21 @@ def _hydrate_batch_summaries(
     if not batch_ids:
         return []
 
-    all_task_runs = session.exec(
+    all_task_runs = list(session.exec(
         select(AgentTaskRunDB)
         .options(*_TASK_RUN_LIGHT)
         .where(col(AgentTaskRunDB.batch_run_id).in_(batch_ids))
-    ).all()
+    ).all())
 
-    cost_by_batch = _accumulate_by_batch(all_task_runs, lambda tr: tr.total_cost or 0.0)
-    tokens_by_batch = _accumulate_by_batch(
-        all_task_runs, lambda tr: tr.total_tokens or 0
-    )
+    cost_by_batch: dict[str, float] = {}
+    tokens_by_batch: dict[str, int] = {}
+    for tr in all_task_runs:
+        cost_by_batch[tr.batch_run_id] = cost_by_batch.get(tr.batch_run_id, 0.0) + (
+            tr.total_cost or 0.0
+        )
+        tokens_by_batch[tr.batch_run_id] = tokens_by_batch.get(tr.batch_run_id, 0) + (
+            tr.total_tokens or 0
+        )
     configuration_by_batch = group_batch_configuration_summaries(all_task_runs)
     task_ids_by_batch = {
         bid: child_task_ids([tr for tr in all_task_runs if tr.batch_run_id == bid])
@@ -253,12 +258,3 @@ def _hydrate_batch_summaries(
         )
         for br in batches
     ]
-
-
-def _accumulate_by_batch(
-    task_runs: list[AgentTaskRunDB], extract: Any
-) -> dict[str, float]:
-    result: dict[str, float] = {}
-    for tr in task_runs:
-        result[tr.batch_run_id] = result.get(tr.batch_run_id, 0.0) + extract(tr)
-    return result
