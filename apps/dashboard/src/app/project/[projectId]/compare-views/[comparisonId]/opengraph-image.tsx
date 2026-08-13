@@ -8,10 +8,9 @@ export const runtime = "nodejs";
 export const alt = "apo comparison";
 export const maxDuration = 10;
 
-const COLORS = {
-  black: "#000000",
-  white: "#ffffff",
-  gray1: "#f4f4f5",
+const C = {
+  black: "#000",
+  white: "#fff",
   gray2: "#a3a3a3",
   gray3: "#525252",
   gray6: "#1a1a1a",
@@ -27,7 +26,7 @@ type OverviewData = {
     view_b_config: { model: string | null; effort: string | null };
     resolved: { a_status: string | null; b_status: string | null }[];
   };
-  runs: { pass_result: boolean | null; status: string; total_checks: number; passed_checks: number }[];
+  runs: { pass_result: boolean | null }[];
 };
 
 async function tryFetchOverview(projectId: string, comparisonId: string): Promise<OverviewData | null> {
@@ -36,10 +35,8 @@ async function tryFetchOverview(projectId: string, comparisonId: string): Promis
     const cookieHeader = await getServerCookieHeader();
     const headers: Record<string, string> = {};
     if (cookieHeader) headers["Cookie"] = cookieHeader;
-
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
-
     const resp = await fetch(
       `${base}/v1/projects/${encodeURIComponent(projectId)}/task-view-comparisons/${encodeURIComponent(comparisonId)}/overview`,
       { headers, cache: "no-store", signal: controller.signal },
@@ -53,9 +50,7 @@ async function tryFetchOverview(projectId: string, comparisonId: string): Promis
 }
 
 function modelLabel(config: { model: string | null; effort: string | null }): string {
-  const parts = [config.model ?? "All models"];
-  if (config.effort) parts.push(config.effort);
-  return parts.join(" · ");
+  return config.model ?? "All models";
 }
 
 export default async function Image({
@@ -73,95 +68,31 @@ export default async function Image({
   }
 
   if (!overview) {
-    return brandedFallback();
+    return new ImageResponse(brandedFallback(), { ...size });
   }
 
-  const { snapshot, runs } = overview;
-  const taskCount = snapshot.resolved.length;
+  const { snapshot } = overview;
+  const taskCount = `${snapshot.resolved.length} tasks`;
   const leftModel = modelLabel(snapshot.view_a_config);
   const rightModel = modelLabel(snapshot.view_b_config);
-  const leftPasses = runs.filter(
-    (r) => snapshot.resolved.some((c) => c.a_status !== null) && r.pass_result === true,
-  ).length;
-  const rightPasses = runs.filter(
-    (r) => snapshot.resolved.some((c) => c.b_status !== null) && r.pass_result === true,
-  ).length;
-  const leftSideCount = snapshot.resolved.filter((c) => c.a_status !== null).length;
-  const rightSideCount = snapshot.resolved.filter((c) => c.b_status !== null).length;
+  const leftSide = snapshot.resolved.filter((c) => c.a_status !== null).length;
+  const rightSide = snapshot.resolved.filter((c) => c.b_status !== null).length;
+  const leftPasses = snapshot.resolved.filter((c) => c.a_status === "passed").length;
+  const rightPasses = snapshot.resolved.filter((c) => c.b_status === "passed").length;
 
   return new ImageResponse(
     (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-          backgroundColor: COLORS.black,
-          padding: "64px",
-          fontFamily: "sans-serif",
-          color: COLORS.white,
-        }}
-      >
-        {/* Header: wordmark + label */}
+      <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", backgroundColor: C.black, padding: "64px", fontFamily: "sans-serif", color: C.white }}>
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-          <div style={{ fontSize: "52px", fontWeight: 700, letterSpacing: "-2px", color: COLORS.white }}>
-            apo
-          </div>
-          <div
-            style={{
-              display: "flex",
-              padding: "6px 14px",
-              borderRadius: "999px",
-              backgroundColor: COLORS.gray6,
-              border: `1px solid ${COLORS.border}`,
-              color: COLORS.gray2,
-              fontSize: "18px",
-              fontWeight: 500,
-            }}
-          >
-            Comparison
-          </div>
-          <div style={{ marginLeft: "auto", fontSize: "20px", color: COLORS.gray3 }}>
-            {taskCount} task{taskCount === 1 ? "" : "s"}
-          </div>
+          <div style={{ display: "flex", fontSize: "52px", fontWeight: 700, letterSpacing: "-2px", color: C.white }}>apo</div>
+          <div style={{ display: "flex", padding: "6px 14px", borderRadius: "999px", backgroundColor: C.gray6, border: `1px solid ${C.border}`, color: C.gray2, fontSize: "18px", fontWeight: 500 }}>Comparison</div>
+          <div style={{ display: "flex", marginLeft: "auto", fontSize: "20px", color: C.gray3 }}>{taskCount}</div>
         </div>
-
-        {/* Divider */}
-        <div style={{ display: "flex", marginTop: "40px", height: "1px", backgroundColor: COLORS.border }} />
-
-        {/* Two columns: View A vs View B */}
+        <div style={{ display: "flex", marginTop: "40px", height: "1px", backgroundColor: C.border }} />
         <div style={{ display: "flex", flex: 1, marginTop: "48px", gap: "32px" }}>
-          {/* Left side */}
-          <ComparisonColumn
-            label="View A"
-            model={leftModel}
-            passes={leftPasses}
-            total={leftSideCount}
-          />
-
-          {/* VS separator */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: "48px",
-              fontSize: "24px",
-              fontWeight: 600,
-              color: COLORS.gray3,
-            }}
-          >
-            vs
-          </div>
-
-          {/* Right side */}
-          <ComparisonColumn
-            label="View B"
-            model={rightModel}
-            passes={rightPasses}
-            total={rightSideCount}
-          />
+          {column("View A", leftModel, leftPasses, leftSide)}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "48px", fontSize: "24px", fontWeight: 600, color: C.gray3 }}>vs</div>
+          {column("View B", rightModel, rightPasses, rightSide)}
         </div>
       </div>
     ),
@@ -169,93 +100,33 @@ export default async function Image({
   );
 }
 
-function ComparisonColumn({
-  label,
-  model,
-  passes,
-  total,
-}: {
-  label: string;
-  model: string;
-  passes: number;
-  total: number;
-}) {
+function column(label: string, model: string, passes: number, total: number) {
   const fails = total - passes;
   const passRate = total > 0 ? Math.round((passes / total) * 100) : 0;
-  const barColor = passRate >= 80 ? COLORS.success : passRate < 50 ? COLORS.destructive : COLORS.warning;
-
+  const barColor = passRate >= 80 ? C.success : passRate < 50 ? C.destructive : C.warning;
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: "20px" }}>
-      <div style={{ display: "flex", fontSize: "20px", fontWeight: 600, color: COLORS.gray2 }}>
-        {label}
+      <div style={{ display: "flex", fontSize: "20px", fontWeight: 600, color: C.gray2 }}>{label}</div>
+      <div style={{ display: "flex", fontSize: "32px", fontWeight: 700, color: C.white }}>{model}</div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "12px" }}>
+        <div style={{ display: "flex", fontSize: "56px", fontWeight: 700, color: C.success }}>{`${passes}`}</div>
+        <div style={{ display: "flex", fontSize: "28px", color: C.gray2 }}>passing</div>
+        <div style={{ display: "flex", fontSize: "24px", color: C.gray3 }}>{`${fails} failing`}</div>
       </div>
-      <div style={{ display: "flex", fontSize: "32px", fontWeight: 700, color: COLORS.white }}>
-        {model}
-      </div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: "12px", marginTop: "8px" }}>
-        <span style={{ fontSize: "56px", fontWeight: 700, color: COLORS.success }}>{passes}</span>
-        <span style={{ fontSize: "28px", color: COLORS.gray2 }}>passing</span>
-        <span style={{ fontSize: "24px", color: COLORS.gray3 }}>· {fails} failing</span>
-      </div>
-      {/* Proportion bar */}
-      <div
-        style={{
-          display: "flex",
-          height: "12px",
-          borderRadius: "6px",
-          backgroundColor: COLORS.gray6,
-          marginTop: "8px",
-          overflow: "hidden",
-        }}
-      >
+      <div style={{ display: "flex", height: "12px", borderRadius: "6px", backgroundColor: C.gray6, overflow: "hidden" }}>
         <div style={{ display: "flex", width: `${passRate}%`, height: "100%", backgroundColor: barColor }} />
       </div>
-      <div style={{ display: "flex", fontSize: "18px", color: COLORS.gray3 }}>
-        {total} task{total === 1 ? "" : "s"} ran
-      </div>
+      <div style={{ display: "flex", fontSize: "18px", color: C.gray3 }}>{`${total} tasks ran`}</div>
     </div>
   );
 }
 
-function brandedFallback(): ImageResponse {
-  return new ImageResponse(
-    (
-      <div
-        style={{
-          width: "100%",
-          height: "100%",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: COLORS.black,
-          fontFamily: "sans-serif",
-          color: COLORS.white,
-        }}
-      >
-        <div style={{ display: "flex", fontSize: "96px", fontWeight: 700, letterSpacing: "-4px" }}>
-          apo
-        </div>
-        <div
-          style={{
-            display: "flex",
-            marginTop: "16px",
-            padding: "8px 20px",
-            borderRadius: "999px",
-            backgroundColor: COLORS.gray6,
-            border: `1px solid ${COLORS.border}`,
-            color: COLORS.gray2,
-            fontSize: "24px",
-            fontWeight: 500,
-          }}
-        >
-          Comparison
-        </div>
-        <div style={{ display: "flex", marginTop: "32px", fontSize: "20px", color: COLORS.gray3 }}>
-          Sign in to view results
-        </div>
-      </div>
-    ),
-    { ...size },
+function brandedFallback() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", backgroundColor: C.black, fontFamily: "sans-serif", color: C.white }}>
+      <div style={{ display: "flex", fontSize: "96px", fontWeight: 700, letterSpacing: "-4px" }}>apo</div>
+      <div style={{ display: "flex", marginTop: "16px", padding: "8px 20px", borderRadius: "999px", backgroundColor: C.gray6, border: `1px solid ${C.border}`, color: C.gray2, fontSize: "24px", fontWeight: 500 }}>Comparison</div>
+      <div style={{ display: "flex", marginTop: "32px", fontSize: "20px", color: C.gray3 }}>Sign in to view results</div>
+    </div>
   );
 }
