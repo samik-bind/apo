@@ -393,11 +393,15 @@ class TaskViewComparisonRequest(SQLModel):
 
 
 class ResolvedComparisonCell(SQLModel):
-    """One task's resolved run on each side, plus whether the two are comparable.
+    """One task's resolved run on each side, plus the comparison state.
 
-    ``comparable`` is False when either side has no run, or the two runs disagree
-    on task-definition or execution revision — such tasks stay visible but are
-    excluded from the aggregate coverage.
+    ``state`` distinguishes *why* a task may not be fully comparable, instead of
+    collapsing every non-aligned case into a single bool (which made tasks that
+    simply didn't run on one side render as "different eval version"):
+
+      - ``aligned``: both sides ran under the same task-definition revision.
+      - ``different_definition``: both sides ran, but under different revisions.
+      - ``not_run``: at least one side has no run.
     """
 
     task_id: str
@@ -405,7 +409,7 @@ class ResolvedComparisonCell(SQLModel):
     b_run_id: str | None
     a_status: str | None  # passed | failed | error | None (not run)
     b_status: str | None
-    comparable: bool
+    state: Literal["aligned", "different_definition", "not_run"]
 
 
 class TaskViewComparisonSnapshot(SQLModel):
@@ -415,7 +419,7 @@ class TaskViewComparisonSnapshot(SQLModel):
     view_b_config: TaskViewConfig
     task_ids: list[str]
     resolved: list[ResolvedComparisonCell]
-    coverage: dict[str, int]  # both_run / comparable / scope
+    coverage: dict[str, int]  # both_run / aligned / scope
     created_at: datetime
     created_by: str | None = None
 
@@ -671,11 +675,19 @@ class AgentTaskRunDetail(SQLModel):
     task_definition: dict[str, object] | None = None
 
 
-class TaskViewComparisonEvidence(SQLModel):
-    """Immutable comparison snapshot plus its resolved Task Run evidence."""
+class TaskViewComparisonOverview(SQLModel):
+    """Frozen snapshot plus lightweight summaries for all resolved runs."""
 
     snapshot: TaskViewComparisonSnapshot
-    runs: list[AgentTaskRunDetail] = Field(default_factory=list)
+    runs: list[AgentTaskRunSummary] = Field(default_factory=list)
+
+
+class TaskComparisonEvidence(SQLModel):
+    """Detailed evidence for one task in a frozen comparison."""
+
+    task_id: str
+    left: AgentTaskRunDetail | None = None
+    right: AgentTaskRunDetail | None = None
 
 
 class AgentTaskBatchRunSummary(SQLModel):

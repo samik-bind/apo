@@ -15,6 +15,7 @@ import {
   type CheckResult,
 } from "@/lib/agent-task-api";
 import { loadCheckSource, type DefinitionRef } from "@/lib/load-check-source";
+import type { TaskComparisonEvidenceLoader } from "@/lib/agent-task-view-api";
 import { cn } from "@/lib/utils";
 import { formatDuration, runDurationMs, formatCostMicro, formatTokenTotal } from "@/lib/format";
 import { extractJudgeReasoning } from "@/lib/judge-reasoning";
@@ -34,6 +35,7 @@ interface CompareTaskRowProps {
   expanded: Set<string>;
   onToggleExpand: (value: string, open?: boolean) => void;
   projectId: string;
+  evidenceLoader?: TaskComparisonEvidenceLoader;
 }
 
 /**
@@ -48,9 +50,14 @@ export function CompareTaskRow({
   expanded,
   onToggleExpand,
   projectId,
+  evidenceLoader,
 }: CompareTaskRowProps) {
   const isOpen = expanded.has(task.taskId);
-  const { left, right, differs, expandable, comparable } = task;
+  const { left, right, differs, expandable, state } = task;
+  // not_run: which side is missing. state already says not_run; the side is
+  // derived from the runs so the badge can name it ("not run on A").
+  const notRunSide: "A" | "B" | "either" =
+    !left.run && !right.run ? "either" : !left.run ? "A" : "B";
 
   return (
     <div className="group/row">
@@ -74,12 +81,20 @@ export function CompareTaskRow({
           >
             {task.label}
           </span>
-          {!comparable && (
+          {state === "different_definition" && (
             <span
               className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-500"
               title="These two runs used different versions of the eval file (e.g. 12 checks vs 32 checks). Re-run both models against the same eval to get a fair comparison."
             >
               different eval version
+            </span>
+          )}
+          {state === "not_run" && (
+            <span
+              className="shrink-0 rounded bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+              title={notRunSide === "either" ? "This task has no run on either side." : `This task did not run on side ${notRunSide}.`}
+            >
+              {notRunSide === "either" ? "not run" : `not run on ${notRunSide}`}
             </span>
           )}
         </div>
@@ -100,7 +115,7 @@ export function CompareTaskRow({
 
       {isOpen && expandable && (
         <>
-          {!comparable && (
+          {state === "different_definition" && (
             <div className="mx-6 mb-2 rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[12px] text-amber-600 dark:text-amber-500">
               These runs used different versions of the eval file. Check counts and IDs won't align — re-run both models against the current eval for a fair comparison.
             </div>
@@ -113,6 +128,7 @@ export function CompareTaskRow({
             projectId={projectId}
             initialLeft={asRunDetail(left.run)}
             initialRight={asRunDetail(right.run)}
+            evidenceLoader={evidenceLoader}
           />
         </>
       )}
@@ -509,6 +525,7 @@ function CheckDiff({
   projectId,
   initialLeft,
   initialRight,
+  evidenceLoader,
 }: {
   taskId: string;
   leftId: string | undefined;
@@ -516,14 +533,38 @@ function CheckDiff({
   projectId: string;
   initialLeft: AgentTaskRunDetail | null;
   initialRight: AgentTaskRunDetail | null;
+  evidenceLoader?: TaskComparisonEvidenceLoader;
 }) {
   const [state, setState] = useState<
     | { status: "loading" }
     | { status: "error"; message: string }
     | { status: "ready"; left: AgentTaskRunDetail | null; right: AgentTaskRunDetail | null }
   >({ status: "loading" });
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
+    // SPEC-177: prefer the frozen-pair evidence loader (comparison views) over
+    // individual run fetches. The evidence loader resolves the exact frozen pair
+    // server-side and never accepts arbitrary run IDs from the browser.
+    if (evidenceLoader) {
+      const controller = new AbortController();
+      evidenceLoader(taskId, controller.signal)
+        .then(({ left, right }) => {
+          if (controller.signal.aborted) return;
+          if (!left && !right) {
+            setState({ status: "error", message: "Could not load check details for either run." });
+            return;
+          }
+          setState({ status: "ready", left, right });
+        })
+        .catch((err: unknown) => {
+          if (controller.signal.aborted) return;
+          const message = err instanceof Error ? err.message : "Could not load check details.";
+          setState({ status: "error", message });
+        });
+      return () => controller.abort();
+    }
+
     let cancelled = false;
     Promise.all([
       initialLeft
@@ -547,7 +588,7 @@ function CheckDiff({
     return () => {
       cancelled = true;
     };
-  }, [taskId, leftId, rightId, initialLeft, initialRight]);
+  }, [taskId, leftId, rightId, initialLeft, initialRight, evidenceLoader, retryCount]);
 
   // SPEC-169: the pinned Task Definition is the authoritative source and — unlike
   // the filesystem resolver — resolves wherever the task executed. Both sides are
@@ -565,7 +606,21 @@ function CheckDiff({
     return <div className="px-6 py-3 text-[12px] text-muted-foreground">Loading checks…</div>;
   }
   if (state.status === "error") {
-    return <div className="px-6 py-3 text-[12px] text-destructive">{state.message}</div>;
+    return (
+      <div className="flex items-center gap-3 px-6 py-3 text-[12px] text-destructive">
+        <span>{state.message}</span>
+        <button
+          type="button"
+          onClick={() => {
+            setState({ status: "loading" });
+            setRetryCount((n) => n + 1);
+          }}
+          className="border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-muted"
+        >
+          Retry
+        </button>
+      </div>
+    );
   }
 
   const { left, right } = state;

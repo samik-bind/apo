@@ -18,14 +18,15 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..models.db import ProjectDB, TaskViewDB
 from ..models.schemas import (
+    TaskComparisonEvidence,
+    TaskViewComparisonOverview,
     TaskViewComparisonRequest,
-    TaskViewComparisonEvidence,
     TaskViewComparisonSnapshot,
     TaskViewCreateRequest,
     TaskViewResponse,
     TaskViewUpdateRequest,
 )
-from ..services.agent_task_run_details import load_task_run_details
+from ..services.agent_task_run_details import load_task_run_details, load_task_run_summaries
 from ..services.project_memberships import require_project_member
 from ..services.task_view_comparison import create_comparison, get_comparison, to_snapshot
 
@@ -86,16 +87,20 @@ async def create_task_view_comparison(
 
 
 @router.get(
-    "/task-view-comparisons/{comparison_id}/evidence",
-    response_model=TaskViewComparisonEvidence,
+    "/task-view-comparisons/{comparison_id}/overview",
+    response_model=TaskViewComparisonOverview,
 )
-async def get_task_view_comparison_evidence(
+async def get_task_view_comparison_overview(
     project_id: str,
     comparison_id: str,
     request: Request,
     session: SessionDependency,
-) -> TaskViewComparisonEvidence:
-    """Read a frozen snapshot and all of its resolved run evidence in bulk."""
+) -> TaskViewComparisonOverview:
+    """Read a frozen snapshot and lightweight summaries for all resolved runs.
+
+    Never loads Check Reports, Task Definition bodies, transcripts, or
+    Deliverable JSON. Response size grows with summary count, not evidence size.
+    """
     _authorize(session, project_id, request)
     row = get_comparison(session, project_id, comparison_id)
     if row is None or row.project_id != project_id:
@@ -110,9 +115,50 @@ async def get_task_view_comparison_evidence(
             if run_id is not None
         )
     )
-    return TaskViewComparisonEvidence(
+    return TaskViewComparisonOverview(
         snapshot=snapshot,
-        runs=load_task_run_details(session, run_ids, project_id=project_id),
+        runs=load_task_run_summaries(session, run_ids, project_id=project_id),
+    )
+
+
+@router.get(
+    "/task-view-comparisons/{comparison_id}/task-evidence",
+    response_model=TaskComparisonEvidence,
+)
+async def get_task_comparison_evidence(
+    project_id: str,
+    comparison_id: str,
+    task_id: str,
+    request: Request,
+    session: SessionDependency,
+) -> TaskComparisonEvidence:
+    """Detailed evidence for one task in a frozen comparison.
+
+    The backend resolves both run IDs from the authorized immutable snapshot
+    and the requested task ID. The client never supplies run IDs.
+    """
+    _authorize(session, project_id, request)
+    row = get_comparison(session, project_id, comparison_id)
+    if row is None or row.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Comparison not found")
+
+    snapshot = to_snapshot(row)
+    cell = next((c for c in snapshot.resolved if c.task_id == task_id), None)
+    if cell is None:
+        raise HTTPException(status_code=404, detail="Task not found in comparison")
+
+    pair_ids = list(
+        dict.fromkeys(
+            rid for rid in (cell.a_run_id, cell.b_run_id) if rid is not None
+        )
+    )
+    details = load_task_run_details(session, pair_ids, project_id=project_id)
+    detail_by_id = {d.id: d for d in details}
+
+    return TaskComparisonEvidence(
+        task_id=task_id,
+        left=detail_by_id.get(cell.a_run_id) if cell.a_run_id else None,
+        right=detail_by_id.get(cell.b_run_id) if cell.b_run_id else None,
     )
 
 

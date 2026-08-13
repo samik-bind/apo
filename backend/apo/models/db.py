@@ -1235,7 +1235,7 @@ class TaskViewComparisonDB(SQLModel, table=True):
     view_b_config: dict[str, object] = Field(sa_column=Column(JSON))
     task_ids: list[str] = Field(sa_column=Column(JSON))  # the selection scope
     resolved: list[dict[str, object]] = Field(sa_column=Column(JSON))  # ResolvedComparisonCell rows
-    coverage: dict[str, object] = Field(sa_column=Column(JSON))  # both_run / comparable / scope
+    coverage: dict[str, object] = Field(sa_column=Column(JSON))  # both_run / aligned / scope
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(UTCDateTime, server_default=func.now()),

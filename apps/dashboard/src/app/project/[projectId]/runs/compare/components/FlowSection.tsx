@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronRight, Folder } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import type { TaskComparisonEvidenceLoader } from "@/lib/agent-task-view-api";
 
 import { type CheckTally, type ComparisonTask } from "../use-comparison";
 import { CompareTaskRow } from "./CompareTaskRow";
@@ -21,6 +22,10 @@ interface FlowSectionProps {
   expanded: Set<string>;
   onToggleExpand: (value: string, open?: boolean) => void;
   projectId: string;
+  /** SPEC-177: optional progressive evidence loader. When provided,
+   * CompareTaskRow fetches full details lazily on expand instead of
+   * receiving them in bulk from SSR. */
+  evidenceLoader?: TaskComparisonEvidenceLoader;
 }
 
 /**
@@ -39,6 +44,7 @@ export function FlowSection({
   expanded,
   onToggleExpand,
   projectId,
+  evidenceLoader,
 }: FlowSectionProps) {
   const [forcedOpen, setForcedOpen] = useState<boolean | null>(null);
   // Controlled-by-default-open unless the user has toggled manually.
@@ -95,6 +101,7 @@ export function FlowSection({
               expanded={expanded}
               onToggleExpand={onToggleExpand}
               projectId={projectId}
+              evidenceLoader={evidenceLoader}
             />
           ))}
         </div>

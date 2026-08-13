@@ -53,10 +53,10 @@ const snapshot: TaskViewComparisonSnapshot = {
   view_b_config: { model: "deepseek-v3", effort: null, since: null },
   task_ids: ["evals/alpha", "evals/beta"],
   resolved: [
-    { task_id: "evals/alpha", a_run_id: "ra", b_run_id: "rb", a_status: "passed", b_status: "failed", comparable: true },
-    { task_id: "evals/beta", a_run_id: "rc", b_run_id: "rd", a_status: "passed", b_status: "passed", comparable: false },
+    { task_id: "evals/alpha", a_run_id: "ra", b_run_id: "rb", a_status: "passed", b_status: "failed", state: "aligned" },
+    { task_id: "evals/beta", a_run_id: "rc", b_run_id: "rd", a_status: "passed", b_status: "passed", state: "different_definition" },
   ],
-  coverage: { both_run: 2, comparable: 1, scope: 2 },
+  coverage: { both_run: 2, aligned: 1, scope: 2 },
   created_at: "2026-08-07T00:00:00Z", created_by: null,
 };
 
@@ -65,6 +65,7 @@ describe("CompareViewsClient (SPEC-174)", () => {
     render(
       <CompareViewsClient
         projectId="acme-evals"
+        comparisonId="tvc_test"
         snapshot={snapshot}
         tasks={[task("evals/alpha", "Alpha", "evals"), task("evals/beta", "Beta", "evals")]}
         // alpha differs; beta has equal verdict/check counts but must remain

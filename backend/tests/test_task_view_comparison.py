@@ -1,9 +1,9 @@
 """Scene tests for selection-scoped view comparison (SPEC-174, Phase 2).
 
 Exercises POST (resolve + freeze) and GET (immutable read) through the
-registered routes, and the comparable gate across the four cases that matter:
-both-comparable, task-definition-revision mismatch, execution-revision
-mismatch, and a task with no run on one side.
+registered routes, and the comparison state across the four cases that matter:
+aligned, task-definition-revision mismatch, execution-revision mismatch, and a
+task with no run on one side.
 """
 
 from datetime import datetime, timezone
@@ -15,12 +15,13 @@ from sqlmodel import Session
 
 from apo.models.db import (
     AgentTaskBatchRunDB,
+    AgentTaskCheckReportDB,
     AgentTaskRunDB,
     TaskDefinitionRevisionDB,
     TaskRevisionDB,
     UserDB,
 )
-from apo.services.agent_task_run_details import load_task_run_details
+from apo.services.agent_task_run_details import load_task_run_details, load_task_run_summaries
 from tests.conftest import seed_project_for_user
 
 _PROJECT = "proj-cmp"
@@ -70,7 +71,7 @@ def _seed(session: Session) -> None:
             checks_json=[{"id": f"check-{rid}", "pass": True, "reasoning": model}],
         )
 
-    # W: opus + deepseek both in b-opus, def d1 -> comparable
+    # W: opus + deepseek both in b-opus, def d1 -> aligned
     session.add(_run("w-opus", "b-opus", _W, "claude-opus", "d1"))
     session.add(_run("w-deep", "b-opus", _W, "deepseek", "d1"))
     # X: opus (d1) + deepseek (d2) -> def mismatch
@@ -103,16 +104,16 @@ def _create(cmp_client: TestClient, task_ids: list[str]) -> dict[str, object]:
     return resp.json()
 
 
-def test_comparison_resolves_and_marks_comparable_gate(cmp_client: TestClient) -> None:
+def test_comparison_resolves_and_classifies_state(cmp_client: TestClient) -> None:
     snap = _create(cmp_client, [_W, _X, _Y, _Z])
-    assert snap["coverage"] == {"both_run": 3, "comparable": 2, "scope": 4}
+    assert snap["coverage"] == {"both_run": 3, "aligned": 2, "scope": 4}
     by_task = {c["task_id"]: c for c in snap["resolved"]}
-    assert by_task[_W]["comparable"] is True
-    assert by_task[_X]["comparable"] is False  # def mismatch
-    assert by_task[_Y]["comparable"] is True  # same def, different bundle — still comparable
+    assert by_task[_W]["state"] == "aligned"
+    assert by_task[_X]["state"] == "different_definition"  # def mismatch
+    assert by_task[_Y]["state"] == "aligned"  # same def, different bundle — still aligned
     # Z has no DeepSeek run -> b_run_id None, not counted in both_run
     assert by_task[_Z]["b_run_id"] is None
-    assert by_task[_Z]["comparable"] is False
+    assert by_task[_Z]["state"] == "not_run"
 
 
 def test_comparison_snapshot_is_immutable_on_read(cmp_client: TestClient) -> None:
@@ -124,19 +125,19 @@ def test_comparison_snapshot_is_immutable_on_read(cmp_client: TestClient) -> Non
     assert got["id"].startswith("tvc_")
 
 
-def test_comparison_evidence_loads_every_resolved_run_in_one_response(
+def test_comparison_overview_returns_summaries_not_details(
     cmp_client: TestClient,
 ) -> None:
     snap = _create(cmp_client, [_W, _X, _Y, _Z])
 
     response = cmp_client.get(
-        f"/v1/projects/{_PROJECT}/task-view-comparisons/{snap['id']}/evidence"
+        f"/v1/projects/{_PROJECT}/task-view-comparisons/{snap['id']}/overview"
     )
 
     assert response.status_code == 200, response.text
-    evidence = response.json()
-    assert evidence["snapshot"] == snap
-    assert [run["id"] for run in evidence["runs"]] == [
+    overview = response.json()
+    assert overview["snapshot"] == snap
+    assert [run["id"] for run in overview["runs"]] == [
         "w-opus",
         "w-deep",
         "x-opus",
@@ -145,11 +146,113 @@ def test_comparison_evidence_loads_every_resolved_run_in_one_response(
         "y-deep",
         "z-opus",
     ]
-    assert evidence["runs"][0]["checks_json"] == [
+    # Summaries must not carry detail-only keys.
+    assert "checks_json" not in overview["runs"][0]
+    assert "transcript_json" not in overview["runs"][0]
+    assert "deliverables_json" not in overview["runs"][0]
+    assert "task_definition" not in overview["runs"][0]
+    # Scalar fields are present.
+    assert overview["runs"][0]["total_checks"] == 1
+    assert overview["runs"][0]["passed_checks"] == 1
+
+
+def test_comparison_task_evidence_resolves_frozen_pair(
+    cmp_client: TestClient,
+) -> None:
+    snap = _create(cmp_client, [_W, _X, _Y, _Z])
+
+    response = cmp_client.get(
+        f"/v1/projects/{_PROJECT}/task-view-comparisons/{snap['id']}/task-evidence",
+        params={"task_id": _W},
+    )
+
+    assert response.status_code == 200, response.text
+    evidence = response.json()
+    assert evidence["task_id"] == _W
+    assert evidence["left"]["id"] == "w-opus"
+    assert evidence["right"]["id"] == "w-deep"
+    # Detail fields are present.
+    assert evidence["left"]["checks_json"] == [
         {"id": "check-w-opus", "pass": True, "reasoning": "claude-opus"}
     ]
-    assert evidence["runs"][0]["task_definition"]["id"] == "d1"
-    assert evidence["runs"][0]["transcript_json"] is None
+    assert evidence["left"]["task_definition"]["id"] == "d1"
+
+
+def test_comparison_task_evidence_one_sided(
+    cmp_client: TestClient,
+) -> None:
+    snap = _create(cmp_client, [_W, _X, _Y, _Z])
+
+    response = cmp_client.get(
+        f"/v1/projects/{_PROJECT}/task-view-comparisons/{snap['id']}/task-evidence",
+        params={"task_id": _Z},
+    )
+
+    assert response.status_code == 200, response.text
+    evidence = response.json()
+    assert evidence["task_id"] == _Z
+    assert evidence["left"]["id"] == "z-opus"
+    assert evidence["right"] is None
+
+
+def test_comparison_task_evidence_rejects_unknown_task(
+    cmp_client: TestClient,
+) -> None:
+    snap = _create(cmp_client, [_W])
+
+    response = cmp_client.get(
+        f"/v1/projects/{_PROJECT}/task-view-comparisons/{snap['id']}/task-evidence",
+        params={"task_id": "not-in-snapshot"},
+    )
+    assert response.status_code == 404
+
+
+def test_comparison_old_evidence_route_is_gone(
+    cmp_client: TestClient,
+) -> None:
+    snap = _create(cmp_client, [_W])
+    response = cmp_client.get(
+        f"/v1/projects/{_PROJECT}/task-view-comparisons/{snap['id']}/evidence"
+    )
+    assert response.status_code == 404
+
+
+def test_summary_loader_excludes_heavy_evidence(session: Session) -> None:
+    _seed(session)
+    statements: list[str] = []
+
+    def _record_statement(_conn, _cursor, statement, _params, _context, _many) -> None:
+        statements.append(statement)
+
+    bind = session.get_bind()
+    event.listen(bind, "before_cursor_execute", _record_statement)
+    try:
+        summaries = load_task_run_summaries(
+            session,
+            ["w-opus", "w-deep", "z-opus"],
+            project_id=_PROJECT,
+        )
+    finally:
+        event.remove(bind, "before_cursor_execute", _record_statement)
+
+    assert len(summaries) == 3
+    assert [s.id for s in summaries] == ["w-opus", "w-deep", "z-opus"]
+    # No detail-only keys.
+    assert not hasattr(summaries[0], "checks_json")
+    # No Check Report or Task Definition query occurred.
+    joined_sql = " ".join(statements).lower()
+    assert "agent_task_check_reports" not in joined_sql
+    assert "task_definition_revisions" not in joined_sql
+
+
+def test_summary_loader_is_project_scoped(session: Session) -> None:
+    _seed(session)
+    summaries = load_task_run_summaries(
+        session,
+        ["w-opus", "w-deep"],
+        project_id="other-project",
+    )
+    assert len(summaries) == 0
 
 
 def test_bulk_run_evidence_uses_a_fixed_number_of_queries(session: Session) -> None:
@@ -190,3 +293,40 @@ def test_comparison_requires_membership(session: Session, make_authed_client) ->
         json={"task_ids": [_W], "view_a": {"model": "claude-opus"}, "view_b": {"model": "deepseek"}},
     )
     assert resp.status_code == 403
+
+
+def test_overview_response_is_independent_of_check_report_size(
+    cmp_client: TestClient,
+    session: Session,
+) -> None:
+    """SPEC-177 acceptance test: the production incident that caused the OOM
+    had ~69 MiB of Check Report JSON behind 53 runs. The overview response
+    must stay bounded regardless of report size."""
+    import json
+
+    snap = _create(cmp_client, [_W, _X, _Y, _Z])
+
+    # Insert multi-megabyte sentinel reports directly, bypassing normalization.
+    big_sentinel = "OVERFLOW_" * 500_000  # ~4.5 MiB per report
+    for run_id in ("w-opus", "w-deep", "x-opus", "x-deep", "y-opus", "y-deep", "z-opus"):
+        session.add(
+            AgentTaskCheckReportDB(
+                run_id=run_id,
+                value_json=[{"id": "c", "pass": True, "reasoning": big_sentinel}],
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+    session.commit()
+
+    response = cmp_client.get(
+        f"/v1/projects/{_PROJECT}/task-view-comparisons/{snap['id']}/overview"
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    serialized = json.dumps(body)
+
+    # The multi-megabyte sentinel must not appear in the overview response.
+    assert big_sentinel not in serialized
+    # Response should be well under 100 KiB — it carries only scalar summaries.
+    assert len(serialized) < 100_000

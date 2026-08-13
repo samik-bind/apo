@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getEvidence: vi.fn(),
+  getOverview: vi.fn(),
   listTasks: vi.fn(),
   renderClient: vi.fn(),
 }));
@@ -18,7 +18,7 @@ vi.mock("@/lib/agent-task-api", () => ({
 }));
 
 vi.mock("@/lib/agent-task-view-api", () => ({
-  getTaskViewComparisonEvidence: mocks.getEvidence,
+  getTaskViewComparisonOverview: mocks.getOverview,
 }));
 
 vi.mock("./compare-views-client", () => ({
@@ -32,12 +32,12 @@ import CompareViewsPage from "./page";
 
 describe("CompareViewsPage", () => {
   beforeEach(() => {
-    mocks.getEvidence.mockReset();
+    mocks.getOverview.mockReset();
     mocks.listTasks.mockReset();
     mocks.renderClient.mockReset();
   });
 
-  it("hydrates every resolved side from one bulk evidence request", async () => {
+  it("hydrates from the lightweight overview, not bulk evidence", async () => {
     const snapshot = {
       id: "tvc_1",
       project_id: "project-1",
@@ -50,9 +50,9 @@ describe("CompareViewsPage", () => {
         b_run_id: "run-b",
         a_status: "passed",
         b_status: "passed",
-        comparable: true,
+        state: "aligned",
       }],
-      coverage: { both_run: 1, comparable: 1, scope: 1 },
+      coverage: { both_run: 1, aligned: 1, scope: 1 },
       created_at: "2026-08-12T00:00:00Z",
       created_by: null,
     };
@@ -60,7 +60,7 @@ describe("CompareViewsPage", () => {
       { id: "run-a", task_id: "task-1" },
       { id: "run-b", task_id: "task-1" },
     ];
-    mocks.getEvidence.mockResolvedValue({ snapshot, runs });
+    mocks.getOverview.mockResolvedValue({ snapshot, runs });
     mocks.listTasks.mockResolvedValue([]);
 
     render(await CompareViewsPage({
@@ -68,10 +68,11 @@ describe("CompareViewsPage", () => {
     }));
 
     expect(screen.getByText("comparison loaded")).toBeInTheDocument();
-    expect(mocks.getEvidence).toHaveBeenCalledOnce();
-    expect(mocks.getEvidence).toHaveBeenCalledWith("project-1", "tvc_1");
+    expect(mocks.getOverview).toHaveBeenCalledOnce();
+    expect(mocks.getOverview).toHaveBeenCalledWith("project-1", "tvc_1");
     expect(mocks.renderClient).toHaveBeenCalledWith(expect.objectContaining({
       snapshot,
+      comparisonId: "tvc_1",
       leftRuns: [runs[0]],
       rightRuns: [runs[1]],
     }));

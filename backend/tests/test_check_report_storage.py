@@ -16,6 +16,7 @@ import hashlib
 import json
 
 import pytest
+from datetime import datetime, timezone
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -25,6 +26,8 @@ from apo.services.check_report_storage import (
     JUDGE_SEGMENT_LIMIT,
     RECEIVED_VALUE_LIMIT,
     load_check_report,
+    load_check_reports,
+    normalize_check_report,
     persist_check_report,
 )
 
@@ -237,3 +240,247 @@ class TestPersistCheckReport:
         assert run.passed_checks == 1
         body = load_check_report(session, run.id)
         assert body == [{"id": "a", "pass": False}, {"id": "b", "pass": True}]
+
+
+# ---------------------------------------------------------------------------
+# SPEC-177: nested Check Report normalization
+# ---------------------------------------------------------------------------
+
+
+def _big(text_limit: int, extra: int = 500) -> str:
+    return "x" * (text_limit + extra)
+
+
+class TestNestedReportNormalization:
+    """The SDK's actual report shape nests received and judge values below
+    assertions and a check-level judge object. The normalizer must reach them."""
+
+    def test_assertion_received_is_truncated(self):
+        big = _big(RECEIVED_VALUE_LIMIT)
+        encoded = json.dumps(big).encode("utf-8")
+        checks = [
+            {
+                "id": "c1",
+                "pass": True,
+                "assertions": [
+                    {"id": "a1", "pass": True, "received": big},
+                ],
+            }
+        ]
+        result = normalize_check_report(checks)
+        received = result[0]["assertions"][0]["received"]  # type: ignore[index]
+        assert isinstance(received, dict)
+        assert received["kind"] == "truncated"
+        assert received["sha256"] == _sha(encoded)
+
+    def test_check_level_judge_nested_paths_are_truncated(self):
+        checks = [
+            {
+                "id": "c1",
+                "pass": True,
+                "judge": {
+                    "prompt": {
+                        "system": _big(JUDGE_SEGMENT_LIMIT),
+                        "user": _big(JUDGE_SEGMENT_LIMIT),
+                    },
+                    "response": _big(JUDGE_SEGMENT_LIMIT),
+                },
+            }
+        ]
+        result = normalize_check_report(checks)
+        judge = result[0]["judge"]  # type: ignore[index]
+        assert judge["prompt"]["system"]["kind"] == "truncated"  # type: ignore[index]
+        assert judge["prompt"]["user"]["kind"] == "truncated"  # type: ignore[index]
+        assert judge["response"]["kind"] == "truncated"  # type: ignore[index]
+
+    def test_assertion_level_judge_nested_paths_are_truncated(self):
+        checks = [
+            {
+                "id": "c1",
+                "pass": True,
+                "assertions": [
+                    {
+                        "id": "a1",
+                        "pass": True,
+                        "judge": {
+                            "prompt": {
+                                "system": _big(JUDGE_SEGMENT_LIMIT),
+                                "user": _big(JUDGE_SEGMENT_LIMIT),
+                            },
+                            "response": _big(JUDGE_SEGMENT_LIMIT),
+                        },
+                    }
+                ],
+            }
+        ]
+        result = normalize_check_report(checks)
+        assertion = result[0]["assertions"][0]  # type: ignore[index]
+        assert assertion["judge"]["prompt"]["system"]["kind"] == "truncated"  # type: ignore[index]
+        assert assertion["judge"]["response"]["kind"] == "truncated"  # type: ignore[index]
+
+    def test_reasoning_remains_untruncated(self):
+        big = _big(JUDGE_SEGMENT_LIMIT * 4)  # much larger than any limit
+        checks = [
+            {"id": "c1", "pass": True, "reasoning": big},
+            {
+                "id": "c2",
+                "pass": True,
+                "assertions": [
+                    {"id": "a1", "pass": True, "reasoning": big},
+                ],
+            },
+        ]
+        result = normalize_check_report(checks)
+        assert result[0]["reasoning"] == big  # type: ignore[index]
+        assert result[1]["assertions"][0]["reasoning"] == big  # type: ignore[index]
+
+    def test_small_values_preserve_type(self):
+        checks = [
+            {
+                "id": "c1",
+                "pass": True,
+                "received": {"count": 42},
+                "judge": {
+                    "prompt": {"system": "short", "user": "also short"},
+                    "response": "fine",
+                },
+                "assertions": [
+                    {"id": "a1", "pass": True, "received": [1, 2, 3]},
+                ],
+            }
+        ]
+        result = normalize_check_report(checks)
+        assert result[0]["received"] == {"count": 42}  # type: ignore[index]
+        assert result[0]["judge"]["prompt"]["system"] == "short"  # type: ignore[index]
+        assert result[0]["assertions"][0]["received"] == [1, 2, 3]  # type: ignore[index]
+
+    def test_unknown_fields_preserved(self):
+        checks = [
+            {"id": "c1", "pass": True, "custom_field": "value", "nested": {"a": 1}},
+        ]
+        result = normalize_check_report(checks)
+        assert result[0]["custom_field"] == "value"  # type: ignore[index]
+        assert result[0]["nested"] == {"a": 1}  # type: ignore[index]
+
+    def test_does_not_mutate_caller_input(self):
+        big = _big(RECEIVED_VALUE_LIMIT)
+        checks = [
+            {
+                "id": "c1",
+                "pass": True,
+                "received": big,
+                "assertions": [{"id": "a1", "pass": True, "received": big}],
+            }
+        ]
+        import copy
+
+        original = copy.deepcopy(checks)
+        _ = normalize_check_report(checks)
+        assert checks == original  # caller's input untouched
+
+    def test_idempotent(self):
+        big = _big(JUDGE_SEGMENT_LIMIT)
+        checks = [
+            {
+                "id": "c1",
+                "pass": True,
+                "judge": {"prompt": {"system": big}, "response": big},
+                "assertions": [
+                    {"id": "a1", "pass": True, "received": _big(RECEIVED_VALUE_LIMIT)},
+                ],
+            }
+        ]
+        first = normalize_check_report(checks)
+        second = normalize_check_report(first)
+        assert first == second
+
+    def test_existing_marker_left_unchanged(self):
+        marker = {
+            "kind": "truncated",
+            "preview": "...",
+            "size_bytes": 99999,
+            "sha256": "abc" * 21,
+        }
+        checks = [{"id": "c1", "pass": True, "received": marker}]
+        result = normalize_check_report(checks)
+        assert result[0]["received"] == marker  # type: ignore[index]
+
+
+class TestHistoricalReadNormalization:
+    """Oversized historical rows must be safe to transport without a DB rewrite."""
+
+    def test_load_single_normalizes_oversized_nested_fields(self, session: Session):
+        run = _make_run(session)
+        big = _big(JUDGE_SEGMENT_LIMIT)
+        # Insert directly, bypassing the write normalizer (simulates a
+        # pre-normalization historical row).
+        oversized = [
+            {
+                "id": "c1",
+                "pass": True,
+                "judge": {"prompt": {"system": big}, "response": big},
+                "assertions": [
+                    {"id": "a1", "pass": True, "received": _big(RECEIVED_VALUE_LIMIT)},
+                ],
+            }
+        ]
+        session.add(
+            AgentTaskCheckReportDB(
+                run_id=run.id,
+                value_json=oversized,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        session.commit()
+
+        body = load_check_report(session, run.id)
+        assert body is not None
+        serialized = json.dumps(body)
+        # The oversized values must not appear in the loaded output.
+        assert big not in serialized
+
+    def test_load_bulk_normalizes_oversized_nested_fields(self, session: Session):
+        run = _make_run(session)
+        big = _big(JUDGE_SEGMENT_LIMIT)
+        oversized = [
+            {
+                "id": "c1",
+                "pass": True,
+                "judge": {"prompt": {"system": big}, "response": big},
+            }
+        ]
+        session.add(
+            AgentTaskCheckReportDB(
+                run_id=run.id,
+                value_json=oversized,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        session.commit()
+
+        reports = load_check_reports(session, [run])
+        body = reports[run.id]
+        assert body is not None
+        serialized = json.dumps(body)
+        assert big not in serialized
+
+    def test_stored_row_remains_unchanged_after_read(self, session: Session):
+        run = _make_run(session)
+        big = _big(JUDGE_SEGMENT_LIMIT)
+        oversized = [
+            {"id": "c1", "pass": True, "judge": {"response": big}},
+        ]
+        session.add(
+            AgentTaskCheckReportDB(
+                run_id=run.id,
+                value_json=oversized,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        session.commit()
+
+        _ = load_check_report(session, run.id)
+
+        row = session.get(AgentTaskCheckReportDB, run.id)
+        assert row is not None
+        assert row.value_json[0]["judge"]["response"] == big  # unchanged on disk

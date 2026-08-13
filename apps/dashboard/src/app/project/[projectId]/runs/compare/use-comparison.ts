@@ -6,6 +6,7 @@ import type {
   AgentTaskRunSummary,
   AgentTaskSummary,
 } from "@/lib/agent-task-api";
+import type { ComparisonState } from "@/lib/agent-task-view-api";
 
 /**
  * Comparison model for the batch-vs-batch compare view.
@@ -36,14 +37,15 @@ export interface ComparisonTask {
    *  default emphasis, never whether the task belongs in the comparison. */
   differs: boolean;
   /** True when at least one side recorded checks worth inspecting. This —
-    *  not ``differs`` — drives the expand chevron: a task that failed 0/4 on
-    *  both sides still has check reasoning (a judge's explanation) worth
-    *  seeing, even when the two sides are identical. */
+     *  not ``differs`` — drives the expand chevron: a task that failed 0/4 on
+     *  both sides still has check reasoning (a judge's explanation) worth
+     *  seeing, even when the two sides are identical. */
   expandable: boolean;
-  /** False when the two runs used different task definitions (eval file
-   *  changed between runs). Check IDs won't overlap — show a warning instead
-   *  of a misleading "0 checks in common" diff. */
-  comparable: boolean;
+  /** Why the two runs may not be fully comparable:
+    *  ``aligned`` (same eval revision), ``different_definition`` (both ran,
+    *  eval differs), or ``not_run`` (a side has no run). Defaults to
+    *  ``aligned`` when no per-task state is supplied (e.g. batch compare). */
+  state: ComparisonState;
 }
 
 /** Aggregated check counts for one side of a comparison scope (folder or
@@ -135,7 +137,7 @@ export function useComparison(
   leftRuns: AgentTaskRunSummary[],
   rightRuns: AgentTaskRunSummary[],
   inventory: AgentTaskSummary[],
-  comparability?: Map<string, boolean>,
+  stateByTask?: Map<string, ComparisonState>,
 ): ComparisonModel {
   return useMemo(() => {
     // Inventory lookups: task_id -> folder_path (inventory) and display name.
@@ -176,8 +178,8 @@ export function useComparison(
       // nothing to expand.
       const expandable =
         (left?.total_checks ?? 0) > 0 || (right?.total_checks ?? 0) > 0;
-      const comparable = comparability?.get(taskId) ?? true;
-      return { taskId, label, folder, left: { run: left }, right: { run: right }, differs, expandable, comparable };
+      const state = stateByTask?.get(taskId) ?? "aligned";
+      return { taskId, label, folder, left: { run: left }, right: { run: right }, differs, expandable, state };
     });
 
     tasks.sort((a, b) => a.label.localeCompare(b.label));
@@ -212,5 +214,5 @@ export function useComparison(
       leftChecks: tallyChecks(tasks.map((t) => t.left)),
       rightChecks: tallyChecks(tasks.map((t) => t.right)),
     };
-  }, [leftRuns, rightRuns, inventory, comparability]);
+  }, [leftRuns, rightRuns, inventory, stateByTask]);
 }

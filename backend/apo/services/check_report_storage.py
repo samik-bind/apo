@@ -7,18 +7,19 @@ assertions, identity — live in ``agent_task_check_reports`` and are loaded onl
 by the detail / compare / CLI path via :func:`load_check_report`.
 
 Per-field hygiene is retained so one pathological value cannot blow up the row
-or the detail response:
+or the detail response. Limits apply at semantic locations in both the legacy
+top-level shape and the current nested SDK shape:
 
-- ``received`` larger than ``RECEIVED_VALUE_LIMIT`` -> a ``TruncatedCheckValue``
-  marker (preview + size + sha256); a check's ``received`` can echo a whole
-  Deliverable blob, so it must stay bounded;
-- ``judge_prompt`` / ``judge_response`` larger than ``JUDGE_SEGMENT_LIMIT`` ->
-  truncated marker (defense vs a judge echoing huge input).
+- ``received`` (top-level and ``assertions[].received``) larger than
+  ``RECEIVED_VALUE_LIMIT`` -> a ``TruncatedCheckValue`` marker.
+- Judge prompt/response segments — both legacy ``judge_prompt`` /
+  ``judge_response`` and nested ``judge.prompt.system`` / ``.user`` /
+  ``judge.response`` at check and assertion level — larger than
+  ``JUDGE_SEGMENT_LIMIT`` -> truncated marker.
 
-The retired 1 MiB total cap and the 32 KiB per-string caps on
-``reasoning`` / ``instruction`` / ``expected`` are gone: for a judged run the
-reasoning *is* the result, and the report row is no longer on the hot path, so
-there is nothing for those caps to protect.
+Reasoning, instruction, expected, and identity fields are never truncated.
+Normalization runs on both write and read, making historical oversized rows
+safe to transport without a database rewrite.
 """
 
 from __future__ import annotations
@@ -37,8 +38,25 @@ JUDGE_SEGMENT_LIMIT = 16 * 1024  # 16 KiB
 
 _PREVIEW_CHARS = 256
 
-# Text-segment fields truncated to TruncatedCheckValue markers.
+# Legacy text-segment fields truncated to TruncatedCheckValue markers.
 _TRUNCATED_TEXT_FIELDS = ("judge_prompt", "judge_response")
+
+
+def normalize_check_report(
+    checks: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Return a normalized copy without mutating caller-owned input.
+
+    Applies per-field limits at both the legacy top-level shape and the current
+    nested SDK shape (``assertions[].received``, ``judge.prompt.{system,user}``,
+    ``judge.response`` at both check and assertion levels). Existing markers are
+    left unchanged, making the function idempotent.
+    """
+    return [
+        _normalize_check(entry)
+        for entry in checks
+        if isinstance(entry, dict)
+    ]
 
 
 def persist_check_report(
@@ -54,11 +72,7 @@ def persist_check_report(
     the changes on ``session`` without committing — the caller's transaction
     owns the commit so the verdict scalars and the report body land together.
     """
-    cleaned = [
-        _normalize_one(entry)
-        for entry in (checks or [])
-        if isinstance(entry, dict)
-    ]
+    cleaned = normalize_check_report(checks or [])
     run.total_checks = len(cleaned)
     run.passed_checks = sum(1 for c in cleaned if c.get("pass") is True)
     run.failed_checks = run.total_checks - run.passed_checks
@@ -78,19 +92,29 @@ def load_check_report(
     backup or a row that predates the backfill); returns ``None`` for an
     unknown run. After the atomic backfill every run has a report row, so the
     fallback is a safety net, not a rollout strategy.
+
+    Read-time normalization is applied so historical oversized rows are safe
+    to transport without a database rewrite.
     """
     report = session.get(AgentTaskCheckReportDB, run_id)
     if report is not None:
-        return report.value_json
+        raw = report.value_json
+        return normalize_check_report(raw) if raw is not None else None
     run = session.get(AgentTaskRunDB, run_id)
-    return run.checks_json if run is not None else None
+    if run is None or run.checks_json is None:
+        return None
+    return normalize_check_report(run.checks_json)
 
 
 def load_check_reports(
     session: Session,
     runs: Sequence[AgentTaskRunDB],
 ) -> dict[str, list[dict[str, object]] | None]:
-    """Load check evidence for many already-loaded Task Runs in one query."""
+    """Load check evidence for many already-loaded Task Runs in one query.
+
+    Read-time normalization is applied so historical oversized rows are safe
+    to transport without a database rewrite.
+    """
     run_by_id = {run.id: run for run in runs}
     if not run_by_id:
         return {}
@@ -100,11 +124,18 @@ def load_check_reports(
             col(AgentTaskCheckReportDB.run_id).in_(run_by_id)
         )
     ).all()
-    report_by_id = {report.run_id: report.value_json for report in reports}
+    report_by_id = {
+        report.run_id: normalize_check_report(raw) if (raw := report.value_json) is not None else None
+        for report in reports
+    }
     return {
         run_id: report_by_id[run_id]
         if run_id in report_by_id
-        else run.checks_json
+        else (
+            normalize_check_report(run.checks_json)
+            if run.checks_json is not None
+            else None
+        )
         for run_id, run in run_by_id.items()
     }
 
@@ -134,16 +165,59 @@ def _upsert_report_row(
 # ── per-field hygiene ────────────────────────────────────────────────────────
 
 
-def _normalize_one(entry: dict[str, object]) -> dict[str, object]:
-    return {key: _normalize_field(key, value) for key, value in entry.items()}
+def _normalize_check(entry: dict[str, object]) -> dict[str, object]:
+    """Normalize one check entry, recursing into assertions and judge objects."""
+    result: dict[str, object] = {}
+    for key, value in entry.items():
+        if key == "received":
+            result[key] = _truncate_value(value, RECEIVED_VALUE_LIMIT)
+        elif key in _TRUNCATED_TEXT_FIELDS:
+            result[key] = _truncate_text(value, JUDGE_SEGMENT_LIMIT)
+        elif key == "judge" and isinstance(value, dict):
+            result[key] = _normalize_judge(value)
+        elif key == "assertions" and isinstance(value, list):
+            result[key] = [
+                _normalize_assertion(a)
+                for a in value
+                if isinstance(a, dict)
+            ]
+        else:
+            result[key] = value
+    return result
 
 
-def _normalize_field(key: str, value: object) -> object:
-    if key == "received":
-        return _truncate_value(value, RECEIVED_VALUE_LIMIT)
-    if key in _TRUNCATED_TEXT_FIELDS:
-        return _truncate_text(value, JUDGE_SEGMENT_LIMIT)
-    return value
+def _normalize_assertion(assertion: dict[str, object]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in assertion.items():
+        if key == "received":
+            result[key] = _truncate_value(value, RECEIVED_VALUE_LIMIT)
+        elif key == "judge" and isinstance(value, dict):
+            result[key] = _normalize_judge(value)
+        else:
+            result[key] = value
+    return result
+
+
+def _normalize_judge(judge: dict[str, object]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in judge.items():
+        if key == "response":
+            result[key] = _truncate_text(value, JUDGE_SEGMENT_LIMIT)
+        elif key == "prompt" and isinstance(value, dict):
+            result[key] = _normalize_prompt(value)
+        else:
+            result[key] = value
+    return result
+
+
+def _normalize_prompt(prompt: dict[str, object]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in prompt.items():
+        if key in ("system", "user"):
+            result[key] = _truncate_text(value, JUDGE_SEGMENT_LIMIT)
+        else:
+            result[key] = value
+    return result
 
 
 def _truncate_value(value: object, limit: int) -> object:

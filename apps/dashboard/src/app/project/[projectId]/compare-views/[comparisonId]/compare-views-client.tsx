@@ -6,11 +6,12 @@
 // header: view configs (Model · Effort · Date) instead of batch summaries.
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 
 import type { AgentTaskRunSummary, AgentTaskSummary } from "@/lib/agent-task-api";
-import type { TaskViewComparisonSnapshot, TaskViewConfig } from "@/lib/agent-task-view-api";
+import type { ComparisonState, TaskComparisonEvidenceLoader, TaskViewComparisonSnapshot, TaskViewConfig } from "@/lib/agent-task-view-api";
+import { getTaskComparisonEvidence } from "@/lib/agent-task-view-api";
 import { cn } from "@/lib/utils";
 import { useUrlParamSet } from "@/hooks/use-url-state";
 
@@ -20,22 +21,34 @@ import { FlowSection } from "../../runs/compare/components/FlowSection";
 
 export function CompareViewsClient({
   projectId,
+  comparisonId,
   snapshot,
   tasks,
   leftRuns,
   rightRuns,
-  comparability,
+  stateByTask,
 }: {
   projectId: string;
+  comparisonId: string;
   snapshot: TaskViewComparisonSnapshot;
   tasks: AgentTaskSummary[];
   leftRuns: AgentTaskRunSummary[];
   rightRuns: AgentTaskRunSummary[];
-  comparability?: Map<string, boolean>;
+  stateByTask?: Map<string, ComparisonState>;
 }) {
   const [expanded, toggleExpanded] = useUrlParamSet("expand");
-  const comparison = useComparison(leftRuns, rightRuns, tasks, comparability);
+  const comparison = useComparison(leftRuns, rightRuns, tasks, stateByTask);
   const [hideErrored, setHideErrored] = useState(false);
+
+  // SPEC-177: progressive evidence loader. Only one task is active at a time;
+  // FlowSection passes it down so CompareTaskRow fetches details on expand.
+  const evidenceLoader: TaskComparisonEvidenceLoader = useCallback(
+    (taskId: string, signal: AbortSignal) =>
+      getTaskComparisonEvidence(projectId, comparisonId, taskId, signal).then(
+        (e) => ({ left: e.left, right: e.right }),
+      ),
+    [projectId, comparisonId],
+  );
 
   const foldersToShow = useMemo(() => {
     if (!hideErrored) return comparison.folders;
@@ -119,6 +132,7 @@ export function CompareViewsClient({
               expanded={expanded}
               onToggleExpand={toggleExpanded}
               projectId={projectId}
+              evidenceLoader={evidenceLoader}
             />
           ))}
           {foldersToShow.length === 0 && hideErrored && (

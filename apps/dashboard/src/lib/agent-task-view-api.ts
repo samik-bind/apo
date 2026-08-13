@@ -7,7 +7,7 @@
 // that populates the Model / Effort filter dropdowns.
 
 import { apiClient } from "./api-client";
-import type { AgentTaskRunDetail, AgentTaskRunStats } from "./agent-task-api";
+import type { AgentTaskRunDetail, AgentTaskRunSummary, AgentTaskRunStats, AgentTaskSummary } from "./agent-task-api";
 
 const NO_CACHE = { cache: "no-store" } as const;
 
@@ -64,13 +64,15 @@ export interface TaskViewConfig {
   since: string | null;  // "7d" | "30d" | "90d" | null (all time)
 }
 
+export type ComparisonState = "aligned" | "different_definition" | "not_run";
+
 export interface ResolvedComparisonCell {
   task_id: string;
   a_run_id: string | null;
   b_run_id: string | null;
   a_status: string | null;  // passed | failed | error | null (not run)
   b_status: string | null;
-  comparable: boolean;
+  state: ComparisonState;
 }
 
 export interface TaskViewComparisonSnapshot {
@@ -80,15 +82,32 @@ export interface TaskViewComparisonSnapshot {
   view_b_config: TaskViewConfig;
   task_ids: string[];
   resolved: ResolvedComparisonCell[];
-  coverage: { both_run: number; comparable: number; scope: number };
+  coverage: { both_run: number; aligned: number; scope: number };
   created_at: string;
   created_by: string | null;
 }
 
-export interface TaskViewComparisonEvidence {
+export interface TaskViewComparisonOverview {
   snapshot: TaskViewComparisonSnapshot;
-  runs: AgentTaskRunDetail[];
+  runs: AgentTaskRunSummary[];
 }
+
+export interface TaskComparisonEvidence {
+  task_id: string;
+  left: AgentTaskRunDetail | null;
+  right: AgentTaskRunDetail | null;
+}
+
+/** Detailed evidence for one task pair, loaded progressively. */
+export interface LoadedTaskComparisonEvidence {
+  left: AgentTaskRunDetail | null;
+  right: AgentTaskRunDetail | null;
+}
+
+export type TaskComparisonEvidenceLoader = (
+  taskId: string,
+  signal: AbortSignal,
+) => Promise<LoadedTaskComparisonEvidence>;
 
 /**
  * Create an immutable, selection-scoped comparison snapshot. The server resolves
@@ -115,14 +134,26 @@ export const getTaskViewComparison = (
     NO_CACHE,
   );
 
-/** Read the frozen snapshot and every resolved run's evidence in one request. */
-export const getTaskViewComparisonEvidence = (
+/** Read the frozen snapshot and lightweight summaries for all resolved runs. */
+export const getTaskViewComparisonOverview = (
   projectId: string,
   comparisonId: string,
-): Promise<TaskViewComparisonEvidence> =>
+): Promise<TaskViewComparisonOverview> =>
   apiClient(
-    `/v1/projects/${encodeURIComponent(projectId)}/task-view-comparisons/${encodeURIComponent(comparisonId)}/evidence`,
+    `/v1/projects/${encodeURIComponent(projectId)}/task-view-comparisons/${encodeURIComponent(comparisonId)}/overview`,
     NO_CACHE,
+  );
+
+/** Detailed evidence for one task pair in a frozen comparison. */
+export const getTaskComparisonEvidence = (
+  projectId: string,
+  comparisonId: string,
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<TaskComparisonEvidence> =>
+  apiClient(
+    `/v1/projects/${encodeURIComponent(projectId)}/task-view-comparisons/${encodeURIComponent(comparisonId)}/task-evidence`,
+    { ...NO_CACHE, query: { task_id: taskId }, signal },
   );
 
 // ----------------------------------------------------------------------------

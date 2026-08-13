@@ -7,12 +7,10 @@ side used. Snapshots are immutable and shareable by a short opaque id.
 Resolution rule (matches the throwaway prototype's ``resolveCell`` and the
 spec): latest *completed* run per task under the view (most recent non-errored
 by ``started_at``); if only errored attempts exist, the latest errored attempt;
-if no runs match, the side is unresolved (Not Run). Two sides are *comparable*
-only when both are resolved AND their task-definition revisions agree. The
-bundle-level exec (batch) revision is intentionally NOT a gate — it spans the
-whole task root, so any edit anywhere in the tree would flip it and make two
-runs from different days almost never comparable even when the specific task's
-definition is byte-identical.
+if no runs match, the side is unresolved (Not Run). A task's comparison state
+is ``aligned`` only when both sides resolved and their task-definition
+revisions agree; the bundle-level execution revision is intentionally not a
+gate (see ``_comparison_state``).
 """
 
 from __future__ import annotations
@@ -20,7 +18,7 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
+from typing import Literal, cast
 
 from sqlalchemy import desc, select as sa_select
 from sqlalchemy.sql.elements import ColumnElement
@@ -144,21 +142,28 @@ def _resolve_side(
     }
 
 
-def _is_comparable(a: _ResolvedRun | None, b: _ResolvedRun | None) -> bool:
-    """Both sides resolved AND the task definition revision matches.
+def _comparison_state(
+    a: _ResolvedRun | None, b: _ResolvedRun | None
+) -> Literal["aligned", "different_definition", "not_run"]:
+    """Three-valued comparison state for a task across two sides.
 
-    Only ``task_definition_revision_id`` gates comparability — the eval file
-    that defines the checks must be the same on both sides. The bundle-level
-    exec (batch) revision (which spans the whole task root, not just this
-    task's eval) is intentionally NOT a gate: any edit anywhere in the task
-    tree would flip it, making two runs from different days almost never
-    comparable even when the specific task's definition is byte-identical.
+    Replaces the former boolean ``_is_comparable``. Collapsing ``not_run`` and
+    ``different_definition`` into a single ``False`` made tasks that simply
+    didn't run on one side render as "different eval version". Keeping the
+    states distinct lets each consumer show the right message.
+
+    Only ``task_definition_revision_id`` gates the definition check — the eval
+    file that defines the checks must be the same on both sides. The
+    bundle-level ``exec_revision_sha`` (which spans the whole task root, not
+    just this task's eval) is intentionally NOT a gate: any edit anywhere in
+    the task tree would flip it, making two runs from different days almost
+    never ``aligned`` even when the specific task's definition is byte-identical.
     """
     if a is None or b is None:
-        return False
+        return "not_run"
     if a.task_definition_revision_id != b.task_definition_revision_id:
-        return False
-    return True
+        return "different_definition"
+    return "aligned"
 
 
 def create_comparison(
@@ -178,15 +183,15 @@ def create_comparison(
 
     resolved: list[ResolvedComparisonCell] = []
     both_run = 0
-    comparable_count = 0
+    aligned_count = 0
     for task_id in task_ids:
         a = side_a.get(task_id)
         b = side_b.get(task_id)
-        comparable = _is_comparable(a, b)
+        state = _comparison_state(a, b)
         if a is not None and b is not None:
             both_run += 1
-        if comparable:
-            comparable_count += 1
+        if state == "aligned":
+            aligned_count += 1
         resolved.append(
             ResolvedComparisonCell(
                 task_id=task_id,
@@ -194,7 +199,7 @@ def create_comparison(
                 b_run_id=b.run_id if b else None,
                 a_status=a.status if a else None,
                 b_status=b.status if b else None,
-                comparable=comparable,
+                state=state,
             )
         )
 
@@ -208,7 +213,7 @@ def create_comparison(
         resolved=[c.model_dump() for c in resolved],
         coverage={
             "both_run": both_run,
-            "comparable": comparable_count,
+            "aligned": aligned_count,
             "scope": len(task_ids),
         },
         created_by=created_by,

@@ -2,16 +2,14 @@
 
 import json
 from datetime import datetime, timezone
-from typing import Any, cast
+from typing import cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sqlalchemy import asc, delete, desc, and_ as sql_and
-from sqlalchemy.orm import defer
-from sqlalchemy.sql.elements import ColumnElement
-from sqlmodel import Session, func, or_, select
+from sqlalchemy import asc, delete
+from sqlmodel import Session, select
 
 from ...db import get_session
 from ...auth.deps import require_api_key_scope
@@ -27,157 +25,33 @@ from ...models import (
     Run,
     RunMetric,
     RunDetail,
-    RunSummary,
     CreateRunRequest,
     UpdateRunRequest,
     LoggedCall,
     CorrectionRequest,
 )
-
-# Defer the heaviest LoggedCallDB columns on list/preview/metrics paths that
-# only read scalar fields or short previews. Lazy-loaded on access.
-_CALL_LIGHT = (
-    defer(LoggedCallDB.messages),  # pyright: ignore[reportArgumentType]
-    defer(LoggedCallDB.tool_parameters),  # pyright: ignore[reportArgumentType]
-    defer(LoggedCallDB.tool_result),  # pyright: ignore[reportArgumentType]
-    defer(LoggedCallDB.cost_breakdown),  # pyright: ignore[reportArgumentType]
-    defer(LoggedCallDB.raw_usage),  # pyright: ignore[reportArgumentType]
-)
 from ...metrics import calculate_and_store_aggregate_metrics
 from ...services.demo_workspace import require_project_not_demo, require_run_not_demo
-from ...services.filters import (
-    apply_date_range,
-    apply_numeric_range,
-    apply_tag_filters,
+from .columns import (
+    CALL_LIGHT,
+    LOGGED_CALL_CREATED_AT_COL,
+    LOGGED_CALL_PROJECT_COL,
+    LOGGED_CALL_RUN_ID_COL,
+    LOGGED_CALL_STEP_INDEX_COL,
+    RUN_ID_COL,
+    RUN_METRIC_PROJECT_COL,
+    RUN_METRIC_RUN_ID_COL,
+    RUN_PROJECT_COL,
+)
+from .list_query import (
+    PaginatedRunSummary,
+    RunListFilters,
+    RunListPagination,
+    list_run_summaries,
 )
 from .metrics import calculate_run_metrics_from_calls
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
-
-
-RUN_ID_COL: ColumnElement[str] = _as_column(cast(object, RunDB.id))
-RUN_PROJECT_COL: ColumnElement[str] = _as_column(cast(object, RunDB.project))
-RUN_CREATED_AT_COL: ColumnElement[datetime] = _as_column(cast(object, RunDB.created_at))
-RUN_PRIMARY_MODEL_COL: ColumnElement[str | None] = _as_column(
-    cast(object, RunDB.primary_model)
-)
-RUN_EXTERNAL_ID_COL: ColumnElement[str | None] = _as_column(
-    cast(object, RunDB.external_id)
-)
-RUN_DURATION_MS_COL: ColumnElement[float | None] = _as_column(
-    cast(object, RunDB.duration_ms)
-)
-RUN_CALL_COUNT_COL: ColumnElement[int] = _as_column(
-    cast(object, RunDB.call_count)
-)
-RUN_FLOW_NAME_COL: ColumnElement[str | None] = _as_column(
-    cast(object, RunDB.flow_name)
-)
-RUN_ENVIRONMENT_COL: ColumnElement[str] = _as_column(
-    cast(object, RunDB.environment)
-)
-RUN_SESSION_ID_COL: ColumnElement[str | None] = _as_column(
-    cast(object, RunDB.session_id)
-)
-RUN_USER_ID_COL: ColumnElement[str | None] = _as_column(
-    cast(object, RunDB.user_id)
-)
-RUN_METRIC_SCORE_COL: ColumnElement[float | None] = _as_column(
-    cast(object, RunMetricDB.score)
-)
-LOGGED_CALL_STEP_INDEX_COL: ColumnElement[int | None] = _as_column(
-    cast(object, LoggedCallDB.step_index)
-)
-LOGGED_CALL_CREATED_AT_COL: ColumnElement[datetime] = _as_column(
-    cast(object, LoggedCallDB.created_at)
-)
-RUN_METRIC_RUN_ID_COL: ColumnElement[str | None] = _as_column(
-    cast(object, RunMetricDB.run_id)
-)
-RUN_METRIC_PROJECT_COL: ColumnElement[str] = _as_column(
-    cast(object, RunMetricDB.project)
-)
-LOGGED_CALL_RUN_ID_COL: ColumnElement[str | None] = _as_column(
-    cast(object, LoggedCallDB.run_id)
-)
-LOGGED_CALL_PROJECT_COL: ColumnElement[str] = _as_column(
-    cast(object, LoggedCallDB.project)
-)
-LOGGED_CALL_MODEL_COL: ColumnElement[str] = _as_column(
-    cast(object, LoggedCallDB.model)
-)
-LOGGED_CALL_ID_COL: ColumnElement[str | None] = _as_column(
-    cast(object, LoggedCallDB.id)
-)
-
-PREVIEW_MAX_CHARS = 200
-
-
-def _truncate_preview(value: object) -> str | None:
-    if value is None:
-        return None
-    text = json.dumps(value, default=str) if not isinstance(value, str) else value
-    if len(text) > PREVIEW_MAX_CHARS:
-        return text[:PREVIEW_MAX_CHARS] + "..."
-    return text
-
-
-def _fetch_io_previews(
-    session: Session, run_ids: list[str], project: str | None = None
-) -> dict[str, dict[str, str | None]]:
-    if not run_ids:
-        return {}
-
-    first_query = select(LoggedCallDB).options(*_CALL_LIGHT).where(
-        LOGGED_CALL_RUN_ID_COL.in_(run_ids),
-        LoggedCallDB.observation_type == "GENERATION",
-    )
-    if project is not None:
-        first_query = first_query.where(LOGGED_CALL_PROJECT_COL == project)
-    first_calls = session.exec(first_query.order_by(LOGGED_CALL_CREATED_AT_COL)).all()
-
-    seen_runs: set[str] = set()
-    result: dict[str, dict[str, str | None]] = {}
-    for call in first_calls:
-        if call.run_id is None or call.run_id in seen_runs:
-            continue
-        seen_runs.add(call.run_id)
-        result[call.run_id] = {
-            "input": _truncate_preview(call.input),
-            "output": _truncate_preview(call.output),
-        }
-
-    runs_without_gen = [rid for rid in run_ids if rid not in seen_runs]
-    if runs_without_gen:
-        span_query = select(LoggedCallDB).options(*_CALL_LIGHT).where(
-            LOGGED_CALL_RUN_ID_COL.in_(runs_without_gen)
-        )
-        if project is not None:
-            span_query = span_query.where(LOGGED_CALL_PROJECT_COL == project)
-        span_calls = session.exec(span_query.order_by(LOGGED_CALL_CREATED_AT_COL)).all()
-        seen_spans: set[str] = set()
-        for call in span_calls:
-            if call.run_id is None or call.run_id in seen_spans:
-                continue
-            seen_spans.add(call.run_id)
-            result[call.run_id] = {
-                "input": _truncate_preview(call.input),
-                "output": _truncate_preview(call.output),
-            }
-
-    for rid in run_ids:
-        if rid not in result:
-            result[rid] = {"input": None, "output": None}
-
-    return result
-
-
-class PaginatedRunSummary(BaseModel):
-    data: list[RunSummary]
-    total_count: int
-    page: int
-    page_size: int
-    total_pages: int
 
 
 @router.patch("/{run_id}/bookmark")
@@ -285,15 +159,8 @@ def _caller_project_scope(request: Request, session: Session) -> list[str] | Non
     return list_readable_projects_from_request(request, session)
 
 
-VALID_SORT_FIELDS = {"created_at", "duration_ms", "call_count"}
-
-
-def _get_sort_column(field: str):
-    if field == "duration_ms":
-        return RUN_DURATION_MS_COL
-    if field == "call_count":
-        return _as_column(cast(object, RunDB.call_count))
-    return RUN_CREATED_AT_COL
+def _split_csv(value: str | None) -> list[str]:
+    return [s.strip() for s in (value or "").split(",") if s.strip()]
 
 
 @router.get("", response_model=PaginatedRunSummary)
@@ -325,245 +192,39 @@ def list_runs(
     session: Session = Depends(get_session),
     _: None = Depends(require_api_key_scope("full")),
 ):
-    statement = select(RunDB)
-
+    # Auth: pin to one project (membership-checked) or restrict to the caller's
+    # readable projects. Dev/open mode (no user_id) stays unscoped.
     if project:
         _enforce_project_read(http_request, session, project)
-        statement = statement.where(RunDB.project == project)
+        allowed_projects: list[str] | None = None
     else:
-        # No project given would otherwise list across every tenant. Restrict
-        # to the caller's projects; dev/open mode (no user_id) stays unscoped.
-        allowed = _caller_project_scope(http_request, session)
-        if allowed is not None:
-            statement = statement.where(RUN_PROJECT_COL.in_(allowed))
+        allowed_projects = _caller_project_scope(http_request, session)
 
-    flow_name_list = [s.strip() for s in (flow_name or "").split(",") if s.strip()]
-    if flow_name_list:
-        statement = statement.where(RUN_FLOW_NAME_COL.in_(flow_name_list))
-
-    env_list = [e.strip() for e in (environment or "").split(",") if e.strip()]
-    if env_list:
-        statement = statement.where(RUN_ENVIRONMENT_COL.in_(env_list))
-
-    session_list = [s.strip() for s in (session_id or "").split(",") if s.strip()]
-    if session_list:
-        statement = statement.where(RUN_SESSION_ID_COL.in_(session_list))
-
-    user_list = [u.strip() for u in (user_id or "").split(",") if u.strip()]
-    if user_list:
-        statement = statement.where(RUN_USER_ID_COL.in_(user_list))
-
-    if models:
-        model_list = [m.strip() for m in models.split(",") if m.strip()]
-        if model_list:
-            call_model_ids = select(LOGGED_CALL_RUN_ID_COL).where(
-                LOGGED_CALL_RUN_ID_COL.is_not(None),
-                LOGGED_CALL_MODEL_COL.in_(model_list),
-            )
-            statement = statement.where(
-                or_(
-                    RUN_PRIMARY_MODEL_COL.in_(model_list),
-                    RUN_ID_COL.in_(call_model_ids),
-                )
-            )
-
-    if metric_name:
-        metric_subquery = select(RunMetricDB.run_id).where(
-            RunMetricDB.metric_name == metric_name
-        )
-        if min_score is not None:
-            metric_subquery = metric_subquery.where(RUN_METRIC_SCORE_COL >= min_score)
-        if max_score is not None:
-            metric_subquery = metric_subquery.where(RUN_METRIC_SCORE_COL <= max_score)
-
-        matching_run_ids = cast(list[str], session.exec(metric_subquery).all())
-        if matching_run_ids:
-            statement = statement.where(RUN_ID_COL.in_(matching_run_ids))
-        else:
-            return PaginatedRunSummary(
-                data=[],
-                total_count=0,
-                page=page,
-                page_size=page_size,
-                total_pages=0,
-            )
-
-    if tags:
-        statement = apply_tag_filters(statement, tags)
-
-    if search:
-        statement = statement.where(
-            or_(
-                RUN_ID_COL.like(f"%{search}%"),
-                RUN_EXTERNAL_ID_COL.like(f"%{search}%"),
-            )
-        )
-
-    if min_duration_ms is not None or max_duration_ms is not None:
-        statement = apply_numeric_range(
-            statement, RUN_DURATION_MS_COL, min_duration_ms, max_duration_ms
-        )
-
-    if created_after or created_before:
-        statement = apply_date_range(
-            statement, RunDB.created_at, created_after, created_before
-        )
-
-    if status:
-        LOGGED_CALL_LEVEL_COL: ColumnElement[str | None] = _as_column(
-            cast(object, LoggedCallDB.level)
-        )
-        status_values = [s.strip() for s in status.split(",") if s.strip()]
-        status_conditions: list[Any] = []
-        if "error" in status_values:
-            error_sub = select(LoggedCallDB.run_id).where(
-                LOGGED_CALL_LEVEL_COL == "ERROR"
-            )
-            status_conditions.append(RUN_ID_COL.in_(error_sub))
-        if "warning" in status_values:
-            warning_sub = select(LoggedCallDB.run_id).where(
-                LOGGED_CALL_LEVEL_COL == "WARNING"
-            )
-            error_sub = select(LoggedCallDB.run_id).where(
-                LOGGED_CALL_LEVEL_COL == "ERROR"
-            )
-            status_conditions.append(
-                sql_and(RUN_ID_COL.in_(warning_sub), RUN_ID_COL.not_in(error_sub))
-            )
-        if "success" in status_values:
-            issues_sub = select(LoggedCallDB.run_id).where(
-                LOGGED_CALL_LEVEL_COL.in_(["ERROR", "WARNING"])
-            )
-            status_conditions.append(
-                sql_and(RUN_ID_COL.not_in(issues_sub), RUN_CALL_COUNT_COL > 0)
-            )
-        if status_conditions:
-            statement = statement.where(or_(*status_conditions))
-
-    if bookmarked is not None:
-        statement = statement.where(RunDB.bookmarked == bookmarked)
-
-    count_statement = select(func.count()).select_from(statement.subquery())
-    total_count = session.exec(count_statement).one()
-
-    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 0
-
-    sort_field = sort_by if sort_by in VALID_SORT_FIELDS else "created_at"
-    sort_col = _get_sort_column(sort_field)
-    if sort_order == "asc":
-        statement = statement.order_by(asc(cast(ColumnElement[object], sort_col)))
-    else:
-        statement = statement.order_by(desc(cast(ColumnElement[object], sort_col)))
-    statement = statement.offset(page * page_size).limit(page_size)
-
-    runs = session.exec(statement).all()
-
-    run_ids = [r.id for r in runs]
-
-    metrics_query = select(RunMetricDB).where(RUN_METRIC_RUN_ID_COL.in_(run_ids))
-    if project is not None:
-        metrics_query = metrics_query.where(RUN_METRIC_PROJECT_COL == project)
-    all_metrics = session.exec(metrics_query).all()
-    metrics_by_run: dict[str, list[RunMetricDB]] = {}
-    for m in all_metrics:
-        if m.run_id is not None:
-            metrics_by_run.setdefault(m.run_id, []).append(m)
-
-    runs_needing_calls = [
-        r.id for r in runs if not metrics_by_run.get(r.id) and r.call_count > 0
-    ]
-    calls_by_run: dict[str, list[LoggedCallDB]] = {}
-    if runs_needing_calls:
-        calls_query = select(LoggedCallDB).options(*_CALL_LIGHT).where(
-            LOGGED_CALL_RUN_ID_COL.in_(runs_needing_calls)
-        )
-        if project is not None:
-            calls_query = calls_query.where(LOGGED_CALL_PROJECT_COL == project)
-        all_calls = session.exec(calls_query).all()
-        for c in all_calls:
-            if c.run_id is not None:
-                calls_by_run.setdefault(c.run_id, []).append(c)
-
-    runs_needing_levels = [
-        r.id
-        for r in runs
-        if not calls_by_run.get(r.id) and r.call_count > 0 and metrics_by_run.get(r.id)
-    ]
-    levels_by_run: dict[str, list[tuple[str, str]]] = {}
-    if runs_needing_levels:
-        levels_query = select(LoggedCallDB.level, LoggedCallDB.id, LoggedCallDB.run_id).where(
-            LOGGED_CALL_RUN_ID_COL.in_(runs_needing_levels)
-        )
-        if project is not None:
-            levels_query = levels_query.where(LOGGED_CALL_PROJECT_COL == project)
-        level_rows = session.exec(levels_query).all()
-        for row in level_rows:
-            rid = row[2]
-            if rid is not None:
-                levels_by_run.setdefault(rid, []).append((row[0], row[1]))
-
-    preview_by_run = _fetch_io_previews(session, run_ids, project)
-
-    summaries: list[RunSummary] = []
-    for run in runs:
-        stored = metrics_by_run.get(run.id, [])
-        calls_for_metrics: list[LoggedCallDB] = []
-        if not stored and run.call_count > 0:
-            calls_for_metrics = calls_by_run.get(run.id, [])
-            metrics = calculate_run_metrics_from_calls(calls_for_metrics, run.id)
-        else:
-            metrics = stored
-
-        error_count = 0
-        warning_count = 0
-        if calls_for_metrics:
-            for c in calls_for_metrics:
-                if c.level == "ERROR":
-                    error_count += 1
-                elif c.level == "WARNING":
-                    warning_count += 1
-        elif run.call_count > 0:
-            for row in levels_by_run.get(run.id, []):
-                if row[0] == "ERROR":
-                    error_count += 1
-                elif row[0] == "WARNING":
-                    warning_count += 1
-
-        status = "error" if error_count > 0 else "warning" if warning_count > 0 else "success"
-
-        summaries.append(
-            RunSummary(
-                id=run.id,
-                project=run.project,
-                flow_name=run.flow_name,
-                task_id=run.task_id,
-                version=run.version,
-                session_id=run.session_id,
-                environment=run.environment,
-                tags=run.tags or [],
-                user_id=run.user_id,
-                primary_model=run.primary_model,
-                bookmarked=run.bookmarked,
-                task_run_id=run.task_run_id,
-                call_count=run.call_count,
-                duration_ms=run.duration_ms,
-                created_at=run.created_at,
-                completed_at=run.completed_at,
-                status=status,
-                error_count=error_count,
-                warning_count=warning_count,
-                metrics=[RunMetric.model_validate(m) for m in metrics],
-                input_preview=preview_by_run.get(run.id, {}).get("input"),
-                output_preview=preview_by_run.get(run.id, {}).get("output"),
-            )
-        )
-
-    return PaginatedRunSummary(
-        data=summaries,
-        total_count=total_count,
-        page=page,
-        page_size=page_size,
-        total_pages=total_pages,
+    return list_run_summaries(
+        session,
+        RunListFilters(
+            project=project,
+            allowed_projects=allowed_projects,
+            flow_names=_split_csv(flow_name),
+            environments=_split_csv(environment),
+            session_ids=_split_csv(session_id),
+            user_ids=_split_csv(user_id),
+            models=_split_csv(models),
+            tags=tags,
+            search=search,
+            metric_name=metric_name,
+            min_score=min_score,
+            max_score=max_score,
+            min_duration_ms=min_duration_ms,
+            max_duration_ms=max_duration_ms,
+            created_after=created_after,
+            created_before=created_before,
+            status_values=_split_csv(status),
+            bookmarked=bookmarked,
+        ),
+        RunListPagination(
+            page=page, page_size=page_size, sort_by=sort_by, sort_order=sort_order
+        ),
     )
 
 
@@ -656,7 +317,7 @@ def get_run_details(
     # MB-scale (50-200 calls × full input/output/messages/tool_result) to
     # scalar-level metadata.
     if not (include and "messages" in include):
-        calls_query = calls_query.options(*_CALL_LIGHT)
+        calls_query = calls_query.options(*CALL_LIGHT)
 
     calls = session.exec(calls_query).all()
 
