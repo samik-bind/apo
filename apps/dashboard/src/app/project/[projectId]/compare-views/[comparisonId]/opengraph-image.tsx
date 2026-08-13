@@ -6,6 +6,7 @@ export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 export const runtime = "nodejs";
 export const alt = "apo comparison";
+export const maxDuration = 10;
 
 const COLORS = {
   black: "#000000",
@@ -36,10 +37,14 @@ async function tryFetchOverview(projectId: string, comparisonId: string): Promis
     const headers: Record<string, string> = {};
     if (cookieHeader) headers["Cookie"] = cookieHeader;
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
     const resp = await fetch(
       `${base}/v1/projects/${encodeURIComponent(projectId)}/task-view-comparisons/${encodeURIComponent(comparisonId)}/overview`,
-      { headers, cache: "no-store" },
+      { headers, cache: "no-store", signal: controller.signal },
     );
+    clearTimeout(timeout);
     if (!resp.ok) return null;
     return (await resp.json()) as OverviewData;
   } catch {
@@ -59,7 +64,13 @@ export default async function Image({
   params: Promise<{ projectId: string; comparisonId: string }>;
 }) {
   const { projectId, comparisonId } = await params;
-  const overview = await tryFetchOverview(projectId, comparisonId);
+
+  let overview: OverviewData | null = null;
+  try {
+    overview = await tryFetchOverview(projectId, comparisonId);
+  } catch {
+    overview = null;
+  }
 
   if (!overview) {
     return brandedFallback();
