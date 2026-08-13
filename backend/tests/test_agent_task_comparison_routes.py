@@ -209,14 +209,14 @@ async def test_overview_returns_every_frozen_run_as_summaries(
 
     _batch(session, "ba")
     _batch(session, "bb")
-    _run(session, "ra-pass", "ba", task_id="t-pass", status="success", pass_result=True)
-    _run(session, "rb-pass", "bb", task_id="t-pass", status="success", pass_result=True)
-    _run(session, "ra-fail", "ba", task_id="t-fail", status="failed", pass_result=False)
-    _run(session, "rb-fail", "bb", task_id="t-fail", status="failed", pass_result=False)
-    _run(session, "ra-diff", "ba", task_id="t-diff", status="success", pass_result=True)
-    _run(session, "rb-diff", "bb", task_id="t-diff", status="failed", pass_result=False)
-    _run(session, "ra-err", "ba", task_id="t-err", status="error")
-    _run(session, "rb-err", "bb", task_id="t-err", status="error")
+    _run(session, "ra-pass", "ba", task_id="t-pass", status="success", pass_result=True, model="claude-sonnet")
+    _run(session, "rb-pass", "bb", task_id="t-pass", status="success", pass_result=True, model="gpt-4o")
+    _run(session, "ra-fail", "ba", task_id="t-fail", status="failed", pass_result=False, model="claude-sonnet")
+    _run(session, "rb-fail", "bb", task_id="t-fail", status="failed", pass_result=False, model="gpt-4o")
+    _run(session, "ra-diff", "ba", task_id="t-diff", status="success", pass_result=True, model="claude-sonnet")
+    _run(session, "rb-diff", "bb", task_id="t-diff", status="failed", pass_result=False, model="gpt-4o")
+    _run(session, "ra-err", "ba", task_id="t-err", status="error", model="claude-sonnet")
+    _run(session, "rb-err", "bb", task_id="t-err", status="error", model="gpt-4o")
     session.commit()
 
     snap = _make_comparison(
@@ -286,8 +286,8 @@ async def test_task_evidence_resolves_frozen_pair(session: Session) -> None:
     _seed_project(session)
     _batch(session, "ba")
     _batch(session, "bb")
-    _run(session, "ra", "ba", task_id="t1")
-    _run(session, "rb", "bb", task_id="t1")
+    _run(session, "ra", "ba", task_id="t1", model="claude-sonnet")
+    _run(session, "rb", "bb", task_id="t1", model="gpt-4o")
     session.commit()
 
     snap = _make_comparison(session, task_ids=["t1"], side_a_runs={}, side_b_runs={})

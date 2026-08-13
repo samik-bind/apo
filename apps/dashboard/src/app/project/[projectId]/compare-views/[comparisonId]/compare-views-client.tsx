@@ -13,7 +13,7 @@ import type { AgentTaskRunSummary, AgentTaskSummary } from "@/lib/agent-task-api
 import type { ComparisonState, TaskComparisonEvidenceLoader, TaskViewComparisonSnapshot, TaskViewConfig } from "@/lib/agent-task-view-api";
 import { getTaskComparisonEvidence } from "@/lib/agent-task-view-api";
 import { cn } from "@/lib/utils";
-import { useUrlParamSet } from "@/hooks/use-url-state";
+import { useUrlParam } from "@/hooks/use-url-state";
 
 import { tallyChecks, useComparison } from "../../runs/compare/use-comparison";
 import { CheckDelta } from "../../runs/compare/compare-client";
@@ -36,7 +36,21 @@ export function CompareViewsClient({
   rightRuns: AgentTaskRunSummary[];
   stateByTask?: Map<string, ComparisonState>;
 }) {
-  const [expanded, toggleExpanded] = useUrlParamSet("expand");
+  // SPEC-177: single active task — opening one task closes the previous so
+  // only one evidence pair is in memory at a time. The expand URL param holds
+  // one task id; a legacy comma-separated value opens only the first.
+  const [activeTaskId, setActiveTaskId] = useUrlParam("expand");
+  const firstLegacyTask = activeTaskId.split(",")[0]?.trim() || "";
+  const expanded = useMemo(
+    () => (firstLegacyTask ? new Set([firstLegacyTask]) : new Set<string>()),
+    [firstLegacyTask],
+  );
+  const toggleExpanded = useCallback(
+    (taskId: string) => {
+      setActiveTaskId(firstLegacyTask === taskId ? null : taskId);
+    },
+    [firstLegacyTask, setActiveTaskId],
+  );
   const comparison = useComparison(leftRuns, rightRuns, tasks, stateByTask);
   const [hideErrored, setHideErrored] = useState(false);
 

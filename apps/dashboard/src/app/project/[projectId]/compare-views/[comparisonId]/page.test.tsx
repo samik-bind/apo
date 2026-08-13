@@ -13,6 +13,10 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
+vi.mock("next/headers", () => ({
+  headers: () => Promise.resolve(new Headers({ "user-agent": "vitest" })),
+}));
+
 vi.mock("@/lib/agent-task-api", () => ({
   listProjectAgentTasks: mocks.listTasks,
 }));

@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { getServerBackendBaseUrl } from "@/lib/config.server";
+import { buildSignalSphereScene, renderSignalSphereSvg } from "@/components/brand/signal-sphere-scene";
 
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -33,23 +34,6 @@ async function tryFetchCard(projectId: string, comparisonId: string): Promise<Ca
   }
 }
 
-let _sphereSvg: string | null = null;
-async function sphereDataUrl(): Promise<string> {
-  if (_sphereSvg) return _sphereSvg;
-  try {
-    const resp = await fetch("http://localhost:3000/brand/signal-sphere-small.svg");
-    if (!resp.ok) return "";
-    let svg = await resp.text();
-    // Replace CSS variables with concrete colors (satori can't resolve var())
-    svg = svg.replace(/var\(--signal-sphere-accent,\s*([^)]+)\)/g, "$1");
-    svg = svg.replace(/var\(--signal-sphere-fg,\s*([^)]+)\)/g, "$1");
-    _sphereSvg = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
-    return _sphereSvg;
-  } catch {
-    return "";
-  }
-}
-
 export default async function Image({
   params,
 }: {
@@ -58,7 +42,12 @@ export default async function Image({
   const { projectId, comparisonId } = await params;
 
   const card = await tryFetchCard(projectId, comparisonId);
-  const sphere = await sphereDataUrl();
+  // Render the signal sphere through the same renderer as the docs OG image.
+  const svg = renderSignalSphereSvg(buildSignalSphereScene(), {
+    fg: "#f4f4f5",
+    accent: C.accent,
+  });
+  const sphere = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
   const leftModel = card?.view_a ?? "All models";
   const rightModel = card?.view_b ?? "All models";
 
