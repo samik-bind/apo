@@ -177,6 +177,23 @@ async def get_task_view_comparison(
     return to_snapshot(row)
 
 
+@router.get("/task-view-comparisons/{comparison_id}/card")
+async def get_comparison_card(
+    project_id: str,
+    comparison_id: str,
+    session: SessionDependency,
+) -> dict[str, str | None]:
+    """Public: return only view model names for OG image previews. No auth."""
+    row = get_comparison(session, project_id, comparison_id)
+    if row is None or row.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Comparison not found")
+    snapshot = to_snapshot(row)
+    return {
+        "view_a": snapshot.view_a_config.model,
+        "view_b": snapshot.view_b_config.model,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Saved evidence views (persistent tabs)
 # ---------------------------------------------------------------------------
