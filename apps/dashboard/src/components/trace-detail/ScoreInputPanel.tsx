@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 import { ThumbsUp, ThumbsDown, Star } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -22,38 +22,73 @@ interface ScoreInputPanelProps {
   onScoreCreated?: () => void;
 }
 
+// ----------------------------------------------------------------------------
+// Score-config fetch machine — {configs, isLoading} transition together on
+// every fetch, so each lifecycle step is one dispatched action.
+// ----------------------------------------------------------------------------
+
+interface ConfigsState {
+  configs: ScoreConfig[];
+  isLoading: boolean;
+}
+
+type ConfigsAction =
+  | { type: "LOAD_START" }
+  | { type: "LOAD_DONE"; configs: ScoreConfig[] };
+
+const initialConfigsState: ConfigsState = { configs: [], isLoading: true };
+
+function configsReducer(state: ConfigsState, action: ConfigsAction): ConfigsState {
+  switch (action.type) {
+    case "LOAD_START":
+      return { ...state, isLoading: true };
+    case "LOAD_DONE":
+      return { configs: action.configs, isLoading: false };
+  }
+}
+
 export function ScoreInputPanel({
   targetType,
   targetId,
   existingScores,
   onScoreCreated,
 }: ScoreInputPanelProps) {
-  const [configs, setConfigs] = useState<ScoreConfig[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [scores, setScores] = useState<ScoreResponse[]>(existingScores ?? []);
-  // Reset scores when the prop changes (e.g. navigating between traces) without
-  // the stale-first-render flash of a useEffect-based mirror.
-  const [prevExistingScores, setPrevExistingScores] = useState(existingScores);
-  if (existingScores !== prevExistingScores) {
-    setPrevExistingScores(existingScores);
-    setScores(existingScores ?? []);
-  }
+  const [configsState, dispatchConfigs] = useReducer(configsReducer, initialConfigsState);
+  const { configs, isLoading } = configsState;
+
+  // Scores submitted in this session. Not seeded from the prop — a copied
+  // initial value would go stale on prop changes. The effective list is
+  // derived during render instead.
+  const [submissions, setSubmissions] = useState<ScoreResponse[]>([]);
 
   const project = getProjectId();
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
+    dispatchConfigs({ type: "LOAD_START" });
     getScoreConfigs(project).then((result) => {
       if (!cancelled) {
-        setConfigs(result);
-        setIsLoading(false);
+        dispatchConfigs({ type: "LOAD_DONE", configs: result });
       }
     });
     return () => {
       cancelled = true;
     };
   }, [project]);
+
+  // Derive the score list during render: server truth from the prop with this
+  // session's submissions layered on top. Submissions are filtered to the
+  // current target, so navigating between traces/observations needs no prop
+  // mirror or reset effect.
+  const scores = useMemo(() => {
+    const base = existingScores ?? [];
+    const mine = submissions.filter((s) =>
+      targetType === "trace" ? s.trace_id === targetId : s.observation_id === targetId,
+    );
+    if (mine.length === 0) return base;
+    const overriddenConfigIds = new Set(mine.map((s) => s.config_id));
+    return [...base.filter((s) => !overriddenConfigIds.has(s.config_id)), ...mine];
+  }, [existingScores, submissions, targetType, targetId]);
 
   const existingByConfig = useMemo(() => {
     const map = new Map<number, ScoreResponse>();
@@ -78,9 +113,9 @@ export function ScoreInputPanel({
         };
         const result =
           targetType === "trace"
-            ? await createTraceScore(targetId, request)
-            : await createObservationScore(targetId, request);
-        setScores((prev) => {
+            ? await createTraceScore(targetId, request, project)
+            : await createObservationScore(targetId, request, project);
+        setSubmissions((prev) => {
           const filtered = prev.filter((s) => s.config_id !== config.id);
           return [...filtered, result];
         });

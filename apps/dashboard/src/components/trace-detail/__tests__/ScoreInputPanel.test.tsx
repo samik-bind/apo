@@ -166,6 +166,7 @@ describe("ScoreInputPanel", () => {
         source: "ANNOTATION",
         config_id: 2,
       }),
+      "test-project",
     );
     expect(onScoreCreated).toHaveBeenCalled();
   });
@@ -201,6 +202,7 @@ describe("ScoreInputPanel", () => {
     expect(mockedCreateObservationScore).toHaveBeenCalledWith(
       "obs-1",
       expect.objectContaining({ value: false }),
+      "test-project",
     );
   });
 
@@ -240,6 +242,7 @@ describe("ScoreInputPanel", () => {
         source: "ANNOTATION",
         config_id: 1,
       }),
+      "test-project",
     );
   });
 
@@ -282,6 +285,7 @@ describe("ScoreInputPanel", () => {
         data_type: "CATEGORICAL",
         config_id: 3,
       }),
+      "test-project",
     );
   });
 

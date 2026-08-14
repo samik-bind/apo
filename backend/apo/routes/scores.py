@@ -10,6 +10,7 @@ CallMetricDB (observation-level) and RunMetricDB (trace-level) models.
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ..services.project_memberships import (
+    authorize_project_request,
     enforce_project_read_from_request,
     readable_project_ids_for_request,
 )
@@ -17,7 +18,7 @@ from sqlmodel import Session, col, select
 
 from ..auth.deps import require_api_key_scope
 from ..db import get_session
-from ..models.db import CallMetricDB, RunMetricDB, ScoreConfigDB
+from ..models.db import CallMetricDB, LoggedCallDB, RunDB, RunMetricDB, ScoreConfigDB
 from ..models.schemas import (
     CreateScoreRequest,
     ScoreResponse,
@@ -35,15 +36,52 @@ from ..services.scoring import (
 router = APIRouter(prefix="/api/v1", tags=["scores"])
 
 
-def _project_from_request(http_request: Request) -> str:
-    """Read the authenticated Project from the request, defaulting to ``default``.
+def _credential_project(http_request: Request) -> str | None:
+    """The Project bound to a credential (API key / service / Attempt token).
 
-    Tolerates direct (non-ASGI) calls in tests where ``request.state`` is absent.
+    Cookie sessions carry no Project — ``None`` tells the caller to derive
+    the Project from the target instead (SPEC-178: the literal ``default``
+    fallback was never authority).
     """
     state = getattr(http_request, "state", None)
     if state is None:
-        return "default"
-    return getattr(state, "project", "default")
+        return None
+    project = getattr(state, "project", None)
+    return str(project) if project else None
+
+
+def _session_score_project(
+    http_request: Request,
+    session: Session,
+    candidate_projects: list[str],
+) -> str:
+    """Authorize a session/open-dev score write against the target's Project.
+
+    Trace/observation IDs are public OTel identifiers and can collide across
+    Projects, so every Project owning the ID is a candidate; the first one
+    the caller is a member of wins. No authorized candidate → 404 (opaque).
+    """
+    for project in candidate_projects:
+        try:
+            _ = authorize_project_request(
+                http_request, session, project, minimum_role="member"
+            )
+        except HTTPException:
+            continue
+        return project
+    raise HTTPException(status_code=404, detail="Run not found")
+
+
+def _run_candidate_projects(session: Session, trace_id: str) -> list[str]:
+    """Projects that own a run with this public trace ID."""
+    runs = session.exec(select(RunDB).where(RunDB.id == trace_id)).all()
+    return [run.project for run in runs]
+
+
+def _call_candidate_projects(session: Session, obs_id: str) -> list[str]:
+    """Projects that own a logged call with this public observation ID."""
+    calls = session.exec(select(LoggedCallDB).where(LoggedCallDB.id == obs_id)).all()
+    return [call.project for call in calls]
 
 
 @router.post("/traces/{trace_id}/scores", response_model=ScoreResponse)
@@ -59,8 +97,16 @@ async def create_trace_score_endpoint(
 
     Supports API, EVAL, and ANNOTATION score sources.
     """
-    project = _project_from_request(http_request)
-    _run = require_run_not_demo(session, trace_id, project)
+    credential_project = _credential_project(http_request)
+    if credential_project is not None:
+        project = credential_project
+        _run = require_run_not_demo(session, trace_id, project)
+    else:
+        # Session / open-dev: the Project comes from the target run's
+        # durable ownership and the caller must be a member (SPEC-178).
+        project = _session_score_project(
+            http_request, session, _run_candidate_projects(session, trace_id)
+        )
     try:
         metric = create_trace_score(
             session=session,
@@ -92,8 +138,16 @@ async def create_observation_score_endpoint(
 
     Supports API, EVAL, and ANNOTATION score sources.
     """
-    project = _project_from_request(http_request)
-    _call = require_call_not_demo(session, obs_id, project)
+    credential_project = _credential_project(http_request)
+    if credential_project is not None:
+        project = credential_project
+        _call = require_call_not_demo(session, obs_id, project)
+    else:
+        # Session / open-dev: the Project comes from the target call's
+        # durable ownership and the caller must be a member (SPEC-178).
+        project = _session_score_project(
+            http_request, session, _call_candidate_projects(session, obs_id)
+        )
     try:
         metric = create_observation_score(
             session=session,
@@ -143,7 +197,17 @@ async def create_bulk_scores(
     Supports both trace-level and observation-level scores.
     Partial failures are reported - successful scores are still created.
     """
-    project = _project_from_request(http_request)
+    credential_project = _credential_project(http_request)
+    if credential_project is not None:
+        project = credential_project
+    else:
+        # Session / open-dev: derive the Project from the target's durable
+        # ownership and require membership (SPEC-178).
+        if request.observation_id:
+            candidates = _call_candidate_projects(session, request.observation_id)
+        else:
+            candidates = _run_candidate_projects(session, request.trace_id or "")
+        project = _session_score_project(http_request, session, candidates)
     created = 0
     errors: list[str] = []
 

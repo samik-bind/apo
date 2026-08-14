@@ -12,6 +12,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlmodel import Session
 
+from ..auth.deps import require_api_key_scope
 from ..db import get_session
 from ..models.db import AgentTaskBatchRunDB, AgentTaskRunDB
 from ..services.project_memberships import enforce_project_role_from_request
@@ -26,13 +27,16 @@ async def get_task_definition_source(
     task_run_id: str = Query(...),
     file_path: str = Query(...),
     session: Session = Depends(get_session),
+    _: object = Depends(require_api_key_scope("full")),
 ) -> dict[str, object]:
     """Read one source file from a Run's pinned Task Definition Revision.
 
     Authorization resolves from ``task_run_id → batch.project``:
     Project members may read source for their Project; ingest-only and
-    Executor credentials cannot. Unknown Run, missing Revision, or unknown
-    file returns 404 without disclosing which is absent.
+    Executor credentials cannot (scope enforced here for API keys,
+    path-restricted by the middleware for tokens). Unknown Run, missing
+    Revision, or unknown file returns 404 without disclosing which is
+    absent.
     """
     run = session.get(AgentTaskRunDB, task_run_id)
     if run is None:

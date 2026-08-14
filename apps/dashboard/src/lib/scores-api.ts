@@ -56,12 +56,19 @@ export async function getScoreConfigs(
 export async function createTraceScore(
   traceId: string,
   request: CreateScoreRequest,
+  project?: string,
 ): Promise<ScoreResponse> {
-  const res = await backendFetch(`${API_BASE}/api/v1/traces/${traceId}/scores`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
+  const params = new URLSearchParams();
+  if (project) params.set("project", project);
+  const query = params.size > 0 ? `?${params}` : "";
+  const res = await backendFetch(
+    `${API_BASE}/api/v1/traces/${traceId}/scores${query}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
   if (!res.ok) {
     const error = await res.json().catch(() => null);
     throw new Error(
@@ -74,9 +81,13 @@ export async function createTraceScore(
 export async function createObservationScore(
   observationId: string,
   request: CreateScoreRequest,
+  project?: string,
 ): Promise<ScoreResponse> {
+  const params = new URLSearchParams();
+  if (project) params.set("project", project);
+  const query = params.size > 0 ? `?${params}` : "";
   const res = await backendFetch(
-    `${API_BASE}/api/v1/observations/${observationId}/scores`,
+    `${API_BASE}/api/v1/observations/${observationId}/scores${query}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -94,10 +105,14 @@ export async function createObservationScore(
 
 export async function getTraceScores(
   traceId: string,
+  project?: string,
 ): Promise<ScoreResponse[]> {
+  const params = new URLSearchParams();
+  if (project) params.set("project", project);
+  const query = params.size > 0 ? `?${params}` : "";
   try {
     const res = await backendFetch(
-      `${API_BASE}/api/v1/traces/${traceId}/scores`,
+      `${API_BASE}/api/v1/traces/${traceId}/scores${query}`,
       { cache: "no-store" },
     );
     if (!res.ok) return [];

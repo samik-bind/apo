@@ -1883,3 +1883,89 @@ def test_trace_sse_denies_before_broadcaster_access(
     resp = bob_client.get(f"/v1/traces/some-trace/stream?project={_PROJECT_A}")
     assert resp.status_code in (403, 404)
     assert touched["broadcaster"] is False
+
+
+# ---------------------------------------------------------------------------
+# Audit leftovers: source-read API-key scope; session score-create authority
+# ---------------------------------------------------------------------------
+
+
+def _seed_definition_source_world(session: Session) -> str:
+    """Project A with a run pinned to a definition revision containing source."""
+    from apo.models.db import TaskDefinitionRevisionDB
+
+    _seed_http_world(session)
+    revision = TaskDefinitionRevisionDB(
+        project=_PROJECT_A,
+        task_id=_TASK_ID_A,
+        content_sha256="d" * 64,
+        source_files_json=[
+            {"path": "task.py", "content": "sentinel-source-content"}
+        ],
+        source_size_bytes=23,
+    )
+    session.add(revision)
+    session.flush()
+    run = session.get(AgentTaskRunDB, _RUN_A)
+    assert run is not None
+    run.task_definition_revision_id = revision.id
+    session.commit()
+    return revision.id or ""
+
+
+def test_task_definition_source_denies_ingest_scope_key(
+    session: Session, make_api_key_client: Callable[..., TestClient]
+) -> None:
+    """The source reader is documented as full-scope only: an ingest key
+    bound to the right Project with a member creator still may not read
+    eval source code."""
+    _seed_definition_source_world(session)
+
+    full_key = make_api_key_client(_USER_ALICE, _PROJECT_A, session, scope="full")
+    ingest_key = make_api_key_client(_USER_ALICE, _PROJECT_A, session, scope="ingest")
+
+    ok = full_key.get(
+        "/v1/task-definition-source",
+        params={"task_run_id": _RUN_A, "file_path": "task.py"},
+    )
+    assert ok.status_code == 200, ok.text
+    assert "sentinel-source-content" in ok.text
+
+    denied = ingest_key.get(
+        "/v1/task-definition-source",
+        params={"task_run_id": _RUN_A, "file_path": "task.py"},
+    )
+    assert denied.status_code == 403
+
+
+def test_session_score_create_derives_project_from_target(
+    session: Session, make_authed_client: Callable[..., TestClient]
+) -> None:
+    """A dashboard session creating a score is authorized against the
+    target trace's Project — members succeed, outsiders are denied. The
+    credential-less fallback to the literal ``default`` Project is gone."""
+    from apo.models.db import RunMetricDB
+
+    _seed_trace_world(session)  # RunDB trace-http-a in Project A
+
+    alice_client = make_authed_client(_USER_ALICE, session)
+    bob_client = make_authed_client(_USER_BOB, session)
+
+    created = alice_client.post(
+        f"/api/v1/traces/{_TRACE_A}/scores",
+        json={"name": "quality", "value": 5, "data_type": "NUMERIC"},
+    )
+    assert created.status_code == 200, created.text
+
+    denied = bob_client.post(
+        f"/api/v1/traces/{_TRACE_A}/scores",
+        json={"name": "quality", "value": 1, "data_type": "NUMERIC"},
+    )
+    assert denied.status_code in (403, 404)
+
+    # The score landed in the trace's Project, not the literal "default".
+    rows = session.exec(
+        select(RunMetricDB).where(RunMetricDB.run_id == _TRACE_A)
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].project == _PROJECT_A
