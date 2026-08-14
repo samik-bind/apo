@@ -11,7 +11,7 @@ export function generateMetadata(): Metadata {
   return {
     // Resolve at runtime so the container's APO_PUBLIC_URL / NEXTAUTH_URL
     // produces correct absolute og:image URLs for social media crawlers.
-    metadataBase: publicUrl ? new URL(publicUrl) : undefined,
+    metadataBase: parsePublicUrl(publicUrl),
     // Each page declares its own title (e.g. "Runs", "Trace abc123") and the
     // "%s" template shows it verbatim — no "apo" suffix, since the suffix
     // adds no value in a browser tab. The root/landing page falls back to
@@ -43,6 +43,17 @@ export function generateMetadata(): Metadata {
       ],
     },
   };
+}
+
+// `new URL` throws on malformed input; a bad env var must not take down
+// metadata generation for the whole app.
+function parsePublicUrl(raw: string | undefined): URL | undefined {
+  if (!raw) return undefined;
+  try {
+    return new URL(raw);
+  } catch {
+    return undefined;
+  }
 }
 
 export default function RootLayout({

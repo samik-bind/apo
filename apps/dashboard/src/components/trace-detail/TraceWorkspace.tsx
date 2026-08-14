@@ -494,10 +494,20 @@ export function TraceWorkspace({
 }: TraceWorkspaceProps) {
   const searchParams = useSearchParams();
   const isMobile = useIsMobile();
-  const [searchQuery, setSearchQuery] = useState(() =>
-    mode === "page" ? (searchParams.get("q") ?? "") : "",
-  );
-  const lastSyncedQueryRef = useRef(searchQuery);
+  const urlQuery = mode === "page" ? (searchParams.get("q") ?? "") : null;
+  // Reading ?q during the first render would desync from the server-rendered
+  // HTML (hydration mismatch); the state starts empty and follows the URL
+  // via the prev-value comparison below.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [lastUrlQuery, setLastUrlQuery] = useState<string | null>(null);
+
+  // Follow ?q changes that did not come from our own typing (initial load,
+  // back/forward) by adjusting during render with a prev-value comparison —
+  // no effect-time syncing, so no frame ever shows a stale query.
+  if (urlQuery !== null && urlQuery !== lastUrlQuery) {
+    setLastUrlQuery(urlQuery);
+    if (urlQuery !== searchQuery) setSearchQuery(urlQuery);
+  }
   const { view, setView } = useSelection();
 
   // Live streaming: overlay SSE span events onto the server-fetched calls so
@@ -553,15 +563,14 @@ export function TraceWorkspace({
 
   useEffect(() => {
     if (mode !== "page") return;
-    if (searchQuery === lastSyncedQueryRef.current) return;
+    if (searchQuery === (searchParams.get("q") ?? "")) return;
     const timer = setTimeout(() => {
-      lastSyncedQueryRef.current = searchQuery;
       // Shallow: keeps the URL shareable without re-running the server
       // component (which would re-fetch the whole trace) per keystroke.
       setSearchParamShallow("q", searchQuery || null);
     }, 300);
     return () => clearTimeout(timer);
-  }, [mode, searchQuery]);
+  }, [mode, searchQuery, searchParams]);
 
   return (
     <TraceDataProvider run={liveRun} isLoading={false} error={null} refreshRun={refreshRun}>

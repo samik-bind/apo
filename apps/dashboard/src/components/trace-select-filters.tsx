@@ -47,13 +47,19 @@ function SelectFilter({
   hideLabel = false,
   options: serverOptions,
 }: SelectFilterProps) {
-  const [fetchedOptions, setFetchedOptions] = useState<string[]>(serverOptions ?? []);
-  const [loading, setLoading] = useState(false);
+  // Options are cached per request key (endpoint + project), and loading is
+  // derived from the key's absence — so a slow response for a previous
+  // endpoint/project can neither clobber the new one's options nor leave a
+  // loading flag stuck.
+  const requestKey = `${endpoint}|${project ?? ""}`;
+  const [optionsByKey, setOptionsByKey] = useState<Record<string, string[]>>(
+    () => (serverOptions ? { [requestKey]: serverOptions } : {}),
+  );
 
   useEffect(() => {
     const controller = new AbortController();
+    const key = requestKey;
     const fetchOptions = async () => {
-      setLoading(true);
       try {
         const url = project
           ? `${API_BASE}${endpoint}?project=${encodeURIComponent(project)}`
@@ -62,22 +68,24 @@ function SelectFilter({
           signal: controller.signal,
           cache: "no-store",
         });
-        if (response.ok) {
-          const data = await response.json();
-          setFetchedOptions(data);
-        } else {
-          await response.text();
+        const data: string[] = response.ok ? await response.json() : [];
+        if (!controller.signal.aborted) {
+          setOptionsByKey((prev) => ({ ...prev, [key]: data }));
         }
       } catch {
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        // Keep any previously loaded options for this key; record an empty
+        // result so the loading state resolves instead of hanging.
+        if (!controller.signal.aborted) {
+          setOptionsByKey((prev) => (key in prev ? prev : { ...prev, [key]: [] }));
+        }
       }
     };
     fetchOptions();
     return () => { controller.abort(); };
-  }, [endpoint, project]);
+  }, [requestKey, endpoint, project]);
 
-  const options = fetchedOptions;
+  const options = optionsByKey[requestKey] ?? [];
+  const loading = !(requestKey in optionsByKey);
 
   return (
     <div className={hideLabel ? "" : "space-y-2"}>

@@ -100,8 +100,11 @@ export function ProjectSwitcher({ currentProjectId }: { currentProjectId: string
 
           {showCreate ? (
             <div className="p-1">
+              <label htmlFor="switcher-project-name" className="mb-1 block px-1 text-xs text-muted-foreground">
+                Project name
+              </label>
               <input
-                autoFocus
+                id="switcher-project-name"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleCreate()}

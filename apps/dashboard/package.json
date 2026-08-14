@@ -19,7 +19,6 @@
   },
   "dependencies": {
     "@apo-ai/sdk": "workspace:*",
-    "@base-ui/react": "latest",
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-python": "^6.2.1",
     "@codemirror/language": "^6.12.4",

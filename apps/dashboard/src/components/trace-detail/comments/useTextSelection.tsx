@@ -70,7 +70,7 @@ export function useInlineCommentSelection() {
   return ctx;
 }
 
-export function useInlineCommentSelectionOptional() {
+function useInlineCommentSelectionOptional() {
   return useContext(InlineCommentSelectionContext);
 }
 

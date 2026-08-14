@@ -24,24 +24,25 @@ import { getCollection } from 'astro:content';
 
 export const getStaticPaths = (async () => {
 	const docs = await getCollection('docs');
-	return docs
+	return docs.flatMap((entry) => {
 		// Skip drafts and the homepage (entry.id is bare 'index' — collides
 		// with root route and the standalone index.astro landing page).
-		.filter((entry) => entry.data.draft !== true && entry.id !== 'index')
-		.map((entry) => {
-			const slug = entry.id.replace(/\.(md|mdx)$/, '').replace(/\/index$/, '');
-			// Strip import lines (MDX build noise), prepend title.
-			const body = (entry.body ?? '')
-				.split('\n')
-				.filter((line) => !/^import\s.+from\s/.test(line.trim()))
-				.join('\n')
-				.trim();
-			const title = (entry.data.title as string) ?? slug;
-			return {
+		if (entry.data.draft === true || entry.id === 'index') return [];
+		const slug = entry.id.replace(/\.(md|mdx)$/, '').replace(/\/index$/, '');
+		// Strip import lines (MDX build noise), prepend title.
+		const body = (entry.body ?? '')
+			.split('\n')
+			.filter((line) => !/^import\s.+from\s/.test(line.trim()))
+			.join('\n')
+			.trim();
+		const title = (entry.data.title as string) ?? slug;
+		return [
+			{
 				params: { slug },
 				props: { content: `# ${title}\n\n${body}` },
-			};
-		});
+			},
+		];
+	});
 }) satisfies GetStaticPaths;
 
 export const GET: APIRoute = ({ props }) => {

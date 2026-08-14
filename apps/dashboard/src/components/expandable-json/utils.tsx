@@ -28,7 +28,7 @@ export const ROW_HEIGHT = 22;
 export const VIRTUALIZE_THRESHOLD = 1000;
 export const OVERSCAN = 50;
 
-export function getType(v: unknown): JsonType {
+function getType(v: unknown): JsonType {
   if (v === null) return "null";
   if (Array.isArray(v)) return "array";
   return typeof v === "object" ? "object" : (typeof v as JsonType);
@@ -160,11 +160,11 @@ export function highlightText(
     <>
       {segments.map((seg, i) =>
         seg.match ? (
-          <span key={`hl-${i}`} className={cls}>
+          <span key={`${seg.text}-${i}`} className={cls}>
             {seg.text}
           </span>
         ) : (
-          <span key={`txt-${i}`}>{seg.text}</span>
+          <span key={`${seg.text}-${i}`}>{seg.text}</span>
         ),
       )}
     </>

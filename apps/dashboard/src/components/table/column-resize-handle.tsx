@@ -29,11 +29,9 @@ export function ColumnResizeHandle<TData>({
   const isResizing = header.column.getIsResizing();
 
   return (
-    <span
-      role="separator"
-      aria-orientation="vertical"
+    <button
+      type="button"
       aria-label="Resize column (double-click or press Enter to reset)"
-      tabIndex={0}
       onPointerDown={header.getResizeHandler()}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={() => header.column.resetSize()}
@@ -59,6 +57,6 @@ export function ColumnResizeHandle<TData>({
           isResizing ? "bg-primary opacity-100" : "opacity-0",
         )}
       />
-    </span>
+    </button>
   );
 }

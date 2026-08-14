@@ -268,6 +268,7 @@ export function SignalSphereCanvas({
       aria-label={decorative ? undefined : title ?? "Signal Sphere"}
       className={className}
       role={decorative ? undefined : "img"}
+      tabIndex={-1}
       style={{
         width: typeof size === "number" ? `${size}px` : size,
         height: typeof size === "number" ? `${size}px` : size,

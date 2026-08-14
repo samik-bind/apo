@@ -242,7 +242,7 @@ function ToolCallsPreview({ toolCalls }: { toolCalls: Array<Record<string, unkno
               : JSON.stringify(rawInput);
         return (
           <div
-            key={id ?? i}
+            key={id ?? `call-${i}-${name}-${inputText.slice(0, 24)}`}
             className="rounded-md border border-border/60 bg-muted/10 px-3 py-2"
           >
             <div className="flex items-center gap-2">

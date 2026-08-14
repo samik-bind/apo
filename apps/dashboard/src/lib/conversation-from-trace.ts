@@ -78,7 +78,7 @@ export function deriveConversationFromTrace(
   // not messages arrays. Walk the ordered call sequence and reconstruct the
   // conversation from raw I/O.
   const reconstructed = reconstructFromRawCalls(
-    [...trace.calls].sort(compareCallOrder),
+    trace.calls.toSorted(compareCallOrder),
   );
   if (reconstructed.length === 0) return EMPTY;
   return { messages: reconstructed };
@@ -149,8 +149,10 @@ function extractText(value: unknown): string {
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (Array.isArray(value)) {
     return value
-      .map((block) => extractTextFromBlock(block))
-      .filter(Boolean)
+      .flatMap((block) => {
+        const text = extractTextFromBlock(block);
+        return text ? [text] : [];
+      })
       .join("\n")
       .trim();
   }
@@ -161,8 +163,10 @@ function extractText(value: unknown): string {
     // Langfuse/Anthropic tool_results wrapper.
     if (Array.isArray(obj.tool_results)) {
       return obj.tool_results
-        .map((r) => extractTextFromBlock(r))
-        .filter(Boolean)
+        .flatMap((r) => {
+          const text = extractTextFromBlock(r);
+          return text ? [text] : [];
+        })
         .join("\n")
         .trim();
     }
@@ -260,8 +264,7 @@ function sameToolCalls(
 ): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  if (a.length !== b.length) return false;
-  return a.every(
+  return a.length === b.length && a.every(
     (call, i) =>
       call.function?.name === b[i]?.function?.name &&
       call.function?.arguments === b[i]?.function?.arguments,

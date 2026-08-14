@@ -192,6 +192,12 @@ const roleConfig: Record<string, { label: string }> = {
   tool: { label: "tool" },
 };
 
+// Accordion item ids carry a slice of the message preview (plus the position
+// as a uniqueness tiebreaker) so keys stay tied to message content.
+function messageItemId(message: ChatMessage, idx: number): string {
+  return `msg-${idx}-${getPreviewText(message).slice(0, 24)}`;
+}
+
 export function ConversationTranscript({
   conversation,
   traceRunId,
@@ -218,7 +224,7 @@ export function ConversationTranscript({
   }
 
   const defaultOpen = conversation.length > 0
-    ? [`msg-0`]
+    ? [messageItemId(conversation[0]!, 0)]
     : [];
 
   return (
@@ -233,7 +239,7 @@ export function ConversationTranscript({
           {conversation.map((message, idx) => {
             const config = roleConfig[message.role] ?? { label: message.role };
             const preview = getPreviewText(message);
-            const id = `msg-${idx}`;
+            const id = messageItemId(message, idx);
             const copy = copyTextFor(message);
             const isTool = message.role === "tool";
 

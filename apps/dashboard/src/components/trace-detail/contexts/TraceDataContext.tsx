@@ -122,7 +122,7 @@ interface TraceDataContextValue {
   isSimplifiedTree: boolean;
 }
 
-export const TraceDataContext = createContext<TraceDataContextValue | undefined>(undefined);
+const TraceDataContext = createContext<TraceDataContextValue | undefined>(undefined);
 
 export function TraceDataProvider({
   children,
@@ -138,7 +138,9 @@ export function TraceDataProvider({
   refreshRun?: () => void;
 }) {
   const [prefetchedCalls, setPrefetchedCalls] = useState<Set<string>>(new Set());
-  const callMapRef = useRef<Map<string, LoggedCall>>(new Map());
+  // Lazily populated by the memo below (which runs on first render) — avoids
+  // allocating a Map on every render just to seed useRef.
+  const callMapRef = useRef<Map<string, LoggedCall> | null>(null);
 
   const cumulativeMetrics = useMemo(
     () => (run ? computeCumulativeMetrics(run.calls) : new Map<string, CumulativeMetrics>()),

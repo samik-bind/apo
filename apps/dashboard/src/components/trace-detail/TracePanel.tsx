@@ -135,10 +135,9 @@ export function TracePanel() {
       className="fixed inset-y-0 right-0 z-50 flex w-full max-w-none flex-col border-l bg-background shadow-2xl"
       style={{ width: `${panelWidth}px`, maxWidth: "100vw" }}
     >
-      <div
-        className="absolute inset-y-0 left-0 hidden w-2 -translate-x-1/2 cursor-col-resize md:block"
+      <hr
+        className="absolute inset-y-0 left-0 hidden w-2 -translate-x-1/2 cursor-col-resize border-0 p-0 md:block"
         onPointerDown={startResize}
-        role="separator"
         aria-label="Resize trace panel"
         aria-orientation="vertical"
       />

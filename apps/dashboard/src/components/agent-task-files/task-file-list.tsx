@@ -46,8 +46,10 @@ function groupFiles(files: TaskFileEntry[]): GroupedFiles {
   for (const entry of files) {
     if (entry.type === "directory") continue;
     const parentDir = entry.path.includes("/") ? entry.path.split("/").slice(0, -1).join("/") : null;
-    if (parentDir && dirMap.has(parentDir)) {
-      dirMap.get(parentDir)!.push(entry);
+    // Single Map lookup instead of has() + get().
+    const siblings = parentDir ? dirMap.get(parentDir) : undefined;
+    if (siblings) {
+      siblings.push(entry);
     } else {
       rootFiles.push(entry);
     }

@@ -92,7 +92,7 @@ export function getScheduleOutcome(
   return "healthy";
 }
 
-export function computePassRate(batch: ScheduleLastBatchSummary): number {
+function computePassRate(batch: ScheduleLastBatchSummary): number {
   if (batch.total_tasks === 0) return 0;
   return Math.round((batch.passed_tasks / batch.total_tasks) * 100);
 }

@@ -5,11 +5,11 @@ import { useTraceData } from "./contexts/TraceDataContext";
 import { useViewPreferences } from "./contexts/ViewPreferencesContext";
 import type { TraceObservation } from "./contexts";
 import { getSemanticType, getEventType } from "./trace-utils";
-// getDisplayName / cleanSpanName live in trace-display (shared with gantt +
-// graph + detail views) and are re-exported here for existing importers. We
-// also import them into local scope — re-export alone doesn't bind the name.
-import { getDisplayName, cleanSpanName } from "./trace-display";
-export { getDisplayName, cleanSpanName };
+// getDisplayName lives in trace-display (shared with gantt + graph + detail
+// views) and is imported here for local use; import it directly from
+// ./trace-display. getRunSummary lives in ./trace-tree-utils.
+import { getDisplayName } from "./trace-display";
+import { getRunSummary } from "./trace-tree-utils";
 import {
   ChevronRight,
   ChevronsDownUp,
@@ -96,8 +96,8 @@ function getChildren(callId: string | null, calls: TraceObservation[]): TraceObs
     });
 }
 
-// getDisplayName and cleanSpanName are re-exported from ./trace-display
-// (see import near the top of this file). They are shared by the gantt,
+// getDisplayName and cleanSpanName live in ./trace-display and getRunSummary
+// in ./trace-tree-utils (see imports above). They are shared by the gantt,
 // graph, and detail views so every surface agrees on a readable name.
 
 function getModelLabel(model: string | null | undefined): string | null {
@@ -129,18 +129,6 @@ function highlightMatch(value: string, searchQuery: string) {
       {value.slice(end)}
     </>
   );
-}
-
-export function getRunSummary(calls: TraceObservation[]) {
-  const totalDuration = calls.reduce((sum, call) => sum + (call.latency_ms ?? 0), 0);
-  const totalTokens = calls.reduce((sum, call) => sum + (call.total_tokens ?? 0), 0);
-  const totalCost = calls.reduce((sum, call) => sum + (call.cost ?? 0), 0);
-
-  return {
-    duration: totalDuration > 0 ? formatDuration(totalDuration) : null,
-    tokens: totalTokens > 0 ? formatTokenTotal(totalTokens) : null,
-    cost: totalCost > 0 ? formatCostMicro(totalCost) : null,
-  };
 }
 
 function getLevelBadge(level: string | null | undefined): { label: string; colorClass: string } | null {
@@ -339,14 +327,10 @@ function TreeNode({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectCall(node.call?.id ?? null); } }}
       className={cn(
-        "relative flex w-full cursor-pointer border-l border-transparent px-0 py-px text-left bg-transparent",
+        "relative flex w-full border-l border-transparent px-0 py-px text-left bg-transparent",
         isSelected ? "border-l-foreground/40 bg-muted/30" : "hover:bg-muted/15",
       )}
-      onClick={() => selectCall(node.call?.id ?? null)}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
@@ -389,27 +373,33 @@ function TreeNode({
           ) : null}
         </div>
 
-        <div className="flex w-5 shrink-0 items-start justify-center pt-1">
-          <div title={TYPE_CONFIG[semanticType].label} className={`flex h-3.5 w-3.5 items-center justify-center ${TYPE_CONFIG[semanticType].bg} ${TYPE_CONFIG[semanticType].color}`}>
-            <Icon className="h-[9px] w-[9px]" />
+        <button
+          type="button"
+          onClick={() => selectCall(node.call?.id ?? null)}
+          className="flex min-w-0 flex-1 cursor-pointer bg-transparent text-left"
+        >
+          <div className="flex w-5 shrink-0 items-start justify-center pt-1">
+            <div title={TYPE_CONFIG[semanticType].label} className={`flex h-3.5 w-3.5 items-center justify-center ${TYPE_CONFIG[semanticType].bg} ${TYPE_CONFIG[semanticType].color}`}>
+              <Icon className="h-[9px] w-[9px]" />
+            </div>
           </div>
-        </div>
 
-        <div className="flex min-w-0 flex-1 py-0.5">
-          <SpanContent
-            call={node.call}
-            isRun={isRun}
-            callCount={calls.length}
-            searchQuery={searchQuery}
-            runSummary={runSummary}
-            runLabel={runLabel}
-            timingBounds={timingBounds}
-            cumulative={cumulative}
-            totalCost={totalCost}
-            commentCount={node.call ? (commentCounts?.[node.call.id] ?? 0) : undefined}
-            display={display}
-          />
-        </div>
+          <div className="flex min-w-0 flex-1 py-0.5">
+            <SpanContent
+              call={node.call}
+              isRun={isRun}
+              callCount={calls.length}
+              searchQuery={searchQuery}
+              runSummary={runSummary}
+              runLabel={runLabel}
+              timingBounds={timingBounds}
+              cumulative={cumulative}
+              totalCost={totalCost}
+              commentCount={node.call ? (commentCounts?.[node.call.id] ?? 0) : undefined}
+              display={display}
+            />
+          </div>
+        </button>
       </div>
     </div>
   );

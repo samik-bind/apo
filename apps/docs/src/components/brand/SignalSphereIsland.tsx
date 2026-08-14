@@ -276,6 +276,7 @@ export function SignalSphereIsland({
     <canvas
       ref={canvasRef}
       aria-hidden="true"
+      tabIndex={-1}
       className={className}
       style={{ width: px, height: px, display: "block" }}
     />

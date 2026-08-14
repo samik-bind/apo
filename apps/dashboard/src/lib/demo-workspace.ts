@@ -2,7 +2,7 @@
  * Demo workspace context management.
  */
 
-export const DEMO_PROJECT_ID = "demo";
+const DEMO_PROJECT_ID = "demo";
 const COOKIE_NAME = "active-project";
 
 /** Enter demo workspace — navigate to demo project. */

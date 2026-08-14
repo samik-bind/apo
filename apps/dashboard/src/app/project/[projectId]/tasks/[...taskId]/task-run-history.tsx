@@ -45,6 +45,8 @@ export function TaskRunHistory({ runs }: TaskRunHistoryProps) {
     );
   }
 
+  const compareIdSet = new Set(compareIds);
+
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between border-b border-border px-6 py-3">
@@ -67,8 +69,8 @@ export function TaskRunHistory({ runs }: TaskRunHistoryProps) {
             key={run.id}
             run={run}
             projectId={projectId}
-            compareSelected={compareIds.includes(run.id)}
-            compareDisabled={compareIds.length >= 2 && !compareIds.includes(run.id)}
+            compareSelected={compareIdSet.has(run.id)}
+            compareDisabled={compareIds.length >= 2 && !compareIdSet.has(run.id)}
             onToggleCompare={() => toggleCompare(run.id)}
           />
         ))}

@@ -21,7 +21,7 @@
  * convention names the eval file after. ``"cost-inquiry"`` from
  * ``"chat/cost-inquiry"``, ``"code-review"`` from ``"code-review"``.
  */
-export function taskBasename(taskId: string): string {
+function taskBasename(taskId: string): string {
   const trimmed = taskId.replace(/[\\/]+$/, "");
   const segments = trimmed.split(/[\\/]/);
   return segments[segments.length - 1] || trimmed;

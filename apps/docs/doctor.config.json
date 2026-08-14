@@ -3,13 +3,13 @@
   "ignore": {
     "files": [
       ".astro/**",
-      "src/components/CodeCard.astro",
       "src/components/Head.astro",
       "src/components/Header.astro",
       "src/components/Hero.astro",
       "src/components/PageTitle.astro",
       "src/components/Sidebar.astro",
       "src/components/SidebarSublist.astro",
+      "src/components/SiteTitle.astro",
       "src/components/TwoColumnContent.astro"
     ]
   }

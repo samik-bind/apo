@@ -6,8 +6,6 @@ export type {
 export { FailuresByType } from "./failures-by-type";
 export {
   conclusionStyle,
-  deriveConclusion,
-  CONCLUSION_STYLE,
   type Conclusion,
   type ConclusionStyle,
   type ConclusionInput,

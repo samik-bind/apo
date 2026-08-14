@@ -864,10 +864,11 @@ export function AgentTasksClient({
   const [views, setViews] = useState<ViewTab[]>([{ id: MAIN_VIEW_ID, label: "Main", model: null, effort: null, since: null }]);
   const [activeViewId, setActiveViewId] = useState<string>(MAIN_VIEW_ID);
   const [facets, setFacets] = useState<RunConfigModelFacet[]>([]);
-  // Per-task stats overlay for the active derived view. null = Main (use the
-  // all-history run_stats already attached to each task by the server).
-  const [viewStats, setViewStats] = useState<Record<string, AgentTaskRunStats> | null>(null);
-  const [viewStatsLoading, setViewStatsLoading] = useState(false);
+  // Per-view stats overlays keyed by the view's filter content, so switching
+  // tabs shows cached stats instantly and never flashes another view's data.
+  // null = Main (use the all-history run_stats already attached to each task
+  // by the server).
+  const [statsByView, setStatsByView] = useState<Record<string, Record<string, AgentTaskRunStats> | null>>({});
   const [addingTab, setAddingTab] = useState(false);
   const activeView = views.find((v) => v.id === activeViewId) ?? views[0]!;
 
@@ -892,22 +893,31 @@ export function AgentTasksClient({
 
   // When the active tab is a derived view, fetch its scoped stats and overlay
   // them. Main reuses the server-provided all-history stats (viewStats = null).
+  const viewIsDerived =
+    activeView.model !== null || activeView.effort !== null || activeView.since !== null;
+  const viewStatsKey = `${activeView.model ?? ""}|${activeView.effort ?? ""}|${activeView.since ?? ""}`;
   useEffect(() => {
-    if (
-      isDemoProject ||
-      (activeView.model === null && activeView.effort === null && activeView.since === null)
-    ) {
-      setViewStats(null);
-      return;
-    }
+    if (isDemoProject || !viewIsDerived) return;
+    const key = viewStatsKey;
     const controller = new AbortController();
-    setViewStatsLoading(true);
     fetchTaskViewStats(projectId, activeView.model, activeView.effort, activeView.since, controller.signal)
-      .then((stats) => { setViewStats(stats); })
-      .catch(() => { /* keep previous overlay on transient failure */ })
-      .finally(() => { if (!controller.signal.aborted) setViewStatsLoading(false); });
+      .then((stats) => {
+        if (controller.signal.aborted) return;
+        setStatsByView((prev) => ({ ...prev, [key]: stats }));
+      })
+      .catch(() => {
+        // Keep any previously loaded overlay for this view on transient
+        // failure; fall back to the server-provided stats when none exists.
+        if (controller.signal.aborted) return;
+        setStatsByView((prev) => (key in prev ? prev : { ...prev, [key]: null }));
+      });
     return () => controller.abort();
-  }, [projectId, activeView.model, activeView.effort, activeView.since, isDemoProject]);
+  }, [projectId, activeView.model, activeView.effort, activeView.since, isDemoProject, viewIsDerived, viewStatsKey]);
+
+  // Derived per active tab: no effect-time syncing, so a tab switch never
+  // renders one frame with the previous view's overlay still applied.
+  const viewStats = viewIsDerived && !isDemoProject ? (statsByView[viewStatsKey] ?? null) : null;
+  const viewStatsLoading = viewIsDerived && !isDemoProject && !(viewStatsKey in statsByView);
 
   // The task table renders against this: original tasks for Main, or the same
   // tasks with view-scoped stats overlaid for a derived tab (tasks with no run
@@ -1239,9 +1249,9 @@ export function AgentTasksClient({
           comparing={comparing}
           isDemoProject={isDemoProject}
           compareOptions={[
-            ...facets
-              .filter((f) => f.model !== activeView.model)
-              .map((f) => ({ model: f.model, label: f.model })),
+            ...facets.flatMap((f) =>
+              f.model !== activeView.model ? [{ model: f.model, label: f.model }] : [],
+            ),
             ...(activeView.model !== null ? [{ model: null as string | null, label: "All models" }] : []),
           ]}
           onClear={() => setSelected(new Set())}

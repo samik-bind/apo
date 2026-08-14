@@ -757,10 +757,27 @@ export function TaskRunDetailBody({
 
   const recordedSourceFile = checks.find((check) => check.source_file)?.source_file;
   const checkIds = checks.map((check) => check.id).join("\u0000");
+
+  // The check-source fetch is fully described by this key (pinned definition
+  // path, commit, checks, recorded source, …). Results are tagged with it so
+  // the render can hide stale data on the first frame after the request
+  // changes, instead of flashing it until an effect resets the state.
+  const definitionPath = taskDefinition?.files[0]?.path ?? null;
+  const sourceRequestKey = [
+    taskId,
+    taskRunId ?? null,
+    definitionPath,
+    checkIds,
+    commitSha ?? null,
+    projectId ?? null,
+    recordedSourceFile ?? null,
+    sourceType,
+  ].join("\u0001");
   const [sourceState, setSourceState] = useState<{
+    key: string;
     data: TaskFileContentResponse | null;
     error: string | null;
-  }>({ data: null, error: null });
+  }>({ key: "", data: null, error: null });
 
   const loadCheckSource = useCallback(
     async (
@@ -804,16 +821,21 @@ export function TaskRunDetailBody({
 
   useEffect(() => {
     if (checks.length === 0) return;
+    // Already holding a successful result for this exact request.
+    if (sourceState.key === sourceRequestKey && sourceState.data !== null) return;
     // SPEC-169: when a Task Definition is pinned, load source through the
     // Run-bound endpoint instead of the retired project-source resolver.
     if (taskDefinition && taskRunId && taskDefinition.files[0]) {
       const controller = new AbortController();
-      setSourceState({ data: null, error: null });
       readTaskDefinitionSource(taskRunId, taskDefinition.files[0].path, controller.signal)
-        .then((source) => setSourceState({ data: source, error: null }))
+        .then((source) => {
+          if (!controller.signal.aborted) {
+            setSourceState({ key: sourceRequestKey, data: source, error: null });
+          }
+        })
         .catch((err) => {
           if (!controller.signal.aborted) {
-            setSourceState({ data: null, error: err instanceof Error ? err.message : "Failed to load definition source" });
+            setSourceState({ key: sourceRequestKey, data: null, error: err instanceof Error ? err.message : "Failed to load definition source" });
           }
         });
       return () => controller.abort();
@@ -823,15 +845,18 @@ export function TaskRunDetailBody({
     if (!projectId || sourceType === "published") return;
     const controller = new AbortController();
 
-    setSourceState({ data: null, error: null });
     void loadCheckSource(
       buildSourceCandidates(recordedSourceFile, taskId),
       controller.signal,
     )
-      .then((data: TaskFileContentResponse) => setSourceState({ data, error: null }))
+      .then((data: TaskFileContentResponse) => {
+        if (controller.signal.aborted) return;
+        setSourceState({ key: sourceRequestKey, data, error: null });
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setSourceState({
+          key: sourceRequestKey,
           data: null,
           error: error instanceof Error
             ? error.message
@@ -853,7 +878,8 @@ export function TaskRunDetailBody({
     taskId,
   ]);
 
-  const checksSource = sourceState.data;
+  // Only expose a result while it belongs to the current request key.
+  const checksSource = sourceState.key === sourceRequestKey ? sourceState.data : null;
 
   const checksPassed = checks.filter((check) => check.pass === true).length;
   const failedCount = checks.length - checksPassed;

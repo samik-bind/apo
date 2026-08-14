@@ -278,14 +278,12 @@ function TimelineBar({
   const isZeroDuration = !isRun && (call!.latency_ms == null || call!.latency_ms === 0);
 
   return (
-    <div
-      className="group flex cursor-pointer flex-row items-center"
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
+      className="group flex cursor-pointer flex-row items-center bg-transparent"
       aria-label="Select trace node"
       style={{ marginLeft: barML }}
       onClick={onSelect}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(); } }}
     >
       {isRun ? (
         <div
@@ -368,7 +366,7 @@ function TimelineBar({
           />
         </div>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -426,7 +424,7 @@ function BarContents({
                     )
                   : undefined;
             return (
-              <span key={i} className="flex items-center gap-1">
+              <span key={`${m.kind}-${m.text}`} className="flex items-center gap-1">
                 {i > 0 && <span className="text-muted-foreground/40">·</span>}
                 <span className={cn("font-mono", heatClass)}>{m.text}</span>
               </span>

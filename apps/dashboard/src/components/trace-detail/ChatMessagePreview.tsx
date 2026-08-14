@@ -67,7 +67,7 @@ export function ChatMessagePreview({ data, preview = "history" }: ChatMessagePre
 
   const renderMessage = (msg: ChatMessage, idx: number) => (
     <MessageBubble
-      key={msg.role === "user" ? `user-${idx}` : `msg-${idx}`}
+      key={`${msg.role === "user" ? "user" : "msg"}-${idx}-${msg.content.slice(0, 24)}`}
       message={msg}
       getNextToolCallNumber={getNextToolCallNumber}
     />

@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getDisplayName, cleanSpanName } from "../TraceTree";
-import {
-  getDisplayName as getDisplayNameFromShared,
-  cleanSpanName as cleanSpanNameFromShared,
-} from "../trace-display";
+import { getDisplayName, cleanSpanName } from "../trace-display";
 import type { TraceObservation } from "../contexts";
 
 function makeCall(overrides: Partial<TraceObservation> & { id: string }): TraceObservation {
@@ -158,18 +154,6 @@ describe("getDisplayName (tree)", () => {
       step_name: "claude_code.something_new",
     });
     expect(getDisplayName(call)).toBe("something_new");
-  });
-});
-
-describe("re-export parity", () => {
-  // TraceTree re-exports getDisplayName / cleanSpanName from trace-display so
-  // existing importers keep working. The two must be the same function.
-  it("TraceTree.getDisplayName === trace-display.getDisplayName", () => {
-    expect(getDisplayName).toBe(getDisplayNameFromShared);
-  });
-
-  it("TraceTree.cleanSpanName === trace-display.cleanSpanName", () => {
-    expect(cleanSpanName).toBe(cleanSpanNameFromShared);
   });
 });
 

@@ -931,7 +931,7 @@ function CheckSourceWithResults({
               readTaskFile(id, candidate, undefined, projectId, sha, controller.signal),
           },
         });
-        if (cancelled) return;
+        if (cancelled || controller.signal.aborted) return;
         const block = extractCheckBlock(source.content, { id: checkId });
         setState({
           status: "ready",

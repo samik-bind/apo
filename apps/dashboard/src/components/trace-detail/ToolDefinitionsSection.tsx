@@ -53,7 +53,7 @@ export function ToolDefinitionsSection({ tools, invocationCounts }: ToolDefiniti
           <div className="space-y-2 px-3 pb-3">
             {sortedTools.map((tool, index) => (
               <ToolDefinitionCard
-                key={tool.function?.name ?? `tool-${index}`}
+                key={tool.function?.name ?? `tool-${index}-${tool.function?.description?.slice(0, 24) ?? ""}`}
                 tool={tool}
                 invocationCount={invocationCounts?.[tool.function?.name ?? ""] ?? 0}
                 expanded={expandedTools[tool.function?.name ?? ""] ?? false}

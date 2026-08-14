@@ -25,10 +25,10 @@ export interface DimensionMixBarProps {
 }
 
 export function DimensionMixBar({ breakdown, className }: DimensionMixBarProps) {
-  const entries = ORDER.filter((k) => (breakdown[k] ?? 0) > 0).map((k) => ({
-    key: k,
-    value: breakdown[k],
-  }));
+  const entries = ORDER.flatMap((k) => {
+    const value = breakdown[k];
+    return (value ?? 0) > 0 ? [{ key: k, value }] : [];
+  });
   const total = entries.reduce((sum, e) => sum + e.value, 0);
   if (total <= 0) return null;
 

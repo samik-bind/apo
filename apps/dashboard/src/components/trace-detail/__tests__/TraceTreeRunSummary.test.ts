@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getRunSummary } from "../TraceTree";
+import { getRunSummary } from "../trace-tree-utils";
 import type { TraceObservation } from "../contexts";
 
 function makeCall(overrides: Partial<TraceObservation> & { id: string }): TraceObservation {

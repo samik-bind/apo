@@ -24,8 +24,10 @@ export function DemoWorkspaceChoice() {
   async function handleDemo() {
     setSeeding(true);
     try {
-      const { backendFetch } = await import("@/lib/backend-fetch");
-      const { getBrowserBackendBaseUrl } = await import("@/lib/config");
+      const [{ backendFetch }, { getBrowserBackendBaseUrl }] = await Promise.all([
+        import("@/lib/backend-fetch"),
+        import("@/lib/config"),
+      ]);
       await backendFetch(`${getBrowserBackendBaseUrl()}/v1/demo/seed`, { method: "POST" });
     } catch {
       // ignore — may already be seeded
@@ -69,7 +71,7 @@ export function DemoWorkspaceChoice() {
       <button
         type="button"
         onClick={handleDemo}
-        className="group flex w-full items-center gap-3 rounded-lg border border-border/60 bg-card p-4 text-left transition-all hover:border-border hover:bg-muted/30"
+        className="group flex w-full items-center gap-3 rounded-lg border border-border/60 bg-card p-4 text-left transition-colors hover:border-border hover:bg-muted/30"
       >
         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
           <Sparkles className="size-4 text-primary" />
@@ -88,7 +90,7 @@ export function DemoWorkspaceChoice() {
         <button
           type="button"
           onClick={() => router.push("/login")}
-          className="group flex w-full items-center gap-3 rounded-lg border border-border/60 bg-card p-4 text-left transition-all hover:border-border hover:bg-muted/30"
+          className="group flex w-full items-center gap-3 rounded-lg border border-border/60 bg-card p-4 text-left transition-colors hover:border-border hover:bg-muted/30"
         >
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/40">
             <ArrowRight className="size-4 text-muted-foreground" />
@@ -105,8 +107,11 @@ export function DemoWorkspaceChoice() {
         <div className="rounded-lg border border-border/60 bg-card p-4">
           {showCreate ? (
             <div className="space-y-2">
+              <label htmlFor="demo-project-name" className="block text-xs text-muted-foreground">
+                Project name
+              </label>
               <input
-                autoFocus
+                id="demo-project-name"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleCreate()}

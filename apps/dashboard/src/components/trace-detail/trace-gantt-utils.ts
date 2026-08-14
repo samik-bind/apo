@@ -4,8 +4,8 @@ import type { LoggedCall } from "./contexts";
 import { getSemanticType } from "./trace-utils";
 import { getDisplayName as sharedGetDisplayName } from "./trace-display";
 
-export const MIN_BAR_WIDTH_PX = 2;
-export const TARGET_TICKS = 8;
+const MIN_BAR_WIDTH_PX = 2;
+const TARGET_TICKS = 8;
 
 export type TimingBounds = { minTs: number; maxTs: number; spanMs: number };
 

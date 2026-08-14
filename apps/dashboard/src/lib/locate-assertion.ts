@@ -51,6 +51,45 @@ function tokenFromId(id: string): string | undefined {
   return undefined;
 }
 
+/** Escape a literal string so it matches itself inside a RegExp. */
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Cached matcher for a `t.<method>(` call on a line: the call must not be
+ * preceded by `.` or a word character (so `foo.t.x(` doesn't match) and may be
+ * preceded by `await`. Methods are bare identifiers (guaranteed by
+ * {@link methodFromId}), so they need no escaping. Cached at module scope
+ * because the same methods recur across assertions, blocks, and renders.
+ */
+const methodRegexCache = new Map<string, RegExp>();
+
+function methodCallRegex(method: string): RegExp {
+  const cached = methodRegexCache.get(method);
+  if (cached) return cached;
+  const re = new RegExp(`(^|[^.\\w])((await\\s+)?)t\\.${method}\\s*\\(`);
+  methodRegexCache.set(method, re);
+  return re;
+}
+
+/**
+ * Cached literal-substring matcher for an assertion's disambiguating token —
+ * equivalent to `line.includes(token)` but hoisted to module scope (with a
+ * cache) so the line-scan loops never rebuild patterns. The token is escaped,
+ * so regex metacharacters in it match themselves. Without the `g` flag the
+ * regex is stateless, so sharing a cached instance is safe.
+ */
+const tokenRegexCache = new Map<string, RegExp>();
+
+function tokenLiteralRegex(token: string): RegExp {
+  const cached = tokenRegexCache.get(token);
+  if (cached) return cached;
+  const re = new RegExp(escapeRegExp(token));
+  tokenRegexCache.set(token, re);
+  return re;
+}
+
 /**
  * Find the line (1-indexed) of the `t.<method>(…)` call matching the
  * assertion id. Prefers a line that also contains the argument token; falls
@@ -65,13 +104,15 @@ export function locateAssertionInBlock(
   const token = tokenFromId(assertionId);
   const lines = blockCode.split("\n");
   // `await t.judge(`, `t.calledTool(`, etc.
-  const methodRe = new RegExp(`(^|[^.\\w])((await\\s+)?)t\\.${method}\\s*\\(`);
+  const methodRe = methodCallRegex(method);
+  // Literal substring matcher for the token, built once before the scan.
+  const tokenRe = token ? tokenLiteralRegex(token) : undefined;
 
   let methodOnlyLine: number | undefined;
   for (let i = 0; i < lines.length; i++) {
     if (!methodRe.test(lines[i])) continue;
-    if (token) {
-      if (lines[i].includes(token)) return i + 1;
+    if (tokenRe) {
+      if (tokenRe.test(lines[i])) return i + 1;
     } else if (methodOnlyLine === undefined) {
       methodOnlyLine = i + 1;
     }
@@ -99,6 +140,14 @@ export function locateAssertionsInBlock(
   // Tracks claimed line numbers alongside `results` for O(1) lookup in loops.
   const claimed = new Set<number>();
 
+  // Token matchers per assertion, built once before the scan loops.
+  // `undefined` marks assertions with no disambiguating token.
+  const tokenMatchers: Array<RegExp | undefined> = [];
+  for (const assertion of assertions) {
+    const token = tokenFromId(assertion.id);
+    tokenMatchers.push(token ? tokenLiteralRegex(token) : undefined);
+  }
+
   // Group assertion indices by method name.
   const methodGroups = new Map<string, number[]>();
   for (let i = 0; i < assertions.length; i++) {
@@ -112,7 +161,7 @@ export function locateAssertionsInBlock(
 
   for (const [method, indices] of methodGroups) {
     // Find every line where `t.<method>(` appears, in order.
-    const methodRe = new RegExp(`(^|[^.\\w])((await\\s+)?)t\\.${method}\\s*\\(`);
+    const methodRe = methodCallRegex(method);
     const matchingLines: number[] = [];
     for (let i = 0; i < lines.length; i++) {
       if (methodRe.test(lines[i])) matchingLines.push(i + 1);
@@ -121,13 +170,18 @@ export function locateAssertionsInBlock(
     // Assign by occurrence: 1st assertion → 1st match, 2nd → 2nd, etc.
     for (let j = 0; j < indices.length; j++) {
       const assertionIdx = indices[j];
-      const token = tokenFromId(assertions[assertionIdx].id);
+      const tokenMatcher = tokenMatchers[assertionIdx];
 
-      if (token) {
-        // Try to match by disambiguating token first.
-        const tokenLine = matchingLines.find(
-          (l) => !claimed.has(l) && lines[l - 1].includes(token),
-        );
+      if (tokenMatcher) {
+        // Try to match by disambiguating token first: the earliest unclaimed
+        // matching line whose text contains the token.
+        let tokenLine: number | undefined;
+        for (const l of matchingLines) {
+          if (!claimed.has(l) && tokenMatcher.test(lines[l - 1])) {
+            tokenLine = l;
+            break;
+          }
+        }
         if (tokenLine !== undefined) claimed.add(tokenLine);
         results[assertionIdx] = tokenLine;
       }

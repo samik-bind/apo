@@ -279,13 +279,13 @@ export function RunsClient({
           </div>
 
           {/* Status dropdown */}
-          <label className="flex shrink-0 items-center gap-1.5">
+          <label htmlFor="runs-status-filter" className="flex shrink-0 items-center gap-1.5">
             <span className="text-[11px] uppercase tracking-wide text-foreground/50">Status</span>
             <Select
               value={urlStatus || "all"}
               onValueChange={(v) => setStatusFilter(v === "all" ? null : v)}
             >
-              <SelectTrigger size="sm" className="h-7 w-[110px] bg-muted/40 text-[12px]">
+              <SelectTrigger id="runs-status-filter" size="sm" className="h-7 w-[110px] bg-muted/40 text-[12px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -299,7 +299,7 @@ export function RunsClient({
           </label>
 
           {/* Model dropdown */}
-          <label className="flex shrink-0 items-center gap-1.5">
+          <label htmlFor="runs-model-filter" className="flex shrink-0 items-center gap-1.5">
             <span className="text-[11px] uppercase tracking-wide text-foreground/50">Model</span>
             <Select
               value={selectedModels.size === 1 ? Array.from(selectedModels)[0] : selectedModels.size > 1 ? "__multi" : "__all"}
@@ -308,7 +308,7 @@ export function RunsClient({
                 else updateUrl({ model: v, effort: null, page: null });
               }}
             >
-              <SelectTrigger size="sm" className="h-7 w-[140px] bg-muted/40 text-[12px]">
+              <SelectTrigger id="runs-model-filter" size="sm" className="h-7 w-[140px] bg-muted/40 text-[12px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -324,7 +324,7 @@ export function RunsClient({
 
           {/* Effort filter — shown only when one model selected with 2+ tiers */}
           {effortOptions.length > 0 && (
-            <label className="flex shrink-0 items-center gap-1.5">
+            <label htmlFor="runs-effort-filter" className="flex shrink-0 items-center gap-1.5">
               <span className="text-[11px] uppercase tracking-wide text-foreground/50">Effort</span>
               <Select
                 value={selectedEfforts.size === 1 ? Array.from(selectedEfforts)[0] : "__any"}
@@ -333,7 +333,7 @@ export function RunsClient({
                   else updateUrl({ effort: v, page: null });
                 }}
               >
-                <SelectTrigger size="sm" className="h-7 w-[100px] bg-muted/40 text-[12px]">
+                <SelectTrigger id="runs-effort-filter" size="sm" className="h-7 w-[100px] bg-muted/40 text-[12px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -349,13 +349,13 @@ export function RunsClient({
           )}
 
           {/* Date filter */}
-          <label className="flex shrink-0 items-center gap-1.5">
+          <label htmlFor="runs-date-filter" className="flex shrink-0 items-center gap-1.5">
             <span className="text-[11px] uppercase tracking-wide text-foreground/50">Date</span>
             <Select
               value={searchParams.get("since") ?? "all"}
               onValueChange={(v) => updateUrl({ since: v === "all" ? null : v, page: null })}
             >
-              <SelectTrigger size="sm" className="h-7 w-[90px] bg-muted/40 text-[12px]">
+              <SelectTrigger id="runs-date-filter" size="sm" className="h-7 w-[90px] bg-muted/40 text-[12px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -668,10 +668,10 @@ function RunsRow({
             <div className="flex items-center gap-2.5">
               <span
                 className={cn("h-2 w-2 shrink-0 rounded-full", s.dot)}
-                role="img"
-                aria-label={s.label}
                 title={s.label}
+                aria-hidden
               />
+              <span className="sr-only">{s.label}</span>
               <Link
                 href={`/project/${projectId}/runs/${batch.id}`}
                 className="truncate text-[14px] font-medium text-foreground hover:text-primary"
@@ -858,11 +858,8 @@ function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTaskRunSumm
       <TableCell className="pl-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
-            <span
-              className={cn("h-2 w-2 shrink-0 rounded-full", statusConfig.dot)}
-              role="img"
-              aria-label={statusConfig.label}
-            />
+            <span className={cn("h-2 w-2 shrink-0 rounded-full", statusConfig.dot)} aria-hidden />
+            <span className="sr-only">{statusConfig.label}</span>
             <Link
               href={`/project/${projectId}/runs/task/${run.id}`}
               className="truncate text-[13px] font-medium text-foreground hover:text-primary"

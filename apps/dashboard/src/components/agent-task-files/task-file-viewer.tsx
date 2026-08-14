@@ -26,7 +26,7 @@ function CodeBlock({ content, language }: { content: string; language: string })
       <pre className="text-xs font-mono leading-6">
         <code>
           {displayLines.map((line, i) => (
-            <div key={`line-${i + 1}`} className="grid grid-cols-[48px_1fr] items-start px-3 hover:bg-muted/10">
+            <div key={`${i + 1}-${line}`} className="grid grid-cols-[48px_1fr] items-start px-3 hover:bg-muted/10">
               <span className="select-none text-right text-[11px] text-muted-foreground/60 pr-4">
                 {i + 1}
               </span>

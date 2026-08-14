@@ -64,6 +64,8 @@ interface DiffHunk {
 function computeLineDiff(original: string, corrected: string): DiffHunk[] {
   const origLines = original.split("\n");
   const corrLines = corrected.split("\n");
+  // Hoisted line→positions index so match lookups avoid O(n) array scans.
+  const corrIndex = indexLines(corrLines);
   const hunks: DiffHunk[] = [];
 
   let oi = 0;
@@ -76,7 +78,7 @@ function computeLineDiff(original: string, corrected: string): DiffHunk[] {
         oi++;
         ci++;
       } else {
-        let matchDist = findNextMatch(origLines, corrLines, oi, ci);
+        let matchDist = findNextMatch(origLines, corrIndex, oi, ci);
         if (matchDist.origSkip === 0 && matchDist.corrSkip === 0) {
           hunks.push({ type: "removed", text: origLines[oi] });
           hunks.push({ type: "added", text: corrLines[ci] });
@@ -114,9 +116,29 @@ function computeLineDiff(original: string, corrected: string): DiffHunk[] {
   return hunks;
 }
 
+/** Map each line to its ascending positions in the list. */
+function indexLines(lines: string[]): Map<string, number[]> {
+  const index = new Map<string, number[]>();
+  for (let i = 0; i < lines.length; i++) {
+    const positions = index.get(lines[i]);
+    if (positions) positions.push(i);
+    else index.set(lines[i], [i]);
+  }
+  return index;
+}
+
+/** First stored position at or after `from`, or -1 — mirrors indexOf(el, from). */
+function firstIndexAtOrAfter(positions: number[] | undefined, from: number): number {
+  if (!positions) return -1;
+  for (const pos of positions) {
+    if (pos >= from) return pos;
+  }
+  return -1;
+}
+
 function findNextMatch(
   origLines: string[],
-  corrLines: string[],
+  corrIndex: Map<string, number[]>,
   oi: number,
   ci: number,
 ): { origSkip: number; corrSkip: number } {
@@ -124,7 +146,7 @@ function findNextMatch(
   let corrSkip = 0;
 
   for (let i = oi + 1; i < Math.min(oi + 5, origLines.length); i++) {
-    const idx = corrLines.indexOf(origLines[i], ci);
+    const idx = firstIndexAtOrAfter(corrIndex.get(origLines[i]), ci);
     if (idx >= ci && idx < ci + 5) {
       origSkip = i - oi;
       corrSkip = idx - ci;

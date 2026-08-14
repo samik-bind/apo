@@ -20,7 +20,7 @@ export interface ConclusionStyle {
   text: string;
 }
 
-export const CONCLUSION_STYLE: Record<Conclusion, ConclusionStyle> = {
+const CONCLUSION_STYLE: Record<Conclusion, ConclusionStyle> = {
   passed: { label: "Passed", dot: "bg-success", text: "text-success" },
   failed: { label: "Failed", dot: "bg-destructive", text: "text-destructive" },
   errored: { label: "Errored", dot: "bg-warning", text: "text-warning" },
@@ -36,7 +36,7 @@ export interface ConclusionInput {
   total: number;
 }
 
-export function deriveConclusion({
+function deriveConclusion({
   status,
   passed,
   failed: _failed,

@@ -41,8 +41,6 @@ export function usdFormat(value: number | null): string {
   return `$${value.toFixed(4)}`;
 }
 
-export const formatCost = usdFormat;
-
 /**
  * Format a micro-USD integer as a USD string.
  * Costs are stored as integers (micro-USD = USD * 1e6); divide by 1e6 first.

@@ -3,7 +3,7 @@ import {
   combineGenerationMessages,
   parseInputMessages,
   synthesizeOutputMessages,
-} from "../GenerationChatPreview";
+} from "../generation-chat-preview-utils";
 
 describe("synthesizeOutputMessages", () => {
   it("wraps a bare array of Anthropic content blocks as an assistant message", () => {

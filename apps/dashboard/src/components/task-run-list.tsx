@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { ArrowUpRight, Clock, DollarSign, GitCompare, Hash } from "lucide-react";
 import { type AgentTaskRunSummary } from "@/lib/agent-task-api";
 import { TraceHomeLink } from "@/components/trace-detail";
@@ -42,7 +42,6 @@ export function TaskRunRow({
   compareDisabled?: boolean;
   onToggleCompare?: () => void;
 }) {
-  const router = useRouter();
   const status = (run.status in TASK_RUN_STATUS ? run.status : "pending") as TaskRunStatus;
   const statusConfig = TASK_RUN_STATUS[status];
   const isDone = status === "passed" || status === "failed";
@@ -53,19 +52,12 @@ export function TaskRunRow({
   const hasCompare = typeof onToggleCompare === "function";
 
   return (
-    <div
-      role="link"
-      tabIndex={0}
+    <Link
+      href={href}
       className="group block w-full px-6 py-3 text-left transition-colors hover:bg-card/60"
       onClick={(event) => {
-        if (shouldIgnoreTaskRunNavigation(event.target)) return;
-        router.push(href);
-      }}
-      onKeyDown={(event) => {
-        if (shouldIgnoreTaskRunNavigation(event.target)) return;
-        if (event.key === "Enter" || event.key === " ") {
+        if (shouldIgnoreTaskRunNavigation(event.target)) {
           event.preventDefault();
-          router.push(href);
         }
       }}
     >
@@ -194,7 +186,7 @@ export function TaskRunRow({
           </span>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
 

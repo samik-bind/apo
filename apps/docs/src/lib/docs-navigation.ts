@@ -59,6 +59,17 @@ export const docsSections: DocsSection[] = [
 ];
 
 /**
+ * Group label → owning section, built once at module scope for O(1) lookups.
+ * On a duplicate label the first section wins, matching `docsSections.find()`.
+ */
+const sectionByGroupLabel = new Map<string, DocsSection>();
+for (const section of docsSections) {
+  for (const group of section.groups) {
+    if (!sectionByGroupLabel.has(group)) sectionByGroupLabel.set(group, section);
+  }
+}
+
+/**
  * Minimal shape of Starlight's built sidebar — enough to find the current
  * page's owning group without depending on Starlight's internal types (which
  * aren't exported from the public surface). The Sidebar override passes its
@@ -113,9 +124,7 @@ export function getDocsSection(
   for (const entry of sidebar) {
     if (entry.type === "group" && entry.entries) {
       if (entry.entries.some((e) => containsCurrent(e, pathname))) {
-        const section = docsSections.find((s) =>
-          s.groups.includes(entry.label ?? ""),
-        );
+        const section = sectionByGroupLabel.get(entry.label ?? "");
         if (section) return section;
       }
     }
@@ -131,8 +140,11 @@ export function filterSidebarBySection(
   sidebar: BuiltSidebarEntry[],
   section: DocsSection,
 ): BuiltSidebarEntry[] {
+  // The section is a parameter (not the static docsSections), so build the
+  // lookup Set once per call instead of scanning the array per entry.
+  const groupLabels = new Set(section.groups);
   return sidebar.filter(
-    (entry) => entry.type === "group" && section.groups.includes(entry.label ?? ""),
+    (entry) => entry.type === "group" && groupLabels.has(entry.label ?? ""),
   );
 }
 

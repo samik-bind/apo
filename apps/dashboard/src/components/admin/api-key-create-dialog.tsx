@@ -30,11 +30,14 @@ interface ApiKeyCreateDialogProps {
   onCreated: (payload: ApiKeyRevealPayload) => void
 }
 
+// Hoisted so the default prop value keeps a stable identity across renders.
+const EMPTY_PROJECTS: Project[] = []
+
 export function ApiKeyCreateDialog({
   open,
   onOpenChange,
   defaultProject,
-  projects = [],
+  projects = EMPTY_PROJECTS,
   onCreated,
 }: ApiKeyCreateDialogProps) {
   // Issue #73: pick a real Project ID from the user's accessible projects

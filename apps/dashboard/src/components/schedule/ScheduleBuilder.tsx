@@ -202,8 +202,10 @@ export function ScheduleBuilder({ value, onChange }: ScheduleBuilderProps) {
                 max={365}
                 value={value.min_interval_days}
                 onChange={(e) => {
-                  const v = Number(e.target.value);
-                  if (!isNaN(v) && v >= 1) {
+                  const raw = e.target.value;
+                  if (raw === "") return;
+                  const v = Number(raw);
+                  if (Number.isFinite(v) && v >= 1) {
                     onChange({ ...value, min_interval_days: v });
                   }
                 }}
@@ -221,8 +223,10 @@ export function ScheduleBuilder({ value, onChange }: ScheduleBuilderProps) {
                 max={365}
                 value={value.max_interval_days}
                 onChange={(e) => {
-                  const v = Number(e.target.value);
-                  if (!isNaN(v) && v >= 1) {
+                  const raw = e.target.value;
+                  if (raw === "") return;
+                  const v = Number(raw);
+                  if (Number.isFinite(v) && v >= 1) {
                     onChange({ ...value, max_interval_days: v });
                   }
                 }}

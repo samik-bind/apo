@@ -10,7 +10,7 @@
  * Download action. Conversation History remains Trace-derived.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Download, FileText, Loader2 } from "lucide-react";
 import { ExpandableJson } from "@/components/ExpandableJson";
 import { ShikiCodeBlock } from "@/components/shiki-code-block";
@@ -48,36 +48,41 @@ function DeliverableRow({ item }: { item: DeliverableSummary }) {
 
 function JsonRow({ item }: { item: DeliverableSummary }) {
   const [expanded, setExpanded] = useState(false);
-  const [body, setBody] = useState<unknown>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  // Bodies and errors are keyed by download URL, and loading is derived from
+  // their absence — so expanding never renders a frame with another URL's
+  // state, and no effect has to reset state on prop change.
+  const [loadedBodies, setLoadedBodies] = useState<Record<string, unknown>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const url = item.download_url;
 
   useEffect(() => {
-    // Only fetch when expanded, and only once per expansion. Collapsing
-    // aborts any in-flight request so no stale state update lands.
-    if (!expanded || body !== null || item.download_url === null) return;
+    // Only fetch when expanded, and only once per URL. Collapsing aborts any
+    // in-flight request so no stale state update lands.
+    if (!expanded || url === null || url in loadedBodies) return;
     const controller = new AbortController();
-    abortRef.current = controller;
-    setLoading(true);
-    setError(null);
-    fetchDeliverableBody(item.download_url, controller.signal)
+    fetchDeliverableBody(url, controller.signal)
       .then((value) => {
-        setBody(value);
-        setLoading(false);
+        if (controller.signal.aborted) return;
+        setLoadedBodies((prev) => ({ ...prev, [url]: value }));
       })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        setError(err instanceof Error ? err.message : "Failed to load");
-        setLoading(false);
+        if (controller.signal.aborted) return;
+        setErrors((prev) => ({
+          ...prev,
+          [url]: err instanceof Error ? err.message : "Failed to load",
+        }));
       });
     return () => {
       controller.abort();
-      abortRef.current = null;
     };
-  }, [expanded, body, item.download_url]);
+  }, [expanded, url, loadedBodies]);
 
-  const isLoading = loading && body === null;
+  const hasBody = url !== null && url in loadedBodies;
+  const body = hasBody && url !== null ? loadedBodies[url] : null;
+  const error =
+    !hasBody && url !== null && url in errors ? errors[url] : null;
+  const isLoading = expanded && url !== null && !hasBody && error === null;
 
   return (
     <div>
@@ -109,8 +114,7 @@ function JsonRow({ item }: { item: DeliverableSummary }) {
           )}
           {!isLoading && error === null && body !== null && (
             <BodyValue value={body} />
-          )}
-        </div>
+          )}        </div>
       )}
     </div>
   );

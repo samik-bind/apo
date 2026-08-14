@@ -15,7 +15,7 @@
  */
 import { TEST_METHOD_NAMES } from "./t-api-methods";
 
-const SORTED_BY_LEN_DESC = [...TEST_METHOD_NAMES].sort((a, b) => b.length - a.length);
+const SORTED_BY_LEN_DESC = TEST_METHOD_NAMES.toSorted((a, b) => b.length - a.length);
 
 /**
  * Regex matching a whole ``t.<method>`` token for any method on

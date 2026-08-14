@@ -104,9 +104,12 @@ function findOpener(
     for (let i = 0; i < lines.length; i++) {
       if (anyCallRe.test(lines[i])) return i;
     }
-    // Looser fallback: opener on its own line, id nearby.
+    // Looser fallback: opener on its own line, id nearby. The id matcher is an
+    // escaped literal regex (built once, before the loop) — equivalent to a
+    // substring check but without re-scanning via `.includes` on every pass.
+    const idLiteralRe = new RegExp(escapeRegex(id));
     for (let i = 0; i < lines.length; i++) {
-      if (openerRe.test(lines[i]) && lines[i].includes(id)) return i;
+      if (openerRe.test(lines[i]) && idLiteralRe.test(lines[i])) return i;
     }
   }
   // 2) Anchor on the failure line: nearest opener at or before it (fallback

@@ -14,6 +14,7 @@ export const metadata = { title: "Schedules" };
 const TASK_ROOT = process.env.NEXT_PUBLIC_AGENT_TASK_ROOT ?? null;
 const EMPTY_TASKS: Awaited<ReturnType<typeof listAgentTasks>> = [];
 const EMPTY_SCHEDULES: Awaited<ReturnType<typeof listAgentTaskSchedules>> = [];
+const EMPTY_EXECUTOR_POOLS: Awaited<ReturnType<typeof listExecutorPools>> = [];
 
 export default async function AgentTaskSchedulesPage({
   params,
@@ -28,7 +29,7 @@ export default async function AgentTaskSchedulesPage({
   let schedules = EMPTY_SCHEDULES;
   let error: string | null = null;
   let taskSource: ProjectTaskSource | null = null;
-  let executorPools: Awaited<ReturnType<typeof listExecutorPools>> = [];
+  let executorPools: Awaited<ReturnType<typeof listExecutorPools>> = EMPTY_EXECUTOR_POOLS;
 
   try {
     [schedules, taskSource, executorPools] = await Promise.all([

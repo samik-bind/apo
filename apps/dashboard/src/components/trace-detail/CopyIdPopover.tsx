@@ -36,7 +36,12 @@ export function CopyIdPopover({ ids, children }: CopyIdPopoverProps) {
   const [open, setOpen] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  // Lazy-init: a Map literal passed straight to useRef would be allocated on
+  // every render even though only the first is ever used.
+  const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>> | null>(null);
+  if (timersRef.current === null) {
+    timersRef.current = new Map<number, ReturnType<typeof setTimeout>>();
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -51,16 +56,19 @@ export function CopyIdPopover({ ids, children }: CopyIdPopoverProps) {
 
   useEffect(() => {
     return () => {
-      for (const t of timersRef.current.values()) clearTimeout(t);
+      const timers = timersRef.current;
+      if (timers) for (const t of timers.values()) clearTimeout(t);
     };
   }, []);
 
   const handleCopy = useCallback((value: string, index: number) => {
     copyToClipboard(value);
     setCopiedIndex(index);
-    const existing = timersRef.current.get(index);
+    const timers = timersRef.current;
+    if (!timers) return;
+    const existing = timers.get(index);
     if (existing) clearTimeout(existing);
-    timersRef.current.set(index, setTimeout(() => setCopiedIndex(null), 2000));
+    timers.set(index, setTimeout(() => setCopiedIndex(null), 2000));
   }, []);
 
   return (
