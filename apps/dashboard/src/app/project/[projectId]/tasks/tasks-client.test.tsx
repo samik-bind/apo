@@ -88,7 +88,7 @@ describe("AgentTasksClient — native source-owned Run", () => {
       />,
     );
     // Select the task first (Run is only gated on selection + permissions,
-    // never on environment state).
+    // never on environment state). First checkbox is the header select-all.
     await user.click(screen.getAllByRole("checkbox")[0]);
 
     const runButtons = screen.getAllByRole("button", { name: /Run/i });
@@ -113,9 +113,8 @@ describe("AgentTasksClient — native source-owned Run", () => {
       />,
     );
 
-    // Open the folder and select both tasks via their checkboxes.
+    // First checkbox is the header select-all; selecting it picks every task.
     const checkboxes = screen.getAllByRole("checkbox");
-    // First checkbox is the folder select-all; selecting it picks every task.
     await user.click(checkboxes[0]);
 
     const runButtons = screen.getAllByRole("button", { name: /Run/i });
@@ -171,8 +170,94 @@ describe("AgentTasksClient — evidence views (SPEC-174)", () => {
         isDemo={false}
       />,
     );
-    // Select-all folder checkbox picks every task, which surfaces the bar.
+    // Header select-all picks every task, which surfaces the bar.
     await user.click(screen.getAllByRole("checkbox")[0]);
     expect(screen.getByRole("button", { name: /Compare/i })).toBeInTheDocument();
+  });
+});
+
+describe("AgentTasksClient — select all", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const multiFolderTasks = [
+    task({ id: "support/refund" }),
+    task({ id: "support/cancel", display_name: "cancel" }),
+    task({ id: "billing/invoice", folder_path: "billing", display_name: "invoice" }),
+  ];
+
+  it("header checkbox selects tasks across every folder at once", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentTasksClient
+        tasks={multiFolderTasks}
+        error={null}
+        taskSource={taskSource}
+        isDemo={false}
+      />,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: "Select all tasks" }));
+
+    // Every folder reports its selection and the toolbar Run label tracks it.
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByText("Run 3 tasks")).toBeInTheDocument();
+  });
+
+  it("shows indeterminate when only part of the visible tasks are selected", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentTasksClient
+        tasks={multiFolderTasks}
+        error={null}
+        taskSource={taskSource}
+        isDemo={false}
+      />,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: "Select refund" }));
+
+    expect(screen.getByRole("checkbox", { name: "Select all tasks" })).toHaveAttribute(
+      "data-state",
+      "indeterminate",
+    );
+  });
+
+  it("header checkbox clears the whole selection when everything is selected", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentTasksClient
+        tasks={multiFolderTasks}
+        error={null}
+        taskSource={taskSource}
+        isDemo={false}
+      />,
+    );
+
+    const selectAll = screen.getByRole("checkbox", { name: "Select all tasks" });
+    await user.click(selectAll);
+    await user.click(selectAll);
+
+    expect(screen.queryByRole("button", { name: /Compare/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Run selected")).toBeInTheDocument();
+  });
+
+  it("header checkbox only selects tasks visible under the current filter", async () => {
+    const user = userEvent.setup();
+    render(
+      <AgentTasksClient
+        tasks={multiFolderTasks}
+        error={null}
+        taskSource={taskSource}
+        isDemo={false}
+      />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Filter tasks..."), "invoice");
+    await user.click(screen.getByRole("checkbox", { name: "Select all tasks" }));
+
+    expect(screen.getByText("Run 1 task")).toBeInTheDocument();
   });
 });

@@ -80,6 +80,26 @@ export function TaskFolderSelect({
     onSelectedChange(next);
   };
 
+  // Root-level select-all: fills up / clears every task visible under the
+  // current filter, leaving ids selected outside the filter untouched.
+  const visibleTaskIds = useMemo(
+    () => filtered.flatMap((f) => f.tasks.map((t) => t.id)),
+    [filtered],
+  );
+  const visibleSelectedCount = visibleTaskIds.filter((id) => selected.has(id)).length;
+  const selectAllState: FolderCheckState =
+    visibleSelectedCount === 0 ? "none"
+    : visibleSelectedCount === visibleTaskIds.length ? "all"
+    : "some";
+
+  const toggleSelectAll = () => {
+    const allSelected = visibleTaskIds.every((id) => selected.has(id));
+    const next = new Set(selected);
+    if (allSelected) visibleTaskIds.forEach((id) => next.delete(id));
+    else visibleTaskIds.forEach((id) => next.add(id));
+    onSelectedChange(next);
+  };
+
   const toggleExpand = (id: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -148,9 +168,9 @@ export function TaskFolderSelect({
         </div>
       )}
 
-      <div className="rounded-lg border border-border/60">
+      <div className="border border-border/60">
         {filtered.length === 0 ? (
-          <div className="m-4 rounded-md border border-dashed border-border bg-muted/10 p-6 text-center text-[13px] text-muted-foreground">
+          <div className="m-4 border border-dashed border-border bg-muted/10 p-6 text-center text-[13px] text-muted-foreground">
             {query ? (
               <>
                 No tasks match{" "}
@@ -161,118 +181,139 @@ export function TaskFolderSelect({
             )}
           </div>
         ) : (
-          filtered.map((folder) => {
-            const state = folderState(folder);
-            const isOpen = expanded.has(folder.id) || !!query;
-            const selectedCount = folder.tasks.filter((t) =>
-              selected.has(t.id),
-            ).length;
+          <>
+            <div className="flex items-center gap-3 border-b border-border px-2 py-2">
+              <Checkbox
+                checked={
+                  selectAllState === "all"
+                    ? true
+                    : selectAllState === "some"
+                      ? "indeterminate"
+                      : false
+                }
+                onCheckedChange={toggleSelectAll}
+                aria-label="Select all tasks"
+              />
+              <span className="font-mono text-[13px] font-medium text-muted-foreground">
+                All tasks
+              </span>
+              <span className="bg-border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                {visibleTaskIds.length} tasks
+              </span>
+            </div>
+            {filtered.map((folder) => {
+              const state = folderState(folder);
+              const isOpen = expanded.has(folder.id) || !!query;
+              const selectedCount = folder.tasks.filter((t) =>
+                selected.has(t.id),
+              ).length;
 
-            return (
-              <div
-                key={folder.id}
-                className="border-b border-border last:border-b-0"
-              >
+              return (
                 <div
-                  className={cn(
-                    "group flex items-center gap-3 px-2 py-2 transition-colors",
-                    state !== "none" ? "bg-card/40" : "hover:bg-muted/10",
-                  )}
+                  key={folder.id}
+                  className="border-b border-border last:border-b-0"
                 >
-                  <Checkbox
-                    checked={
-                      state === "all"
-                        ? true
-                        : state === "some"
-                          ? "indeterminate"
-                          : false
-                    }
-                    onCheckedChange={() => toggleFolder(folder)}
-                    aria-label={`Select all in ${folder.id}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => toggleExpand(folder.id)}
-                    className="grid h-5 w-5 place-items-center rounded text-muted-foreground/60 hover:bg-border hover:text-foreground/70"
-                    aria-label={isOpen ? "Collapse" : "Expand"}
+                  <div
+                    className={cn(
+                      "group flex items-center gap-3 px-2 py-2 transition-colors",
+                      state !== "none" ? "bg-card/40" : "hover:bg-muted/10",
+                    )}
                   >
-                    <ChevronRight
-                      className={cn(
-                        "h-3.5 w-3.5 transition-transform",
-                        isOpen && "rotate-90",
-                      )}
+                    <Checkbox
+                      checked={
+                        state === "all"
+                          ? true
+                          : state === "some"
+                            ? "indeterminate"
+                            : false
+                      }
+                      onCheckedChange={() => toggleFolder(folder)}
+                      aria-label={`Select all in ${folder.id}`}
                     />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleExpand(folder.id)}
-                    className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-                  >
-                    {isOpen ? (
-                      <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    )}
-                    <span className="truncate font-mono text-[13px] font-medium">
-                      {folder.id}
-                    </span>
-                    <span className="rounded bg-border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
-                      {folder.tasks.length} tasks
-                    </span>
-                    {selectedCount > 0 && (
-                      <span className="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] font-medium text-black">
-                        {selectedCount} selected
+                    <button
+                      type="button"
+                      onClick={() => toggleExpand(folder.id)}
+                      className="grid h-5 w-5 place-items-center text-muted-foreground/60 hover:bg-border hover:text-foreground/70"
+                      aria-label={isOpen ? "Collapse" : "Expand"}
+                    >
+                      <ChevronRight
+                        className={cn(
+                          "h-3.5 w-3.5 transition-transform",
+                          isOpen && "rotate-90",
+                        )}
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleExpand(folder.id)}
+                      className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+                    >
+                      {isOpen ? (
+                        <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="truncate font-mono text-[13px] font-medium">
+                        {folder.id}
                       </span>
-                    )}
-                  </button>
-                </div>
+                      <span className="bg-border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                        {folder.tasks.length} tasks
+                      </span>
+                      {selectedCount > 0 && (
+                        <span className="bg-white px-1.5 py-0.5 font-mono text-[11px] font-medium text-black">
+                          {selectedCount} selected
+                        </span>
+                      )}
+                    </button>
+                  </div>
 
-                {isOpen && (
-                  <div className="pb-1">
-                    {folder.tasks.map((task) => {
-                      const isSel = selected.has(task.id);
-                      return (
-                        <button
-                          key={task.id}
-                          type="button"
-                          onClick={() => toggleTask(task.id)}
-                          aria-pressed={isSel}
-                          className={cn(
-                            "group/row flex w-full items-center gap-3 py-2 pl-10 pr-3 text-left transition-colors",
-                            isSel ? "bg-muted/20" : "hover:bg-muted/10",
-                          )}
-                        >
-                          <span
-                            aria-hidden
+                  {isOpen && (
+                    <div className="pb-1">
+                      {folder.tasks.map((task) => {
+                        const isSel = selected.has(task.id);
+                        return (
+                          <button
+                            key={task.id}
+                            type="button"
+                            onClick={() => toggleTask(task.id)}
+                            aria-pressed={isSel}
                             className={cn(
-                              "flex size-4 shrink-0 items-center justify-center rounded border transition-colors",
-                              isSel
-                                ? "border-primary bg-primary text-primary-foreground"
-                                : "border-foreground/40 bg-background shadow-sm hover:border-foreground/60",
+                              "group/row flex w-full items-center gap-3 py-2 pl-10 pr-3 text-left transition-colors",
+                              isSel ? "bg-muted/20" : "hover:bg-muted/10",
                             )}
                           >
-                            {isSel && <CheckIcon className="size-3.5" />}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div
+                            <span
+                              aria-hidden
                               className={cn(
-                                "truncate text-[13px]",
+                                "flex size-4 shrink-0 items-center justify-center border transition-colors",
                                 isSel
-                                  ? "font-medium text-foreground"
-                                  : "text-foreground/80",
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-foreground/40 bg-background shadow-sm hover:border-foreground/60",
                               )}
                             >
-                              {task.display_name}
+                              {isSel && <CheckIcon className="size-3.5" />}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div
+                                className={cn(
+                                  "truncate text-[13px]",
+                                  isSel
+                                    ? "font-medium text-foreground"
+                                    : "text-foreground/80",
+                                )}
+                              >
+                                {task.display_name}
+                              </div>
                             </div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </>
         )}
       </div>
     </div>

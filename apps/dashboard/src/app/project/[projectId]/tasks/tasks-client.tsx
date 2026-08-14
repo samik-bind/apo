@@ -644,6 +644,33 @@ function TasksToolbar({
   );
 }
 
+// Root-level select-all for the folder list. Operates on the same visible
+// task set as the folder checkboxes below it (respects search + status
+// filters), so with no filters it is "every task in the project".
+function SelectAllRow({
+  state,
+  taskCount,
+  onToggle,
+}: {
+  state: "none" | "some" | "all";
+  taskCount: number;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 border-b border-border px-2 py-2">
+      <Checkbox
+        checked={state === "all" ? true : state === "some" ? "indeterminate" : false}
+        onCheckedChange={onToggle}
+        aria-label="Select all tasks"
+      />
+      <span className="font-mono text-[13px] font-medium text-muted-foreground">All tasks</span>
+      <span className="bg-border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+        {taskCount} tasks
+      </span>
+    </div>
+  );
+}
+
 function FolderRow({
   folder,
   state,
@@ -942,6 +969,29 @@ export function AgentTasksClient({
     });
   };
 
+  // Every task currently visible under the active filters; the root
+  // select-all checkbox fills up / clears exactly this set, leaving ids
+  // selected outside the filter untouched (same rule as folder toggles).
+  const visibleTaskIds = useMemo(
+    () => filtered.flatMap((f) => f.tasks.map((t) => t.id)),
+    [filtered],
+  );
+  const visibleSelectedCount = visibleTaskIds.filter((id) => selected.has(id)).length;
+  const selectAllState: "none" | "some" | "all" =
+    visibleSelectedCount === 0 ? "none"
+    : visibleSelectedCount === visibleTaskIds.length ? "all"
+    : "some";
+
+  const toggleSelectAll = () => {
+    const allSelected = visibleTaskIds.every((id) => selected.has(id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSelected) visibleTaskIds.forEach((id) => next.delete(id));
+      else visibleTaskIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
   const toggleExpand = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -1154,6 +1204,13 @@ export function AgentTasksClient({
 
       {/* Folder list */}
       <div className="px-6 py-1">
+        {filtered.length > 0 && (
+          <SelectAllRow
+            state={selectAllState}
+            taskCount={visibleTaskIds.length}
+            onToggle={toggleSelectAll}
+          />
+        )}
         {filtered.map((folder) => (
           <FolderRow
             key={folder.id}
