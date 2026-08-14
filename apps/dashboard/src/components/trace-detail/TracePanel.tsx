@@ -42,8 +42,12 @@ export function TracePanel() {
 
     try {
       const data = await getTraceDetail(runId, projectId ?? undefined);
-      if (controller.signal.aborted) return;
-      setRun(data);
+      // A newer fetch may have aborted this controller while we awaited.
+      // Guard the update (rather than early-returning) so the finally block
+      // below still runs the same cleanup on every path.
+      if (!controller.signal.aborted) {
+        setRun(data);
+      }
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Failed to fetch trace details");

@@ -15,12 +15,11 @@ export default async function ProjectLayout({
   children: React.ReactNode;
   params: Promise<{ projectId: string }>;
 }) {
-  const { projectId } = await params;
+  const [{ projectId }, headerList] = await Promise.all([params, headers()]);
 
   // Social media crawlers can't authenticate. Let them through so the
   // page's og:image meta tags appear in the HTML; app-level auth still
   // protects actual data — the overview fetch fails gracefully.
-  const headerList = await headers();
   if (CRAWLER_UA.test(headerList.get("user-agent") ?? "")) {
     return <DashboardShell projectId={projectId}>{children}</DashboardShell>;
   }
@@ -29,19 +28,27 @@ export default async function ProjectLayout({
   // The backend distinguishes 401 (not authenticated), 403 (not a member),
   // and 404 (project missing); we translate each into the matching
   // full-page state instead of letting individual pages re-derive it.
+  let accessError: unknown = null;
   try {
     await getProject(projectId);
   } catch (error) {
-    if (isUnauthorized(error)) {
+    accessError = error;
+  }
+
+  // redirect()/notFound() throw control-flow errors, so they must be called
+  // outside the try/catch — a catch block would swallow them and the
+  // redirect/404 would silently fail.
+  if (accessError !== null) {
+    if (isUnauthorized(accessError)) {
       redirect("/login");
     }
-    if (isNotFoundStatus(error)) {
+    if (isNotFoundStatus(accessError)) {
       notFound();
     }
-    if (isForbidden(error)) {
+    if (isForbidden(accessError)) {
       return <ProjectAccessDenied projectId={projectId} />;
     }
-    throw error;
+    throw accessError;
   }
 
   return <DashboardShell projectId={projectId}>{children}</DashboardShell>;

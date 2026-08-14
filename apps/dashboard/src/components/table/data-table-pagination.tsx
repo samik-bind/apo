@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { type Table } from "@tanstack/react-table";
 import {
   ChevronLeft,
@@ -60,7 +60,7 @@ export function DataTablePagination<TData>({
     }
   }, [table, pageCount]);
 
-  const handlePageNavigation = (newValue: string) => {
+  const handlePageNavigation = useCallback((newValue: string) => {
     if (newValue === "") {
       table.setPageIndex(0);
       setInputState(1);
@@ -83,17 +83,21 @@ export function DataTablePagination<TData>({
     table.setPageIndex(newPageIndex);
     setInputState(newPageIndex + 1);
     onChange?.(newPageIndex, table.getState().pagination.pageSize);
-  };
+  }, [table, currentPage, pageCount, onChange]);
 
-  const handlePageSizeChange = (newPageSize: number) => {
+  const handlePageSizeChange = useCallback((newPageSize: number) => {
     table.setPageSize(newPageSize);
     onChange?.(table.getState().pagination.pageIndex, newPageSize);
-  };
+  }, [table, onChange]);
 
-  const handlePageIndexChange = (newPageIndex: number) => {
+  const handlePageIndexChange = useCallback((newPageIndex: number) => {
     table.setPageIndex(newPageIndex);
     onChange?.(newPageIndex, table.getState().pagination.pageSize);
-  };
+  }, [table, onChange]);
+
+  const handlePageSizeValueChange = useCallback((value: string) => {
+    handlePageSizeChange(Number(value));
+  }, [handlePageSizeChange]);
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 px-2 min-w-max">
@@ -115,9 +119,7 @@ export function DataTablePagination<TData>({
           </p>
           <Select
             value={`${table.getState().pagination.pageSize}`}
-            onValueChange={(value) => {
-              handlePageSizeChange(Number(value));
-            }}
+            onValueChange={handlePageSizeValueChange}
           >
             <SelectTrigger className="h-8 w-[70px]">
               <SelectValue placeholder={table.getState().pagination.pageSize} />

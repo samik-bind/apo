@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, MessageSquarePlus, X } from "lucide-react";
 import { createComment } from "@/lib/comments-api";
@@ -40,9 +40,19 @@ export function InlineCommentBubble({
     left: `${pending.startRect.left + pending.startRect.width + 8}px`,
   } as const;
 
-  useEffect(() => {
-    if (open) inputRef.current?.focus();
-  }, [open]);
+  // Opening is a user event: flip the state and focus the textarea as part
+  // of that event, instead of reacting to our own `open` state in an effect.
+  // The textarea mounts on the render that follows, so focus it once it
+  // exists via rAF.
+  const handleOpen = useCallback(() => {
+    setOpen(true);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, []);
+
+  const handleCancel = useCallback(() => {
+    setOpen(false);
+    clearSelection();
+  }, [clearSelection]);
 
   // Keep the bubble on-screen when the selection is near the right edge.
   useEffect(() => {
@@ -54,7 +64,7 @@ export function InlineCommentBubble({
     return () => cancelAnimationFrame(id);
   }, [open, pending]);
 
-  async function handleSubmit() {
+  const handleSubmit = useCallback(async () => {
     const trimmed = content.trim();
     if (!trimmed || submitting) return;
     setSubmitting(true);
@@ -84,7 +94,7 @@ export function InlineCommentBubble({
     } finally {
       setSubmitting(false);
     }
-  }
+  }, [content, submitting, objectId, objectType, projectId, pending, clearSelection, onSubmitted]);
 
   if (!open) {
     return (
@@ -97,7 +107,7 @@ export function InlineCommentBubble({
           type="button"
           size="xs"
           variant="default"
-          onClick={() => setOpen(true)}
+          onClick={handleOpen}
           aria-label="Comment on selection"
           className="shadow-md"
         >
@@ -119,10 +129,7 @@ export function InlineCommentBubble({
         </span>
         <button
           type="button"
-          onClick={() => {
-            setOpen(false);
-            clearSelection();
-          }}
+          onClick={handleCancel}
           className="text-muted-foreground hover:text-foreground"
           aria-label="Cancel comment"
         >
@@ -145,8 +152,7 @@ export function InlineCommentBubble({
           }
           if (e.key === "Escape") {
             e.preventDefault();
-            setOpen(false);
-            clearSelection();
+            handleCancel();
           }
         }}
         rows={3}

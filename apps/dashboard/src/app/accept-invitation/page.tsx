@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useReducer } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { signIn, useSession } from "next-auth/react"
@@ -78,43 +78,102 @@ type ViewState =
   | { kind: "accepted"; projectId: string }
   | { kind: "error"; message: string }
 
+// One state machine for the whole flow: the current view plus the
+// create-account form fields and submission status that travel with it.
+type InvitationState = {
+  view: ViewState
+  name: string
+  password: string
+  confirmPassword: string
+  submitting: boolean
+  formError: string | null
+}
+
+type InvitationAction =
+  | { type: "PREVIEW_LOADING" }
+  | { type: "PREVIEW_INVALID"; reason: string | null }
+  | { type: "PREVIEW_LOADED"; preview: InvitationTokenPreview }
+  | { type: "PREVIEW_FAILED" }
+  | { type: "SET_FIELD"; field: "name" | "password" | "confirmPassword"; value: string }
+  | { type: "SUBMIT_START" }
+  | { type: "SUBMIT_ERROR"; message: string }
+  | { type: "ACCEPTED"; projectId: string }
+
+const initialInvitationState: InvitationState = {
+  view: { kind: "loading" },
+  name: "",
+  password: "",
+  confirmPassword: "",
+  submitting: false,
+  formError: null,
+}
+
+function invitationReducer(
+  state: InvitationState,
+  action: InvitationAction,
+): InvitationState {
+  switch (action.type) {
+    case "PREVIEW_LOADING":
+      return { ...state, view: { kind: "loading" } }
+    case "PREVIEW_INVALID":
+      return { ...state, view: { kind: "invalid", reason: action.reason } }
+    case "PREVIEW_LOADED":
+      return {
+        ...state,
+        view: {
+          kind: action.preview.requires_account_creation
+            ? "create-account"
+            : "existing-account",
+          preview: action.preview,
+        },
+      }
+    case "PREVIEW_FAILED":
+      return { ...state, view: { kind: "error", message: "Unable to reach server." } }
+    case "SET_FIELD":
+      if (action.field === "name") return { ...state, name: action.value }
+      if (action.field === "password") return { ...state, password: action.value }
+      return { ...state, confirmPassword: action.value }
+    case "SUBMIT_START":
+      return { ...state, submitting: true, formError: null }
+    case "SUBMIT_ERROR":
+      return { ...state, submitting: false, formError: action.message }
+    case "ACCEPTED":
+      return {
+        ...state,
+        submitting: false,
+        view: { kind: "accepted", projectId: action.projectId },
+      }
+  }
+}
+
 function AcceptInvitationForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const token = searchParams.get("token") ?? ""
   const { data: session, status: sessionStatus } = useSession()
 
-  const [view, setView] = useState<ViewState>({ kind: "loading" })
-
-  // Create-account form state
-  const [name, setName] = useState("")
-  const [password, setPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
-  const [submitting, setSubmitting] = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
+  const [state, dispatch] = useReducer(invitationReducer, initialInvitationState)
+  const { view, name, password, confirmPassword, submitting, formError } = state
 
   useEffect(() => {
     if (!token) {
-      setView({ kind: "invalid", reason: "missing" })
+      dispatch({ type: "PREVIEW_INVALID", reason: "missing" })
       return
     }
     let cancelled = false
-    setView({ kind: "loading" })
+    dispatch({ type: "PREVIEW_LOADING" })
     previewInvitationToken(token)
       .then((preview) => {
         if (cancelled) return
         if (!preview.valid) {
-          setView({ kind: "invalid", reason: preview.reason })
+          dispatch({ type: "PREVIEW_INVALID", reason: preview.reason })
           return
         }
-        setView({
-          kind: preview.requires_account_creation ? "create-account" : "existing-account",
-          preview,
-        })
+        dispatch({ type: "PREVIEW_LOADED", preview })
       })
       .catch(() => {
         if (!cancelled) {
-          setView({ kind: "error", message: "Unable to reach server." })
+          dispatch({ type: "PREVIEW_FAILED" })
         }
       })
     return () => {
@@ -128,15 +187,27 @@ function AcceptInvitationForm() {
   const canSubmitCreate =
     allChecksPassed && passwordsMatch && name.trim().length > 0
 
+  const handleNameChange = useCallback(
+    (value: string) => dispatch({ type: "SET_FIELD", field: "name", value }),
+    [],
+  )
+  const handlePasswordChange = useCallback(
+    (value: string) => dispatch({ type: "SET_FIELD", field: "password", value }),
+    [],
+  )
+  const handleConfirmPasswordChange = useCallback(
+    (value: string) => dispatch({ type: "SET_FIELD", field: "confirmPassword", value }),
+    [],
+  )
+
   async function handleCreateAccount(e: React.FormEvent) {
     e.preventDefault()
     if (view.kind !== "create-account") return
-    setFormError(null)
     if (password !== confirmPassword) {
-      setFormError("Passwords do not match")
+      dispatch({ type: "SUBMIT_ERROR", message: "Passwords do not match" })
       return
     }
-    setSubmitting(true)
+    dispatch({ type: "SUBMIT_START" })
     try {
       const result = await acceptInvitationCreateAccount({
         token,
@@ -151,29 +222,33 @@ function AcceptInvitationForm() {
         redirectTo: `/project/${result.project_id}`,
       })
       if (signInResult?.error) {
-        setFormError("Account created, but sign-in failed. Please log in.")
+        dispatch({
+          type: "SUBMIT_ERROR",
+          message: "Account created, but sign-in failed. Please log in.",
+        })
         router.push("/login")
         return
       }
-      setView({ kind: "accepted", projectId: result.project_id })
+      dispatch({ type: "ACCEPTED", projectId: result.project_id })
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to accept invitation")
-    } finally {
-      setSubmitting(false)
+      dispatch({
+        type: "SUBMIT_ERROR",
+        message: err instanceof Error ? err.message : "Failed to accept invitation",
+      })
     }
   }
 
   async function handleAcceptExistingAccount() {
     if (view.kind !== "existing-account") return
-    setFormError(null)
-    setSubmitting(true)
+    dispatch({ type: "SUBMIT_START" })
     try {
       const result = await acceptInvitationExistingAccount(token)
-      setView({ kind: "accepted", projectId: result.project_id })
+      dispatch({ type: "ACCEPTED", projectId: result.project_id })
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to accept invitation")
-    } finally {
-      setSubmitting(false)
+      dispatch({
+        type: "SUBMIT_ERROR",
+        message: err instanceof Error ? err.message : "Failed to accept invitation",
+      })
     }
   }
 
@@ -272,11 +347,11 @@ function AcceptInvitationForm() {
     <CreateAccountForm
       preview={preview}
       name={name}
-      onNameChange={setName}
+      onNameChange={handleNameChange}
       password={password}
-      onPasswordChange={setPassword}
+      onPasswordChange={handlePasswordChange}
       confirmPassword={confirmPassword}
-      onConfirmPasswordChange={setConfirmPassword}
+      onConfirmPasswordChange={handleConfirmPasswordChange}
       passwordsMatch={passwordsMatch}
       canSubmitCreate={canSubmitCreate}
       formError={formError}

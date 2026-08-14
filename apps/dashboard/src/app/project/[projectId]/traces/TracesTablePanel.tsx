@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, memo } from "react";
+import { useState, useEffect, useCallback, useMemo, memo, useReducer, useRef } from "react";
 import type { Row } from "@tanstack/react-table";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSelection } from "@/components/trace-detail";
@@ -94,6 +94,33 @@ const TABLE_PREFERENCES_STORAGE_KEY = "trace-table-preferences";
 
 const DEFAULT_COLUMN_PINNING = {
   left: ["select", "bookmark", "status", "name"],
+};
+
+// Bulk-action dialog: which action is pending and whether its confirm
+// dialog is open transition together, so they share one reducer.
+type ActionDialogState = { action: TableAction | null; isOpen: boolean };
+type ActionDialogAction =
+  | { type: "OPEN"; action: TableAction }
+  | { type: "CLOSE" };
+
+function actionDialogReducer(
+  state: ActionDialogState,
+  action: ActionDialogAction,
+): ActionDialogState {
+  switch (action.type) {
+    case "OPEN":
+      return { action: action.action, isOpen: true };
+    case "CLOSE":
+      return { action: null, isOpen: false };
+  }
+}
+
+// Client-confirmed bookmark states (from the PATCH response), anchored to the
+// `traces` snapshot they were confirmed against: a fresh `traces` reference
+// makes the overrides drop out automatically (derived during render).
+type BookmarkState = {
+  traces: TraceSummary[];
+  overrides: Record<string, boolean>;
 };
 
 const TraceTableRow = memo(function TraceTableRow({
@@ -384,27 +411,33 @@ export function TracesTablePanel({ projectId, traces, error, pagination }: Trace
   const searchParams = useSearchParams();
 
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-  const [selectedAction, setSelectedAction] = useState<TableAction | null>(null);
-  const [isActionDialogOpen, setIsActionDialogOpen] = useState(false);
+  const [actionDialog, dispatchActionDialog] = useReducer(actionDialogReducer, {
+    action: null,
+    isOpen: false,
+  });
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(0);
   const [searchQuery, setSearchQuery] = useState("");
-  // Client-confirmed bookmark states (from the PATCH response) layered over
-  // the server-fetched rows; cleared whenever a fresh `traces` prop arrives.
-  const [bookmarkOverrides, setBookmarkOverrides] = useState<Record<string, boolean>>({});
-  const [prevTraces, setPrevTraces] = useState(traces);
-  if (traces !== prevTraces) {
-    setPrevTraces(traces);
-    setBookmarkOverrides({});
-  }
+  const [bookmarkState, setBookmarkState] = useState<BookmarkState>({
+    traces,
+    overrides: {},
+  });
+  // Late PATCH responses anchor to the newest snapshot via this ref.
+  const latestTraces = useRef(traces);
+  useEffect(() => {
+    latestTraces.current = traces;
+  }, [traces]);
   const displayedTraces = useMemo(() => {
-    if (Object.keys(bookmarkOverrides).length === 0) return traces;
+    // Overrides anchored to a superseded snapshot drop out automatically.
+    const overrides =
+      bookmarkState.traces === traces ? bookmarkState.overrides : null;
+    if (!overrides || Object.keys(overrides).length === 0) return traces;
     return traces.map((t) =>
-      bookmarkOverrides[t.id] !== undefined
-        ? { ...t, bookmarked: bookmarkOverrides[t.id] }
+      overrides[t.id] !== undefined
+        ? { ...t, bookmarked: overrides[t.id] }
         : t,
     );
-  }, [traces, bookmarkOverrides]);
+  }, [bookmarkState, traces]);
   const {
     preferences,
     setColumnVisibility,
@@ -493,18 +526,18 @@ export function TracesTablePanel({ projectId, traces, error, pagination }: Trace
   });
 
   const handleActionSelect = (action: TableAction) => {
-    setSelectedAction(action);
-    setIsActionDialogOpen(true);
+    dispatchActionDialog({ type: "OPEN", action });
   };
 
   const handleActionConfirm = async () => {
-    if (!selectedAction) return;
+    const action = actionDialog.action;
+    if (!action) return;
     const selectedIds = Object.keys(rowSelection);
     try {
-      if (selectedAction.id === "delete") {
+      if (action.id === "delete") {
         await bulkDeleteTraces(selectedIds);
         window.location.reload();
-      } else if (selectedAction.id === "export") {
+      } else if (action.id === "export") {
         const result = await exportTraces(selectedIds);
         const blob = new Blob([result.data], { type: result.media_type });
         const url = window.URL.createObjectURL(blob);
@@ -525,12 +558,20 @@ export function TracesTablePanel({ projectId, traces, error, pagination }: Trace
 
   // The PATCH response already carries the new state — applying it locally
   // avoids re-running the entire server page (list + filter options +
-  // sessions) to flip one boolean. Overrides reset whenever fresh server
-  // data arrives (see displayedTraces below).
+  // sessions) to flip one boolean. Overrides are anchored to a `traces`
+  // snapshot and drop out whenever fresh server data arrives (see
+  // displayedTraces below).
   const handleToggleBookmark = useCallback(async (runId: string) => {
     try {
       const result = await toggleBookmark(runId);
-      setBookmarkOverrides((prev) => ({ ...prev, [result.id]: result.bookmarked }));
+      const currentTraces = latestTraces.current;
+      setBookmarkState((prev) => ({
+        traces: currentTraces,
+        overrides: {
+          ...(prev.traces === currentTraces ? prev.overrides : {}),
+          [result.id]: result.bookmarked,
+        },
+      }));
     } catch (err) {
       console.error("Failed to toggle bookmark:", err);
     }
@@ -626,14 +667,11 @@ export function TracesTablePanel({ projectId, traces, error, pagination }: Trace
         />
       )}
 
-      {selectedAction && (
+      {actionDialog.action && (
         <TableActionDialog
-          isOpen={isActionDialogOpen}
-          onClose={() => {
-            setIsActionDialogOpen(false);
-            setSelectedAction(null);
-          }}
-          action={selectedAction}
+          isOpen={actionDialog.isOpen}
+          onClose={() => dispatchActionDialog({ type: "CLOSE" })}
+          action={actionDialog.action}
           selectedIds={Object.keys(rowSelection)}
           itemName="trace"
           onConfirm={handleActionConfirm}

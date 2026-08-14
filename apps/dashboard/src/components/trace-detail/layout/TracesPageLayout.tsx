@@ -10,7 +10,7 @@ import { TraceActiveFilters } from "@/components/trace-active-filters";
 import { useFilters } from "@/hooks/use-filters";
 import { useRouter } from "next/navigation";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { Suspense, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, type ReactNode, useCallback, useSyncExternalStore } from "react";
 
 export interface TracesPageLayoutProps {
   children: ReactNode;
@@ -18,6 +18,53 @@ export interface TracesPageLayoutProps {
 }
 
 const CSV_REMOVE_KEYS = ["environment", "status", "user_id", "session_id"];
+
+const FILTERS_VISIBLE_STORAGE_KEY = "traces-filters-visible";
+const filtersVisibleListeners = new Set<() => void>();
+
+function readStoredFiltersVisible(): string | null {
+  try {
+    return window.localStorage.getItem(FILTERS_VISIBLE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function subscribeToStoredFiltersVisible(onChange: () => void) {
+  filtersVisibleListeners.add(onChange);
+  // storage covers other tabs; same-tab toggles notify listeners directly.
+  window.addEventListener("storage", onChange);
+  return () => {
+    filtersVisibleListeners.delete(onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+function writeStoredFiltersVisible(next: boolean) {
+  try {
+    window.localStorage.setItem(FILTERS_VISIBLE_STORAGE_KEY, String(next));
+  } catch {
+    // localStorage unavailable — the notification below still lets the
+    // in-flight readers re-evaluate.
+  }
+  filtersVisibleListeners.forEach((notify) => notify());
+}
+
+/**
+ * Filters-panel visibility, backed by localStorage as an external store.
+ * useSyncExternalStore keeps the server/hydration snapshot neutral (null →
+ * visible, the pre-persist default) and re-renders when the value changes —
+ * no mount effect initializing state from a browser global. Same pattern as
+ * hooks/use-mobile.tsx.
+ */
+function useFiltersVisible(): boolean {
+  const stored = useSyncExternalStore(
+    subscribeToStoredFiltersVisible,
+    readStoredFiltersVisible,
+    () => null,
+  );
+  return stored !== "false";
+}
 
 function getBasePath(pathname: string | null, fallback: string): string {
   if (!pathname?.startsWith("/project/")) return fallback;
@@ -27,32 +74,11 @@ function getBasePath(pathname: string | null, fallback: string): string {
 function TracesPageLayoutInner({ children, filterOptions }: TracesPageLayoutProps) {
   const [filters, actions] = useFilters();
   const router = useRouter();
-  const [filtersVisible, setFiltersVisible] = useState(true);
-  // Ref shadowing the state so toggleFilters can read the current value without
-  // a stale closure (its useCallback has empty deps). Kept in sync on both the
-  // hydration path and the toggle path.
-  const filtersVisibleRef = useRef(true);
-
-  useEffect(() => {
-    const stored = typeof window !== "undefined" ? window.localStorage.getItem("traces-filters-visible") : null;
-    if (stored !== null) {
-      const next = stored === "true";
-      filtersVisibleRef.current = next;
-      setFiltersVisible(next);
-    }
-  }, []);
+  const filtersVisible = useFiltersVisible();
 
   const toggleFilters = useCallback(() => {
-    // Side effect (localStorage write) lives in the event handler, NOT inside
-    // the state updater — React may double-invoke functional updaters in
-    // StrictMode/Concurrent, so the updater must stay pure.
-    const next = !filtersVisibleRef.current;
-    filtersVisibleRef.current = next;
-    setFiltersVisible(next);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("traces-filters-visible", String(next));
-    }
-  }, []);
+    writeStoredFiltersVisible(!filtersVisible);
+  }, [filtersVisible]);
 
   const handleRemoveFilter = (key: keyof typeof filters, value?: any) => {
     const basePath = getBasePath(window.location.pathname, "/traces");

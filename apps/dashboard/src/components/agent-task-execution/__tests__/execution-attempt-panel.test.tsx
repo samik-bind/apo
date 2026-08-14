@@ -3,6 +3,11 @@ import { render, screen } from "@testing-library/react";
 import type { ExecutionAttemptSummary } from "@/lib/agent-task-api";
 import { ExecutionAttemptPanel } from "../execution-attempt-panel";
 
+// Fixed wall-clock for heartbeat/cancel timestamps so renders are
+// deterministic (no `new Date()` at render time). The panel renders relative
+// ages from these, but no assertion depends on the age text.
+const FIXED_NOW = "2026-08-14T10:00:00.000Z";
+
 function attempt(
   overrides: Partial<ExecutionAttemptSummary>,
 ): ExecutionAttemptSummary {
@@ -45,7 +50,7 @@ describe("ExecutionAttemptPanel — legacy Pool Runs", () => {
           executor_name: "executor-east",
           driver_kind: "subprocess",
           phase: "uploading",
-          heartbeat_at: new Date().toISOString(),
+          heartbeat_at: FIXED_NOW,
         })]}
         poolName="Private VPC"
       />,
@@ -123,7 +128,7 @@ describe("ExecutionAttemptPanel — source-owned Runs", () => {
           executor_pool_id: "internal-source-owned-pool",
           driver_kind: "source-owned-ts",
           phase: "running",
-          heartbeat_at: new Date().toISOString(),
+          heartbeat_at: FIXED_NOW,
         })]}
         poolName="Source-Owned Tasks"
       />,
@@ -140,8 +145,8 @@ describe("ExecutionAttemptPanel — source-owned Runs", () => {
         attempts={[attempt({
           assignment_kind: "source_owned",
           status: "running",
-          cancel_requested_at: new Date().toISOString(),
-          heartbeat_at: new Date().toISOString(),
+          cancel_requested_at: FIXED_NOW,
+          heartbeat_at: FIXED_NOW,
         })]}
         poolName={null}
       />,

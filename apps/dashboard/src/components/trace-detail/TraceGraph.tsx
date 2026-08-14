@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useSyncExternalStore } from "react";
 import { Network } from "vis-network/standalone";
 import type { LoggedCall } from "./contexts";
 import { useSelection } from "./contexts/SelectionContext";
@@ -28,21 +28,24 @@ function getThemeColors() {
   };
 }
 
+function subscribeToDarkMode(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["class"],
+  });
+  return () => observer.disconnect();
+}
+
 function useIsDarkMode() {
-  const [isDark, setIsDark] = useState(false);
-  useEffect(() => {
-    const check = () => {
-      setIsDark(document.documentElement.classList.contains("dark"));
-    };
-    check();
-    const observer = new MutationObserver(check);
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["class"],
-    });
-    return () => observer.disconnect();
-  }, []);
-  return isDark;
+  // useSyncExternalStore keeps the server/hydration snapshot neutral (false)
+  // and re-renders when the theme class flips — no mount effect initializing
+  // state from a browser global. Same pattern as hooks/use-mobile.tsx.
+  return useSyncExternalStore(
+    subscribeToDarkMode,
+    () => document.documentElement.classList.contains("dark"),
+    () => false,
+  );
 }
 
 export function TraceGraph({ calls }: TraceGraphProps) {

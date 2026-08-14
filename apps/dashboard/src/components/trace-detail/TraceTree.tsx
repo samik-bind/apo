@@ -22,7 +22,7 @@ import {
   Workflow,
   Fan,
 } from "lucide-react";
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 import type { CumulativeMetrics } from "@/lib/cumulative-metrics";
@@ -54,6 +54,11 @@ interface MetricPart {
 
 const ROW_HEIGHT = 37;
 const OVERSCAN = 5;
+
+// Virtualizer config callbacks that close over nothing — hoisted so they hold
+// a stable identity across renders.
+const estimateRowSize = () => ROW_HEIGHT;
+const measureRowElement = (el: Element) => el.getBoundingClientRect().height;
 
 // Trace type-color tokens (per design.md accent discipline) — hues are
 // load-bearing semantic per type; no token exists for blue/emerald/indigo so
@@ -292,7 +297,7 @@ function TreeNode({
   node: FlatNode;
   calls: TraceObservation[];
   isExpanded: boolean;
-  onToggle: () => void;
+  onToggle: (id: string) => void;
   treeLines: boolean[];
   searchQuery: string;
   runLabel: string;
@@ -324,6 +329,18 @@ function TreeNode({
       prefetchTimerRef.current = null;
     }
   }, []);
+
+  const handleExpandClick = useCallback(
+    (e: ReactMouseEvent) => {
+      e.stopPropagation();
+      onToggle(node.id);
+    },
+    [onToggle, node.id],
+  );
+
+  const handleSelectClick = useCallback(() => {
+    selectCall(node.call?.id ?? null);
+  }, [selectCall, node.call?.id]);
 
   return (
     <div
@@ -363,7 +380,7 @@ function TreeNode({
               type="button"
               data-expand-button
               aria-label={isExpanded ? "Collapse node" : "Expand node"}
-              onClick={(e) => { e.stopPropagation(); onToggle(); }}
+              onClick={handleExpandClick}
               className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
             >
               <span className={cn("inline-block h-4 w-4 transition-transform duration-200", isExpanded ? "rotate-90" : "rotate-0")}>
@@ -375,7 +392,7 @@ function TreeNode({
 
         <button
           type="button"
-          onClick={() => selectCall(node.call?.id ?? null)}
+          onClick={handleSelectClick}
           className="flex min-w-0 flex-1 cursor-pointer bg-transparent text-left"
         >
           <div className="flex w-5 shrink-0 items-start justify-center pt-1">
@@ -481,22 +498,22 @@ export function TraceTree({
     return s;
   });
 
-  const toggleNode = (id: string) => {
+  const toggleNode = useCallback((id: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) { next.delete(id); } else { next.add(id); }
       return next;
     });
-  };
+  }, []);
 
   const allExpanded = expanded.size >= calls.length + 1;
-  const toggleAll = () => {
+  const toggleAll = useCallback(() => {
     if (allExpanded) {
       setExpanded(new Set(["root-run"]));
     } else {
       setExpanded(new Set(["root-run", ...calls.map((c) => c.id)]));
     }
-  };
+  }, [allExpanded, calls]);
 
   const flatTree = useMemo(() => flattenTree(calls, expanded, searchQuery), [calls, expanded, searchQuery]);
   const timingBounds = useMemo(() => computeTimingBounds(calls), [calls]);
@@ -566,12 +583,13 @@ export function TraceTree({
   }, [flatTree, levelFilter, calls, preferences.minObservationLevel]);
 
   const parentRef = useRef<HTMLDivElement>(null);
+  const getScrollElement = useCallback(() => parentRef.current, []);
 
   const virtualizer = useVirtualizer({
     count: filteredTree.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
-    measureElement: (el) => el.getBoundingClientRect().height,
+    getScrollElement,
+    estimateSize: estimateRowSize,
+    measureElement: measureRowElement,
     overscan: OVERSCAN,
   });
 
@@ -684,7 +702,7 @@ export function TraceTree({
                 node={node}
                 calls={calls}
                 isExpanded={expanded.has(node.id)}
-                onToggle={() => toggleNode(node.id)}
+                onToggle={toggleNode}
                 treeLines={treeLines}
                 searchQuery={searchQuery}
                 runLabel={runLabel}

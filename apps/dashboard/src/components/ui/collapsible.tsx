@@ -1,33 +1,5 @@
-"use client"
-
-import { Collapsible as CollapsiblePrimitive } from "radix-ui"
-
-function Collapsible({
-  ...props
-}: React.ComponentProps<typeof CollapsiblePrimitive.Root>) {
-  return <CollapsiblePrimitive.Root data-slot="collapsible" {...props} />
-}
-
-function CollapsibleTrigger({
-  ...props
-}: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleTrigger>) {
-  return (
-    <CollapsiblePrimitive.CollapsibleTrigger
-      data-slot="collapsible-trigger"
-      {...props}
-    />
-  )
-}
-
-function CollapsibleContent({
-  ...props
-}: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleContent>) {
-  return (
-    <CollapsiblePrimitive.CollapsibleContent
-      data-slot="collapsible-content"
-      {...props}
-    />
-  )
-}
-
-export { Collapsible, CollapsibleTrigger, CollapsibleContent }
+// Barrel re-export — keeps the `@/components/ui/collapsible` import path
+// stable while each component lives in its own file (no-multi-comp).
+export { Collapsible } from "./collapsible-root";
+export { CollapsibleTrigger } from "./collapsible-trigger";
+export { CollapsibleContent } from "./collapsible-content";

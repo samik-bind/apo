@@ -99,10 +99,6 @@ export default async function TaskRunDetailPage({
   // tab is "checks". TaskRunDetailBody fetches and derives it client-side
   // when the transcript tab first opens.
 
-  // Project result — started in parallel with the task run, likely resolved.
-  const project = await projectPromise;
-  const sourceType = project?.task_source?.source_type ?? null;
-
   if (error) {
     return (
       <div className="mx-auto max-w-6xl px-6 py-10">
@@ -115,6 +111,11 @@ export default async function TaskRunDetailPage({
   }
 
   if (!taskRun) return null;
+
+  // Project result — started in parallel with the task run above, and only
+  // awaited here (after the guards) so the error path never waits on it.
+  const project = await projectPromise;
+  const sourceType = project?.task_source?.source_type ?? null;
 
   const checks = taskRun.checks_json ?? [];
   const checksPassed = checks.filter((c) => c.pass === true).length;

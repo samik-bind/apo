@@ -2,7 +2,7 @@
 
 import {
   createContext,
-  useContext,
+  use,
   useCallback,
   useEffect,
   useMemo,
@@ -61,7 +61,7 @@ export function InlineCommentSelectionProvider({
 }
 
 export function useInlineCommentSelection() {
-  const ctx = useContext(InlineCommentSelectionContext);
+  const ctx = use(InlineCommentSelectionContext);
   if (!ctx) {
     throw new Error(
       "useInlineCommentSelection must be used within InlineCommentSelectionProvider",
@@ -71,7 +71,7 @@ export function useInlineCommentSelection() {
 }
 
 function useInlineCommentSelectionOptional() {
-  return useContext(InlineCommentSelectionContext);
+  return use(InlineCommentSelectionContext);
 }
 
 interface UseTextSelectionOptions {
@@ -121,14 +121,24 @@ export function useTextSelection({
     }, 150);
   }, [enabled, containerRef, dataField, context]);
 
+  // Latest-handler ref: the selectionchange subscription below stays put
+  // while always invoking the current handleSelectionChange. Without this,
+  // the listener would re-subscribe every time the callback identity
+  // changes (e.g. every context update).
+  const handlerRef = useRef(handleSelectionChange);
+  useEffect(() => {
+    handlerRef.current = handleSelectionChange;
+  });
+
   useEffect(() => {
     if (!enabled || !context) return;
-    document.addEventListener("selectionchange", handleSelectionChange);
+    const listener = () => handlerRef.current();
+    document.addEventListener("selectionchange", listener);
     return () => {
-      document.removeEventListener("selectionchange", handleSelectionChange);
+      document.removeEventListener("selectionchange", listener);
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [enabled, handleSelectionChange, context]);
+  }, [enabled, context]);
 
   return { clearSelection: context?.clearSelection };
 }

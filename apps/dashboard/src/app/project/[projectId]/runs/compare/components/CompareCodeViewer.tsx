@@ -20,11 +20,11 @@ import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 import { tApiRegex } from "@/lib/t-api-highlight";
 
-// Pure logic (marker types + placement) lives in a separate .ts module so it
-// can be unit-tested without importing this .tsx file (the vitest JSX
-// transform is currently broken in this repo — see CompareCodeViewer.test.ts).
-export { buildMarkers } from "./compare-markers";
-export type { LineAssertion, MarkerEntry } from "./compare-markers";
+// Pure logic (marker types + placement) lives in the sibling .ts module
+// ./compare-markers so it can be unit-tested without importing this .tsx file
+// (the vitest JSX transform is currently broken in this repo — see
+// CompareCodeViewer.test.ts). Import buildMarkers / LineAssertion / MarkerEntry
+// from ./compare-markers directly — this file re-exports components only.
 import { CompareMarker, type LineAssertion } from "./compare-markers";
 
 interface CompareCodeViewerProps {
@@ -145,6 +145,15 @@ export function CompareCodeViewer({
 }: CompareCodeViewerProps) {
   const hostRef = useRef<HTMLDivElement>(null);
 
+  // Keep the latest click handler without rebuilding the editor on every
+  // parent re-render (callers pass inline lambdas). The gutter closure reads
+  // this ref so a click after any re-render sees the current callback.
+  // Written via useEffect (not in the render body) so render stays pure.
+  const clickRef = useRef(onMarkerClick);
+  useEffect(() => {
+    clickRef.current = onMarkerClick;
+  });
+
   useEffect(() => {
     if (!hostRef.current) return;
     const langExt = language === "python" ? python() : javascript({ typescript: true });
@@ -157,6 +166,7 @@ export function CompareCodeViewer({
       markers: (view) => buildGutterDecorations(view, assertions),
       domEventHandlers: {
         click(view, block, event) {
+          const onMarkerClick = clickRef.current;
           if (!onMarkerClick) return false;
           const target = event.target as HTMLElement | null;
           // The marker span carries data-side; walk up in case the click hit
@@ -188,20 +198,10 @@ export function CompareCodeViewer({
     return () => {
       view.destroy();
     };
-    // Recreate the editor when inputs change identity. `onMarkerClick` is
-    // captured at creation; callers should memoize or accept that a click
-    // after a re-render uses the latest closure via the ref below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Recreate the editor when its content inputs change. Click routing goes
+    // through clickRef (kept current by the effect above), so the handler
+    // identity is deliberately not a dependency here.
   }, [code, language, assertions]);
-
-  // Keep the latest click handler without rebuilding the editor on every
-  // parent re-render. The gutter closure captures `onMarkerClick` from the
-  // effect above; route through a ref so it always sees the current callback.
-  // Written via useEffect (not in the render body) so render stays pure.
-  const clickRef = useRef(onMarkerClick);
-  useEffect(() => {
-    clickRef.current = onMarkerClick;
-  });
 
   return <div ref={hostRef} className={className} />;
 }

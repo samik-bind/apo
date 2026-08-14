@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useReducer, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { ChevronsUpDown, Plus, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,14 +10,69 @@ function setActiveProjectCookie(projectId: string) {
   document.cookie = `active-project=${projectId};path=/;max-age=604800;samesite=lax`;
 }
 
+// ----------------------------------------------------------------------------
+// Switcher dropdown UI reducer.
+//
+// {open, showCreate, newName, loading} describe one interactive surface — the
+// dropdown, its inline create form, and the create submit lifecycle — so they
+// transition as a single machine. The fetched projects list is separate server
+// data and keeps its own useState.
+// ----------------------------------------------------------------------------
+
+interface SwitcherUiState {
+  open: boolean;
+  showCreate: boolean;
+  newName: string;
+  loading: boolean;
+}
+
+type SwitcherUiAction =
+  | { type: "OPEN_TOGGLE" }
+  | { type: "CLOSE" } // after switching projects: hide the dropdown only
+  | { type: "DISMISS" } // outside click: hide the dropdown and the create form
+  | { type: "CREATE_SHOW" }
+  | { type: "NAME_SET"; name: string }
+  | { type: "CREATE_START" }
+  | { type: "CREATE_SUCCESS" } // clears the form and closes the dropdown
+  | { type: "LOADING_END" }; // create finished (success or failure)
+
+const initialSwitcherUiState: SwitcherUiState = {
+  open: false,
+  showCreate: false,
+  newName: "",
+  loading: false,
+};
+
+function switcherUiReducer(
+  state: SwitcherUiState,
+  action: SwitcherUiAction,
+): SwitcherUiState {
+  switch (action.type) {
+    case "OPEN_TOGGLE":
+      return { ...state, open: !state.open };
+    case "CLOSE":
+      return { ...state, open: false };
+    case "DISMISS":
+      return { ...state, open: false, showCreate: false };
+    case "CREATE_SHOW":
+      return { ...state, showCreate: true };
+    case "NAME_SET":
+      return { ...state, newName: action.name };
+    case "CREATE_START":
+      return { ...state, loading: true };
+    case "CREATE_SUCCESS":
+      return { ...state, open: false, showCreate: false, newName: "" };
+    case "LOADING_END":
+      return { ...state, loading: false };
+  }
+}
+
 export function ProjectSwitcher({ currentProjectId }: { currentProjectId: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [open, setOpen] = useState(false);
-  const [showCreate, setShowCreate] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [ui, dispatch] = useReducer(switcherUiReducer, initialSwitcherUiState);
+  const { open, showCreate, newName, loading } = ui;
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -29,8 +84,7 @@ export function ProjectSwitcher({ currentProjectId }: { currentProjectId: string
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-        setShowCreate(false);
+        dispatch({ type: "DISMISS" });
       }
     }
     document.addEventListener("mousedown", handleClick);
@@ -43,20 +97,19 @@ export function ProjectSwitcher({ currentProjectId }: { currentProjectId: string
     setActiveProjectCookie(projectId);
     const newPath = pathname.replace(/\/project\/[^/]+/, `/project/${projectId}`);
     router.push(newPath);
-    setOpen(false);
+    dispatch({ type: "CLOSE" });
   }
 
   async function handleCreate() {
     if (!newName.trim()) return;
-    setLoading(true);
+    dispatch({ type: "CREATE_START" });
     try {
       const project = await createProject(newName.trim());
       setProjects((prev) => [project, ...prev]);
-      setNewName("");
-      setShowCreate(false);
+      dispatch({ type: "CREATE_SUCCESS" });
       switchTo(project.id);
     } finally {
-      setLoading(false);
+      dispatch({ type: "LOADING_END" });
     }
   }
 
@@ -64,7 +117,7 @@ export function ProjectSwitcher({ currentProjectId }: { currentProjectId: string
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={() => dispatch({ type: "OPEN_TOGGLE" })}
         className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm font-semibold text-foreground transition-colors hover:bg-muted/40"
       >
         <span className="truncate text-foreground">{current?.name ?? currentProjectId}</span>
@@ -106,7 +159,7 @@ export function ProjectSwitcher({ currentProjectId }: { currentProjectId: string
               <input
                 id="switcher-project-name"
                 value={newName}
-                onChange={(e) => setNewName(e.target.value)}
+                onChange={(e) => dispatch({ type: "NAME_SET", name: e.target.value })}
                 onKeyDown={(e) => e.key === "Enter" && handleCreate()}
                 placeholder="Project name"
                 className="h-8 w-full rounded-sm border border-border bg-background px-2 text-sm text-foreground outline-none focus:border-primary"
@@ -123,7 +176,7 @@ export function ProjectSwitcher({ currentProjectId }: { currentProjectId: string
           ) : (
             <button
               type="button"
-              onClick={() => setShowCreate(true)}
+              onClick={() => dispatch({ type: "CREATE_SHOW" })}
               className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-muted/40"
             >
               <Plus className="size-3.5" />

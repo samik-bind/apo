@@ -65,14 +65,6 @@ export function ChatMessagePreview({ data, preview = "history" }: ChatMessagePre
     );
   }
 
-  const renderMessage = (msg: ChatMessage, idx: number) => (
-    <MessageBubble
-      key={`${msg.role === "user" ? "user" : "msg"}-${idx}-${msg.content.slice(0, 24)}`}
-      message={msg}
-      getNextToolCallNumber={getNextToolCallNumber}
-    />
-  );
-
   // Delta mode: a generation's input is the whole accumulated prompt, but
   // re-displaying it in every node is noise. Show only the newest message
   // (the turn that triggered this generation) by default; the full prompt is
@@ -88,7 +80,11 @@ export function ChatMessagePreview({ data, preview = "history" }: ChatMessagePre
             invocationCounts={invocationCounts}
           />
         )}
-        {renderMessage(last, lastIndex)}
+        <MessageBubble
+          key={messageKey(last, lastIndex)}
+          message={last}
+          getNextToolCallNumber={getNextToolCallNumber}
+        />
         <button
           type="button"
           onClick={() => setShowFullPrompt(true)}
@@ -123,14 +119,36 @@ export function ChatMessagePreview({ data, preview = "history" }: ChatMessagePre
       )}
       <CollapsibleHistory
         totalMessages={messages.length}
-        visibleStart={firstThree.map(renderMessage)}
-        hiddenMiddle={middleMessages.map((msg, i) => renderMessage(msg, i + 3))}
-        visibleEnd={lastThree.map((msg, i) =>
-          renderMessage(msg, messages.length - lastThree.length + i),
-        )}
+        visibleStart={firstThree.map((msg, i) => (
+          <MessageBubble
+            key={messageKey(msg, i)}
+            message={msg}
+            getNextToolCallNumber={getNextToolCallNumber}
+          />
+        ))}
+        hiddenMiddle={middleMessages.map((msg, i) => (
+          <MessageBubble
+            key={messageKey(msg, i + 3)}
+            message={msg}
+            getNextToolCallNumber={getNextToolCallNumber}
+          />
+        ))}
+        visibleEnd={lastThree.map((msg, i) => (
+          <MessageBubble
+            key={messageKey(msg, messages.length - lastThree.length + i)}
+            message={msg}
+            getNextToolCallNumber={getNextToolCallNumber}
+          />
+        ))}
       />
     </div>
   );
+}
+
+/** Stable React key for a message bubble. Same scheme the previous inline
+ *  render function used (index-key warning intentionally left as-is). */
+function messageKey(msg: ChatMessage, idx: number): string {
+  return `${msg.role === "user" ? "user" : "msg"}-${idx}-${msg.content.slice(0, 24)}`;
 }
 
 function MessageBubble({

@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useState } from "react"
+import { useCallback, useReducer } from "react"
 import { signIn } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { ArrowRight, Loader2, MailCheck } from "lucide-react"
@@ -287,17 +287,82 @@ function CreateAccountForm({
   )
 }
 
+// One state machine for the whole first-user setup flow: the account form
+// fields, the OTP step, and the shared submission status travel together.
+type SetupState = {
+  step: "form" | "otp"
+  name: string
+  email: string
+  password: string
+  confirmPassword: string
+  otpCode: string
+  infoMessage: string | null
+  error: string | null
+  loading: boolean
+}
+
+type SetupField = "name" | "email" | "password" | "confirmPassword" | "otpCode"
+
+type SetupAction =
+  | { type: "SET_FIELD"; field: SetupField; value: string }
+  | { type: "SUBMIT_START" }
+  | { type: "OTP_START" }
+  | { type: "VALIDATION_ERROR"; message: string }
+  | { type: "FAILURE"; message: string }
+  | { type: "DONE" }
+  | { type: "OTP_REQUIRED"; infoMessage: string }
+  | { type: "RESENT"; infoMessage: string }
+  | { type: "BACK_TO_FORM" }
+
+const initialSetupState: SetupState = {
+  step: "form",
+  name: "",
+  email: "",
+  password: "",
+  confirmPassword: "",
+  otpCode: "",
+  infoMessage: null,
+  error: null,
+  loading: false,
+}
+
+function setupReducer(state: SetupState, action: SetupAction): SetupState {
+  switch (action.type) {
+    case "SET_FIELD":
+      return { ...state, [action.field]: action.value }
+    case "SUBMIT_START":
+      return { ...state, loading: true, error: null }
+    case "OTP_START":
+      return { ...state, loading: true, error: null, infoMessage: null }
+    case "VALIDATION_ERROR":
+      return { ...state, error: action.message }
+    case "FAILURE":
+      return { ...state, loading: false, error: action.message }
+    case "DONE":
+      return { ...state, loading: false }
+    case "OTP_REQUIRED":
+      return { ...state, step: "otp", loading: false, infoMessage: action.infoMessage }
+    case "RESENT":
+      return { ...state, loading: false, infoMessage: action.infoMessage, otpCode: "" }
+    case "BACK_TO_FORM":
+      return { ...state, step: "form", otpCode: "", error: null, infoMessage: null }
+  }
+}
+
 export default function SetupPage() {
   const router = useRouter()
-  const [name, setName] = useState("")
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [step, setStep] = useState<"form" | "otp">("form")
-  const [otpCode, setOtpCode] = useState("")
-  const [infoMessage, setInfoMessage] = useState<string | null>(null)
+  const [state, dispatch] = useReducer(setupReducer, initialSetupState)
+  const {
+    step,
+    name,
+    email,
+    password,
+    confirmPassword,
+    otpCode,
+    infoMessage,
+    error,
+    loading,
+  } = state
 
   const checks = validatePassword(password)
   const allChecksPassed =
@@ -305,16 +370,36 @@ export default function SetupPage() {
   const passwordsMatch = password === confirmPassword
   const canSubmit = allChecksPassed && passwordsMatch && email.length > 0
 
+  const handleNameChange = useCallback(
+    (value: string) => dispatch({ type: "SET_FIELD", field: "name", value }),
+    [],
+  )
+  const handleEmailChange = useCallback(
+    (value: string) => dispatch({ type: "SET_FIELD", field: "email", value }),
+    [],
+  )
+  const handlePasswordChange = useCallback(
+    (value: string) => dispatch({ type: "SET_FIELD", field: "password", value }),
+    [],
+  )
+  const handleConfirmPasswordChange = useCallback(
+    (value: string) => dispatch({ type: "SET_FIELD", field: "confirmPassword", value }),
+    [],
+  )
+  const handleOtpCodeChange = useCallback(
+    (value: string) => dispatch({ type: "SET_FIELD", field: "otpCode", value }),
+    [],
+  )
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setError(null)
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match")
+      dispatch({ type: "VALIDATION_ERROR", message: "Passwords do not match" })
       return
     }
 
-    setLoading(true)
+    dispatch({ type: "SUBMIT_START" })
 
     try {
       const res = await backendFetch("/auth/setup", {
@@ -326,7 +411,7 @@ export default function SetupPage() {
       if (!res.ok) {
         const data = await res.json().catch(() => null)
         if (data?.detail) {
-          setError(data.detail)
+          dispatch({ type: "FAILURE", message: data.detail })
         } else {
           // No usable JSON detail — usually means the response wasn't JSON
           // (e.g. a 404 HTML page from a misconfigured proxy, or a 502 from
@@ -336,10 +421,12 @@ export default function SetupPage() {
             `[setup] POST /auth/setup returned HTTP ${res.status} ` +
               `with content-type "${res.headers.get("content-type") ?? "unknown"}"`,
           )
-          setError(
-            `Couldn't reach the server (HTTP ${res.status}). ` +
+          dispatch({
+            type: "FAILURE",
+            message:
+              `Couldn't reach the server (HTTP ${res.status}). ` +
               "Check the browser console for details.",
-          )
+          })
         }
         return
       }
@@ -347,24 +434,22 @@ export default function SetupPage() {
       const data = await res.json()
 
       if (data.status === "verification_required") {
-        setStep("otp")
-        setInfoMessage(`We sent a 6-digit verification code to ${email}. Enter it below to activate your account.`)
+        dispatch({
+          type: "OTP_REQUIRED",
+          infoMessage: `We sent a 6-digit verification code to ${email}. Enter it below to activate your account.`,
+        })
         return
       }
 
       await proceedToSignIn()
     } catch {
-      setError("Unable to connect to server")
-    } finally {
-      setLoading(false)
+      dispatch({ type: "FAILURE", message: "Unable to connect to server" })
     }
   }
 
   async function handleVerifyOtp(e: React.FormEvent) {
     e.preventDefault()
-    setError(null)
-    setInfoMessage(null)
-    setLoading(true)
+    dispatch({ type: "OTP_START" })
 
     try {
       const res = await backendFetch("/auth/verify-email", {
@@ -375,22 +460,18 @@ export default function SetupPage() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => null)
-        setError(data?.detail ?? "Invalid or expired code")
+        dispatch({ type: "FAILURE", message: data?.detail ?? "Invalid or expired code" })
         return
       }
 
       await proceedToSignIn()
     } catch {
-      setError("Unable to connect to server")
-    } finally {
-      setLoading(false)
+      dispatch({ type: "FAILURE", message: "Unable to connect to server" })
     }
   }
 
   async function handleResend() {
-    setError(null)
-    setInfoMessage(null)
-    setLoading(true)
+    dispatch({ type: "OTP_START" })
 
     try {
       const res = await backendFetch("/auth/resend-verification", {
@@ -402,16 +483,19 @@ export default function SetupPage() {
       if (res.status === 429) {
         const retryAfter = res.headers.get("Retry-After")
         const seconds = retryAfter ? parseInt(retryAfter, 10) : 60
-        setError(`Please wait ${seconds}s before requesting a new code.`)
+        dispatch({
+          type: "FAILURE",
+          message: `Please wait ${seconds}s before requesting a new code.`,
+        })
         return
       }
 
-      setInfoMessage(`A new verification code has been sent to ${email}.`)
-      setOtpCode("")
+      dispatch({
+        type: "RESENT",
+        infoMessage: `A new verification code has been sent to ${email}.`,
+      })
     } catch {
-      setError("Unable to connect to server")
-    } finally {
-      setLoading(false)
+      dispatch({ type: "FAILURE", message: "Unable to connect to server" })
     }
   }
 
@@ -423,10 +507,11 @@ export default function SetupPage() {
       redirectTo: "/",
     })
     if (result?.error) {
-      setError("Account created but sign-in failed. Please log in.")
+      dispatch({ type: "FAILURE", message: "Account created but sign-in failed. Please log in." })
       router.push("/login")
       return
     }
+    dispatch({ type: "DONE" })
     router.push("/")
   }
 
@@ -434,18 +519,13 @@ export default function SetupPage() {
     return (
       <OtpStep
         otpCode={otpCode}
-        onOtpCodeChange={setOtpCode}
+        onOtpCodeChange={handleOtpCodeChange}
         infoMessage={infoMessage}
         error={error}
         loading={loading}
         onSubmit={handleVerifyOtp}
         onResend={handleResend}
-        onBackToForm={() => {
-          setStep("form")
-          setOtpCode("")
-          setError(null)
-          setInfoMessage(null)
-        }}
+        onBackToForm={() => dispatch({ type: "BACK_TO_FORM" })}
       />
     )
   }
@@ -453,13 +533,13 @@ export default function SetupPage() {
   return (
     <CreateAccountForm
       name={name}
-      onNameChange={setName}
+      onNameChange={handleNameChange}
       email={email}
-      onEmailChange={setEmail}
+      onEmailChange={handleEmailChange}
       password={password}
-      onPasswordChange={setPassword}
+      onPasswordChange={handlePasswordChange}
       confirmPassword={confirmPassword}
-      onConfirmPasswordChange={setConfirmPassword}
+      onConfirmPasswordChange={handleConfirmPasswordChange}
       passwordsMatch={passwordsMatch}
       error={error}
       loading={loading}

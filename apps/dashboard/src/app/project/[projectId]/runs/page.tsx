@@ -18,8 +18,7 @@ export default async function RunsPage({
   params: Promise<{ projectId: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { projectId } = await params;
-  const query = await searchParams;
+  const [{ projectId }, query] = await Promise.all([params, searchParams]);
 
   const page = query.page ? Math.max(0, Number(query.page)) : 0;
   const pageSize = query.page_size ? Number(query.page_size) : 20;
@@ -65,7 +64,7 @@ export default async function RunsPage({
 
   return (
     <main className="h-full flex flex-col">
-      <Suspense>
+      <Suspense fallback={null}>
         <RunsClient
           batchRuns={batchRuns}
           error={error}

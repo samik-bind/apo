@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useReducer } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ArrowRight, CheckCircle2, Loader2 } from "lucide-react"
 import AuthShell from "@/components/auth/auth-shell"
@@ -17,42 +17,109 @@ export default function VerifyEmailPage() {
   )
 }
 
+// One state machine for the verification flow: the email/code fields travel
+// with the submit/resend status and the rate-limit countdown they belong to.
+type VerifyState = {
+  email: string
+  code: string
+  error: string | null
+  infoMessage: string | null
+  loading: boolean
+  resending: boolean
+  retryAfter: number
+  verified: boolean
+}
+
+type VerifyAction =
+  | { type: "SET_EMAIL"; value: string }
+  | { type: "SET_CODE"; value: string }
+  | { type: "VERIFY_START" }
+  | { type: "VERIFY_FAILED"; message: string }
+  | { type: "VERIFIED" }
+  | { type: "RESEND_START" }
+  | { type: "RESEND_RATE_LIMITED"; seconds: number; message: string }
+  | { type: "RESENT"; infoMessage: string }
+  | { type: "RESEND_FAILED"; message: string }
+  | { type: "TICK" }
+
+const initialVerifyState: VerifyState = {
+  email: "",
+  code: "",
+  error: null,
+  infoMessage: null,
+  loading: false,
+  resending: false,
+  retryAfter: 0,
+  verified: false,
+}
+
+function verifyReducer(state: VerifyState, action: VerifyAction): VerifyState {
+  switch (action.type) {
+    case "SET_EMAIL":
+      return { ...state, email: action.value }
+    case "SET_CODE":
+      return { ...state, code: action.value }
+    case "VERIFY_START":
+      return { ...state, loading: true, error: null, infoMessage: null }
+    case "VERIFY_FAILED":
+      return { ...state, loading: false, error: action.message }
+    case "VERIFIED":
+      return { ...state, loading: false, verified: true }
+    case "RESEND_START":
+      return { ...state, resending: true, error: null, infoMessage: null }
+    case "RESEND_RATE_LIMITED":
+      return {
+        ...state,
+        resending: false,
+        retryAfter: action.seconds,
+        error: action.message,
+      }
+    case "RESENT":
+      return {
+        ...state,
+        resending: false,
+        infoMessage: action.infoMessage,
+        code: "",
+      }
+    case "RESEND_FAILED":
+      return { ...state, resending: false, error: action.message }
+    case "TICK":
+      return { ...state, retryAfter: state.retryAfter <= 1 ? 0 : state.retryAfter - 1 }
+  }
+}
+
 function VerifyEmailForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  const [email, setEmail] = useState("")
-  const [code, setCode] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const [infoMessage, setInfoMessage] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [resending, setResending] = useState(false)
-  const [retryAfter, setRetryAfter] = useState(0)
-  const [verified, setVerified] = useState(false)
+  const [state, dispatch] = useReducer(verifyReducer, initialVerifyState)
+  const { email, code, error, infoMessage, loading, resending, retryAfter, verified } = state
 
   useEffect(() => {
     const emailParam = searchParams.get("email")
     if (emailParam) {
-      setEmail(emailParam)
+      dispatch({ type: "SET_EMAIL", value: emailParam })
     }
   }, [searchParams])
 
   useEffect(() => {
     if (retryAfter <= 0) return
-    const timer = setInterval(() => {
-      setRetryAfter((prev) => {
-        if (prev <= 1) return 0
-        return prev - 1
-      })
-    }, 1000)
+    const timer = setInterval(() => dispatch({ type: "TICK" }), 1000)
     return () => clearInterval(timer)
   }, [retryAfter])
 
+  const handleEmailChange = useCallback(
+    (value: string) => dispatch({ type: "SET_EMAIL", value }),
+    [],
+  )
+  const handleCodeChange = useCallback(
+    (value: string) => dispatch({ type: "SET_CODE", value }),
+    [],
+  )
+
   async function handleVerify(e: React.FormEvent) {
     e.preventDefault()
-    setError(null)
-    setInfoMessage(null)
-    setLoading(true)
+    dispatch({ type: "VERIFY_START" })
 
     try {
       const res = await backendFetch("/auth/verify-email", {
@@ -63,22 +130,18 @@ function VerifyEmailForm() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => null)
-        setError(data?.detail ?? "Invalid or expired code")
+        dispatch({ type: "VERIFY_FAILED", message: data?.detail ?? "Invalid or expired code" })
         return
       }
 
-      setVerified(true)
+      dispatch({ type: "VERIFIED" })
     } catch {
-      setError("Unable to connect to server")
-    } finally {
-      setLoading(false)
+      dispatch({ type: "VERIFY_FAILED", message: "Unable to connect to server" })
     }
   }
 
   async function handleResend() {
-    setError(null)
-    setInfoMessage(null)
-    setResending(true)
+    dispatch({ type: "RESEND_START" })
 
     try {
       const res = await backendFetch("/auth/resend-verification", {
@@ -90,17 +153,21 @@ function VerifyEmailForm() {
       if (res.status === 429) {
         const retryAfterHeader = res.headers.get("Retry-After")
         const seconds = retryAfterHeader ? parseInt(retryAfterHeader, 10) : 60
-        setRetryAfter(seconds)
-        setError(`Please wait ${seconds}s before requesting a new code.`)
+        dispatch({
+          type: "RESEND_RATE_LIMITED",
+          seconds,
+          message: `Please wait ${seconds}s before requesting a new code.`,
+        })
         return
       }
 
-      setInfoMessage("If an account exists and is unverified, a new code has been sent. Check your email.")
-      setCode("")
+      dispatch({
+        type: "RESENT",
+        infoMessage:
+          "If an account exists and is unverified, a new code has been sent. Check your email.",
+      })
     } catch {
-      setError("Unable to connect to server")
-    } finally {
-      setResending(false)
+      dispatch({ type: "RESEND_FAILED", message: "Unable to connect to server" })
     }
   }
 
@@ -143,7 +210,7 @@ function VerifyEmailForm() {
             autoComplete="email"
             placeholder="you@example.com"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => handleEmailChange(e.target.value)}
             className="h-10 bg-input/50 ring-1 ring-white/10"
             autoFocus={!email}
           />
@@ -162,7 +229,7 @@ function VerifyEmailForm() {
             required
             autoComplete="one-time-code"
             value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onChange={(e) => handleCodeChange(e.target.value.replace(/\D/g, "").slice(0, 6))}
               className="h-12 bg-card text-center text-[18px] tracking-[0.5em]"
             placeholder="000000"
             autoFocus={!!email}

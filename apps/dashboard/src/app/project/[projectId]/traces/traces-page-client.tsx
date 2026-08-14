@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useRef } from "react";
 
 /**
  * TracesPageClient - Client component for the canonical traces page.
@@ -50,21 +50,27 @@ function TraceSelectionUrlSync() {
   const { selectedRunId, selectRun } = useSelection();
   const [traceParam, setTraceParam] = useUrlParam("trace");
 
-  // On mount: a shared ?trace= opens the panel.
+  // Mount-time snapshots. A shared ?trace= should open the panel exactly once,
+  // on mount — if this effect re-ran with the live `traceParam` later, a stale
+  // URL value could clobber a selection the user just made. useRef() only
+  // initializes from its argument on the first render, which is exactly the
+  // mount-time read we want, and refs are exempt from effect deps.
+  const initialTraceParamRef = useRef(traceParam);
+  const initialSelectedRunIdRef = useRef(selectedRunId);
+
+  // On mount: a shared ?trace= opens the panel. Subsequent URL updates flow
+  // through the effect below instead.
   useEffect(() => {
-    if (traceParam && traceParam !== selectedRunId) {
-      selectRun(traceParam);
+    const initialTraceParam = initialTraceParamRef.current;
+    if (initialTraceParam && initialTraceParam !== initialSelectedRunIdRef.current) {
+      selectRun(initialTraceParam);
     }
-    // Intentionally run only on mount — subsequent changes flow through the
-    // effect below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectRun]);
 
   // When the user opens/closes a trace, mirror it into the URL.
   useEffect(() => {
     setTraceParam(selectedRunId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRunId]);
+  }, [selectedRunId, setTraceParam]);
 
   return null;
 }
@@ -85,33 +91,42 @@ export function TracesPageClient({
         <TraceSelectionUrlSync />
       </Suspense>
       <div className="relative h-full w-full">
-        <TracesPageLayout filterOptions={filterOptions}>
-          {view === "sessions" && sessions ? (
-            <Suspense fallback={null}>
-              <SessionsTablePanel
-                sessions={sessions}
-                pagination={sessionsPagination}
-                onSelectSession={(sessionId) => {
-                  const params = new URLSearchParams(window.location.search);
-                  params.set("session_id", sessionId);
-                  params.delete("view");
-                  window.location.href = `/project/${projectId}/traces?${params.toString()}`;
-                }}
-              />
-            </Suspense>
-          ) : (
-            <Suspense fallback={null}>
-              <TracesTablePanel
-                projectId={projectId}
-                traces={traces}
-                error={error}
-                pagination={pagination}
-              />
-            </Suspense>
-          )}
-        </TracesPageLayout>
+        {/* Suspense: TracesPageLayout reads the filter state from the URL via
+            useFilters (useSearchParams), which needs a boundary above it. The
+            table panels keep their own inner boundaries. */}
+        <Suspense fallback={null}>
+          <TracesPageLayout filterOptions={filterOptions}>
+            {view === "sessions" && sessions ? (
+              <Suspense fallback={null}>
+                <SessionsTablePanel
+                  sessions={sessions}
+                  pagination={sessionsPagination}
+                  onSelectSession={(sessionId) => {
+                    const params = new URLSearchParams(window.location.search);
+                    params.set("session_id", sessionId);
+                    params.delete("view");
+                    window.location.href = `/project/${projectId}/traces?${params.toString()}`;
+                  }}
+                />
+              </Suspense>
+            ) : (
+              <Suspense fallback={null}>
+                <TracesTablePanel
+                  projectId={projectId}
+                  traces={traces}
+                  error={error}
+                  pagination={pagination}
+                />
+              </Suspense>
+            )}
+          </TracesPageLayout>
+        </Suspense>
 
-        <TracePanel />
+        {/* Suspense: TracePanel renders TraceWorkspace, which reads ?q via
+            useSearchParams. */}
+        <Suspense fallback={null}>
+          <TracePanel />
+        </Suspense>
       </div>
     </SelectionProvider>
   );

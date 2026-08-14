@@ -127,7 +127,7 @@ export function ScoreInputPanel({
         );
       }
     },
-    [targetType, targetId, onScoreCreated],
+    [targetType, targetId, project, onScoreCreated],
   );
 
   if (isLoading) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useReducer, useState } from "react";
+import { useEffect, useReducer } from "react";
 import { useBrowserTimezone } from "@/hooks/use-client-now";
 import {
   CheckCircle2,
@@ -26,6 +26,88 @@ interface CreateScheduleDialogProps {
   onCreated: (schedule: AgentTaskScheduleSummary) => void;
 }
 
+// One state machine for the schedule draft: name, schedule value (plus the
+// browser timezone already applied to it), selected tasks, and wizard step.
+type DialogState = {
+  name: string;
+  schedule: ScheduleBuilderValue;
+  appliedTz: string | null;
+  selected: Set<string>;
+  step: "schedule" | "tasks";
+};
+
+type DialogAction =
+  | { type: "SET_NAME"; name: string }
+  | { type: "SET_SCHEDULE"; value: ScheduleBuilderValue }
+  | { type: "APPLY_TIMEZONE"; timezone: string }
+  | { type: "SET_SELECTED"; selected: Set<string> }
+  | { type: "SET_STEP"; step: "schedule" | "tasks" };
+
+function createInitialScheduleValue(timezone: string | null): ScheduleBuilderValue {
+  return {
+    cadence_type: "daily",
+    timezone: timezone ?? "UTC",
+    hour: 9,
+    minute: 0,
+    day_of_week: null,
+    day_of_month: null,
+    min_interval_days: 1,
+    max_interval_days: 30,
+  };
+}
+
+function initDialogState({
+  initialTaskIds,
+  browserTz,
+}: {
+  initialTaskIds: string[];
+  browserTz: string | null;
+}): DialogState {
+  return {
+    name: initialTaskIds.length === 1 ? `${initialTaskIds[0]} daily` : "",
+    schedule: createInitialScheduleValue(browserTz),
+    appliedTz: browserTz,
+    selected: new Set(initialTaskIds),
+    step: "schedule",
+  };
+}
+
+function dialogReducer(state: DialogState, action: DialogAction): DialogState {
+  switch (action.type) {
+    case "SET_NAME":
+      return { ...state, name: action.name };
+    case "SET_SCHEDULE":
+      return { ...state, schedule: action.value };
+    case "APPLY_TIMEZONE":
+      // Apply the browser default exactly once per distinct value so later
+      // manual timezone edits are never clobbered.
+      if (state.appliedTz === action.timezone) return state;
+      return {
+        ...state,
+        appliedTz: action.timezone,
+        schedule: { ...state.schedule, timezone: action.timezone },
+      };
+    case "SET_SELECTED":
+      return { ...state, selected: action.selected };
+    case "SET_STEP":
+      return { ...state, step: action.step };
+  }
+}
+
+type SubmitState = { submitting: boolean; error: string | null };
+type SubmitAction =
+  | { type: "START" }
+  | { type: "SUCCESS" }
+  | { type: "ERROR"; error: string };
+
+function submitReducer(state: SubmitState, action: SubmitAction): SubmitState {
+  switch (action.type) {
+    case "START": return { submitting: true, error: null };
+    case "SUCCESS": return { submitting: false, error: null };
+    case "ERROR": return { submitting: false, error: action.error };
+  }
+}
+
 /**
  * create a source-owned Schedule. The authenticated creator becomes
  * the fixed Execution Owner — the dialog never offers a Pool, queue TTL, task
@@ -38,39 +120,25 @@ export default function CreateScheduleDialog({
   onCreated,
 }: CreateScheduleDialogProps) {
   const projectId = useProjectId();
-  const [name, setName] = useState(initialTaskIds.length === 1 ? `${initialTaskIds[0]} daily` : "");
-  const [scheduleValue, setScheduleValue] = useState<ScheduleBuilderValue>({
-    cadence_type: "daily",
-    timezone: "UTC",
-    hour: 9,
-    minute: 0,
-    day_of_week: null,
-    day_of_month: null,
-    min_interval_days: 1,
-    max_interval_days: 30,
-  });
   const browserTz = useBrowserTimezone();
-  const [appliedTz, setAppliedTz] = useState<string | null>(null);
-  if (browserTz && browserTz !== appliedTz) {
-    setAppliedTz(browserTz);
-    setScheduleValue((v) => ({ ...v, timezone: browserTz }));
-  }
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(initialTaskIds));
-  const [submitState, dispatchSubmit] = useReducer(
-    (s: { submitting: boolean; error: string | null }, a:
-      | { type: "START" }
-      | { type: "SUCCESS" }
-      | { type: "ERROR"; error: string }
-    ) => {
-      switch (a.type) {
-        case "START": return { submitting: true, error: null };
-        case "SUCCESS": return { submitting: false, error: null };
-        case "ERROR": return { submitting: false, error: a.error };
-      }
-    },
-    { submitting: false, error: null },
+  const [dialog, dispatchDialog] = useReducer(
+    dialogReducer,
+    { initialTaskIds, browserTz },
+    initDialogState,
   );
-  const [step, setStep] = useState<"schedule" | "tasks">("schedule");
+  const { name, schedule: scheduleValue, selected, step } = dialog;
+  const [submitState, dispatchSubmit] = useReducer(submitReducer, {
+    submitting: false,
+    error: null,
+  });
+
+  // Covers the rare case where the dialog mounted before the browser
+  // timezone resolved (initial render under SSR). No-op once applied.
+  useEffect(() => {
+    if (browserTz) {
+      dispatchDialog({ type: "APPLY_TIMEZONE", timezone: browserTz });
+    }
+  }, [browserTz]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,7 +193,7 @@ export default function CreateScheduleDialog({
               <Input
                 id="schedule-name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => dispatchDialog({ type: "SET_NAME", name: e.target.value })}
                 placeholder="e.g. nightly-regression"
                 className="font-mono"
               />
@@ -134,7 +202,7 @@ export default function CreateScheduleDialog({
             <div className="flex gap-1 border border-border/60 bg-muted/30 p-1">
               <button
                 type="button"
-                onClick={() => setStep("schedule")}
+                onClick={() => dispatchDialog({ type: "SET_STEP", step: "schedule" })}
                 className={`flex-1 px-4 py-2 text-sm font-medium transition-all ${
                   step === "schedule" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -144,7 +212,7 @@ export default function CreateScheduleDialog({
               </button>
               <button
                 type="button"
-                onClick={() => setStep("tasks")}
+                onClick={() => dispatchDialog({ type: "SET_STEP", step: "tasks" })}
                 className={`flex-1 px-4 py-2 text-sm font-medium transition-all ${
                   step === "tasks" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -160,7 +228,10 @@ export default function CreateScheduleDialog({
             </div>
 
             {step === "schedule" && (
-              <ScheduleBuilder value={scheduleValue} onChange={setScheduleValue} />
+              <ScheduleBuilder
+                value={scheduleValue}
+                onChange={(value) => dispatchDialog({ type: "SET_SCHEDULE", value })}
+              />
             )}
 
             {step === "tasks" && (
@@ -173,7 +244,9 @@ export default function CreateScheduleDialog({
                 <TaskFolderSelect
                   tasks={tasks}
                   selected={selected}
-                  onSelectedChange={setSelected}
+                  onSelectedChange={(nextSelected) =>
+                    dispatchDialog({ type: "SET_SELECTED", selected: nextSelected })
+                  }
                   className="max-h-[360px] overflow-y-auto pr-1"
                 />
               </div>
@@ -193,7 +266,11 @@ export default function CreateScheduleDialog({
                 Cancel
               </Button>
               {step === "schedule" ? (
-                <Button type="button" size="sm" onClick={() => setStep("tasks")}>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => dispatchDialog({ type: "SET_STEP", step: "tasks" })}
+                >
                   Next: Select Tasks
                 </Button>
               ) : (

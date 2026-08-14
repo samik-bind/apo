@@ -1,6 +1,5 @@
 import {
   listAgentTaskSchedules,
-  listAgentTasks,
   listProjectAgentTasks,
 } from "@/lib/agent-task-api";
 import { getProject, type ProjectTaskSource } from "@/lib/projects-api";
@@ -11,8 +10,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Schedules" };
 
-const TASK_ROOT = process.env.NEXT_PUBLIC_AGENT_TASK_ROOT ?? null;
-const EMPTY_TASKS: Awaited<ReturnType<typeof listAgentTasks>> = [];
+const EMPTY_TASKS: Awaited<ReturnType<typeof listProjectAgentTasks>> = [];
 const EMPTY_SCHEDULES: Awaited<ReturnType<typeof listAgentTaskSchedules>> = [];
 const EMPTY_EXECUTOR_POOLS: Awaited<ReturnType<typeof listExecutorPools>> = [];
 
@@ -40,18 +38,13 @@ export default async function AgentTaskSchedulesPage({
       listExecutorPools(projectId),
     ]);
 
-    // non-demo projects must NOT inherit example-service tasks
-    // via the legacy DEFAULT_TASK_ROOT fallback. The task list comes
-    // from the project's configured source or is
-    // empty. Demo keeps legacy discovery (its source is seeded from the
-    // bundled workspace).
-    if (projectId === "demo") {
-      tasks = await listAgentTasks(TASK_ROOT, undefined, projectId);
-    } else if (taskSource && !taskSource.inventory_stale) {
+    // The task list always comes from the project's configured source
+    // inventory — demo included (it is provisioned with a bundled `demo`
+    // source at startup). Projects without a source render the
+    // ProjectTaskSourceEmptyState in the schedules client.
+    if (taskSource && !taskSource.inventory_stale) {
       tasks = await listProjectAgentTasks(projectId);
     }
-    // else: non-demo + no source → leave tasks empty. The schedules
-    // client renders ProjectTaskSourceEmptyState in this case.
   } catch (e: unknown) {
     error = e instanceof Error ? e.message : "Failed to load schedules";
   }

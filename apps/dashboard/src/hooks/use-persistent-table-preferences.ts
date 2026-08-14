@@ -67,18 +67,26 @@ export function usePersistentTablePreferences(
     defaultsRef.current = defaults;
   });
 
-  // Hydrate from localStorage on mount (SSR-safe — localStorage is browser-only).
-  const [hydrated, setHydrated] = useState(false);
-  const [stored, setStored] = useState<PersistentTablePreferences | null>(null);
+  // Hydration from localStorage on mount (SSR-safe — localStorage is
+  // browser-only). One state object so the mount effect performs a single
+  // state transition instead of two sequential setter calls.
+  const [hydration, setHydration] = useState<{
+    hydrated: boolean;
+    stored: PersistentTablePreferences | null;
+  }>({ hydrated: false, stored: null });
+  const { hydrated, stored } = hydration;
 
   useEffect(() => {
     // localStorage is browser-only — must defer to mount for SSR safety
     // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
-    setStored(readStorage(storageKey));
-    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change
-    setHydrated(true);
+    setHydration({ hydrated: true, stored: readStorage(storageKey) });
     const listener = (key: string) => {
-      if (key === storageKey) setStored(readStorage(storageKey));
+      if (key === storageKey) {
+        // Read outside the updater — readStorage mutates the module cache,
+        // and state updaters must stay pure.
+        const stored = readStorage(storageKey);
+        setHydration((prev) => ({ ...prev, stored }));
+      }
     };
     storageListeners.add(listener);
     const storageHandler = (e: StorageEvent) => {

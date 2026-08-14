@@ -532,15 +532,24 @@ export function TraceWorkspace({
         : run,
     [run, streamCalls.length, mergedCalls],
   );
+  // Hold the latest refreshRun in a ref so the completion effect below doesn't
+  // depend on the prop's identity — an inline `() => router.refresh()` from the
+  // parent would otherwise re-arm the effect on every parent render. Latest-ref
+  // pattern, same as navigateToRef in TraceNavToolbar.
+  const refreshRunRef = useRef(refreshRun);
+  useEffect(() => {
+    refreshRunRef.current = refreshRun;
+  });
+
   const prevIsLiveRef = useRef(isLive);
   useEffect(() => {
     // The trace just completed: pull final state once so the detail pane gets
     // authoritative input/output/cost for every span.
     if (prevIsLiveRef.current && !isLive) {
-      refreshRun?.();
+      refreshRunRef.current?.();
     }
     prevIsLiveRef.current = isLive;
-  }, [isLive, refreshRun]);
+  }, [isLive]);
 
   const commentCounts = useCommentCounts(liveRun, readOnly);
 
@@ -572,6 +581,29 @@ export function TraceWorkspace({
     return () => clearTimeout(timer);
   }, [mode, searchQuery, searchParams]);
 
+  // Stable JSX props for the mobile layout: memoized elements keep their
+  // identity across renders, so TraceLayoutMobile's own state changes
+  // (accordion toggling) bail out of re-rendering these subtrees.
+  const mobileTabs = useMemo(
+    () => <TraceNavTabs run={liveRun} activeView={view} onActiveViewChange={setView} />,
+    [liveRun, view, setView],
+  );
+  const mobileNavContent = useMemo(
+    () => (
+      <TraceNavContent
+        run={liveRun}
+        activeView={view}
+        searchQuery={searchQuery}
+        commentCounts={commentCounts}
+      />
+    ),
+    [liveRun, view, searchQuery, commentCounts],
+  );
+  const mobileDetailContent = useMemo(
+    () => <TraceDetailView mode={mode} onClose={onClose} readOnly={readOnly} />,
+    [mode, onClose, readOnly],
+  );
+
   return (
     <TraceDataProvider run={liveRun} isLoading={false} error={null} refreshRun={refreshRun}>
       <ViewPreferencesProvider>
@@ -599,16 +631,9 @@ export function TraceWorkspace({
             </div>
             <div className="min-h-0 flex-1">
               <TraceLayoutMobile
-                tabs={<TraceNavTabs run={liveRun} activeView={view} onActiveViewChange={setView} />}
-                navContent={
-                  <TraceNavContent
-                    run={liveRun}
-                    activeView={view}
-                    searchQuery={searchQuery}
-                    commentCounts={commentCounts}
-                  />
-                }
-                detailContent={<TraceDetailView mode={mode} onClose={onClose} readOnly={readOnly} />}
+                tabs={mobileTabs}
+                navContent={mobileNavContent}
+                detailContent={mobileDetailContent}
               />
             </div>
           </div>

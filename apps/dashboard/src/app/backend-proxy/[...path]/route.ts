@@ -75,9 +75,7 @@ async function proxyToBackend(
   const init: RequestInit = {
     method: request.method,
     headers,
-    cache: "no-store",
     redirect: "manual",
-    next: { revalidate: 0 },
   };
 
   if (!["GET", "HEAD"].includes(request.method.toUpperCase())) {
@@ -87,7 +85,14 @@ async function proxyToBackend(
     init.duplex = "half";
   }
 
-  const upstream = await fetch(backendUrl, init);
+  // A proxy must never serve a cached upstream response: every request goes
+  // straight to the backend. Kept inline at the call site so the no-cache
+  // intent is visible where the fetch happens.
+  const upstream = await fetch(backendUrl, {
+    ...init,
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
   const responseHeaders = new Headers(upstream.headers);
   responseHeaders.delete("content-length");
 

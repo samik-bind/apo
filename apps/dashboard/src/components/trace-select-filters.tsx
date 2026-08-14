@@ -198,7 +198,9 @@ export function TraceModelMultiSelect({
   const [input, setInput] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  const [fetchedOptions, setFetchedOptions] = useState<string[]>(serverOptions ?? []);
+  // Undefined until the fetch resolves — server options render immediately,
+  // and a failed fetch keeps them instead of leaving an empty list behind.
+  const [fetchedOptions, setFetchedOptions] = useState<string[] | undefined>(undefined);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -219,7 +221,7 @@ export function TraceModelMultiSelect({
     return () => { controller.abort(); };
   }, []);
 
-  const options = fetchedOptions;
+  const options = fetchedOptions ?? serverOptions ?? [];
 
   const modelSet = new Set(models);
   // Filter available models that aren't already selected
@@ -314,7 +316,9 @@ export function TraceMetricFilter({
   hideLabel = false,
   options: serverOptions,
 }: MetricFilterProps) {
-  const [fetchedOptions, setFetchedOptions] = useState<string[]>(serverOptions ?? []);
+  // Undefined until the fetch resolves — server options render immediately,
+  // and a failed fetch keeps them instead of leaving an empty list behind.
+  const [fetchedOptions, setFetchedOptions] = useState<string[] | undefined>(undefined);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -335,7 +339,7 @@ export function TraceMetricFilter({
     return () => { controller.abort(); };
   }, []);
 
-  const options = fetchedOptions;
+  const options = fetchedOptions ?? serverOptions ?? [];
 
   return (
     <div className={hideLabel ? "" : "space-y-2"}>

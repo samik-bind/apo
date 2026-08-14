@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -62,6 +62,35 @@ function formatInterval(days: number): string {
   return `${days.toFixed(1)}d`;
 }
 
+const CLIENT_NOW_INTERVAL_MS = 30_000;
+// Cached clock reading — only mutated inside the subscription so the
+// useSyncExternalStore snapshot stays stable between notifications.
+let clientNowSnapshot: number = 0;
+
+function subscribeToClientNow(onChange: () => void) {
+  clientNowSnapshot = Date.now();
+  const id = setInterval(() => {
+    clientNowSnapshot = Date.now();
+    onChange();
+  }, CLIENT_NOW_INTERVAL_MS);
+  return () => clearInterval(id);
+}
+
+/**
+ * Client-side clock for relative timestamps, refreshed every 30s. Kept as an
+ * external store (same pattern as hooks/use-mobile.tsx): the hydration
+ * snapshot is null — matching the server render — and flips to the client
+ * clock once subscribed, without a mount effect initializing state. Consumers
+ * fall back to Date.now() while it is null.
+ */
+function useClientNow(): number | null {
+  return useSyncExternalStore(
+    subscribeToClientNow,
+    () => clientNowSnapshot,
+    () => null,
+  );
+}
+
 export function ScheduleDetailClient({
   projectId,
   schedule: initialSchedule,
@@ -71,15 +100,9 @@ export function ScheduleDetailClient({
 }: ScheduleDetailClientProps) {
   const router = useRouter();
   const [schedule, setSchedule] = useState(initialSchedule);
-  const [clientNow, setClientNow] = useState<number | null>(null);
+  const clientNow = useClientNow();
   const [triggering, setTriggering] = useState(false);
   const [poolError, setPoolError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setClientNow(Date.now());
-    const id = setInterval(() => setClientNow(Date.now()), 30000);
-    return () => clearInterval(id);
-  }, []);
 
   const handleTrigger = useCallback(async () => {
     setTriggering(true);

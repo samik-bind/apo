@@ -1,10 +1,7 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 
-import {
-  listProjectAgentTasks,
-  type AgentTaskSummary,
-} from "@/lib/agent-task-api";
 import {
   getTaskViewComparisonOverview,
 } from "@/lib/agent-task-view-api";
@@ -22,24 +19,30 @@ export default async function CompareViewsPage({
 }: {
   params: Promise<{ projectId: string; comparisonId: string }>;
 }) {
-  const { projectId, comparisonId } = await params;
-
-  const headerList = await headers();
+  const [{ projectId, comparisonId }, headerList] = await Promise.all([
+    params,
+    headers(),
+  ]);
   const isCrawler = CRAWLER_UA.test(headerList.get("user-agent") ?? "");
 
   // SPEC-177: fetch only the lightweight overview (snapshot + scalar
   // summaries). Check Reports, Task Definition bodies, transcripts, and
   // Deliverable JSON are loaded progressively when a task is expanded.
   let overview: Awaited<ReturnType<typeof getTaskViewComparisonOverview>> | null = null;
+  let loadError: unknown = null;
   try {
     overview = await getTaskViewComparisonOverview(projectId, comparisonId);
   } catch (error) {
-    // Real 404 (comparison doesn't exist) → show 404 for everyone.
-    // Auth failures (401/403) → crawlers get a 200 so OG meta tags work;
-    // real users were already redirected to /login by the project layout.
-    if (isNotFoundStatus(error) || !isCrawler) {
-      notFound();
-    }
+    loadError = error;
+  }
+
+  // notFound() throws a control-flow error, so it must be called outside the
+  // try/catch — a catch block would swallow it and the 404 would silently
+  // fail. Real 404 (comparison doesn't exist) → show 404 for everyone.
+  // Auth failures (401/403) → crawlers get a 200 so OG meta tags work;
+  // real users were already redirected to /login by the project layout.
+  if (loadError !== null && (isNotFoundStatus(loadError) || !isCrawler)) {
+    notFound();
   }
 
   if (!overview) {
@@ -64,15 +67,19 @@ export default async function CompareViewsPage({
     snapshot.resolved.map((cell) => [cell.task_id, cell.state] as const),
   );
 
+  // Suspense: CompareViewsClient reads ?expand via useUrlParam/useSearchParams,
+  // which needs a boundary above it so the page can still stream the shell.
   return (
-    <CompareViewsClient
-      projectId={projectId}
-      comparisonId={comparisonId}
-      snapshot={snapshot}
-      tasks={[]}
-      leftRuns={leftRuns}
-      rightRuns={rightRuns}
-      stateByTask={comparisonStates}
-    />
+    <Suspense fallback={null}>
+      <CompareViewsClient
+        projectId={projectId}
+        comparisonId={comparisonId}
+        snapshot={snapshot}
+        tasks={[]}
+        leftRuns={leftRuns}
+        rightRuns={rightRuns}
+        stateByTask={comparisonStates}
+      />
+    </Suspense>
   );
 }

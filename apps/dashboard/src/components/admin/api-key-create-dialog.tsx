@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useReducer } from "react"
 import {
   Dialog,
   DialogContent,
@@ -33,6 +33,63 @@ interface ApiKeyCreateDialogProps {
 // Hoisted so the default prop value keeps a stable identity across renders.
 const EMPTY_PROJECTS: Project[] = []
 
+// ----------------------------------------------------------------------------
+// Create-key form reducer.
+//
+// The form fields (name, project, scope, expiry) and the in-flight submit
+// flag describe one cohesive form lifecycle, so they transition together via
+// a single dispatched action instead of five parallel setter calls.
+// ----------------------------------------------------------------------------
+
+interface CreateKeyFormState {
+  name: string
+  project: string
+  scope: ApiKeyScope
+  expiresAt: string
+  creating: boolean
+}
+
+type CreateKeyFormAction =
+  | { type: "NAME_SET"; name: string }
+  | { type: "PROJECT_SET"; project: string }
+  | { type: "SCOPE_SET"; scope: ApiKeyScope }
+  | { type: "EXPIRES_AT_SET"; expiresAt: string }
+  | { type: "RESET"; project: string }
+  | { type: "CREATING_SET"; creating: boolean }
+
+function createInitialFormState(project: string): CreateKeyFormState {
+  return {
+    name: "",
+    project,
+    // default to the least-privileged scope. Telemetry producer
+    // issuance is the common case; full management access is an explicit
+    // administrative choice.
+    scope: "ingest",
+    expiresAt: "",
+    creating: false,
+  }
+}
+
+function createKeyFormReducer(
+  state: CreateKeyFormState,
+  action: CreateKeyFormAction,
+): CreateKeyFormState {
+  switch (action.type) {
+    case "NAME_SET":
+      return { ...state, name: action.name }
+    case "PROJECT_SET":
+      return { ...state, project: action.project }
+    case "SCOPE_SET":
+      return { ...state, scope: action.scope }
+    case "EXPIRES_AT_SET":
+      return { ...state, expiresAt: action.expiresAt }
+    case "RESET":
+      return createInitialFormState(action.project)
+    case "CREATING_SET":
+      return { ...state, creating: action.creating }
+  }
+}
+
 export function ApiKeyCreateDialog({
   open,
   onOpenChange,
@@ -44,23 +101,18 @@ export function ApiKeyCreateDialog({
   // rather than a free-text value. Fall back to the first project when the
   // parent has no current selection, and to "" (disabled) when none exist.
   const initialProject = defaultProject ?? projects[0]?.id ?? ""
-  const [name, setName] = useState("")
-  const [project, setProject] = useState(initialProject)
-  // default to the least-privileged scope. Telemetry producer
-  // issuance is the common case; full management access is an explicit
-  // administrative choice.
-  const [scope, setScope] = useState<ApiKeyScope>("ingest")
-  const [expiresAt, setExpiresAt] = useState("")
-  const [creating, setCreating] = useState(false)
+  const [form, dispatch] = useReducer(
+    createKeyFormReducer,
+    initialProject,
+    createInitialFormState,
+  )
+  const { name, project, scope, expiresAt, creating } = form
 
   const hasProjects = projects.length > 0
 
   const handleOpenChange = useCallback((next: boolean) => {
     if (next) {
-      setName("")
-      setProject(defaultProject ?? projects[0]?.id ?? "")
-      setScope("ingest")
-      setExpiresAt("")
+      dispatch({ type: "RESET", project: defaultProject ?? projects[0]?.id ?? "" })
     }
     onOpenChange(next)
   }, [defaultProject, projects, onOpenChange])
@@ -68,7 +120,7 @@ export function ApiKeyCreateDialog({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!hasProjects || !project) return
-    setCreating(true)
+    dispatch({ type: "CREATING_SET", creating: true })
     try {
       const result = await createApiKey(
         name.trim() || "Default",
@@ -82,7 +134,7 @@ export function ApiKeyCreateDialog({
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to create API key")
     } finally {
-      setCreating(false)
+      dispatch({ type: "CREATING_SET", creating: false })
     }
   }
 
@@ -103,7 +155,7 @@ export function ApiKeyCreateDialog({
               id="api-key-name"
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => dispatch({ type: "NAME_SET", name: e.target.value })}
               placeholder="Production"
               autoFocus
             />
@@ -114,7 +166,7 @@ export function ApiKeyCreateDialog({
               id="api-key-project"
               aria-label="Project"
               value={project}
-              onChange={(e) => setProject(e.target.value)}
+              onChange={(e) => dispatch({ type: "PROJECT_SET", project: e.target.value })}
               disabled={!hasProjects}
               className="h-8 w-full min-w-0 rounded-none border border-input bg-input/30 px-2.5 py-1 text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -130,7 +182,7 @@ export function ApiKeyCreateDialog({
               id="api-key-scope"
               aria-label="Scope"
               value={scope}
-              onChange={(e) => setScope(e.target.value as ApiKeyScope)}
+              onChange={(e) => dispatch({ type: "SCOPE_SET", scope: e.target.value as ApiKeyScope })}
               className="h-8 w-full min-w-0 rounded-none border border-input bg-input/30 px-2.5 py-1 text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50"
             >
               <option value="ingest">Ingest only — recommended for telemetry producers</option>
@@ -143,7 +195,7 @@ export function ApiKeyCreateDialog({
               id="api-key-expires"
               type="date"
               value={expiresAt}
-              onChange={(e) => setExpiresAt(e.target.value)}
+              onChange={(e) => dispatch({ type: "EXPIRES_AT_SET", expiresAt: e.target.value })}
             />
           </div>
 

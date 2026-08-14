@@ -32,8 +32,7 @@ export default async function ComparePage({
   params: Promise<{ projectId: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { projectId } = await params;
-  const query = await searchParams;
+  const [{ projectId }, query] = await Promise.all([params, searchParams]);
   const a = typeof query.a === "string" ? query.a : null;
   const b = typeof query.b === "string" ? query.b : null;
 

@@ -1,4 +1,12 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
+
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+function subscribeToReducedMotion(onChange: () => void) {
+  const mql = window.matchMedia(REDUCED_MOTION_QUERY);
+  mql.addEventListener("change", onChange);
+  return () => mql.removeEventListener("change", onChange);
+}
 
 /**
  * useReducedMotion — true when the user has asked for less motion.
@@ -6,19 +14,16 @@ import { useEffect, useState } from "react";
  * Replaces the `motion/react` `useReducedMotion` hook so the docs app avoids
  * pulling the full Framer Motion package for a single matchMedia listener.
  * See docs/design.md "Motion" — every animation freezes to a static frame here.
+ *
+ * useSyncExternalStore keeps the server and hydration frames identical (the
+ * server snapshot is false) and re-renders when the preference flips — no
+ * state initialized from a browser global inside an effect. Same pattern as
+ * the dashboard's hooks/use-mobile.tsx.
  */
 export function useReducedMotion(): boolean {
-  const query = "(prefers-reduced-motion: reduce)";
-  const [reduced, setReduced] = useState(false);
-
-  useEffect(() => {
-    const media = window.matchMedia(query);
-    setReduced(media.matches);
-
-    const onChange = (event: MediaQueryListEvent) => setReduced(event.matches);
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, []);
-
-  return reduced;
+  return useSyncExternalStore(
+    subscribeToReducedMotion,
+    () => window.matchMedia(REDUCED_MOTION_QUERY).matches,
+    () => false,
+  );
 }

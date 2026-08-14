@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { backendFetch } from "@/lib/backend-fetch";
 import { SettingsPageHeader } from "@/components/settings/page-header";
@@ -8,30 +8,93 @@ import { User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+// One state machine for the change-password form: the three fields travel
+// with the submission status they belong to.
+type PasswordFormState = {
+  currentPassword: string;
+  newPassword: string;
+  confirmNewPassword: string;
+  changing: boolean;
+  error: string | null;
+  success: boolean;
+};
+
+type PasswordFormField = "currentPassword" | "newPassword" | "confirmNewPassword";
+
+type PasswordFormAction =
+  | { type: "SET_FIELD"; field: PasswordFormField; value: string }
+  | { type: "VALIDATION_ERROR"; message: string }
+  | { type: "SUBMIT_START" }
+  | { type: "SUBMIT_ERROR"; message: string }
+  | { type: "SUBMIT_SUCCESS" };
+
+const initialPasswordFormState: PasswordFormState = {
+  currentPassword: "",
+  newPassword: "",
+  confirmNewPassword: "",
+  changing: false,
+  error: null,
+  success: false,
+};
+
+function passwordFormReducer(
+  state: PasswordFormState,
+  action: PasswordFormAction,
+): PasswordFormState {
+  switch (action.type) {
+    case "SET_FIELD":
+      if (action.field === "currentPassword") return { ...state, currentPassword: action.value };
+      if (action.field === "newPassword") return { ...state, newPassword: action.value };
+      return { ...state, confirmNewPassword: action.value };
+    case "VALIDATION_ERROR":
+      return { ...state, error: action.message };
+    case "SUBMIT_START":
+      return { ...state, changing: true, error: null, success: false };
+    case "SUBMIT_ERROR":
+      return { ...state, changing: false, error: action.message };
+    case "SUBMIT_SUCCESS":
+      return {
+        currentPassword: "",
+        newPassword: "",
+        confirmNewPassword: "",
+        changing: false,
+        error: null,
+        success: true,
+      };
+  }
+}
+
 export default function ProfileSettingsPage() {
   const { data: session } = useSession();
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [changing, setChanging] = useState(false);
+  const [form, dispatch] = useReducer(passwordFormReducer, initialPasswordFormState);
+  const { currentPassword, newPassword, confirmNewPassword, changing, error, success } = form;
   const signOutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
       if (signOutTimer.current) clearTimeout(signOutTimer.current);
     };
-  }, []);
+  }, [signOutTimer]);
+
+  const handleCurrentPasswordChange = useCallback(
+    (value: string) => dispatch({ type: "SET_FIELD", field: "currentPassword", value }),
+    [],
+  );
+  const handleNewPasswordChange = useCallback(
+    (value: string) => dispatch({ type: "SET_FIELD", field: "newPassword", value }),
+    [],
+  );
+  const handleConfirmNewPasswordChange = useCallback(
+    (value: string) => dispatch({ type: "SET_FIELD", field: "confirmNewPassword", value }),
+    [],
+  );
 
   async function handleChangePassword() {
     if (newPassword !== confirmNewPassword) {
-      setError("Passwords do not match");
+      dispatch({ type: "VALIDATION_ERROR", message: "Passwords do not match" });
       return;
     }
-    setChanging(true);
-    setError(null);
-    setSuccess(false);
+    dispatch({ type: "SUBMIT_START" });
     try {
       const res = await backendFetch("/backend-proxy/auth/change-password", {
         method: "POST",
@@ -43,18 +106,13 @@ export default function ProfileSettingsPage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        setError(data?.detail ?? "Failed to change password");
+        dispatch({ type: "SUBMIT_ERROR", message: data?.detail ?? "Failed to change password" });
         return;
       }
-      setSuccess(true);
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmNewPassword("");
+      dispatch({ type: "SUBMIT_SUCCESS" });
       signOutTimer.current = setTimeout(() => signOut({ callbackUrl: "/login" }), 2000);
     } catch {
-      setError("Unable to connect to server");
-    } finally {
-      setChanging(false);
+      dispatch({ type: "SUBMIT_ERROR", message: "Unable to connect to server" });
     }
   }
 
@@ -104,7 +162,7 @@ export default function ProfileSettingsPage() {
                 id="current-password"
                 type="password"
                 value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
+                onChange={(e) => handleCurrentPasswordChange(e.target.value)}
                 autoComplete="current-password"
                 className="h-9"
               />
@@ -117,7 +175,7 @@ export default function ProfileSettingsPage() {
                 id="new-password"
                 type="password"
                 value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
+                onChange={(e) => handleNewPasswordChange(e.target.value)}
                 autoComplete="new-password"
                 className="h-9"
               />
@@ -130,7 +188,7 @@ export default function ProfileSettingsPage() {
                 id="confirm-new-password"
                 type="password"
                 value={confirmNewPassword}
-                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                onChange={(e) => handleConfirmNewPasswordChange(e.target.value)}
                 autoComplete="new-password"
                 className="h-9"
               />

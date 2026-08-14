@@ -11,6 +11,36 @@
           "src/components/ui/table.tsx"
         ],
         "rules": ["react-doctor/only-export-components"]
+      },
+      {
+        "files": ["src/components/shiki-code-block.tsx"],
+        "rules": ["react-doctor/no-danger"]
+      },
+      {
+        "files": [
+          "src/app/project/[projectId]/compare-views/[comparisonId]/opengraph-image.tsx"
+        ],
+        "rules": ["react-doctor/only-export-components"]
+      },
+      {
+        "files": ["src/components/agent-task-files/task-file-list.tsx"],
+        "rules": ["react-doctor/js-set-map-lookups"]
+      },
+      {
+        "files": [
+          "src/components/agent-task-files/task-file-viewer.tsx",
+          "src/components/trace-detail/CallDetailTabs.tsx",
+          "src/components/trace-detail/ChatMessagePreview.tsx",
+          "src/components/trace-detail/ToolDefinitionsSection.tsx"
+        ],
+        "rules": ["react-doctor/no-array-index-as-key"]
+      },
+      {
+        "files": [
+          "src/app/project/[projectId]/runs/compare/components/CompareTaskRow.tsx",
+          "src/components/trace-select-filters.tsx"
+        ],
+        "rules": ["react-doctor/no-set-state-after-await-in-effect"]
       }
     ]
   }

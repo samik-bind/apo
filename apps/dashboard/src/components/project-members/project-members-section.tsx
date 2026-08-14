@@ -730,6 +730,74 @@ function inviteReducer(state: InviteState, action: InviteAction): InviteState {
   }
 }
 
+// ----------------------------------------------------------------------------
+// Member-action reducer for ProjectMembersSection.
+//
+// {removeTarget, revokeTarget, busy, actionError, resendingId} all describe
+// the destructive-action flow (open a confirmation, run the mutation, surface
+// the outcome), so they transition as one machine. `selectedProjectId` stays a
+// standalone useState — it's the picker selection that drives data fetching,
+// not part of the action lifecycle.
+// ----------------------------------------------------------------------------
+
+interface MemberActionState {
+  removeTarget: ProjectMemberSummary | null
+  revokeTarget: ProjectInvitationSummary | null
+  busy: boolean
+  actionError: string | null
+  resendingId: string | null
+}
+
+type MemberAction =
+  | { type: "REMOVE_TARGET_SET"; member: ProjectMemberSummary }
+  | { type: "REMOVE_TARGET_CLEAR" }
+  | { type: "REVOKE_TARGET_SET"; invitation: ProjectInvitationSummary }
+  | { type: "REVOKE_TARGET_CLEAR" }
+  | { type: "BUSY_START" }
+  | { type: "BUSY_END" }
+  | { type: "RESEND_START"; id: string }
+  | { type: "RESEND_END" }
+  | { type: "ERROR_CLEAR" }
+  | { type: "ERROR_SET"; error: string }
+
+const initialMemberActionState: MemberActionState = {
+  removeTarget: null,
+  revokeTarget: null,
+  busy: false,
+  actionError: null,
+  resendingId: null,
+}
+
+function memberActionReducer(
+  state: MemberActionState,
+  action: MemberAction,
+): MemberActionState {
+  switch (action.type) {
+    case "REMOVE_TARGET_SET":
+      return { ...state, removeTarget: action.member }
+    case "REMOVE_TARGET_CLEAR":
+      return { ...state, removeTarget: null }
+    case "REVOKE_TARGET_SET":
+      return { ...state, revokeTarget: action.invitation }
+    case "REVOKE_TARGET_CLEAR":
+      return { ...state, revokeTarget: null }
+    case "BUSY_START":
+      return { ...state, busy: true, actionError: null }
+    case "BUSY_END":
+      return { ...state, busy: false }
+    case "RESEND_START":
+      return { ...state, resendingId: action.id, actionError: null }
+    case "RESEND_END":
+      return { ...state, resendingId: null }
+    case "ERROR_CLEAR":
+      return { ...state, actionError: null }
+    case "ERROR_SET":
+      return { ...state, actionError: action.error }
+    default:
+      return state
+  }
+}
+
 export function ProjectMembersSection() {
   const { data: session } = useSession()
   const [fetchState, dispatch] = useReducer(fetchReducer, initialFetchState)
@@ -740,12 +808,12 @@ export function ProjectMembersSection() {
   const [inviteState, dispatchInvite] = useReducer(inviteReducer, initialInviteState)
   const { show: showInviteDialog, email: inviteEmail, role: inviteRole, inviting, error: inviteError, linkCallout } = inviteState
 
-  // Confirmations
-  const [removeTarget, setRemoveTarget] = useState<ProjectMemberSummary | null>(null)
-  const [revokeTarget, setRevokeTarget] = useState<ProjectInvitationSummary | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [actionError, setActionError] = useState<string | null>(null)
-  const [resendingId, setResendingId] = useState<string | null>(null)
+  // Confirmation dialogs + mutation status
+  const [actionState, dispatchAction] = useReducer(
+    memberActionReducer,
+    initialMemberActionState,
+  )
+  const { removeTarget, revokeTarget, busy, actionError, resendingId } = actionState
 
   // members management is admin-scoped. Hide the demo project — it
   // has no memberships.
@@ -806,56 +874,65 @@ export function ProjectMembersSection() {
   }
 
   async function handleChangeRole(member: ProjectMemberSummary, newRole: ProjectRole) {
-    setActionError(null)
+    dispatchAction({ type: "ERROR_CLEAR" })
     try {
       await updateProjectMemberRole(selectedProjectId, member.user_id, newRole)
       await fetchAll()
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Failed to update role")
+      dispatchAction({
+        type: "ERROR_SET",
+        error: e instanceof Error ? e.message : "Failed to update role",
+      })
     }
   }
 
   async function handleResend(invitation: ProjectInvitationSummary) {
-    setResendingId(invitation.id)
-    setActionError(null)
+    dispatchAction({ type: "RESEND_START", id: invitation.id })
     try {
       const response = await resendProjectInvitation(selectedProjectId, invitation.id)
       dispatchInvite({ type: "SET_LINK_CALLOUT", linkCallout: response.delivery_status === "link_only" ? response : null })
       await fetchAll()
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Failed to resend invitation")
+      dispatchAction({
+        type: "ERROR_SET",
+        error: e instanceof Error ? e.message : "Failed to resend invitation",
+      })
     } finally {
-      setResendingId(null)
+      dispatchAction({ type: "RESEND_END" })
     }
   }
 
   async function handleRemove() {
     if (!removeTarget) return
-    setBusy(true)
-    setActionError(null)
+    dispatchAction({ type: "BUSY_START" })
     try {
       await removeProjectMember(selectedProjectId, removeTarget.user_id)
-      setRemoveTarget(null)
+      dispatchAction({ type: "REMOVE_TARGET_CLEAR" })
       await fetchAll()
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Failed to remove member")
+      dispatchAction({
+        type: "ERROR_SET",
+        error: e instanceof Error ? e.message : "Failed to remove member",
+      })
     } finally {
-      setBusy(false)
+      dispatchAction({ type: "BUSY_END" })
     }
   }
 
   async function handleRevoke() {
     if (!revokeTarget) return
-    setBusy(true)
-    setActionError(null)
+    dispatchAction({ type: "BUSY_START" })
     try {
       await revokeProjectInvitation(selectedProjectId, revokeTarget.id)
-      setRevokeTarget(null)
+      dispatchAction({ type: "REVOKE_TARGET_CLEAR" })
       await fetchAll()
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Failed to revoke invitation")
+      dispatchAction({
+        type: "ERROR_SET",
+        error: e instanceof Error ? e.message : "Failed to revoke invitation",
+      })
     } finally {
-      setBusy(false)
+      dispatchAction({ type: "BUSY_END" })
     }
   }
 
@@ -864,14 +941,14 @@ export function ProjectMembersSection() {
   const currentProject = projects.find((p) => p.id === selectedProjectId)
 
   const rows: Row[] = [
-    ...[...members]
-      .sort((a, b) => {
+    ...members
+      .toSorted((a, b) => {
         if (ROLE_RANK[a.role] !== ROLE_RANK[b.role]) return ROLE_RANK[a.role] - ROLE_RANK[b.role]
         return a.email.localeCompare(b.email)
       })
       .map((m): Row => ({ kind: "member", member: m })),
-    ...[...invitations]
-      .sort((a, b) => a.email.localeCompare(b.email))
+    ...invitations
+      .toSorted((a, b) => a.email.localeCompare(b.email))
       .map((i): Row => ({ kind: "invitation", invitation: i })),
   ]
 
@@ -926,9 +1003,9 @@ export function ProjectMembersSection() {
         ownerCount={ownerCount}
         resendingId={resendingId}
         onChangeRole={handleChangeRole}
-        onRemove={setRemoveTarget}
+        onRemove={(member) => dispatchAction({ type: "REMOVE_TARGET_SET", member })}
         onResend={handleResend}
-        onRevoke={setRevokeTarget}
+        onRevoke={(invitation) => dispatchAction({ type: "REVOKE_TARGET_SET", invitation })}
       />
 
       {/* Invite dialog */}
@@ -948,9 +1025,9 @@ export function ProjectMembersSection() {
         removeTarget={removeTarget}
         revokeTarget={revokeTarget}
         busy={busy}
-        onCloseRemove={() => setRemoveTarget(null)}
+        onCloseRemove={() => dispatchAction({ type: "REMOVE_TARGET_CLEAR" })}
         onConfirmRemove={handleRemove}
-        onCloseRevoke={() => setRevokeTarget(null)}
+        onCloseRevoke={() => dispatchAction({ type: "REVOKE_TARGET_CLEAR" })}
         onConfirmRevoke={handleRevoke}
       />
     </div>

@@ -1,22 +1,21 @@
 import * as React from "react";
 
 const MOBILE_BREAKPOINT = 768;
+const MOBILE_QUERY = `(max-width: ${MOBILE_BREAKPOINT - 1}px)`;
+
+function subscribeToBreakpoint(onChange: () => void) {
+  const mql = window.matchMedia(MOBILE_QUERY);
+  mql.addEventListener("change", onChange);
+  return () => mql.removeEventListener("change", onChange);
+}
 
 export function useIsMobile() {
-  // Undefined until mounted so server and client render the same first
-  // frame; reading window.innerWidth during initialization would branch the
-  // hydration render on a browser global.
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined);
-
-  React.useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
-    const onChange = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
-    };
-    onChange();
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, []);
-
-  return !!isMobile;
+  // useSyncExternalStore keeps the server and hydration frames identical
+  // (getServerSnapshot returns false) and re-renders on breakpoint change —
+  // no useState/effect pair reading window.innerWidth.
+  return React.useSyncExternalStore(
+    subscribeToBreakpoint,
+    () => window.matchMedia(MOBILE_QUERY).matches,
+    () => false,
+  );
 }

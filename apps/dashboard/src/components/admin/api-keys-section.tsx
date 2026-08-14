@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useReducer, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 import {
@@ -18,17 +18,83 @@ import { KeyRound, Loader2, Plus, RefreshCw, ChevronDown } from "lucide-react"
 
 type RevealState = { payload: ApiKeyRevealPayload; action: "created" | "rotated" } | null
 
+// ----------------------------------------------------------------------------
+// Reducers for ApiKeysSection.
+//
+// {keys, loading} is a fetch machine — both slices transition together on
+// every fetch. {projects, selectedProject} is the project filter: the
+// selection and the loaded project list jointly own the effective-project
+// fallback, so they live in one state. Unrelated single-value UI state (the
+// create dialog and reveal dialog) stays as independent useStates.
+// ----------------------------------------------------------------------------
+
+interface KeysState {
+  keys: ApiKey[]
+  loading: boolean
+}
+
+type KeysAction =
+  | { type: "FETCH_START" }
+  | { type: "FETCH_LOADED"; keys: ApiKey[] }
+  | { type: "FETCH_ERROR" }
+  | { type: "KEY_REVOKED"; id: string }
+
+const initialKeysState: KeysState = { keys: [], loading: true }
+
+function keysReducer(state: KeysState, action: KeysAction): KeysState {
+  switch (action.type) {
+    case "FETCH_START":
+      return { ...state, loading: true }
+    case "FETCH_LOADED":
+      return { keys: action.keys, loading: false }
+    case "FETCH_ERROR":
+      // keep stale keys on screen; only the spinner goes away
+      return { ...state, loading: false }
+    case "KEY_REVOKED":
+      return { ...state, keys: state.keys.filter((k) => k.id !== action.id) }
+  }
+}
+
+interface ProjectFilterState {
+  projects: Project[]
+  selectedProject: string
+}
+
+type ProjectFilterAction =
+  | { type: "PROJECTS_LOADED"; projects: Project[] }
+  | { type: "PROJECT_SELECTED"; projectId: string }
+
+const initialProjectFilterState: ProjectFilterState = {
+  projects: [],
+  selectedProject: "",
+}
+
+function projectFilterReducer(
+  state: ProjectFilterState,
+  action: ProjectFilterAction,
+): ProjectFilterState {
+  switch (action.type) {
+    case "PROJECTS_LOADED":
+      return { ...state, projects: action.projects }
+    case "PROJECT_SELECTED":
+      return { ...state, selectedProject: action.projectId }
+  }
+}
+
 export function ApiKeysSection() {
-  const [keys, setKeys] = useState<ApiKey[]>([])
-  const [loading, setLoading] = useState(true)
+  const [keysState, dispatchKeys] = useReducer(keysReducer, initialKeysState)
+  const { keys, loading } = keysState
+  const [filter, dispatchFilter] = useReducer(
+    projectFilterReducer,
+    initialProjectFilterState,
+  )
+  const { projects, selectedProject } = filter
   const [createOpen, setCreateOpen] = useState(false)
   const [reveal, setReveal] = useState<RevealState>(null)
-  const [projects, setProjects] = useState<Project[]>([])
-  const [selectedProject, setSelectedProject] = useState<string>("")
 
   useEffect(() => {
     listProjects().then((ps) => {
-      setProjects(ps)
+      dispatchFilter({ type: "PROJECTS_LOADED", projects: ps })
     }).catch(() => {})
   }, [])
 
@@ -39,13 +105,12 @@ export function ApiKeysSection() {
 
   const fetchKeys = useCallback(async () => {
     if (!effectiveProject) return
-    setLoading(true)
+    dispatchKeys({ type: "FETCH_START" })
     try {
-      setKeys(await listApiKeys(effectiveProject))
+      dispatchKeys({ type: "FETCH_LOADED", keys: await listApiKeys(effectiveProject) })
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Failed to load API keys")
-    } finally {
-      setLoading(false)
+      dispatchKeys({ type: "FETCH_ERROR" })
     }
   }, [effectiveProject])
 
@@ -72,7 +137,7 @@ export function ApiKeysSection() {
   async function handleRevoke(id: string) {
     try {
       await revokeApiKey(id)
-      setKeys((prev) => prev.filter((k) => k.id !== id))
+      dispatchKeys({ type: "KEY_REVOKED", id })
       toast.success("Key deleted")
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Failed to delete key")
@@ -94,7 +159,7 @@ export function ApiKeysSection() {
               <select
                 value={effectiveProject ?? ""}
                 aria-label="Filter by project"
-                onChange={(e) => setSelectedProject(e.target.value)}
+                onChange={(e) => dispatchFilter({ type: "PROJECT_SELECTED", projectId: e.target.value })}
                 className="appearance-none rounded-md border border-border bg-background px-3 py-1 pr-7 text-xs text-foreground outline-none focus:border-primary"
               >
                 {projects.map((p) => (

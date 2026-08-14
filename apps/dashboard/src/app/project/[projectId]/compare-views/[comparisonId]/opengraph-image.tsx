@@ -1,8 +1,13 @@
 import { ImageResponse } from "next/og";
 import { getServerBackendBaseUrl } from "@/lib/config.server";
 import { buildSignalSphereScene, renderSignalSphereSvg } from "@/components/brand/signal-sphere-scene";
+import { OG_IMAGE_SIZE } from "./og-image-size";
 
-export const size = { width: 1200, height: 630 };
+// Route-level export required by Next's ImageResponse metadata contract —
+// it emits og:image:width/height from this. Suppressed in doctor.config.json
+// because metadata-route exports trip only-export-components.
+export const size = OG_IMAGE_SIZE;
+
 export const contentType = "image/png";
 export const runtime = "nodejs";
 export const alt = "apo comparison";
@@ -17,6 +22,20 @@ const C = {
   gray5: "#404040",
   accent: "#4ade80",
 };
+
+const BADGE_STYLE = {
+  display: "flex",
+  alignSelf: "flex-start",
+  padding: "8px 18px",
+  borderRadius: "999px",
+  backgroundColor: C.gray6,
+  border: `1px solid ${C.gray5}`,
+  color: C.gray3,
+  fontSize: "18px",
+  fontWeight: 600,
+  letterSpacing: "2px",
+  textTransform: "uppercase",
+} as const;
 
 type CardData = { view_a: string | null; view_b: string | null };
 
@@ -57,7 +76,7 @@ export default async function Image({
         {/* Left column */}
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", width: "720px", padding: "80px" }}>
           {/* Badge */}
-          <div style={{ display: "flex", alignSelf: "flex-start", padding: "8px 18px", borderRadius: "999px", backgroundColor: C.gray6, border: `1px solid ${C.gray5}`, color: C.gray3, fontSize: "18px", fontWeight: 600, letterSpacing: "2px", textTransform: "uppercase" }}>
+          <div style={BADGE_STYLE}>
             Comparison
           </div>
           {/* Wordmark */}
@@ -86,6 +105,6 @@ export default async function Image({
         </div>
       </div>
     ),
-    { ...size },
+    { ...OG_IMAGE_SIZE },
   );
 }

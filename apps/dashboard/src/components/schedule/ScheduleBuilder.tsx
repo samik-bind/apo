@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useReducer, useState } from "react";
 import { Clock, Calendar, Sparkles, HelpCircle } from "lucide-react";
 import { describeSchedule, type ScheduleConfig } from "./compute-upcoming";
 import { MiniCalendar } from "./MiniCalendar";
@@ -35,21 +35,53 @@ const CADENCE_OPTIONS: { type: CadenceType; label: string }[] = [
   { type: "adaptive", label: "Smart" },
 ];
 
+// ----------------------------------------------------------------------------
+// Timezone picker reducer — {open, search} transition together on every
+// interaction with the dropdown (focus, type, select, blur).
+// ----------------------------------------------------------------------------
+
+interface TimezonePickerState {
+  open: boolean;
+  search: string;
+}
+
+type TimezonePickerAction =
+  | { type: "OPEN" } // focused: show the list, clear any previous search
+  | { type: "TYPE"; search: string } // typing filters and opens the list
+  | { type: "SELECT" } // picked a zone: close and clear
+  | { type: "CLOSE" }; // blurred: close
+
+const initialTimezonePickerState: TimezonePickerState = { open: false, search: "" };
+
+function timezonePickerReducer(
+  state: TimezonePickerState,
+  action: TimezonePickerAction,
+): TimezonePickerState {
+  switch (action.type) {
+    case "OPEN":
+      return { open: true, search: "" };
+    case "TYPE":
+      return { open: true, search: action.search };
+    case "SELECT":
+      return { open: false, search: "" };
+    case "CLOSE":
+      return { ...state, open: false };
+  }
+}
+
 export function ScheduleBuilder({ value, onChange }: ScheduleBuilderProps) {
   const timezones = useSupportedTimezones();
-  const [tzSearch, setTzSearch] = useState("");
-  const [showTzList, setShowTzList] = useState(false);
+  const [tzPicker, dispatchTz] = useReducer(timezonePickerReducer, initialTimezonePickerState);
 
+  // Calendar view, derived during render: `null` means "follow today". The
+  // client date resolves via useSyncExternalStore right after SSR, so deriving
+  // the view keeps it in sync without a render-time state adjustment. Once
+  // the user navigates, their explicit view wins. The {2025, 0} fallback
+  // matches the pre-client server render.
   const clientDate = useClientDate();
-  const [calYear, setCalYear] = useState(2025);
-  const [calMonth, setCalMonth] = useState(0);
-  // Sync calendar to today's date once the client date resolves (SSR-safe).
-  const [prevClientDay, setPrevClientDay] = useState<number | null>(null);
-  if (clientDate && clientDate.day !== prevClientDay) {
-    setPrevClientDay(clientDate.day);
-    setCalYear(clientDate.year);
-    setCalMonth(clientDate.month);
-  }
+  const [calendarView, setCalendarView] = useState<{ year: number; month: number } | null>(null);
+  const calYear = calendarView?.year ?? clientDate?.year ?? 2025;
+  const calMonth = calendarView?.month ?? clientDate?.month ?? 0;
 
   const config: ScheduleConfig = value;
   const description = describeSchedule(config);
@@ -65,9 +97,11 @@ export function ScheduleBuilder({ value, onChange }: ScheduleBuilderProps) {
   }, [value.cadence_type, value.day_of_month, calYear, calMonth]);
 
   const filteredTz = useMemo(() => {
-    if (!tzSearch) return timezones.slice(0, 20);
-    return timezones.filter((tz) => tz.toLowerCase().includes(tzSearch.toLowerCase())).slice(0, 20);
-  }, [timezones, tzSearch]);
+    if (!tzPicker.search) return timezones.slice(0, 20);
+    return timezones
+      .filter((tz) => tz.toLowerCase().includes(tzPicker.search.toLowerCase()))
+      .slice(0, 20);
+  }, [timezones, tzPicker.search]);
 
   const handleCadenceChange = (type: CadenceType) => {
     if (type === "daily") {
@@ -149,7 +183,7 @@ export function ScheduleBuilder({ value, onChange }: ScheduleBuilderProps) {
             highlightDays={calendarHighlights}
             mode="monthly"
             onDayClick={handleDayClick}
-            onMonthChange={(y, m) => { setCalYear(y); setCalMonth(m); }}
+            onMonthChange={(y, m) => setCalendarView({ year: y, month: m })}
           />
         </div>
       )}
@@ -263,17 +297,14 @@ export function ScheduleBuilder({ value, onChange }: ScheduleBuilderProps) {
             <input
               type="text"
               aria-label="Timezone"
-              value={showTzList ? tzSearch : value.timezone}
-              onChange={(e) => {
-                setTzSearch(e.target.value);
-                if (!showTzList) setShowTzList(true);
-              }}
-              onFocus={() => { setShowTzList(true); setTzSearch(""); }}
-              onBlur={() => { setTimeout(() => setShowTzList(false), 200); }}
+              value={tzPicker.open ? tzPicker.search : value.timezone}
+              onChange={(e) => dispatchTz({ type: "TYPE", search: e.target.value })}
+              onFocus={() => dispatchTz({ type: "OPEN" })}
+              onBlur={() => { setTimeout(() => dispatchTz({ type: "CLOSE" }), 200); }}
               placeholder="Search timezone..."
               className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
             />
-            {showTzList && (
+            {tzPicker.open && (
               <div className="absolute z-50 top-full mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg">
                 {filteredTz.map((tz) => (
                   <button
@@ -281,8 +312,7 @@ export function ScheduleBuilder({ value, onChange }: ScheduleBuilderProps) {
                     type="button"
                     onMouseDown={() => {
                       onChange({ ...value, timezone: tz });
-                      setShowTzList(false);
-                      setTzSearch("");
+                      dispatchTz({ type: "SELECT" });
                     }}
                     className={`w-full text-left px-3 py-2 text-sm font-mono hover:bg-accent transition-colors ${
                       tz === value.timezone ? "bg-accent/50 text-accent-foreground" : "text-foreground"

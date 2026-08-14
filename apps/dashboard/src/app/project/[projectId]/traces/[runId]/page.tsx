@@ -36,34 +36,37 @@ export default async function TraceDetailPage({
   params: Promise<{ projectId: string; runId: string }>;
   searchParams: Promise<{ sort_by?: string; sort_order?: string }>;
 }) {
-  const { projectId, runId } = await params;
-  const { sort_by, sort_order } = await searchParams;
+  const [{ projectId, runId }, { sort_by, sort_order }] = await Promise.all([
+    params,
+    searchParams,
+  ]);
   let error: string | null = null;
 
-  // Adjacent-trace lookup is independent of the detail fetch (and swallows
-  // its own errors), so run both in parallel instead of as a waterfall.
-  const [trace, adjacent] = await Promise.all([
-    getTraceDetailCached(runId, projectId).catch((e: unknown): TraceDetail | null => {
+  // Adjacent-trace lookup is independent of the detail fetch and never
+  // rejects (it returns null ids on failure), so start it in parallel with
+  // the detail fetch. It is only awaited below the early-return guards so
+  // the error path doesn't wait on it.
+  const adjacentPromise = getAdjacentTraces(runId, sort_by, sort_order, projectId);
+  const trace = await getTraceDetailCached(runId, projectId).catch(
+    (e: unknown): TraceDetail | null => {
       error = e instanceof Error ? e.message : "Failed to fetch trace details";
       return null;
-    }),
-    getAdjacentTraces(runId, sort_by, sort_order, projectId),
-  ]);
+    },
+  );
 
-  if (error) {
+  if (!trace) {
+    // The catch handler above assigns `error` whenever it returns null.
     return (
       <div className="mx-auto max-w-6xl px-6 py-10">
         <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
           <p className="font-medium">Error</p>
-          <p>{error}</p>
+          <p>{error ?? "Failed to fetch trace details"}</p>
         </div>
       </div>
     );
   }
 
-  if (!trace) {
-    return null;
-  }
+  const adjacent = await adjacentPromise;
 
   return (
     <div className="flex h-[calc(100vh-6rem)] flex-col overflow-hidden">

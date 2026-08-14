@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback, useRef, useEffect } from "react";
+import { useMemo, useState, useCallback, useReducer, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import {
   type StringMode,
@@ -22,37 +22,52 @@ interface ExpandableJsonProps {
   className?: string;
 }
 
+// Search box + active match index: typing a new query resets the active
+// match, so the pair transitions together in one reducer.
+type SearchState = { input: string; matchIdx: number };
+type SearchAction =
+  | { type: "SET_INPUT"; value: string }
+  | { type: "NAVIGATE"; direction: "prev" | "next"; count: number };
+
+function searchReducer(state: SearchState, action: SearchAction): SearchState {
+  switch (action.type) {
+    case "SET_INPUT":
+      return { input: action.value, matchIdx: 0 };
+    case "NAVIGATE": {
+      if (action.count === 0) return state;
+      const idx =
+        action.direction === "next"
+          ? (state.matchIdx + 1) % action.count
+          : (state.matchIdx - 1 + action.count) % action.count;
+      return { ...state, matchIdx: idx };
+    }
+  }
+}
+
+// Virtualization viewport: scroll offset plus the measured container height.
+type ViewportState = { scrollTop: number; containerHeight: number };
+type ViewportAction =
+  | { type: "SCROLL"; top: number; height?: number }
+  | { type: "MEASURE"; height: number };
+
+function viewportReducer(state: ViewportState, action: ViewportAction): ViewportState {
+  switch (action.type) {
+    case "SCROLL":
+      return {
+        scrollTop: action.top,
+        containerHeight: action.height ?? state.containerHeight,
+      };
+    case "MEASURE":
+      return { ...state, containerHeight: action.height };
+  }
+}
+
 export function ExpandableJson({
   data,
   label,
   fillHeight = false,
   className,
 }: ExpandableJsonProps) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    if (data === null || data === undefined) return new Set();
-    const s = new Set<string>();
-    const root = buildTree(data, null, "root", 0);
-    function autoCollapse(node: JsonNode, depth: number) {
-      if (
-        (node.type === "object" || node.type === "array") &&
-        node.childCount > 0
-      ) {
-        if (depth >= 2 || node.childCount > 8) s.add(node.id);
-        node.children.forEach((c) => autoCollapse(c, depth + 1));
-      }
-    }
-    autoCollapse(root, 0);
-    return s;
-  });
-
-  const [searchInput, setSearchInput] = useState("");
-  const [stringMode, setStringMode] = useState<StringMode>("truncate");
-  const [showLineNumbers, setShowLineNumbers] = useState(false);
-  const [currentMatchIdx, setCurrentMatchIdx] = useState(0);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [containerHeight, setContainerHeight] = useState(0);
-
   const root = useMemo(() => {
     if (data === null || data === undefined) return null;
     try {
@@ -63,20 +78,43 @@ export function ExpandableJson({
     }
   }, [data]);
 
-  const searchQuery = searchInput.trim();
+  // Auto-collapse is derived from the displayed tree instead of copied into
+  // state at mount; user toggles layer on top of it as per-node overrides.
+  const autoCollapsed = useMemo(() => collectAutoCollapsed(root), [root]);
+  const [collapseOverrides, setCollapseOverrides] = useState<Record<string, boolean>>({});
+  const collapsed = useMemo(
+    () => applyCollapseOverrides(autoCollapsed, collapseOverrides),
+    [autoCollapsed, collapseOverrides],
+  );
+
+  const [search, dispatchSearch] = useReducer(searchReducer, { input: "", matchIdx: 0 });
+  const [stringMode, setStringMode] = useState<StringMode>("truncate");
+  const [showLineNumbers, setShowLineNumbers] = useState(false);
+  const [viewport, dispatchViewport] = useReducer(viewportReducer, {
+    scrollTop: 0,
+    containerHeight: 0,
+  });
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Ref callback (rather than a mount effect) so the container is measured
+  // exactly when it attaches, initializing the virtualization viewport.
+  const measureRef = useCallback((el: HTMLDivElement | null) => {
+    scrollRef.current = el;
+    if (el) dispatchViewport({ type: "MEASURE", height: el.clientHeight });
+  }, []);
+
+  const searchQuery = search.input.trim();
   const matches = useMemo(
     () => (root ? collectMatches(root, searchQuery) : null),
     [root, searchQuery],
   );
 
   const toggle = useCallback((id: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+    setCollapseOverrides((prev) => {
+      const base = prev[id] !== undefined ? prev[id] : autoCollapsed.has(id);
+      return { ...prev, [id]: !base };
     });
-  }, []);
+  }, [autoCollapsed]);
 
   const rows = useMemo(() => {
     if (!root) return [];
@@ -92,26 +130,16 @@ export function ExpandableJson({
 
   const matchCount = matchRowIndices.length;
 
-  // Reset the active match when the search box changes — derived during render
-  // instead of an effect to avoid a stale-state flash.
-  const [prevSearchQuery, setPrevSearchQuery] = useState(searchQuery);
-  if (searchQuery !== prevSearchQuery) {
-    setPrevSearchQuery(searchQuery);
-    setCurrentMatchIdx(0);
-  }
-
+  // The active match index lives in the search reducer, so it resets with the
+  // query in a single transition — no render-phase state adjustment needed.
   const safeMatchIdx =
-    matchCount > 0 ? Math.min(currentMatchIdx, matchCount - 1) : -1;
+    matchCount > 0 ? Math.min(search.matchIdx, matchCount - 1) : -1;
   const currentMatchRowIdx =
     safeMatchIdx >= 0 ? matchRowIndices[safeMatchIdx] : -1;
 
   const navigateMatch = useCallback(
     (direction: "prev" | "next") => {
-      if (matchCount === 0) return;
-      setCurrentMatchIdx((prev) => {
-        if (direction === "next") return (prev + 1) % matchCount;
-        return (prev - 1 + matchCount) % matchCount;
-      });
+      dispatchSearch({ type: "NAVIGATE", direction, count: matchCount });
     },
     [matchCount],
   );
@@ -131,44 +159,45 @@ export function ExpandableJson({
   const shouldVirtualize = rows.length > VIRTUALIZE_THRESHOLD;
 
   const handleScroll = useCallback(() => {
-    if (!scrollRef.current) return;
-    setScrollTop(scrollRef.current.scrollTop);
-    if (shouldVirtualize) {
-      setContainerHeight(scrollRef.current.clientHeight);
-    }
-  }, [shouldVirtualize]);
-
-  useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    setContainerHeight(el.clientHeight);
-  }, []);
+    dispatchViewport({
+      type: "SCROLL",
+      top: el.scrollTop,
+      height: shouldVirtualize ? el.clientHeight : undefined,
+    });
+  }, [shouldVirtualize]);
 
   const virtualRange = useMemo(() => {
     if (!shouldVirtualize) return { start: 0, end: rows.length };
     const start = Math.max(
       0,
-      Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN,
+      Math.floor(viewport.scrollTop / ROW_HEIGHT) - OVERSCAN,
     );
     const end = Math.min(
       rows.length,
-      Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN,
+      Math.ceil((viewport.scrollTop + viewport.containerHeight) / ROW_HEIGHT) + OVERSCAN,
     );
     return { start, end };
-  }, [shouldVirtualize, scrollTop, containerHeight, rows.length]);
+  }, [shouldVirtualize, viewport, rows.length]);
 
   const visibleRows = shouldVirtualize
     ? rows.slice(virtualRange.start, virtualRange.end)
     : rows;
 
+  const handleSearchChange = useCallback(
+    (value: string) => dispatchSearch({ type: "SET_INPUT", value }),
+    [],
+  );
+
   const handleSearchKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        navigateMatch(e.shiftKey ? "prev" : "next");
+        dispatchSearch({ type: "NAVIGATE", direction: e.shiftKey ? "prev" : "next", count: matchRowIndices.length });
       }
     },
-    [navigateMatch],
+    [matchRowIndices.length],
   );
 
   const cycleStringMode = useCallback(() => {
@@ -177,6 +206,10 @@ export function ExpandableJson({
       if (m === "wrap") return "nowrap";
       return "truncate";
     });
+  }, []);
+
+  const handleToggleLineNumbers = useCallback(() => {
+    setShowLineNumbers((v) => !v);
   }, []);
 
   if (data === undefined || data === null) {
@@ -192,9 +225,9 @@ export function ExpandableJson({
     >
       <Toolbar
         label={label}
-        searchInput={searchInput}
+        searchInput={search.input}
         searchQuery={searchQuery}
-        onSearchChange={setSearchInput}
+        onSearchChange={handleSearchChange}
         onSearchKeyDown={handleSearchKeyDown}
         matchCount={matchCount}
         safeMatchIdx={safeMatchIdx}
@@ -202,12 +235,12 @@ export function ExpandableJson({
         stringMode={stringMode}
         onCycleStringMode={cycleStringMode}
         showLineNumbers={showLineNumbers}
-        onToggleLineNumbers={() => setShowLineNumbers((v) => !v)}
+        onToggleLineNumbers={handleToggleLineNumbers}
         data={data}
       />
 
       <div
-        ref={scrollRef}
+        ref={measureRef}
         onScroll={handleScroll}
         className={cn(
           "overflow-auto bg-gradient-to-b from-background/60 via-background to-muted/20",
@@ -249,6 +282,35 @@ export function ExpandableJson({
       </div>
     </div>
   );
+}
+
+function collectAutoCollapsed(root: JsonNode | null): Set<string> {
+  const collapsed = new Set<string>();
+  if (!root) return collapsed;
+  function autoCollapse(node: JsonNode, depth: number) {
+    if (
+      (node.type === "object" || node.type === "array") &&
+      node.childCount > 0
+    ) {
+      if (depth >= 2 || node.childCount > 8) collapsed.add(node.id);
+      node.children.forEach((c) => autoCollapse(c, depth + 1));
+    }
+  }
+  autoCollapse(root, 0);
+  return collapsed;
+}
+
+function applyCollapseOverrides(
+  autoCollapsed: Set<string>,
+  overrides: Record<string, boolean>,
+): Set<string> {
+  if (Object.keys(overrides).length === 0) return autoCollapsed;
+  const collapsed = new Set(autoCollapsed);
+  for (const [id, isCollapsed] of Object.entries(overrides)) {
+    if (isCollapsed) collapsed.add(id);
+    else collapsed.delete(id);
+  }
+  return collapsed;
 }
 
 function VirtualizedList({

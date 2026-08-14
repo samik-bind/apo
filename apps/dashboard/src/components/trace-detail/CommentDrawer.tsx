@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type Comment,
   listComments,
@@ -26,31 +26,68 @@ interface CommentDrawerProps {
   refreshNonce?: number;
 }
 
+/** Comments + loading live in ONE state object so finishing a fetch is a
+ *  single state update — no chained loading->comments renders. */
+interface CommentsState {
+  comments: Comment[];
+  loading: boolean;
+}
+
+const EMPTY_COMMENTS: CommentsState = { comments: [], loading: false };
+
 export function CommentDrawer({
   objectId,
   objectType,
   projectId,
-  refreshNonce,
+  refreshNonce = 0,
 }: CommentDrawerProps) {
   const [open, setOpen] = useState(false);
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [{ comments, loading }, setCommentsState] =
+    useState<CommentsState>(EMPTY_COMMENTS);
 
   const fetchComments = useCallback(async () => {
-    setLoading(true);
+    setCommentsState((prev) => ({ ...prev, loading: true }));
     try {
       const result = await listComments(objectId, objectType);
-      setComments(result);
-    } finally {
-      setLoading(false);
+      setCommentsState({ comments: result, loading: false });
+    } catch {
+      // Keep whatever was loaded; just stop the spinner (previous behavior).
+      setCommentsState((prev) => ({ ...prev, loading: false }));
     }
   }, [objectId, objectType]);
 
+  // Opening the drawer is a user event — fetch here instead of reacting to
+  // our own `open` state from an effect.
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (nextOpen) {
+        fetchComments();
+      }
+    },
+    [fetchComments],
+  );
+
+  // Re-fetch when the fetch inputs change externally (different object, or a
+  // comment was created elsewhere and the parent bumped refreshNonce). This
+  // is resyncing with external inputs, not using state as an event handler —
+  // and it only re-runs when an input actually changed, staying quiet on
+  // mount and while closed (the next open fetches fresh data anyway).
+  const prevInputsRef = useRef({ objectId, objectType, refreshNonce });
   useEffect(() => {
+    const prev = prevInputsRef.current;
+    if (
+      prev.objectId === objectId &&
+      prev.objectType === objectType &&
+      prev.refreshNonce === refreshNonce
+    ) {
+      return;
+    }
+    prevInputsRef.current = { objectId, objectType, refreshNonce };
     if (open) {
       fetchComments();
     }
-  }, [open, fetchComments, refreshNonce]);
+  }, [objectId, objectType, refreshNonce, open, fetchComments]);
 
   const handleSubmit = useCallback(
     async (content: string) => {
@@ -70,7 +107,7 @@ export function CommentDrawer({
   const commentCount = comments.length;
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetTrigger asChild>
         <Button
           type="button"

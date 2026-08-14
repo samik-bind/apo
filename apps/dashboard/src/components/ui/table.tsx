@@ -9,7 +9,8 @@ export type TableDensity = "compact" | "comfortable";
 const TableDensityContext = React.createContext<TableDensity>("comfortable");
 
 export function useTableDensity(): TableDensity {
-  return React.useContext(TableDensityContext);
+  // React.use (not useContext) — the React 19 context read, same as sidebar.tsx.
+  return React.use(TableDensityContext);
 }
 
 const DENSITY_HEAD_CLASS: Record<TableDensity, string> = {

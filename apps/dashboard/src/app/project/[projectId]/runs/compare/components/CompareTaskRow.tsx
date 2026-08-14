@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ChevronRight, ExternalLink } from "lucide-react";
 
@@ -521,6 +521,81 @@ function RevealSide({
   );
 }
 
+type CheckPairResult =
+  | { ok: true; left: AgentTaskRunDetail | null; right: AgentTaskRunDetail | null }
+  | { ok: false; message: string };
+
+/**
+ * Fetch both sides' check details for an expanded comparison row.
+ * SPEC-177: prefer the frozen-pair evidence loader (comparison views) over
+ * individual run fetches. The evidence loader resolves the exact frozen pair
+ * server-side and never accepts arbitrary run IDs from the browser.
+ *
+ * Returns the in-flight promise plus an `abort` that both cancels the
+ * request and marks its result as stale, so callers never settle superseded
+ * loads into state.
+ */
+function fetchCheckPair({
+  taskId,
+  leftId,
+  rightId,
+  initialLeft,
+  initialRight,
+  evidenceLoader,
+}: {
+  taskId: string;
+  leftId: string | undefined;
+  rightId: string | undefined;
+  initialLeft: AgentTaskRunDetail | null;
+  initialRight: AgentTaskRunDetail | null;
+  evidenceLoader?: TaskComparisonEvidenceLoader;
+}): { promise: Promise<CheckPairResult>; abort: () => void } {
+  if (evidenceLoader) {
+    const controller = new AbortController();
+    const promise = evidenceLoader(taskId, controller.signal)
+      .then(
+        ({ left, right }): CheckPairResult =>
+          left || right
+            ? { ok: true, left, right }
+            : { ok: false, message: "Could not load check details for either run." },
+      )
+      .catch((err: unknown): CheckPairResult => ({
+        ok: false,
+        message: err instanceof Error ? err.message : "Could not load check details.",
+      }));
+    return { promise, abort: () => controller.abort() };
+  }
+
+  let cancelled = false;
+  const promise = Promise.all([
+    initialLeft
+      ? Promise.resolve(initialLeft)
+      : leftId
+        ? getAgentTaskRun(leftId).catch(() => null)
+        : Promise.resolve(null),
+    initialRight
+      ? Promise.resolve(initialRight)
+      : rightId
+        ? getAgentTaskRun(rightId).catch(() => null)
+        : Promise.resolve(null),
+  ]).then(([left, right]): CheckPairResult => {
+    if (cancelled) {
+      // Aborted mid-flight — report as an error the (already-superseded)
+      // caller will discard, so stale data never settles into state.
+      return { ok: false, message: "Aborted." };
+    }
+    return left || right
+      ? { ok: true, left, right }
+      : { ok: false, message: "Could not load check details for either run." };
+  });
+  return {
+    promise,
+    abort: () => {
+      cancelled = true;
+    },
+  };
+}
+
 /** Aligned checks for a differing task — lazily loaded on expand. */
 function CheckDiff({
   taskId,
@@ -544,55 +619,54 @@ function CheckDiff({
     | { status: "error"; message: string }
     | { status: "ready"; left: AgentTaskRunDetail | null; right: AgentTaskRunDetail | null }
   >({ status: "loading" });
-  const [retryCount, setRetryCount] = useState(0);
+
+  // Latest-ref for the parent-provided loader: the load effect must not
+  // re-fire (and re-fetch) just because the parent re-created the callback.
+  const evidenceLoaderRef = useRef(evidenceLoader);
+  useEffect(() => {
+    evidenceLoaderRef.current = evidenceLoader;
+  }, [evidenceLoader]);
+
+  // Aborts whichever load is currently in flight — the mount/input-change
+  // load from the effect, or a retry.
+  const abortInFlightRef = useRef<(() => void) | null>(null);
+
+  const load = useCallback(() => {
+    abortInFlightRef.current?.();
+    const { promise, abort } = fetchCheckPair({
+      taskId,
+      leftId,
+      rightId,
+      initialLeft,
+      initialRight,
+      evidenceLoader: evidenceLoaderRef.current,
+    });
+    let superseded = false;
+    abortInFlightRef.current = () => {
+      superseded = true;
+      abort();
+    };
+    promise.then((result) => {
+      if (superseded) return;
+      setState(
+        result.ok
+          ? { status: "ready", left: result.left, right: result.right }
+          : { status: "error", message: result.message },
+      );
+    });
+  }, [taskId, leftId, rightId, initialLeft, initialRight]);
 
   useEffect(() => {
-    // SPEC-177: prefer the frozen-pair evidence loader (comparison views) over
-    // individual run fetches. The evidence loader resolves the exact frozen pair
-    // server-side and never accepts arbitrary run IDs from the browser.
-    if (evidenceLoader) {
-      const controller = new AbortController();
-      evidenceLoader(taskId, controller.signal)
-        .then(({ left, right }) => {
-          if (controller.signal.aborted) return;
-          if (!left && !right) {
-            setState({ status: "error", message: "Could not load check details for either run." });
-            return;
-          }
-          setState({ status: "ready", left, right });
-        })
-        .catch((err: unknown) => {
-          if (controller.signal.aborted) return;
-          const message = err instanceof Error ? err.message : "Could not load check details.";
-          setState({ status: "error", message });
-        });
-      return () => controller.abort();
-    }
+    load();
+    return () => abortInFlightRef.current?.();
+  }, [load]);
 
-    let cancelled = false;
-    Promise.all([
-      initialLeft
-        ? Promise.resolve(initialLeft)
-        : leftId
-          ? getAgentTaskRun(leftId).catch(() => null)
-          : Promise.resolve(null),
-      initialRight
-        ? Promise.resolve(initialRight)
-        : rightId
-          ? getAgentTaskRun(rightId).catch(() => null)
-          : Promise.resolve(null),
-    ]).then(([left, right]) => {
-      if (cancelled) return;
-      if (!left && !right) {
-        setState({ status: "error", message: "Could not load check details for either run." });
-        return;
-      }
-      setState({ status: "ready", left, right });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [taskId, leftId, rightId, initialLeft, initialRight, evidenceLoader, retryCount]);
+  // Retry is a user event: flip to loading and re-run the fetch from the
+  // handler — one state update, no retry-counter state driving the effect.
+  const handleRetry = useCallback(() => {
+    setState({ status: "loading" });
+    load();
+  }, [load]);
 
   // SPEC-169: the pinned Task Definition is the authoritative source and — unlike
   // the filesystem resolver — resolves wherever the task executed. Both sides are
@@ -615,10 +689,7 @@ function CheckDiff({
         <span>{state.message}</span>
         <button
           type="button"
-          onClick={() => {
-            setState({ status: "loading" });
-            setRetryCount((n) => n + 1);
-          }}
+          onClick={handleRetry}
           className="border border-border px-2 py-0.5 text-[11px] text-foreground hover:bg-muted"
         >
           Retry
