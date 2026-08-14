@@ -1366,7 +1366,11 @@ _ROUTE_MODULE_AUDIT: dict[str, tuple[str, list[tuple[str, str]]]] = {
     ),
     "runs": (
         "project",
-        [("tests/test_project_authorization_boundary.py", "test_trace_bookmark_denies_cross_project")],
+        [
+            ("tests/test_project_authorization_boundary.py", "test_trace_bookmark_denies_cross_project"),
+            ("tests/test_project_authorization_boundary.py", "test_run_update_denies_cross_project"),
+            ("tests/test_project_authorization_boundary.py", "test_run_bulk_delete_denies_cross_project"),
+        ],
     ),
     "scores": (
         "project",
@@ -1668,3 +1672,214 @@ def test_outsider_cannot_delete_or_reset_project(
     assert session.get(AgentTaskDeliverableDB, "del-bytes") is not None
     assert (tmp_path / "store" / "objects" / _DELIV_KEY).exists()
     assert (tmp_path / "store" / "objects" / _BUNDLE_KEY).exists()
+
+
+# ---------------------------------------------------------------------------
+# Scene 22 (full): every runs/* mutation denies cross-Project access
+# ---------------------------------------------------------------------------
+
+_CALL_A = "call-correction-a"
+
+
+def _seed_runs_mutation_world(session: Session) -> None:
+    """A trace + logged call in Project A (on top of the HTTP world)."""
+    from apo.models.db import LoggedCallDB
+
+    now = datetime.now(timezone.utc)
+    _seed_trace_world(session)  # Alice owns A, Bob owns B, RunDB trace-http-a in A
+    session.add(
+        LoggedCallDB(
+            id=_CALL_A,
+            project=_PROJECT_A,
+            model="gpt-4",
+            task_id="evals/trace-task",
+            run_id=_TRACE_A,
+            flow_name="test-flow",
+            created_at=now,
+            input={},
+            messages=[],
+            output={},
+            step_index=0,
+        )
+    )
+    session.commit()
+
+
+def test_run_update_denies_cross_project(
+    session: Session, make_authed_client: Callable[..., TestClient]
+) -> None:
+    from apo.models.db import RunDB
+
+    _seed_runs_mutation_world(session)
+    bob_client = make_authed_client(_USER_BOB, session)
+
+    resp = bob_client.patch(f"/v1/runs/{_TRACE_A}", json={"completed": True})
+    assert resp.status_code in (403, 404)
+
+    run = session.exec(select(RunDB).where(RunDB.id == _TRACE_A)).first()
+    assert run is not None
+    assert run.completed_at is None  # A's trace unchanged
+
+
+def test_run_custom_metrics_denies_cross_project(
+    session: Session, make_authed_client: Callable[..., TestClient]
+) -> None:
+    from apo.models.db import RunMetricDB
+
+    _seed_runs_mutation_world(session)
+    bob_client = make_authed_client(_USER_BOB, session)
+
+    resp = bob_client.post(
+        f"/v1/runs/{_TRACE_A}/custom-metrics",
+        json={"metrics": [{"name": "forged", "score": 1.0}]},
+    )
+    assert resp.status_code in (403, 404)
+
+    forged = session.exec(
+        select(RunMetricDB).where(RunMetricDB.run_id == _TRACE_A)
+    ).first()
+    assert forged is None
+
+
+def test_run_correction_denies_cross_project(
+    session: Session, make_authed_client: Callable[..., TestClient]
+) -> None:
+    from apo.models.db import LoggedCallDB
+
+    _seed_runs_mutation_world(session)
+    bob_client = make_authed_client(_USER_BOB, session)
+
+    # Honest project value: membership check denies.
+    resp = bob_client.patch(
+        f"/v1/runs/{_TRACE_A}/calls/{_CALL_A}/correction",
+        params={"project": _PROJECT_A},
+        json={"corrected_output": "forged"},
+    )
+    assert resp.status_code in (403, 404)
+
+    # Lying project value: the run is looked up in the claimed Project and
+    # is simply not found.
+    lying = bob_client.patch(
+        f"/v1/runs/{_TRACE_A}/calls/{_CALL_A}/correction",
+        params={"project": _PROJECT_B},
+        json={"corrected_output": "forged"},
+    )
+    assert lying.status_code == 404
+
+    call = session.exec(
+        select(LoggedCallDB).where(LoggedCallDB.id == _CALL_A)
+    ).first()
+    assert call is not None
+    assert call.corrected_output is None
+
+
+def test_run_bulk_delete_denies_cross_project(
+    session: Session, make_authed_client: Callable[..., TestClient]
+) -> None:
+    from apo.models.db import RunDB
+
+    _seed_runs_mutation_world(session)
+    bob_client = make_authed_client(_USER_BOB, session)
+
+    resp = bob_client.post(
+        "/v1/runs/bulk-delete",
+        params={"project": _PROJECT_A},
+        json={"run_ids": [_TRACE_A]},
+    )
+    assert resp.status_code in (403, 404)
+    assert (
+        session.exec(select(RunDB).where(RunDB.id == _TRACE_A)).first() is not None
+    )
+
+
+def test_run_bulk_export_denies_cross_project(
+    session: Session, make_authed_client: Callable[..., TestClient]
+) -> None:
+    _seed_runs_mutation_world(session)
+    bob_client = make_authed_client(_USER_BOB, session)
+
+    resp = bob_client.post(
+        "/v1/runs/bulk-export",
+        params={"project": _PROJECT_A},
+        json={"run_ids": [_TRACE_A], "format": "json"},
+    )
+    assert resp.status_code in (403, 404)
+    assert _TRACE_A not in resp.text  # no sentinel A content exported
+
+
+def test_run_reproject_denies_cross_project(
+    session: Session, make_authed_client: Callable[..., TestClient]
+) -> None:
+    _seed_runs_mutation_world(session)
+    bob_client = make_authed_client(_USER_BOB, session)
+
+    resp = bob_client.post(f"/v1/runs/{_TRACE_A}/reproject", params={"project": _PROJECT_A})
+    assert resp.status_code in (403, 404)
+
+
+# ---------------------------------------------------------------------------
+# Scene 6: a misleading caller Project value cannot redirect ownership
+# ---------------------------------------------------------------------------
+
+
+def test_task_run_detail_ignores_caller_project_value(
+    session: Session, make_authed_client: Callable[..., TestClient]
+) -> None:
+    """Bob requests A's run while claiming ``project=B`` — the Project is
+    derived through the Batch, so the claim is ignored and access denied."""
+    _seed_http_world(session)
+    bob_client = make_authed_client(_USER_BOB, session)
+
+    resp = bob_client.get(f"/v1/agent-task-runs/{_RUN_A}", params={"project": _PROJECT_B})
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Scene 20/21 (spy): SSE denial happens BEFORE any broadcaster access
+# ---------------------------------------------------------------------------
+
+
+def test_run_event_sse_denies_before_broadcaster_access(
+    session: Session,
+    make_authed_client: Callable[..., TestClient],
+    monkeypatch: Any,
+) -> None:
+    """Cross-Project run-event SSE denial must not touch the broadcaster."""
+    _seed_http_world(session)
+    touched = {"broadcaster": False}
+
+    async def _spy_broadcaster() -> Any:
+        touched["broadcaster"] = True
+        raise AssertionError("broadcaster must not be accessed on denial")
+
+    monkeypatch.setattr(
+        "apo.routes.run_events.get_run_event_broadcaster", _spy_broadcaster
+    )
+
+    bob_client = make_authed_client(_USER_BOB, session)
+    resp = bob_client.get(f"/v1/events?project={_PROJECT_A}")
+    assert resp.status_code in (403, 404)
+    assert touched["broadcaster"] is False
+
+
+def test_trace_sse_denies_before_broadcaster_access(
+    session: Session,
+    make_authed_client: Callable[..., TestClient],
+    monkeypatch: Any,
+) -> None:
+    """Cross-Project trace SSE denial must not touch the broadcaster."""
+    _seed_http_world(session)
+    touched = {"broadcaster": False}
+
+    async def _spy_broadcaster() -> Any:
+        touched["broadcaster"] = True
+        raise AssertionError("broadcaster must not be accessed on denial")
+
+    monkeypatch.setattr(
+        "apo.routes.trace_stream.get_trace_broadcaster", _spy_broadcaster
+    )
+
+    bob_client = make_authed_client(_USER_BOB, session)
+    resp = bob_client.get(f"/v1/traces/some-trace/stream?project={_PROJECT_A}")
+    assert resp.status_code in (403, 404)
+    assert touched["broadcaster"] is False
