@@ -421,14 +421,41 @@ class TestCacheWriteIsPricedForEveryProvider:
 
     def test_no_premium_providers_price_writes_as_input(self, session: Session) -> None:
         load_default_prices(session)
-        for name in ("gemini-3.6-flash", "glm-5.2"):
-            write_only = compute_cost(
-                session, name, {"cache_write_5m": 1_000_000}, "__global__", NOW
-            )
-            input_only = compute_cost(session, name, {"input": 1_000_000}, "__global__", NOW)
-            assert write_only is not None and input_only is not None, name
-            assert write_only.total > 0, f"{name} cache writes must not be free"
-            assert write_only.total == input_only.total, name
+        # glm-5.2 exemplifies the no-write-premium convention: writes bill as input.
+        write_only = compute_cost(
+            session, "glm-5.2", {"cache_write_5m": 1_000_000}, "__global__", NOW
+        )
+        input_only = compute_cost(session, "glm-5.2", {"input": 1_000_000}, "__global__", NOW)
+        assert write_only is not None and input_only is not None
+        assert write_only.total > 0, "glm-5.2 cache writes must not be free"
+        assert write_only.total == input_only.total
+
+        # gemini-3.6-flash instead carries OpenRouter's explicit write rate
+        # (issue #146 follow-up correction): $0.0416667/MTok — cheaper than
+        # input, not equal to it. Assert both sides so a stale row on either
+        # dimension cannot pass accidentally.
+        gemini_write = compute_cost(
+            session, "gemini-3.6-flash", {"cache_write_5m": 1_000_000}, "__global__", NOW
+        )
+        assert gemini_write is not None
+        assert gemini_write.total == 41_667  # round(0.0416667 * 1e6) micro-USD
+
+    def test_gemini_36_flash_and_31_lite_use_published_rates(self, session: Session) -> None:
+        """Issue #76 priced both by assumption ('mirrors the 2.5 rates'); the
+        2026-08-14 audit found the 3.x family far above that. Pin the published
+        rates so a regression to the assumed rates fails loudly."""
+        load_default_prices(session)
+        expected = {
+            "gemini-3.6-flash": {"input": 750_000, "output": 3_750_000},
+            "gemini-3.1-flash-lite": {"input": 250_000, "output": 1_500_000},
+        }
+        for name, dims in expected.items():
+            for usage_key, expected_cost in dims.items():
+                cost = compute_cost(
+                    session, name, {usage_key: 1_000_000}, "__global__", NOW
+                )
+                assert cost is not None, name
+                assert cost.total == expected_cost, f"{name} {usage_key}"
 
     def test_gpt56_uses_openrouter_prompt_and_write_rates(self, session: Session) -> None:
         """OpenRouter lists cache writes at 1.25x ordinary input for GPT-5.6.
