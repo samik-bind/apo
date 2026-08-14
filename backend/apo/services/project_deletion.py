@@ -38,8 +38,11 @@ from sqlmodel import Session, select
 from ..models.db import (
     AdaptiveTaskStateDB,
     AgentTaskBatchRunDB,
+    AgentTaskCheckReportDB,
+    AgentTaskDeliverableDB,
     AgentTaskRunDB,
     AgentTaskScheduleDB,
+    AgentTaskScheduleOccurrenceDB,
     AnnotationQueueDB,
     ApiKeyDB,
     CallMetricDB,
@@ -64,6 +67,8 @@ from ..models.db import (
     TaskExecutionAttemptDB,
     TaskDefinitionRevisionDB,
     TaskRevisionDB,
+    TaskViewComparisonDB,
+    TaskViewDB,
     WebhookDB,
 )
 from ..models.pricing import ModelRowDB
@@ -116,11 +121,37 @@ def delete_project_data(
             AgentTaskScheduleDB.project == project_id
         ),
     )
+    # SPEC-178: schedule occurrences are transitive through schedules.
+    deleted["schedule_occurrences"] = _delete_transitive(
+        session,
+        AgentTaskScheduleOccurrenceDB,
+        AgentTaskScheduleOccurrenceDB.schedule_id,
+        select(AgentTaskScheduleDB.id).where(
+            AgentTaskScheduleDB.project == project_id
+        ),
+    )
     # SPEC-166 #96: Attempts must be deleted BEFORE their parent task runs
     # (task_execution_attempts.task_run_id → agent_task_runs.id).
     # Previously runs were deleted first, which FK-violated on attempts.
     deleted["task_execution_attempts"] = _delete_by_column(
         session, TaskExecutionAttemptDB, TaskExecutionAttemptDB.project == project_id
+    )
+    # SPEC-178: check reports are transitive through task runs
+    # (FK CASCADE, but explicit delete works on schemas where the FK was
+    # added after table creation).
+    deleted["agent_task_check_reports"] = _delete_transitive(
+        session,
+        AgentTaskCheckReportDB,
+        AgentTaskCheckReportDB.run_id,
+        select(AgentTaskRunDB.id).join(AgentTaskBatchRunDB).where(
+            AgentTaskBatchRunDB.project == project_id
+        ),
+    )
+    # SPEC-178: deliverables are direct (have a ``project`` column) but FK
+    # agent_task_runs, so they must be deleted before runs. Their stored
+    # objects are cleaned up by the async route pre-pass.
+    deleted["agent_task_deliverables"] = _delete_by_column(
+        session, AgentTaskDeliverableDB, AgentTaskDeliverableDB.project == project_id
     )
     deleted["agent_task_runs"] = _delete_transitive(
         session,
@@ -165,6 +196,13 @@ def delete_project_data(
     )
     deleted["sessions"] = _delete_by_column(
         session, SessionDB, SessionDB.project == project_id
+    )
+    # SPEC-178: saved Task Views and Task View Comparisons.
+    deleted["task_views"] = _delete_by_column(
+        session, TaskViewDB, TaskViewDB.project_id == project_id
+    )
+    deleted["task_view_comparisons"] = _delete_by_column(
+        session, TaskViewComparisonDB, TaskViewComparisonDB.project_id == project_id
     )
     # task_revisions reference batch runs via FK, so they must be
     # removed BEFORE agent_task_batch_runs. Their bundle objects were already

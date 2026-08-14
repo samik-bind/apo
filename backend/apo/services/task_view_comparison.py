@@ -169,8 +169,17 @@ def create_comparison(
 def get_comparison(
     session: Session, project_id: str, comparison_id: str
 ) -> TaskViewComparisonDB | None:
-    """Load a snapshot row, scoped to the project (cross-project lookup is a 404)."""
-    return session.get(TaskViewComparisonDB, comparison_id) if comparison_id.startswith("tvc_") else None
+    """Load a snapshot row, scoped to the project (cross-project lookup is a 404).
+
+    Filtering at the query level (not just the caller) prevents a future call
+    site from trusting the docstring and skipping the manual project check.
+    """
+    if not comparison_id.startswith("tvc_"):
+        return None
+    row = session.get(TaskViewComparisonDB, comparison_id)
+    if row is None or row.project_id != project_id:
+        return None
+    return row
 
 
 def to_snapshot(row: TaskViewComparisonDB) -> TaskViewComparisonSnapshot:

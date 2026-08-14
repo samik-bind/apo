@@ -10,7 +10,9 @@ aggregation, and analytics capabilities.
 from datetime import datetime
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+
+from ..services.project_memberships import enforce_project_read_from_request
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, asc, text as sql_text, func, select as sa_select
 from sqlalchemy.sql.elements import ColumnElement
@@ -324,10 +326,13 @@ def _call_to_dict(call: LoggedCallDB) -> dict[str, object]:
 
 @router.post("/traces/search", response_model=SearchResponse)
 async def search_traces(
+    request: Request,
     f: TraceFilter,
     session: Session = Depends(get_session),
 ):
     """Search traces (runs) with structured filters."""
+    # SPEC-178: authorize before aggregate queries.
+    enforce_project_read_from_request(request, session, f.project)
     statement = _apply_trace_filters(select(RunDB), f, session)
 
     count_statement = select(func.count()).select_from(statement.subquery())
@@ -348,10 +353,13 @@ async def search_traces(
 
 @router.post("/observations/search", response_model=SearchResponse)
 async def search_observations(
+    request: Request,
     f: ObservationFilter,
     session: Session = Depends(get_session),
 ):
     """Search observations (logged calls) with structured filters."""
+    # SPEC-178: authorize before aggregate queries.
+    enforce_project_read_from_request(request, session, f.project)
     statement = _apply_observation_filters(select(LoggedCallDB), f)
 
     count_statement = select(func.count()).select_from(statement.subquery())
@@ -395,10 +403,13 @@ def _get_dimension_col(dimension: str) -> Any:
 
 @router.post("/metrics/query", response_model=list[MetricsQueryResult])
 async def query_metrics(
+    request: Request,
     query: MetricsQuery,
     session: Session = Depends(get_session),
 ):
     """Aggregate metrics query with optional dimension grouping."""
+    # SPEC-178: authorize before aggregate queries.
+    enforce_project_read_from_request(request, session, query.project)
     if query.dimension is not None:
         return _query_metrics_with_dimension(query, session)
 
@@ -517,11 +528,14 @@ def _query_metrics_with_dimension(
 
 @router.get("/metrics/models", response_model=list[ModelMetricsSummary])
 async def get_model_metrics(
+    request: Request,
     project: str,
     environment: str | None = None,
     session: Session = Depends(get_session),
 ):
     """Per-model metrics summary."""
+    # SPEC-178: authorize before aggregate queries.
+    enforce_project_read_from_request(request, session, project)
     base_where: list[Any] = [LoggedCallDB.project == project]
     if environment:
         base_where.append(LoggedCallDB.environment == environment)
@@ -569,11 +583,14 @@ async def get_model_metrics(
 
 @router.get("/metrics/summary", response_model=ProjectSummary)
 async def get_project_summary(
+    request: Request,
     project: str,
     environment: str | None = None,
     session: Session = Depends(get_session),
 ):
     """Project-level metrics summary."""
+    # SPEC-178: authorize before aggregate queries.
+    enforce_project_read_from_request(request, session, project)
     run_where: list[Any] = [RunDB.project == project]
     if environment:
         run_where.append(RunDB.environment == environment)

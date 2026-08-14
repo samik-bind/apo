@@ -12,7 +12,7 @@ case and never grants management permissions on it.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Final
+from typing import Final, Literal
 
 from fastapi import HTTPException
 from sqlmodel import Session, select
@@ -25,7 +25,7 @@ from ..models.schemas import (
 
 DEMO_PROJECT_ID: Final[str] = "demo"
 
-ProjectRole = str  # "owner" | "admin" | "member"
+ProjectRole = Literal["member", "admin", "owner"]
 
 _ROLE_RANK: Final[dict[str, int]] = {"member": 1, "admin": 2, "owner": 3}
 
@@ -257,29 +257,17 @@ def enforce_project_role_from_request(
     session: Session,
     project_id: str,
     *,
-    minimum_role: str,
+    minimum_role: ProjectRole,
 ) -> ProjectMembershipDB:
-    """Route-level helper: extract ``user_id`` from request state and check role.
+    """Compatibility wrapper: delegate to the canonical policy.
 
-    Designed to drop into existing route handlers that previously only
-    called ``require_project_not_demo``. Uses the legacy-tolerant check
-    so existing SDK/ingestion flows that pre-date the membership system keep working.
-
-    In open-dev mode (no ``AUTH_SECRET``) the middleware does not set
-    ``user_id`` on the request state. We treat that case as a permissive
-    legacy owner so dev-mode flows (including tests that use the plain
-    test client without an authed user) keep working. Production
-    deployments always set ``user_id``.
+    SPEC-178 §Interface: existing ``enforce_*_from_request`` helpers remain
+    as thin wrappers over :func:`authorize_project_request` so routes that
+    already call them pick up Credential Authority semantics without a
+    per-call rewrite.
     """
-    user_id_value = getattr(request, "state", None)
-    user_id = getattr(user_id_value, "user_id", None) if user_id_value else None
-    if not user_id:
-        # Open-dev mode or unauthenticated request. Allow as legacy
-        # owner so dev flows keep working; production auth runs through
-        # the middleware which always sets user_id.
-        return _legacy_owner_membership(project_id, "dev")
-    return require_project_role_or_legacy(
-        session, project_id, str(user_id), minimum_role=minimum_role
+    return authorize_project_request(
+        request, session, project_id, minimum_role=minimum_role
     )
 
 
@@ -288,46 +276,226 @@ def enforce_project_read_from_request(
     session: Session,
     project_id: str,
 ) -> ProjectMembershipDB:
-    """Require read membership and honor a credential's bound project.
-
-    Cookie sessions represent the user and may read any project where that
-    user is a member. API keys are narrower: even when their creator belongs
-    to several projects, the key may read only the project recorded on the
-    key and request state.
-    """
-    state = getattr(request, "state", None)
-    auth_method = getattr(state, "auth_method", None)
-    credential_project = getattr(state, "project", None)
-    if auth_method == "api_key" and credential_project != project_id:
-        raise HTTPException(status_code=403, detail="API key project mismatch")
-    return enforce_project_role_from_request(
-        request, session, project_id, minimum_role="member"
-    )
+    """Compatibility wrapper: canonical policy at member role."""
+    return authorize_project_request(request, session, project_id, minimum_role="member")
 
 
 def list_readable_projects_from_request(
     request: object,
     session: Session,
 ) -> list[str] | None:
-    """Return projects visible to this request, or ``None`` in open-dev mode.
+    """Compatibility wrapper: delegate to the canonical readable-Project policy."""
+    return readable_project_ids_for_request(request, session)
 
-    API keys return only their bound project. Cookie sessions return all
-    current memberships. Rechecking membership here also makes a key stop
-    reading immediately when its creator loses access to the bound project.
+
+# ---------------------------------------------------------------------------
+# Canonical Project authorization policy (SPEC-178)
+# ---------------------------------------------------------------------------
+
+_RELEASE_PROFILES: Final[frozenset[str]] = frozenset({"local", "server"})
+
+
+def _is_release_profile() -> bool:
+    """True when the deployment profile enforces fail-closed authorization.
+
+    Reads ``APO_DEPLOYMENT_PROFILE`` fresh each call so tests can flip it via
+    ``monkeypatch.setenv``. Unknown values fall back to ``development`` (the
+    safe direction — never silently escalate to release-grade fail-closed
+    behavior the env did not earn).
     """
-    state = getattr(request, "state", None)
-    user_id = getattr(state, "user_id", None)
-    if not isinstance(user_id, str) or not user_id:
-        return None
+    import os
 
-    if getattr(state, "auth_method", None) == "api_key":
-        credential_project = getattr(state, "project", None)
-        if not isinstance(credential_project, str) or not credential_project:
-            return []
-        _ = enforce_project_read_from_request(
-            request, session, credential_project
+    return os.environ.get("APO_DEPLOYMENT_PROFILE", "").strip().lower() in _RELEASE_PROFILES
+
+
+def _request_user_id(request: object) -> str | None:
+    """Extract the authenticated user id from request state, if any."""
+    state = getattr(request, "state", None)
+    user_id = getattr(state, "user_id", None) if state else None
+    return str(user_id) if user_id else None
+
+
+def _request_auth_method(request: object) -> str | None:
+    state = getattr(request, "state", None)
+    return getattr(state, "auth_method", None) if state else None
+
+
+def _request_credential_project(request: object) -> str | None:
+    state = getattr(request, "state", None)
+    project = getattr(state, "project", None) if state else None
+    return str(project) if project else None
+
+
+def authorize_project_request(
+    request: object,
+    session: Session,
+    project_id: str,
+    *,
+    minimum_role: ProjectRole = "member",
+) -> ProjectMembershipDB:
+    """Intersect request Credential Authority with current Project role.
+
+    SPEC-178 §Interface. The single canonical Project authorization policy.
+    Every Project-owned route goes through this (or a resource-derived
+    authorizer that calls it).
+
+    Credential kinds:
+
+    - **session**: require a current membership at ``minimum_role``.
+    - **API key**: require ``request.state.project == project_id`` AND the
+      key creator's current membership at ``minimum_role``. Membership is
+      rechecked every request so removing the creator from the Project
+      stops the key immediately.
+    - **capability tokens** (Attempt / Executor / service): rejected here;
+      they go through their own resource-specific authorizer.
+
+    Project existence:
+
+    - In a release profile (``local`` / ``server``), a nonexistent Project
+      returns 404 — no synthetic owner fallback.
+    - In development, the legacy owner fallback fires for nonexistent
+      project strings (preserves local SDK/ingestion workflow).
+    - Open-dev mode (``AUTH_SECRET`` unset) preserves the permissive local
+      workflow; a release profile with missing identity returns 401.
+    """
+    if project_id == DEMO_PROJECT_ID:
+        return _authorize_demo_project(request)
+
+    auth_method = _request_auth_method(request)
+
+    # API keys: enforce exact project binding first, then recheck membership.
+    if auth_method == "api_key":
+        return _authorize_api_key_request(
+            request, session, project_id, minimum_role=minimum_role
         )
-        return [credential_project]
+
+    # Session / unauthenticated request.
+    user_id = _request_user_id(request)
+
+    if not user_id:
+        # No credential. SPEC-178 §10: the legacy/open-dev owner fallback is
+        # allowed only in the explicit development profile. A release profile
+        # requires real authority — missing identity is 401.
+        if not _is_release_profile():
+            return _legacy_owner_membership(project_id, "dev")
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Does the project exist?
+    if session.get(ProjectDB, project_id) is None:
+        if _is_release_profile():
+            raise HTTPException(status_code=404, detail="Project not found")
+        # Development: legacy owner fallback for ad-hoc project names.
+        return _legacy_owner_membership(project_id, user_id)
+
+    membership = get_project_membership(session, project_id, user_id)
+    if membership is None:
+        raise HTTPException(
+            status_code=403, detail="You are not a member of this project"
+        )
+    if not _role_at_least(membership.role, minimum_role):
+        raise HTTPException(
+            status_code=403, detail=f"Project role required: {minimum_role}"
+        )
+    return membership
+
+
+def _authorize_demo_project(request: object) -> ProjectMembershipDB:
+    """The demo project is world-readable: synthetic ``member`` row."""
+    user_id = _request_user_id(request)
+    if not user_id:
+        if not _is_release_profile():
+            return _synthetic_demo_membership("dev")
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return _synthetic_demo_membership(user_id)
+
+
+def _authorize_api_key_request(
+    request: object,
+    session: Session,
+    project_id: str,
+    *,
+    minimum_role: ProjectRole,
+) -> ProjectMembershipDB:
+    """API-key path: project binding + creator membership recheck.
+
+    The key is a Project credential, not a portable representation of its
+    creator. Even if Alice is admin of both A and B, her A-bound key can
+    only authorize A, and stops working the moment her A membership is
+    removed.
+    """
+    credential_project = _request_credential_project(request)
+    if credential_project != project_id:
+        raise HTTPException(
+            status_code=403, detail="API key is not bound to this project"
+        )
+
+    # The project must exist for an API key to authorize against it.
+    if session.get(ProjectDB, project_id) is None:
+        if _is_release_profile():
+            raise HTTPException(status_code=404, detail="Project not found")
+        # Development: nonexistent project — API keys are real credentials
+        # minted through strict paths, so the legacy fallback does NOT fire
+        # for them. Deny instead.
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    user_id = _request_user_id(request)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    membership = get_project_membership(session, project_id, user_id)
+    if membership is None:
+        raise HTTPException(
+            status_code=403, detail="You are not a member of this project"
+        )
+    if not _role_at_least(membership.role, minimum_role):
+        raise HTTPException(
+            status_code=403, detail=f"Project role required: {minimum_role}"
+        )
+    return membership
+
+
+def readable_project_ids_for_request(
+    request: object,
+    session: Session,
+) -> list[str] | None:
+    """Return the exact readable Project IDs for this request's credential.
+
+    SPEC-178 §Interface. The canonical readable-Project derivation:
+
+    - **session**: all current memberships;
+    - **API key**: exactly its bound Project, IF the creator still has
+      membership there (rechecked every request);
+    - **unauthenticated in open-dev**: ``None`` means "no Project scope"
+      — preserves the legacy local-development behavior where every
+      readable Project is visible. In a release profile, unauthenticated
+      requests raise 401 before reaching this point.
+
+    An empty list means "authenticated but has no readable Projects" —
+    callers apply ``WHERE project IN ([])`` and return an empty result,
+    not the entire database.
+    """
+    auth_method = _request_auth_method(request)
+
+    if auth_method == "api_key":
+        credential_project = _request_credential_project(request)
+        if not credential_project:
+            return []
+        user_id = _request_user_id(request)
+        if not user_id:
+            return []
+        # Recheck creator membership before trusting the binding.
+        if (
+            session.get(ProjectDB, credential_project) is not None
+            and get_project_membership(session, credential_project, user_id) is not None
+        ):
+            return [credential_project]
+        return []
+
+    user_id = _request_user_id(request)
+    if not user_id:
+        if not _is_release_profile():
+            return None
+        raise HTTPException(status_code=401, detail="Authentication required")
 
     return list_projects_for_user(session, user_id)
 

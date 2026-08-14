@@ -193,6 +193,33 @@ async def delete_deliverable_objects_for_runs(
                 await store.delete(row.storage_key)
 
 
+async def delete_deliverable_objects_for_project(
+    session: Session,
+    project_id: str,
+) -> None:
+    """Delete Deliverable stored objects for every run in a project.
+
+    SPEC-178 §Project deletion: object cleanup happens while relational
+    metadata still exists, so the manifest rows are readable when deciding
+    which backend/key to delete. Missing objects are idempotent success.
+    """
+    rows = session.exec(
+        select(AgentTaskDeliverableDB).where(
+            AgentTaskDeliverableDB.project == project_id,
+            _as_column(AgentTaskDeliverableDB.storage_key).is_not(None),
+        )
+    ).all()
+    by_backend: dict[str, list[AgentTaskDeliverableDB]] = {}
+    for row in rows:
+        backend = row.storage_backend or "local"
+        by_backend.setdefault(backend, []).append(row)
+    for backend, group in by_backend.items():
+        store = get_store(backend)
+        for row in group:
+            if row.storage_key is not None:
+                await store.delete(row.storage_key)
+
+
 async def cleanup_expired_artifact_uploads(session: Session) -> dict[str, int]:
     """Fail pending uploads past their TTL and remove their staging bytes.
 

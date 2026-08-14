@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import desc
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from ..db import get_session
 from ..db_helpers import as_column
@@ -35,7 +35,10 @@ from ..services.agent_task_scheduler import (
     validate_schedule_fields,
 )
 from ..services.demo_workspace import require_project_not_demo
-from ..services.project_memberships import enforce_project_role_from_request
+from ..services.project_memberships import (
+    enforce_project_role_from_request,
+    readable_project_ids_for_request,
+)
 from ..services.project_task_sources import get_task_source_db
 from ..services.project_task_source_sync import SyncError
 
@@ -220,13 +223,25 @@ def _format_schedule_detail(
 
 @router.get("/agent-task-schedules", response_model=list[AgentTaskScheduleSummary])
 async def list_agent_task_schedules(
+    request: Request,
     project: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ) -> list[AgentTaskScheduleSummary]:
+    # SPEC-178: scope by readable Projects.
+    if project:
+        enforce_project_role_from_request(
+            request, session, project, minimum_role="member"
+        )
+        project_ids: list[str] | None = [project]
+    else:
+        project_ids = readable_project_ids_for_request(request, session)
+
     query = select(AgentTaskScheduleDB).order_by(
         desc(as_column(cast(object, AgentTaskScheduleDB.created_at)))
     )
-    if project:
+    if project_ids is not None:
+        query = query.where(col(AgentTaskScheduleDB.project).in_(project_ids))
+    elif project:
         query = query.where(AgentTaskScheduleDB.project == project)
     schedules = session.exec(query).all()
     return [_format_schedule(schedule, session) for schedule in schedules]
@@ -234,12 +249,22 @@ async def list_agent_task_schedules(
 
 @router.get("/agent-task-schedules/{schedule_id}", response_model=AgentTaskScheduleDetail)
 async def get_agent_task_schedule(
+    request: Request,
     schedule_id: str,
     session: Session = Depends(get_session),
 ) -> AgentTaskScheduleDetail:
     schedule = session.get(AgentTaskScheduleDB, schedule_id)
     if schedule is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
+    # SPEC-178: authorize after load — deny cross-Project access with 404.
+    try:
+        enforce_project_role_from_request(
+            request, session, schedule.project, minimum_role="member"
+        )
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            raise HTTPException(status_code=404, detail="Schedule not found") from exc
+        raise
     return _format_schedule_detail(schedule, session)
 
 
@@ -248,6 +273,7 @@ async def get_agent_task_schedule(
     response_model=list[AdaptiveTaskStateSummary],
 )
 async def get_adaptive_states(
+    request: Request,
     schedule_id: str,
     session: Session = Depends(get_session),
 ) -> list[AdaptiveTaskStateSummary]:
@@ -255,6 +281,15 @@ async def get_adaptive_states(
     schedule = session.get(AgentTaskScheduleDB, schedule_id)
     if schedule is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
+    # SPEC-178: authorize after load — deny cross-Project access with 404.
+    try:
+        enforce_project_role_from_request(
+            request, session, schedule.project, minimum_role="member"
+        )
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            raise HTTPException(status_code=404, detail="Schedule not found") from exc
+        raise
     if schedule.cadence_type != "adaptive":
         return []
     states = session.exec(

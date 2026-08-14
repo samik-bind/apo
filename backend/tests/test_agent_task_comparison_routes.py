@@ -152,6 +152,79 @@ def test_summary_loader_excludes_heavy_evidence(session: Session) -> None:
     assert s.task_id == "t1"
 
 
+def test_summary_loader_issues_no_check_report_or_definition_query(
+    session: Session,
+) -> None:
+    """Spec test 1: capture SQL and assert the summary loader never queries
+    the Check Report or Task Definition tables, and the heavy JSON columns
+    are deferred (not in the SELECT)."""
+    from sqlalchemy import event
+
+    _seed_project(session)
+    _batch(session, "b1")
+    _run(session, "r1", "b1")
+    session.commit()
+
+    sql_statements: list[str] = []
+
+    def _capture(conn, cursor, statement, parameters, context, executemany):
+        sql_statements.append(statement)
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        load_task_run_summaries(session, ["r1"], project_id=_PROJECT)
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture)
+
+    joined = " ".join(sql_statements).lower()
+    assert "agent_task_check_reports" not in joined, (
+        f"summary loader queried Check Report table:\n{sql_statements}"
+    )
+    assert "task_definition_revisions" not in joined, (
+        f"summary loader queried Task Definition table:\n{sql_statements}"
+    )
+
+
+def test_summary_loader_does_not_select_heavy_json_columns(
+    session: Session,
+) -> None:
+    """Spec test 1: the SELECT for task runs must not include checks_json,
+    transcript_json, or deliverables_json (they are deferred)."""
+    from sqlalchemy import event
+
+    _seed_project(session)
+    _batch(session, "b1")
+    _run(session, "r1", "b1")
+    session.commit()
+
+    sql_statements: list[str] = []
+
+    def _capture(conn, cursor, statement, parameters, context, executemany):
+        sql_statements.append(statement)
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        load_task_run_summaries(session, ["r1"], project_id=_PROJECT)
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture)
+
+    # The initial SELECT should not name the heavy columns. Deferred columns
+    # are loaded lazily on attribute access; the initial query omits them.
+    select_stmts = [s for s in sql_statements if s.lstrip().upper().startswith("SELECT")]
+    joined = " ".join(select_stmts).lower()
+    assert "checks_json" not in joined, (
+        f"summary loader selected checks_json:\n{select_stmts}"
+    )
+    assert "transcript_json" not in joined, (
+        f"summary loader selected transcript_json:\n{select_stmts}"
+    )
+    assert "deliverables_json" not in joined, (
+        f"summary loader selected deliverables_json:\n{select_stmts}"
+    )
+
+
 def test_summary_loader_preserves_requested_order(session: Session) -> None:
     _seed_project(session)
     _batch(session, "b1")
@@ -250,6 +323,55 @@ async def test_overview_404_for_missing_comparison(session: Session) -> None:
     assert cast(HTTPException, exc.value).status_code == 404
 
 
+async def test_overview_response_is_independent_of_check_report_size(
+    session: Session,
+) -> None:
+    """Spec scene test 2: multi-MB Check Reports must not leak into the overview.
+
+    Seeds a multi-megabyte sentinel in the Check Report table behind two runs,
+    calls the overview route, and asserts the sentinel is absent from the
+    response and the response stays small.
+    """
+    from apo.models.db import AgentTaskCheckReportDB
+
+    _seed_project(session)
+    _batch(session, "ba")
+    _batch(session, "bb")
+    _run(session, "ra", "ba", task_id="t1", model="claude-sonnet")
+    _run(session, "rb", "bb", task_id="t1", model="gpt-4o")
+
+    # 2 MB sentinel that would blow up a summary response if it leaked.
+    sentinel = "SENTINEL_" + "x" * (2 * 1024 * 1024)
+    session.add(AgentTaskCheckReportDB(
+        run_id="ra",
+        value_json=[{"name": "c1", "received": sentinel}],
+        created_at=_NOW,
+    ))
+    session.add(AgentTaskCheckReportDB(
+        run_id="rb",
+        value_json=[{"name": "c1", "received": sentinel}],
+        created_at=_NOW,
+    ))
+    session.commit()
+
+    snap = _make_comparison(session, task_ids=["t1"], side_a_runs={}, side_b_runs={})
+
+    result = await get_task_view_comparison_overview(
+        _PROJECT, snap.id, _req(), session
+    )
+
+    # Sentinel must not appear anywhere in the response.
+    import json
+    serialized = json.dumps(result.model_dump(), default=str)
+    assert "SENTINEL_" not in serialized, (
+        "multi-MB Check Report content leaked into overview response"
+    )
+    # Response must be well under 100 KiB (summaries are scalar-only).
+    assert len(serialized) < 100_000, (
+        f"overview response is {len(serialized)} bytes — too large for summaries"
+    )
+
+
 async def test_overview_404_cross_project(session: Session) -> None:
     _seed_project(session)
     session.add(ProjectDB(id="proj-other2", name="other", created_by=_OWNER))
@@ -336,6 +458,30 @@ async def test_task_evidence_404_for_task_not_in_snapshot(session: Session) -> N
             _PROJECT, snap.id, "t-nonexistent", _req(), session
         )
     assert cast(HTTPException, exc.value).status_code == 404
+
+
+async def test_task_evidence_500_when_frozen_run_unresolvable(session: Session) -> None:
+    """Spec rule 8: a frozen run that can't be loaded is a 500, not null."""
+    _seed_project(session)
+    _batch(session, "ba")
+    _batch(session, "bb")
+    _run(session, "ra", "ba", task_id="t1", model="claude-sonnet")
+    _run(session, "rb", "bb", task_id="t1", model="gpt-4o")
+    session.commit()
+
+    snap = _make_comparison(session, task_ids=["t1"], side_a_runs={}, side_b_runs={})
+
+    # Simulate the frozen run being deleted after snapshot creation.
+    run_b = session.get(AgentTaskRunDB, snap.resolved[0].b_run_id)
+    if run_b is not None:
+        session.delete(run_b)
+        session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        await get_task_comparison_evidence(
+            _PROJECT, snap.id, "t1", _req(), session
+        )
+    assert cast(HTTPException, exc.value).status_code == 500
 
 
 # ---------------------------------------------------------------------------

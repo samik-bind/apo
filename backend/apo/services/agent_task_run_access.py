@@ -11,8 +11,9 @@ request JSON or query parameters.
 
 - service or Attempt token: ``request.state.project`` must equal the batch
   Project and ``service_task_run_id`` must equal the Task Run ID;
-- API key / dashboard cookie / open-dev: the batch Project is trusted; the
-  demo Project rejects writes via the existing ``require_project_not_demo``.
+- API key / dashboard cookie / open-dev: the canonical Project policy
+  (SPEC-178) authorizes the caller against the batch Project. Non-member
+  access is opaque (404) so an opaque ID does not reveal existence.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from sqlmodel import Session
 
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskRunDB
 from apo.services.demo_workspace import require_project_not_demo
+from apo.services.project_memberships import authorize_project_request
 
 
 def require_task_run_access(
@@ -33,9 +35,11 @@ def require_task_run_access(
 ) -> str:
     """Authorize and return the Task Run's Project.
 
-    Raises 404 (not 403) when a service token targets a different run, so a
-    cross-run guess cannot infer the existence of another run. Writes against
-    the demo Project are rejected with 403.
+    Capability tokens (service / Attempt) are exact-run-scoped: a mismatch
+    raises 404 so a cross-run guess cannot infer the existence of another run.
+    Session / API-key / open-dev callers go through the canonical Project
+    policy — non-member access is also 404 (opaque denial per SPEC-178 §6).
+    Writes against the demo Project are rejected with 403.
     """
     batch = session.get(AgentTaskBatchRunDB, task_run.batch_run_id)
     if batch is None:
@@ -46,13 +50,20 @@ def require_task_run_access(
     if auth_method in ("service_token", "attempt_token"):
         token_project = getattr(request.state, "project", None)
         token_run_id = getattr(request.state, "service_task_run_id", None)
-        # A service token is bound to one Task Run; any mismatch is a cross-run
-        # attempt. Report 404 so the caller cannot confirm the other run exists.
         if token_run_id != task_run.id or token_project != project:
             raise HTTPException(status_code=404, detail="Task run not found")
+    else:
+        # SPEC-178: session / API key / open-dev callers must be authorized
+        # against the derived Project. Non-member → 404 (opaque), not 403,
+        # so an opaque run ID cannot reveal the run's existence.
+        try:
+            authorize_project_request(request, session, project, minimum_role="member")
+        except HTTPException as exc:
+            if exc.status_code == 403:
+                raise HTTPException(status_code=404, detail="Task run not found") from exc
+            raise
 
     if write:
         require_project_not_demo(project)
 
-    _ = session  # session is reserved for future API-key scope checks
     return project

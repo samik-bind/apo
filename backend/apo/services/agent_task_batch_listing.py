@@ -67,6 +67,7 @@ class PaginatedBatchRunSummary(BaseModel):
 @dataclass
 class BatchRunListFilters:
     project: str | None = None
+    project_ids: list[str] | None = None  # SPEC-178: readable-Project scope
     status: str | None = None
     search: str | None = None
     since: str | None = None
@@ -137,7 +138,9 @@ def list_batch_run_summaries(
 def _apply_base_filters(
     base: SelectOfScalar[AgentTaskBatchRunDB], filters: BatchRunListFilters
 ) -> SelectOfScalar[AgentTaskBatchRunDB]:
-    if filters.project:
+    if filters.project_ids is not None:
+        base = base.where(col(AgentTaskBatchRunDB.project).in_(filters.project_ids))
+    elif filters.project:
         base = base.where(AgentTaskBatchRunDB.project == filters.project)
     if filters.status:
         base = base.where(AgentTaskBatchRunDB.status == filters.status)

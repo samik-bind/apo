@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from typing import cast
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import func
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import SQLModel, Session
@@ -11,6 +11,7 @@ from sqlmodel import SQLModel, Session
 from ..db import get_session
 from ..db_helpers import _as_column
 from ..models import RunMetricDB, RunDB
+from ..services.project_memberships import enforce_project_read_from_request
 
 
 router = APIRouter(prefix="/v1/metrics-analytics", tags=["metrics-analytics"])
@@ -63,6 +64,7 @@ class MetricsBySource(SQLModel):
 
 @router.get("/trends", response_model=list[MetricTrendPoint])
 def get_metric_trends(
+    request: Request,
     project: str,
     metric_name: str,
     days: int = Query(30, ge=1, le=365, description="Number of days to look back"),
@@ -81,6 +83,8 @@ def get_metric_trends(
         metric_name: Name of the metric to analyze
         days: Number of days to look back (1-365)
     """
+    # SPEC-178: require readable Project membership before aggregate queries.
+    enforce_project_read_from_request(request, session, project)
     cutoff_date = datetime.utcnow() - timedelta(days=days)
 
     # Build query with date truncation
@@ -121,6 +125,7 @@ def get_metric_trends(
 
 @router.get("/summary", response_model=list[MetricSummary])
 def get_metrics_summary(
+    request: Request,
     project: str,
     session: Session = Depends(get_session)
 ) -> list[MetricSummary]:
@@ -132,6 +137,8 @@ def get_metrics_summary(
     Args:
         project: Project identifier
     """
+    # SPEC-178: require readable Project membership.
+    enforce_project_read_from_request(request, session, project)
     # Get all unique metric names for this project
     subquery = (
         session.query(RUN_METRIC_NAME_COL)
@@ -188,6 +195,7 @@ def get_metrics_summary(
 
 @router.get("/by-source")
 def get_metrics_by_source(
+    request: Request,
     project: str,
     metric_name: str | None = None,
     days: int = Query(30, ge=1, le=365),
@@ -203,6 +211,8 @@ def get_metrics_by_source(
         metric_name: Optional metric filter
         days: Number of days to look back
     """
+    # SPEC-178: require readable Project membership.
+    enforce_project_read_from_request(request, session, project)
     cutoff_date = datetime.utcnow() - timedelta(days=days)
 
     query = (

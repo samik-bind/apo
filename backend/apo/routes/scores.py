@@ -8,7 +8,12 @@ CallMetricDB (observation-level) and RunMetricDB (trace-level) models.
 # pyright: reportCallInDefaultInitializer=false
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlmodel import Session, select
+
+from ..services.project_memberships import (
+    enforce_project_read_from_request,
+    readable_project_ids_for_request,
+)
+from sqlmodel import Session, col, select
 
 from ..auth.deps import require_api_key_scope
 from ..db import get_session
@@ -110,6 +115,7 @@ async def create_observation_score_endpoint(
 @router.get("/traces/{trace_id}/scores", response_model=list[ScoreResponse])
 async def get_trace_scores(
     trace_id: str,
+    request: Request,
     project: str = "default",
     session: Session = Depends(get_session),
 ):
@@ -118,6 +124,8 @@ async def get_trace_scores(
 
     Returns both quality and aggregate metrics.
     """
+    # SPEC-178: require readable Project membership.
+    enforce_project_read_from_request(request, session, project)
     metrics = get_scores_for_trace(session, trace_id, project)
     return [_metric_to_score_response(m, trace_id=trace_id) for m in metrics]
 
@@ -182,6 +190,7 @@ async def create_bulk_scores(
 
 @router.get("/score-configs", response_model=list[ScoreConfigResponse])
 async def list_score_configs(
+    request: Request,
     project: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
@@ -190,8 +199,17 @@ async def list_score_configs(
 
     Returns non-archived score configs, optionally filtered by project.
     """
-    query = select(ScoreConfigDB).where(ScoreConfigDB.is_archived == False)  # noqa: E712
+    # SPEC-178: scope by readable Projects.
     if project:
+        enforce_project_read_from_request(request, session, project)
+        project_ids: list[str] | None = [project]
+    else:
+        project_ids = readable_project_ids_for_request(request, session)
+
+    query = select(ScoreConfigDB).where(ScoreConfigDB.is_archived == False)  # noqa: E712
+    if project_ids is not None:
+        query = query.where(col(ScoreConfigDB.project).in_(project_ids))
+    elif project:
         query = query.where(ScoreConfigDB.project == project)
     configs = session.exec(query).all()
     return [

@@ -155,6 +155,16 @@ async def get_task_comparison_evidence(
     details = load_task_run_details(session, pair_ids, project_id=project_id)
     detail_by_id = {d.id: d for d in details}
 
+    # Spec rule 8 / error table: a frozen run that cannot be resolved is a
+    # server error, not a silent null. Returning null makes the frontend
+    # show "Not run" for a side that definitely ran.
+    missing = [rid for rid in pair_ids if rid not in detail_by_id]
+    if missing:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Snapshot references unresolved run(s): {missing}",
+        )
+
     return TaskComparisonEvidence(
         task_id=task_id,
         left=detail_by_id.get(cell.a_run_id) if cell.a_run_id else None,

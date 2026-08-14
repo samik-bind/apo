@@ -13,6 +13,7 @@ from ...db import get_session
 from ...auth.deps import require_api_key_scope
 from ...services.project_memberships import (
     enforce_project_read_from_request,
+    enforce_project_role_from_request,
     list_readable_projects_from_request,
 )
 from ...db_helpers import _as_column, _ensure_utc_datetime
@@ -51,9 +52,11 @@ router = APIRouter(prefix="/v1/runs", tags=["runs"])
 
 
 @router.patch("/{run_id}/bookmark")
-def toggle_bookmark(run_id: str, session: Session = Depends(get_session)):
+def toggle_bookmark(run_id: str, http_request: Request, session: Session = Depends(get_session)):
     """Toggle bookmark state for a run."""
     run = require_run_not_demo(session, run_id)
+    # SPEC-178: require member on the derived Project.
+    enforce_project_read_from_request(http_request, session, run.project)
     run.bookmarked = not run.bookmarked
     session.commit()
     session.refresh(run)
@@ -62,8 +65,10 @@ def toggle_bookmark(run_id: str, session: Session = Depends(get_session)):
 
 
 @router.post("", response_model=Run)
-def create_run(request: CreateRunRequest, session: Session = Depends(get_session)):
+def create_run(request: CreateRunRequest, http_request: Request, session: Session = Depends(get_session)):
     require_project_not_demo(request.project)
+    # SPEC-178: require member on the target Project.
+    enforce_project_read_from_request(http_request, session, request.project)
     run_id = str(uuid4())
 
     run = RunDB(
@@ -98,6 +103,9 @@ def update_run(
     run = require_run_not_demo(session, run_id)
 
     _validate_trace_write_access(http_request, run.project)
+    # SPEC-178: for non-service-token callers, require member on the derived Project.
+    if getattr(http_request.state, "auth_method", None) != "service_token":
+        enforce_project_read_from_request(http_request, session, run.project)
 
     if request.completed:
         run.completed_at = datetime.now(timezone.utc)
@@ -370,9 +378,12 @@ class PostCustomMetricsRequest(BaseModel):
 async def post_custom_metrics(
     run_id: str,
     request: PostCustomMetricsRequest,
+    http_request: Request,
     session: Session = Depends(get_session),
 ):
     _run = require_run_not_demo(session, run_id)
+    # SPEC-178: require member on the derived Project.
+    enforce_project_read_from_request(http_request, session, _run.project)
 
     results_count = 0
     errors: list[dict[str, str]] = []
@@ -412,10 +423,13 @@ def set_corrected_output(
     run_id: str,
     call_id: str,
     request: CorrectionRequest,
+    http_request: Request,
     project: str = "default",
     session: Session = Depends(get_session),
 ):
     """Set or clear the corrected output for a call."""
+    # SPEC-178: require member on the target Project.
+    enforce_project_read_from_request(http_request, session, project)
     _run = require_run_not_demo(session, run_id, project)
     call = session.exec(
         select(LoggedCallDB).where(
@@ -441,9 +455,12 @@ class BulkDeleteRequest(BaseModel):
 @router.post("/bulk-delete")
 def bulk_delete_runs(
     request: BulkDeleteRequest,
+    http_request: Request,
     project: str = "default",
     session: Session = Depends(get_session),
 ):
+    # SPEC-178: require admin for bulk destructive operations.
+    enforce_project_role_from_request(http_request, session, project, minimum_role="admin")
     if not request.run_ids:
         raise HTTPException(status_code=400, detail="No run IDs provided")
 
@@ -496,9 +513,12 @@ def bulk_delete_runs(
 @router.post("/bulk-export")
 def bulk_export_runs(
     request: BulkExportRequest,
+    http_request: Request,
     project: str = "default",
     session: Session = Depends(get_session),
 ):
+    # SPEC-178: require member on the target Project.
+    enforce_project_read_from_request(http_request, session, project)
     return export_runs(session, request.run_ids, project, request.format)
 
 
@@ -508,6 +528,7 @@ def bulk_export_runs(
 @router.post("/{run_id}/reproject")
 def reproject_run(
     run_id: str,
+    http_request: Request,
     project: str = "default",
     session: Session = Depends(get_session),
 ):
@@ -523,6 +544,8 @@ def reproject_run(
     The ``project`` query parameter specifies which project the trace belongs
     to (required because canonical spans are scoped by project).
     """
+    # SPEC-178: require member on the target Project.
+    enforce_project_read_from_request(http_request, session, project)
     from ...models.db import OtlpSpanDB as _OtlpSpanDB
     from ...services.reproject import reproject_trace
 

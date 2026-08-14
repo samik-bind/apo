@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 
 from ..db import get_session
 from ..models.db import AgentTaskBatchRunDB, AgentTaskRunDB
+from ..services.project_memberships import enforce_project_role_from_request
 from ..services.run_events import (
     EVENT_TASK_RUN_STARTED,
     EVENT_TASK_RUN_TRACE_CLAIMED,
@@ -42,6 +43,13 @@ async def stream_run_events(
     - Sends current running/pending state immediately
     - Streams live events until client disconnects
     """
+    # SPEC-178 invariant #7: authorize before any broadcaster access or
+    # initial-event construction. A cross-Project denial returns JSON
+    # 403/404 before the text/event-stream response is created.
+    enforce_project_role_from_request(
+        request, session, project, minimum_role="member"
+    )
+
     broadcaster = await get_run_event_broadcaster()
     initial_events = _build_initial_events(project, session)
 

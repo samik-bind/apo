@@ -717,6 +717,11 @@ async def connected_executor_bootstrap(
     Any project member may bootstrap. Creates the canonical system-managed
     source-owned Pool if it does not exist.
     """
+    # SPEC-178: require project membership before bootstrap.
+    enforce_project_role_from_request(
+        request, session, project_id, minimum_role="member"
+    )
+
     from ..services.source_owned_executor import bootstrap_connected_executor
 
     user_id = request.state.user_id if hasattr(request.state, "user_id") else None

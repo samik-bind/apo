@@ -68,7 +68,11 @@ from ..services.agent_task_runner import (
 
 )
 from ..services.project_task_source_sync import SyncError
-from ..services.project_memberships import enforce_project_role_from_request
+from ..services.project_memberships import (
+    authorize_project_request,
+    enforce_project_role_from_request,
+    readable_project_ids_for_request,
+)
 
 router = APIRouter(prefix="/v1", tags=["agent-tasks"])
 
@@ -602,6 +606,7 @@ async def create_caller_batch_run_route(
 
 @router.get("/agent-task-batch-runs", response_model=PaginatedBatchRunSummary)
 async def list_agent_task_batch_runs(
+    request: Request,
     project: str | None = Query(default=None),
     status: str | None = Query(default=None),
     q: str | None = Query(default=None),
@@ -614,20 +619,23 @@ async def list_agent_task_batch_runs(
 ):
     """List batch runs with server-side filtering and pagination.
 
-    Text search (``q``) matches on id, selection_type, environment, and grep.
-    Configuration filters (``model``/``effort``): comma-separated.
-    A batch matches only when ONE child Task Run satisfies ALL supplied
-    dimensions. Model facets are computed from the text/status/project
-    filtered set (before model/effort filtering) so the dropdown always
-    shows what other models are available.
+    SPEC-178: the list is scoped to the caller's readable Projects. An
+    explicit ``project`` is authorized before use; omitting it returns
+    only the caller's membership Projects.
     """
+    if project:
+        authorize_project_request(request, session, project)
+        project_ids: list[str] | None = [project]
+    else:
+        project_ids = readable_project_ids_for_request(request, session)
+
     model_list = [m.strip() for m in model.split(",") if m.strip()] if model else []
     effort_list = [e.strip() for e in effort.split(",") if e.strip()] if effort else []
 
     return list_batch_run_summaries(
         session,
         BatchRunListFilters(
-            project=project,
+            project_ids=project_ids,
             status=status,
             search=q,
             since=since,
@@ -643,6 +651,7 @@ async def list_agent_task_batch_runs(
     response_model=AgentTaskBatchRunDetail,
 )
 async def get_agent_task_batch_run(
+    request: Request,
     batch_run_id: str,
     session: Session = Depends(get_session),
 ):
@@ -650,6 +659,14 @@ async def get_agent_task_batch_run(
     batch = session.get(AgentTaskBatchRunDB, batch_run_id)
     if batch is None:
         raise HTTPException(status_code=404, detail="Batch run not found")
+
+    # SPEC-178: authorize after load — deny cross-Project access with 404.
+    try:
+        authorize_project_request(request, session, batch.project, minimum_role="member")
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            raise HTTPException(status_code=404, detail="Batch run not found") from exc
+        raise
 
     task_runs = session.exec(
         select(AgentTaskRunDB).options(*_TASK_RUN_LIGHT).where(AgentTaskRunDB.batch_run_id == batch_run_id)
@@ -705,6 +722,7 @@ async def get_agent_task_batch_run(
 
 @router.get("/agent-task-runs", response_model=list[AgentTaskRunSummary])
 async def list_agent_task_runs(
+    request: Request,
     project: str | None = Query(default=None),
     status: str | None = Query(default=None),
     task_id: str | None = Query(default=None),
@@ -718,10 +736,26 @@ async def list_agent_task_runs(
     ``model``/``effort`` are repeatable and exact/case-sensitive.
     Repeated values within one dimension OR; the two dimensions AND. A run
     with an unreported configuration (NULL columns) never matches.
+
+    SPEC-178: the list is scoped to the caller's readable Projects. An
+    explicit ``project`` is authorized before use; omitting it returns
+    only the caller's membership Projects (or is unrestricted in
+    development open-dev mode).
     """
+    # Derive the Project scope (SPEC-178 §List scoping).
+    if project:
+        authorize_project_request(request, session, project)
+        project_ids: list[str] | None = [project]
+    else:
+        project_ids = readable_project_ids_for_request(request, session)
+
     query = select(AgentTaskRunDB).options(*_TASK_RUN_LIGHT)
 
-    if project:
+    if project_ids is not None:
+        query = query.join(AgentTaskBatchRunDB).where(
+            col(AgentTaskBatchRunDB.project).in_(project_ids)
+        )
+    elif project:
         query = query.join(AgentTaskBatchRunDB).where(
             AgentTaskBatchRunDB.project == project
         )
@@ -744,6 +778,7 @@ async def list_agent_task_runs(
 
 @router.get("/agent-task-runs/{task_run_id}", response_model=AgentTaskRunDetail)
 async def get_agent_task_run(
+    request: Request,
     task_run_id: str,
     include: str | None = Query(default=None),
     session: Session = Depends(get_session),
@@ -752,6 +787,18 @@ async def get_agent_task_run(
     task_run = session.get(AgentTaskRunDB, task_run_id)
     if task_run is None:
         raise HTTPException(status_code=404, detail="Task run not found")
+
+    # SPEC-178: authorize after load — derive Project through batch and deny
+    # cross-Project access with an opaque 404.
+    batch = session.get(AgentTaskBatchRunDB, task_run.batch_run_id)
+    if batch is not None:
+        try:
+            authorize_project_request(request, session, batch.project, minimum_role="member")
+        except HTTPException as exc:
+            if exc.status_code == 403:
+                raise HTTPException(status_code=404, detail="Task run not found") from exc
+            raise
+
     trigger = _load_batch_triggers(session, [task_run.batch_run_id]).get(
         task_run.batch_run_id
     )

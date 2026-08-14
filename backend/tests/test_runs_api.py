@@ -315,7 +315,7 @@ def test_api_key_reads_only_its_bound_project(session: Session):
         )
     error = cast(HTTPException, exc.value)
     assert error.status_code == 403
-    assert error.detail == "API key project mismatch"
+    assert error.detail == "API key is not bound to this project"
 
 
 if __name__ == "__main__":

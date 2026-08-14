@@ -106,6 +106,47 @@ This keeps the auth model clean:
 
 ### OTel-Native Trace Ingestion
 
+### Project Boundary (SPEC-178)
+
+**Project** is apo's authorization boundary. Every Project-owned read, write,
+stream, and deletion goes through one canonical credential-aware policy:
+
+- **`authorize_project_request(request, session, project_id, minimum_role)`**
+  — the single entry point. Intersects request Credential Authority with
+  current Project membership and role. Returns the membership row or raises
+  403/404/401.
+- **`readable_project_ids_for_request(request, session)`** — the list-scoping
+  companion. Session = all memberships; API key = exactly its bound Project
+  (rechecked every request); unauthenticated in dev = `None` (legacy
+  all-readable).
+
+Credential kinds:
+
+| Credential | Authority |
+|---|---|
+| Session (cookie) | All current memberships + roles |
+| Project API key | Exact bound Project + creator membership recheck |
+| Attempt/service token | Exact Project + Task Run capability (resource-specific authorizer) |
+| Executor credential | Exact Project + Pool + Executor + permitted operation |
+
+Invariants:
+
+1. **Ownership is server-derived.** A body/query `project` narrows lookup but
+   never proves authority.
+2. **Lists fail closed.** Omitted `project` = readable set (or validation error),
+   never every database row.
+3. **Opaque IDs are identifiers, not secrets.** Cross-Project resource-ID routes
+   return 404.
+4. **Streams authorize before subscribing.** No initial data loads before authz.
+5. **Release profiles reject synthetic ownership.** Development-only legacy
+   fallback for nonexistent Projects; release = 404.
+6. **Deletion covers bytes and rows.** Project delete removes all dependent rows
+   + stored Task Revision bundles + Deliverable objects.
+
+Route closure status: all registered Project-owned routes now call the canonical
+policy or a resource-specific authorizer that calls it. The executor protocol
+routes use capability-scoped checks (not human membership).
+
 OpenTelemetry is the integration boundary for agent observability. Provider
 instrumentation (OpenAI, Anthropic, Vercel AI SDK, LangChain, or custom spans)
 exports standard OTLP; apo does not require provider-specific trace clients or
