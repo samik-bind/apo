@@ -55,13 +55,18 @@ def test_task_run_collection_filters_hierarchical_task_id(
     assert [run["id"] for run in response.json()] == ["run-target"]
 
 
-def test_task_detail_catch_all_has_no_competing_runs_route() -> None:
+def test_legacy_task_discovery_routes_are_unregistered() -> None:
+    """The unscoped filesystem discovery routes were removed (SPEC-178
+    cleanup): task listing must go through the project-scoped inventory
+    routes, never a client-named ``task_root``."""
     route_paths = {
         route.path for route in app.routes if isinstance(route, APIRoute)
     }
 
-    assert "/v1/agent-tasks/{task_id:path}" in route_paths
-    assert "/v1/agent-tasks/{task_id:path}/runs" not in route_paths
+    assert "/v1/agent-tasks/{task_id:path}" not in route_paths
+    assert "/v1/agent-tasks" not in route_paths
+    assert "/v1/agent-tasks/{task_id:path}/files" not in route_paths
+    assert "/v1/agent-tasks/{task_id:path}/files/{file_path:path}" not in route_paths
 
 
 def test_batch_list_projects_configuration_summary(

@@ -784,13 +784,15 @@ export function TaskRunDetailBody({
       candidates: string[],
       signal: AbortSignal,
     ): Promise<TaskFileContentResponse> => {
+      if (!projectId) {
+        throw new Error("Project context required to load check source");
+      }
       let lastError: unknown;
       for (const candidate of candidates) {
         try {
           const source = await readTaskFile(
             taskId,
             candidate,
-            undefined,
             projectId,
             commitSha ?? undefined,
             signal,

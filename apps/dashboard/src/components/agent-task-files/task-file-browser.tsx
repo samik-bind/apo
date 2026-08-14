@@ -14,8 +14,7 @@ import { TaskFileViewer } from "./task-file-viewer";
 
 interface TaskFileBrowserProps {
   taskId: string;
-  taskRoot?: string | null;
-  projectId?: string | null;
+  projectId: string;
   commitSha?: string | null;
 }
 
@@ -55,7 +54,6 @@ function fileBrowserReducer(state: FileBrowserState, action: FileBrowserAction):
 
 export function TaskFileBrowser({
   taskId,
-  taskRoot,
   projectId,
   commitSha,
 }: TaskFileBrowserProps) {
@@ -76,7 +74,6 @@ export function TaskFileBrowser({
         dispatch({ type: "FETCH_START" });
         const response: TaskFileListResponse = await listTaskFiles(
           taskId,
-          taskRoot,
           projectId,
           commitSha,
         );
@@ -94,7 +91,7 @@ export function TaskFileBrowser({
     return () => {
       cancelled = true;
     };
-  }, [taskId, taskRoot, projectId, commitSha]);
+  }, [taskId, projectId, commitSha]);
 
   const handleSelect = useCallback(
     async (path: string) => {
@@ -104,7 +101,6 @@ export function TaskFileBrowser({
         const content = await readTaskFile(
           taskId,
           path,
-          taskRoot,
           projectId,
           commitSha,
         );
@@ -113,7 +109,7 @@ export function TaskFileBrowser({
         dispatch({ type: "VIEWER_ERROR", error: e instanceof Error ? e.message : "Failed to load file" });
       }
     },
-    [taskId, taskRoot, projectId, commitSha]
+    [taskId, projectId, commitSha]
   );
 
   if (state.error) {

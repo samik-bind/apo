@@ -1,8 +1,7 @@
 """
 Agent Task Runs API endpoints.
 
-Provides endpoints for discovering tasks, managing batch runs,
-and inspecting individual task runs.
+Provides endpoints for managing batch runs and inspecting individual task runs.
 """
 
 # pyright: reportAny=false, reportArgumentType=false, reportCallInDefaultInitializer=false, reportUnusedCallResult=false, reportUnusedImport=false
@@ -17,19 +16,16 @@ from pydantic import BaseModel
 from sqlalchemy import asc, desc
 from sqlalchemy.orm import defer
 from sqlmodel import Session, col, select
-from sqlmodel.sql.expression import SelectOfScalar
 
 from ..db import get_session
 from ..db_helpers import as_column
 from ..models import (
     AgentTaskBatchRunDB,
     AgentTaskBatchRunDetail,
-    AgentTaskDetail,
     AgentTaskRunDB,
     AgentTaskRunDetail,
     AgentTaskRunTrigger,
     AgentTaskRunSummary,
-    AgentTaskSummary,
     CreateAgentTaskBatchRunRequest,
     LoggedCallDB,
     ReportAgentTaskRunResultRequest,
@@ -44,20 +40,11 @@ from ..services.agent_task_batch_listing import (
     list_batch_run_summaries,
 )
 from ..services.check_report_storage import load_check_report
-from ..services.agent_task_discovery import (
-    DiscoveredAgentTask,
-    discover_agent_task_by_id,
-    discover_agent_tasks,
-)
 from ..services.agent_task_outcome import classify_run_outcome
 from ..services.agent_task_projection import (
     parse_trigger,
     to_batch_run_detail,
     to_task_run_summary,
-)
-from ..services.agent_task_stats import (
-    compute_run_stats,
-    load_run_stat_fields,
 )
 from ..services.demo_workspace import require_project_not_demo
 from ..services.project_task_sources import get_task_source_db
@@ -83,31 +70,6 @@ _TASK_RUN_LIGHT = (
     defer(AgentTaskRunDB.deliverables_json),
     defer(AgentTaskRunDB.checks_json),
 )
-
-
-def _format_task_summary(task: object) -> AgentTaskSummary:
-    t = cast(DiscoveredAgentTask, task)
-    return AgentTaskSummary(
-        id=t.id,
-        task_path=t.task_path,
-        folder_path=t.folder_path,
-        display_name=t.display_name,
-        adapter_name=t.adapter_name,
-        has_checks=t.has_checks,
-        tags=t.tags,
-    )
-
-
-def _apply_project_filter_to_task_runs(
-    query: SelectOfScalar[AgentTaskRunDB],
-    project: str | None,
-) -> SelectOfScalar[AgentTaskRunDB]:
-    if not project:
-        return query
-
-    return query.join(AgentTaskBatchRunDB).where(
-        AgentTaskBatchRunDB.project == project
-    )
 
 
 def _load_batch_triggers(
@@ -234,79 +196,6 @@ def _build_task_run_detail(
             task_run.configured_model, task_run.configured_effort
         ),
         task_definition=task_definition,
-    )
-
-
-# ============================================================================
-# Task Discovery Endpoints
-# ============================================================================
-
-
-@router.get("/agent-tasks", response_model=list[AgentTaskSummary])
-async def list_agent_tasks(
-    task_root: str | None = Query(default=None),
-    grep: str | None = Query(default=None),
-    project: str | None = Query(default=None),
-    session: Session = Depends(get_session),
-):
-    """List discovered agent tasks from the filesystem with run stats."""
-    tasks = discover_agent_tasks(task_root, grep)
-    summaries = [_format_task_summary(t) for t in tasks]
-
-    if not project:
-        return summaries
-
-    task_ids = [s.id for s in summaries]
-    if not task_ids:
-        return summaries
-
-    runs_by_task = load_run_stat_fields(session, project, task_ids)
-
-    for summary in summaries:
-        task_runs = runs_by_task.get(summary.id, [])
-        if not task_runs:
-            continue
-
-        summary.run_stats = compute_run_stats(task_runs)
-
-    return summaries
-
-
-@router.get("/agent-tasks/{task_id:path}", response_model=AgentTaskDetail)
-async def get_agent_task(
-    task_id: str,
-    task_root: str | None = Query(default=None),
-    project: str | None = Query(default=None),
-    session: Session = Depends(get_session),
-):
-    """Get details for a single agent task including latest run."""
-    task = discover_agent_task_by_id(task_root, task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    latest_run = None
-    if project:
-        latest_query: SelectOfScalar[AgentTaskRunDB] = (
-            select(AgentTaskRunDB)
-            .where(AgentTaskRunDB.task_id == task_id)
-            .order_by(desc(as_column(cast(object, AgentTaskRunDB.started_at))))
-            .limit(1)
-        )
-        latest_query = _apply_project_filter_to_task_runs(latest_query, project)
-        tr = session.exec(latest_query).first()
-        if tr:
-            trigger = _load_batch_triggers(session, [tr.batch_run_id]).get(tr.batch_run_id)
-            latest_run = to_task_run_summary(tr, trigger)
-
-    return AgentTaskDetail(
-        id=task.id,
-        task_path=task.task_path,
-        folder_path=task.folder_path,
-        display_name=task.display_name,
-        adapter_name=task.adapter_name,
-        has_checks=task.has_checks,
-        tags=task.tags,
-        latest_run=latest_run,
     )
 
 

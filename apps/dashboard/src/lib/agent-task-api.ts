@@ -486,33 +486,12 @@ export interface AdaptiveTaskState {
 
 const NO_CACHE = { cache: "no-store" } as const;
 
-export const listAgentTasks = (
-  taskRoot?: string | null,
-  grep?: string,
-  project?: string,
-): Promise<AgentTaskSummary[]> =>
-  apiClient("/v1/agent-tasks", {
-    ...NO_CACHE,
-    query: { task_root: taskRoot, grep, project },
-  });
-
-export const getAgentTask = (
-  taskId: string,
-  taskRoot?: string | null,
-  project?: string,
-): Promise<AgentTaskDetail> =>
-  apiClient(`/v1/agent-tasks/${encodeURIComponent(taskId)}`, {
-    ...NO_CACHE,
-    query: { task_root: taskRoot, project },
-  });
-
 /**
  * canonical project-scoped task list backed by persisted
- * inventory. Use this in place of `listAgentTasks(taskRoot, ..., project)`
- * whenever the project's task source is configured. Returns an empty
- * array when the source is configured but has no tasks yet (a valid
- * ready state). Throws when the project has no source configured yet
- * (HTTP 404) — callers should branch on the project payload first.
+ * inventory. Returns an empty array when the source is configured but has
+ * no tasks yet (a valid ready state). Throws when the project has no
+ * source configured yet (HTTP 404) — callers should branch on the project
+ * payload first.
  */
 export const listProjectAgentTasks = (
   projectId: string,
@@ -594,41 +573,27 @@ export const getAgentTaskRun = (
 ): Promise<AgentTaskRunDetail> =>
   apiClient(`/v1/agent-task-runs/${encodeURIComponent(taskRunId)}`, NO_CACHE);
 
-export async function listTaskFiles(
+export function listTaskFiles(
   taskId: string,
-  taskRoot?: string | null,
-  projectId?: string | null,
+  projectId: string,
   commitSha?: string | null,
 ): Promise<TaskFileListResponse> {
-  if (projectId) {
-    return apiClient(
-      `/v1/projects/${encodeURIComponent(projectId)}/agent-tasks/${encodeURIComponent(taskId)}/files`,
-      { ...NO_CACHE, query: { commit_sha: commitSha } },
-    );
-  }
-  return apiClient(`/v1/agent-tasks/${encodeURIComponent(taskId)}/files`, {
-    ...NO_CACHE,
-    query: { task_root: taskRoot },
-  });
+  return apiClient(
+    `/v1/projects/${encodeURIComponent(projectId)}/agent-tasks/${encodeURIComponent(taskId)}/files`,
+    { ...NO_CACHE, query: { commit_sha: commitSha } },
+  );
 }
 
-export async function readTaskFile(
+export function readTaskFile(
   taskId: string,
   filePath: string,
-  taskRoot?: string | null,
-  projectId?: string | null,
+  projectId: string,
   commitSha?: string | null,
   signal?: AbortSignal,
 ): Promise<TaskFileContentResponse> {
-  if (projectId) {
-    return apiClient(
-      `/v1/projects/${encodeURIComponent(projectId)}/agent-tasks/${encodeURIComponent(taskId)}/files/${encodeURIComponent(filePath)}`,
-      { ...NO_CACHE, query: { commit_sha: commitSha }, signal },
-    );
-  }
   return apiClient(
-    `/v1/agent-tasks/${encodeURIComponent(taskId)}/files/${encodeURIComponent(filePath)}`,
-    { ...NO_CACHE, query: { task_root: taskRoot }, signal },
+    `/v1/projects/${encodeURIComponent(projectId)}/agent-tasks/${encodeURIComponent(taskId)}/files/${encodeURIComponent(filePath)}`,
+    { ...NO_CACHE, query: { commit_sha: commitSha }, signal },
   );
 }
 

@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportDeprecated=false, reportUnnecessaryCast=false, reportUnusedCallResult=false, reportUnusedImport=false
+# pyright: reportAny=false, reportDeprecated=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnnecessaryCast=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 """Tests for Langfuse-compatible public API."""
 
@@ -88,7 +88,11 @@ class _LangfuseDirectClient:
     def get(self, url: str) -> _DirectResponse:
         with Session(engine) as session:
             if url == "/api/public/sessions":
-                payload = asyncio.run(list_sessions(page=1, limit=50, db=session))
+                payload = asyncio.run(
+                    list_sessions(
+                        http_request=_fake_request(), page=1, limit=50, db=session
+                    )
+                )
                 return _DirectResponse(200, payload.model_dump(mode="json"))
 
             if url.startswith("/api/public/traces/"):
@@ -100,7 +104,11 @@ class _LangfuseDirectClient:
                 session_id = url.rsplit("/", 1)[1]
                 try:
                     payload = asyncio.run(
-                        get_session_detail(session_id=session_id, db=session)
+                        get_session_detail(
+                            session_id=session_id,
+                            http_request=_fake_request(),
+                            db=session,
+                        )
                     )
                 except Exception as exc:
                     from fastapi import HTTPException
@@ -226,7 +234,11 @@ def test_get_traces_returns_langfuse_format():
     _ingest_trace_and_generation()
 
     with Session(engine) as session:
-        response = asyncio.run(list_traces(tags=None, page=1, limit=50, db=session))
+        response = asyncio.run(
+            list_traces(
+                http_request=_fake_request(), tags=None, page=1, limit=50, db=session
+            )
+        )
 
     total = cast(int, response.meta["totalItems"])
     assert total >= 1
@@ -263,7 +275,13 @@ def test_list_observations_filters_by_trace():
 
     with Session(engine) as session:
         response = asyncio.run(
-            list_observations(traceId="lf-trace-001", page=1, limit=50, db=session)
+            list_observations(
+                http_request=_fake_request(),
+                traceId="lf-trace-001",
+                page=1,
+                limit=50,
+                db=session,
+            )
         )
 
     assert cast(int, response.meta["totalItems"]) == 1

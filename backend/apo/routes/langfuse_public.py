@@ -7,7 +7,7 @@ are mirrored into the canonical ``OtlpSpanDB`` store alongside the direct
 canonical path rather than a separate direct writer.
 """
 
-# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportPrivateUsage=false, reportUnusedCallResult=false
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnusedCallResult=false
 
 from datetime import datetime
 from typing import cast
@@ -37,6 +37,14 @@ from ..services.legacy_adapter import (
     ingest_call_create_to_canonical,
     ingest_call_update_to_canonical,
 )
+from ..services.project_memberships import (
+    authorize_project_request,
+    readable_project_ids_for_request,
+)
+from ..routes.ingestion import (
+    authorized_ingestion_project,
+    authorized_score_project,
+)
 from ..services.langfuse_mapper import (
     langfuse_event_to_internal,
     run_to_langfuse_trace,
@@ -48,15 +56,69 @@ from ..services.langfuse_mapper import (
 router = APIRouter(prefix="/api/public", tags=["langfuse"])
 
 
-def _project_from_request(http_request: Request) -> str:
-    """Read the authenticated Project from the request, defaulting to ``default``.
+def _credential_bound_project(http_request: Request) -> str | None:
+    """The Project bound to a credential, if the request carries one."""
+    auth_method = getattr(http_request.state, "auth_method", None)
+    if auth_method not in ("api_key", "service_token", "attempt_token"):
+        return None
+    project = getattr(http_request.state, "project", None)
+    return str(project) if project else None
 
-    Tolerates direct (non-ASGI) calls in tests where ``request.state`` is absent.
+
+def _langfuse_list_scope(
+    http_request: Request, db: Session, project: str | None
+) -> list[str] | None:
+    """Exact readable Project IDs for a Langfuse list endpoint.
+
+    Credentials are confined to their bound Project (an explicit
+    ``project`` query that disagrees is rejected). Sessions authorize an
+    explicit Project at member role, or fall back to the readable-Project
+    set; ``None`` means open-dev mode (no scope) per the canonical policy.
     """
-    state = getattr(http_request, "state", None)
-    if state is None:
-        return "default"
-    return getattr(state, "project", "default")
+    bound = _credential_bound_project(http_request)
+    if bound is not None:
+        if project is not None and project != bound:
+            raise HTTPException(status_code=403, detail="Project mismatch")
+        return [bound]
+    if project is not None:
+        _ = authorize_project_request(http_request, db, project, minimum_role="member")
+        return [project]
+    return readable_project_ids_for_request(http_request, db)
+
+
+def _langfuse_read_project(
+    http_request: Request,
+    db: Session,
+    project_param: str | None,
+    trace_id: str,
+) -> str:
+    """Resolve the single Project a trace read may target.
+
+    OTel trace ids collide across Projects, so a session without an
+    explicit ``project`` resolves through the owning rows: the first
+    Project that both owns the trace and admits the caller wins. No
+    authorized owner → opaque 404.
+    """
+    bound = _credential_bound_project(http_request)
+    if bound is not None:
+        if project_param is not None and project_param != bound:
+            raise HTTPException(status_code=403, detail="Project mismatch")
+        return bound
+    if project_param is not None:
+        _ = authorize_project_request(http_request, db, project_param, minimum_role="member")
+        return project_param
+    for owner in _trace_owner_projects(db, trace_id):
+        try:
+            _ = authorize_project_request(http_request, db, owner, minimum_role="member")
+        except HTTPException:
+            continue
+        return owner
+    raise HTTPException(status_code=404, detail="Trace not found")
+
+
+def _trace_owner_projects(db: Session, trace_id: str) -> list[str]:
+    runs = db.exec(select(RunDB).where(RunDB.id == trace_id)).all()
+    return [run.project for run in runs]
 
 
 RUN_CREATED_AT_COL: ColumnElement[datetime] = cast(
@@ -119,13 +181,25 @@ async def langfuse_ingestion(
     """Accept Langfuse SDK batch ingestion format.
 
     Maps each event type to our internal format and processes
-    using existing ingestion processors.
+    using existing ingestion processors. Every event is written to the
+    route-authorized Project (credential binding or session membership) —
+    a body Project never authorizes the write (SPEC-178).
     """
-    project = _project_from_request(http_request)
     results: list[LangfuseIngestionResult] = []
 
     for event in request.batch:
         try:
+            if event.type == "score-create":
+                project = authorized_score_project(
+                    http_request,
+                    db,
+                    trace_id=_optional_str(event.body.get("traceId")),
+                    observation_id=_optional_str(event.body.get("observationId")),
+                )
+                await process_langfuse_score_create(event.body, db, project)
+                results.append(LangfuseIngestionResult(id=event.id, status=200))
+                continue
+
             internal = langfuse_event_to_internal(event.type, event.body)
             if internal is None:
                 results.append(LangfuseIngestionResult(id=event.id, status=400))
@@ -134,14 +208,16 @@ async def langfuse_ingestion(
             event_type = internal["type"]
             body = cast(dict[str, object], internal["body"])
 
+            project = authorized_ingestion_project(
+                http_request, db, _optional_str(body.get("project"))
+            )
+
             if event_type == "run-create":
-                ingest_run_create_to_canonical(body, db)
+                ingest_run_create_to_canonical(body, db, project)
             elif event_type == "call-create":
-                ingest_call_create_to_canonical(body, db)
+                ingest_call_create_to_canonical(body, db, project)
             elif event_type == "call-update":
-                ingest_call_update_to_canonical(body, db)
-            elif event_type == "score-create":
-                await process_langfuse_score_create(event.body, db, project)
+                ingest_call_update_to_canonical(body, db, project)
             else:
                 results.append(LangfuseIngestionResult(id=event.id, status=400))
                 continue
@@ -154,8 +230,13 @@ async def langfuse_ingestion(
     return {"results": [r.model_dump() for r in results]}
 
 
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
 @router.get("/traces")
 async def list_traces(
+    http_request: Request,
     project: str | None = None,
     userId: str | None = None,
     sessionId: str | None = None,
@@ -165,9 +246,18 @@ async def list_traces(
     limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_session),
 ):
-    """List traces with optional filters, returns Langfuse format."""
-    statement = select(RunDB)
+    """List traces with optional filters, returns Langfuse format.
 
+    The result is constrained to the caller's readable Projects; an
+    unscoped request never returns every tenant's rows (SPEC-178).
+    """
+    allowed = _langfuse_list_scope(http_request, db, project)
+    if allowed is not None and not allowed:
+        return LangfusePaginatedResponse(data=[], meta=_empty_meta(page, limit))
+
+    statement = select(RunDB)
+    if allowed is not None:
+        statement = statement.where(RunDB.project.in_(allowed))  # pyright: ignore[reportAttributeAccessIssue]
     if project:
         statement = statement.where(RunDB.project == project)
     if userId:
@@ -203,11 +293,12 @@ async def get_trace(
     trace_id: str,
     request: Request,
     db: Session = Depends(get_session),
+    project: str | None = None,
     _: object = Depends(require_api_key_scope("read", "ingest")),
 ):
     """Get a single trace with all observations and scores."""
-    project = _project_from_request(request)
-    run = select_run(db, trace_id, project)
+    resolved_project = _langfuse_read_project(request, db, project, trace_id)
+    run = select_run(db, trace_id, resolved_project)
     if not run:
         raise HTTPException(status_code=404, detail="Trace not found")
 
@@ -216,6 +307,7 @@ async def get_trace(
 
 @router.get("/observations")
 async def list_observations(
+    http_request: Request,
     traceId: str | None = None,
     type: str | None = None,
     model: str | None = None,
@@ -225,8 +317,14 @@ async def list_observations(
     limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_session),
 ):
-    """List observations (cursor-paginated)."""
+    """List observations (cursor-paginated), readable-Project scoped."""
+    allowed = _langfuse_list_scope(http_request, db, None)
+    if allowed is not None and not allowed:
+        return LangfusePaginatedResponse(data=[], meta=_empty_meta(page, limit))
+
     statement = select(LoggedCallDB)
+    if allowed is not None:
+        statement = statement.where(LoggedCallDB.project.in_(allowed))  # pyright: ignore[reportAttributeAccessIssue]
 
     if traceId:
         statement = statement.where(LoggedCallDB.run_id == traceId)
@@ -267,7 +365,15 @@ async def create_score(
     _: object = Depends(require_api_key_scope("full", "ingest")),
 ):
     """Create a score attached to a trace or observation."""
-    project = _project_from_request(http_request)
+    try:
+        project = authorized_score_project(
+            http_request,
+            db,
+            trace_id=request.traceId,
+            observation_id=request.observationId,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     if request.traceId:
         run = select_run(db, request.traceId, project)
         if not run:
@@ -315,17 +421,25 @@ async def create_score(
 
 @router.get("/sessions")
 async def list_sessions(
+    http_request: Request,
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_session),
 ):
-    """List sessions."""
-    statement = select(SessionDB).order_by(desc(SESSION_CREATED_AT_COL))
+    """List sessions, readable-Project scoped."""
+    allowed = _langfuse_list_scope(http_request, db, None)
+    if allowed is not None and not allowed:
+        return LangfusePaginatedResponse(data=[], meta=_empty_meta(page, limit))
+
+    statement = select(SessionDB)
+    if allowed is not None:
+        statement = statement.where(SessionDB.project.in_(allowed))  # pyright: ignore[reportAttributeAccessIssue]
+    statement = statement.order_by(desc(SESSION_CREATED_AT_COL))
     statement = statement.offset((page - 1) * limit).limit(limit)
 
     db_sessions = db.exec(statement).all()
 
-    total_count = db.exec(select(func.count()).select_from(SessionDB)).one()
+    total_count = db.exec(select(func.count()).select_from(statement.subquery())).one()
 
     session_data: list[dict[str, object]] = [
         {
@@ -352,11 +466,16 @@ async def list_sessions(
 @router.get("/sessions/{session_id}")
 async def get_session_detail(
     session_id: str,
+    http_request: Request,
     db: Session = Depends(get_session),
 ):
-    """Get session with its traces."""
+    """Get session with its traces (readable-Project scoped, opaque 404)."""
     sess = db.get(SessionDB, session_id)
     if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    allowed = _langfuse_list_scope(http_request, db, None)
+    if allowed is not None and sess.project not in allowed:
         raise HTTPException(status_code=404, detail="Session not found")
 
     runs = db.exec(
@@ -378,20 +497,37 @@ async def get_session_detail(
     }
 
 
+def _empty_meta(page: int, limit: int) -> dict[str, object]:
+    return {"page": page, "limit": limit, "totalItems": 0}
+
+
 def _build_trace_response(
     run: RunDB,
     db: Session,
     include_observations: bool = False,
 ) -> dict[str, object]:
-    """Build a Langfuse trace response from a RunDB."""
+    """Build a Langfuse trace response from a RunDB.
+
+    Observations and scores are fetched with a Project predicate: OTel ids
+    collide across Projects, so an unpinned ``run_id`` lookup would merge
+    another tenant's rows into this trace (SPEC-178).
+    """
     trace = run_to_langfuse_trace(run)
 
     if include_observations:
-        calls = db.exec(select(LoggedCallDB).where(LoggedCallDB.run_id == run.id)).all()
+        calls = db.exec(
+            select(LoggedCallDB).where(
+                LoggedCallDB.run_id == run.id,
+                LoggedCallDB.project == run.project,
+            )
+        ).all()
         trace["observations"] = [call_to_langfuse_observation(c) for c in calls]
 
         run_metrics = db.exec(
-            select(RunMetricDB).where(RunMetricDB.run_id == run.id)
+            select(RunMetricDB).where(
+                RunMetricDB.run_id == run.id,
+                RunMetricDB.project == run.project,
+            )
         ).all()
         trace["scores"] = [metric_to_langfuse_score(m) for m in run_metrics]
 

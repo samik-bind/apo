@@ -1186,9 +1186,7 @@ class ProjectBootstrapRequest(SQLModel):
     Solves the chicken-and-egg of ``apo login`` (which needs a project to scope
     a key to) vs ``POST /v1/projects`` (which needs an authenticated key).
     Unlike ``ApiKeyBootstrapRequest``, this endpoint mints the project itself,
-    so it never leans on the legacy-project tolerance in
-    ``require_project_role_or_legacy`` — a real ``ProjectDB`` row exists before
-    the key is created.
+    so a real ``ProjectDB`` row exists before the key is created.
     """
 
     email: str

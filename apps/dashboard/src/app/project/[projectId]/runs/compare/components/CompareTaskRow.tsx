@@ -999,7 +999,7 @@ function CheckSourceWithResults({
             readDefinitionSource: (runId, filePath) =>
               readTaskDefinitionSource(runId, filePath, controller.signal),
             readTaskFile: (id, candidate, sha) =>
-              readTaskFile(id, candidate, undefined, projectId, sha, controller.signal),
+              readTaskFile(id, candidate, projectId, sha, controller.signal),
           },
         });
         if (cancelled || controller.signal.aborted) return;

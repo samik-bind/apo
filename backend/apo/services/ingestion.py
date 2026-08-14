@@ -336,14 +336,39 @@ async def process_call_update(body: dict[str, object], session: Session) -> None
             pass
 
 
-async def process_score_create(body: dict[str, object], session: Session) -> None:
-    """Process a score-create event (internal snake_case format)."""
+async def process_score_create(
+    body: dict[str, object], session: Session, project: str
+) -> None:
+    """Process a score-create event (internal snake_case format).
+
+    ``project`` is the route-authorized Project. The target trace/observation
+    must exist inside it, so a caller cannot attach scores to another
+    Project's ids (SPEC-178).
+    """
     trace_id = _get_optional_str(body, "trace_id")
     observation_id = _get_optional_str(body, "observation_id")
     name = _get_optional_str(body, "name")
 
     if not name:
         raise ValueError("score-create event missing 'name'")
+
+    if observation_id:
+        call = session.exec(
+            select(LoggedCallDB).where(
+                LoggedCallDB.id == observation_id,
+                LoggedCallDB.project == project,
+            )
+        ).first()
+        if call is None:
+            raise ValueError(f"Observation not found: {observation_id}")
+    elif trace_id:
+        run = session.exec(
+            select(RunDB).where(RunDB.id == trace_id, RunDB.project == project)
+        ).first()
+        if run is None:
+            raise ValueError(f"Trace not found: {trace_id}")
+    else:
+        raise ValueError("score-create event requires trace_id or observation_id")
 
     value_raw = body.get("value")
     if value_raw is None:
@@ -369,24 +394,25 @@ async def process_score_create(body: dict[str, object], session: Session) -> Non
             observation_id=observation_id,
             name=name,
             value=value,
-            data_type=data_type,
-            source=source,
-            config_id=config_id,
-            comment=comment,
-        )
-    elif trace_id:
-        _ = create_trace_score(
-            session=session,
-            trace_id=trace_id,
-            name=name,
-            value=value,
+            project=project,
             data_type=data_type,
             source=source,
             config_id=config_id,
             comment=comment,
         )
     else:
-        raise ValueError("score-create event requires trace_id or observation_id")
+        assert trace_id is not None  # narrowed by the elif above
+        _ = create_trace_score(
+            session=session,
+            trace_id=trace_id,
+            name=name,
+            value=value,
+            project=project,
+            data_type=data_type,
+            source=source,
+            config_id=config_id,
+            comment=comment,
+        )
 
 
 async def process_langfuse_score_create(

@@ -181,42 +181,6 @@ def _legacy_owner_membership(
     )
 
 
-def require_project_role_or_legacy(
-    session: Session,
-    project_id: str,
-    user_id: str,
-    *,
-    minimum_role: str,
-) -> ProjectMembershipDB:
-    """Like :func:`require_project_role` but tolerates legacy project names.
-
-    If ``project_id`` refers to a real project row (including the demo
-    project), normal membership rules apply. If no ``ProjectDB`` row
-    exists, the caller is treated as an implicit owner — this preserves
-    backward compatibility with SDK ingestion flows and tests that
-    pre-date the membership system. Real projects always go through membership.
-
-    **Scope:** only for read/management paths against *existing* keys.
-    Never use this on a mint path (creating a new key): it would let any
-    authenticated user mint a key scoped to an arbitrary nonexistent
-    project. Use :func:`require_project_role_strict` for mint paths.
-    """
-    from ..models.db import ProjectDB
-
-    if project_id == DEMO_PROJECT_ID:
-        return require_project_role(
-            session, project_id, user_id, minimum_role=minimum_role
-        )
-
-    project = session.get(ProjectDB, project_id)
-    if project is None:
-        return _legacy_owner_membership(project_id, user_id)
-
-    return require_project_role(
-        session, project_id, user_id, minimum_role=minimum_role
-    )
-
-
 def require_project_role_strict(
     session: Session,
     project_id: str,

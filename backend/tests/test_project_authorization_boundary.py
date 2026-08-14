@@ -1338,8 +1338,24 @@ _ROUTE_MODULE_AUDIT: dict[str, tuple[str, list[tuple[str, str]]]] = {
     "executor_protocol": ("capability", []),
     "executor_protocol_v2": ("capability", []),
     "health": ("public", []),
-    "ingestion": ("capability", []),
-    "langfuse_public": ("capability", []),
+    "ingestion": (
+        "project",
+        [
+            (
+                "tests/test_ingestion_project_boundary.py",
+                "test_api_key_cannot_ingest_into_unbound_project",
+            )
+        ],
+    ),
+    "langfuse_public": (
+        "project",
+        [
+            (
+                "tests/test_ingestion_project_boundary.py",
+                "test_traces_list_is_credential_scoped",
+            )
+        ],
+    ),
     "metrics_analytics": (
         "project",
         [("tests/test_project_authorization_boundary.py", "test_metrics_analytics_denies_cross_project")],

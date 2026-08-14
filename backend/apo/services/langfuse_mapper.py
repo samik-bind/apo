@@ -100,7 +100,7 @@ def _map_trace_create(body: dict[str, object]) -> dict[str, object]:
         "type": "run-create",
         "body": {
             "id": require_str(body.get("id"), "id"),
-            "project": _get_str(body, "project", "default"),
+            "project": _get_optional_str(body, "project"),
             "flow_name": _get_optional_str(body, "name"),
             "user_id": _get_optional_str(body, "userId"),
             "session_id": _get_optional_str(body, "sessionId"),
@@ -117,7 +117,7 @@ def _map_trace_update(body: dict[str, object]) -> dict[str, object]:
         "type": "run-create",
         "body": {
             "id": require_str(body.get("id"), "id"),
-            "project": _get_str(body, "project", "default"),
+            "project": _get_optional_str(body, "project"),
             "flow_name": _get_optional_str(body, "name"),
             "user_id": _get_optional_str(body, "userId"),
             "session_id": _get_optional_str(body, "sessionId"),
@@ -144,7 +144,7 @@ def _map_observation_create(
         "type": "call-create",
         "body": {
             "id": require_str(body.get("id"), "id"),
-            "project": _get_str(body, "project", "default"),
+            "project": _get_optional_str(body, "project"),
             "task_id": "",
             "run_id": _get_optional_str(body, "traceId"),
             "flow_name": None,

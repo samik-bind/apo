@@ -4,8 +4,8 @@
 Solves the chicken-and-egg of `apo login` (needs a project to scope a key to)
 vs `POST /v1/projects` (needs an authenticated key). The endpoint accepts
 email+password, creates the project + owner membership, and mints an API key
-scoped to the new project — all in one call, with no dependency on the legacy
-project tolerance in `require_project_role_or_legacy`.
+scoped to the new project — all in one call, with no dependency on
+legacy-project tolerance.
 """
 
 import hashlib

@@ -18,7 +18,6 @@ from apo.services.project_memberships import (
     get_project_membership,
     require_project_member,
     require_project_role,
-    require_project_role_or_legacy,
     update_member_role,
 )
 
@@ -324,17 +323,6 @@ class TestAddMember:
                 actor_role="owner",
             )
         assert exc.value.status_code == 404  # pyright: ignore[reportAttributeAccessIssue]
-
-
-class TestLegacyFallback:
-    def test_legacy_project_allows_owner(self, session: Session) -> None:
-        user = _make_user(session, "legacy@test.com")
-        # No ProjectDB row — pure legacy / ad-hoc use
-        membership = require_project_role_or_legacy(
-            session, "ad-hoc-project", user.id, minimum_role="admin"
-        )
-        assert membership.role == "owner"
-        assert membership.user_id == user.id
 
 
 # ---------------------------------------------------------------------------

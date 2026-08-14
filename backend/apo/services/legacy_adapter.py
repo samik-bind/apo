@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 def ingest_run_create_to_canonical(
     body: dict[str, object],
     session: Session,
+    project: str,
 ) -> OtlpSpanDB | None:
     """Translate a legacy ``run-create`` event into a root canonical span.
 
@@ -38,6 +39,9 @@ def ingest_run_create_to_canonical(
     call observation) and persists a root canonical span for the source of
     truth. The root span is NOT projected as a LoggedCallDB — only call-create
     events become calls.
+
+    ``project`` is the route-authorized Project (SPEC-178: credential-derived,
+    never ``body["project"]``).
     """
     from ..models.db import RunDB
     from sqlmodel import select as _select
@@ -46,7 +50,7 @@ def ingest_run_create_to_canonical(
     if not trace_id:
         return None
 
-    project_id = cast(str, body.get("project", "default"))
+    project_id = project
     span_id = _root_span_id(trace_id)
 
     # Ensure the RunDB row exists with all legacy fields (directly, since a
@@ -104,14 +108,18 @@ def ingest_run_create_to_canonical(
 def ingest_call_create_to_canonical(
     body: dict[str, object],
     session: Session,
+    project: str,
 ) -> OtlpSpanDB | None:
-    """Translate a legacy ``call-create`` event into a canonical span + project."""
+    """Translate a legacy ``call-create`` event into a canonical span + project.
+
+    ``project`` is the route-authorized Project, never ``body["project"]``.
+    """
     span_id = cast(str, body.get("id", ""))
     trace_id = cast(str, body.get("run_id", ""))
     if not span_id or not trace_id:
         return None
 
-    project_id = cast(str, body.get("project", "default"))
+    project_id = project
     attributes = _call_attributes(body)
     created_at = _parse_dt(cast(str, body.get("created_at", "")))
     span = _upsert_canonical_span(
@@ -138,18 +146,21 @@ def ingest_call_create_to_canonical(
 def ingest_call_update_to_canonical(
     body: dict[str, object],
     session: Session,
+    project: str,
 ) -> OtlpSpanDB | None:
     """Merge a legacy ``call-update`` into the existing canonical span + re-project.
 
     OTLP is a whole-span model, but the legacy protocol sends partial patches.
     Load the existing span, merge the patched fields, and re-project.
+
+    ``project`` is the route-authorized Project; a span outside it is not
+    found (opaque), so a cross-Project patch is a no-op, never a write.
     """
     span_id = cast(str, body.get("id", ""))
     if not span_id:
         return None
 
-    project_id = cast(str, body.get("project", "default"))
-    existing = _find_span(session, span_id, project_id)
+    existing = _find_span(session, span_id, project)
     if existing is None:
         return None
 

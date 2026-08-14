@@ -1,8 +1,9 @@
 """
 Agent Task Files API endpoints.
 
-Provides endpoints for browsing and reading task source files
-(the ``*.eval.ts`` task file, checks.ts, etc.) from the filesystem.
+Provides project-scoped endpoints for browsing and reading task source files
+(the ``*.eval.ts`` task file, checks.ts, etc.) from the project's configured
+task source.
 """
 
 # pyright: reportCallInDefaultInitializer=false
@@ -16,7 +17,6 @@ from sqlmodel import Session
 
 from ..db import get_session
 from ..models.db import ProjectDB
-from ..services.agent_task_discovery import discover_agent_task_by_id
 from ..services.project_task_inventory import get_inventory_row
 from ..services.project_task_source_sync import (
     SyncError,
@@ -157,7 +157,7 @@ def _build_file_list_response(task_id: str, task_dir: Path, task_path: str) -> T
 def _read_file_response(task_dir: Path, file_path: str) -> TaskFileContentResponse:
     resolved = (task_dir / file_path).resolve()
 
-    if not str(resolved).startswith(str(task_dir)):
+    if not resolved.is_relative_to(task_dir):
         raise HTTPException(status_code=403, detail="Access denied")
 
     if not resolved.exists():
@@ -189,45 +189,6 @@ def _read_file_response(task_dir: Path, file_path: str) -> TaskFileContentRespon
         language=language,
         lines=lines,
     )
-
-
-@router.get("/agent-tasks/{task_id:path}/files", response_model=TaskFileListResponse)
-async def list_task_files(
-    task_id: str,
-    task_root: str | None = Query(default=None),
-    project: str | None = Query(default=None),
-) -> TaskFileListResponse:
-    """List all files in a task folder recursively."""
-    _ = project
-    task = discover_agent_task_by_id(task_root, task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
-
-    task_dir = Path(task.task_path)
-    if not task_dir.is_dir():
-        raise HTTPException(status_code=404, detail=f"Task folder not found: {task_id}")
-
-    return _build_file_list_response(task_id, task_dir, task.task_path)
-
-
-@router.get(
-    "/agent-tasks/{task_id:path}/files/{file_path:path}",
-    response_model=TaskFileContentResponse,
-)
-async def read_task_file(
-    task_id: str,
-    file_path: str,
-    task_root: str | None = Query(default=None),
-    project: str | None = Query(default=None),
-) -> TaskFileContentResponse:
-    """Read a specific file from a task folder."""
-    _ = project
-    task = discover_agent_task_by_id(task_root, task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
-
-    task_dir = Path(task.task_path).resolve()
-    return _read_file_response(task_dir, file_path)
 
 
 @router.get(

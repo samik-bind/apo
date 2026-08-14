@@ -246,9 +246,8 @@ def bootstrap_project(
     an owner membership, then mints a legacy ``sk-…`` API key scoped to the
     new project — all in one call.
 
-    Because a real ``ProjectDB`` row is committed before the key is minted, the
-    legacy-project tolerance in ``require_project_role_or_legacy`` is never
-    reached. The endpoint is public (no Authorization header) — it authenticates
+    A real ``ProjectDB`` row is committed before the key is minted. The
+    endpoint is public (no Authorization header) — it authenticates
     via email + password, exactly like ``POST /v1/api-keys/bootstrap``.
 
     Rate-limited (5/min/IP) independently from the api-keys bootstrap path.

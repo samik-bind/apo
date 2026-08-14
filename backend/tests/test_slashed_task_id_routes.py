@@ -44,22 +44,6 @@ class TestSlashedTaskIdRoutes:
         # Auth-gated or handler-404 both prove the route matched.
         assert response.status_code in (401, 404)
 
-    def test_non_project_file_route_matches_slashed_id(
-        self, client: TestClient
-    ) -> None:
-        """GET /v1/agent-tasks/{task_id}/files/{file} must also match."""
-        response = client.get(
-            f"/v1/agent-tasks/{SLASHED_TASK_ID}/files/task.ts"
-        )
-        assert response.status_code in (401, 404)
-
-    def test_list_files_route_matches_slashed_id(self, client: TestClient) -> None:
-        """GET /v1/agent-tasks/{task_id}/files must match."""
-        response = client.get(
-            f"/v1/agent-tasks/{SLASHED_TASK_ID}/files"
-        )
-        assert response.status_code in (401, 404)
-
     def test_encoded_slashes_also_match(self, client: TestClient) -> None:
         """The frontend sends encodeURIComponent(taskId) which turns /
         into %2F. The route must match both forms."""

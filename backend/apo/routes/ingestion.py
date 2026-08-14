@@ -17,11 +17,11 @@ Accepts arrays of events in a single request for improved throughput.
 from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from ..auth.deps import require_api_key_scope
 from ..db import get_session
-from ..models.db import AgentTaskRunDB
+from ..models.db import AgentTaskRunDB, LoggedCallDB, RunDB
 from ..models.schemas import (
     BatchIngestionRequest,
     IngestionResponse,
@@ -35,6 +35,7 @@ from ..services.legacy_adapter import (
     ingest_call_create_to_canonical,
     ingest_call_update_to_canonical,
 )
+from ..services.project_memberships import authorize_project_request
 from ..services.run_events import emit_task_run_trace_claimed
 from ..services.trace_ownership import claim_trace
 
@@ -67,17 +68,32 @@ async def batch_ingestion(
     for event in payload.batch:
         try:
             if event.type == "run-create":
+                project = authorized_ingestion_project(
+                    request, session, _declared_project(event.body)
+                )
                 _claim_task_run_trace(request, session, event.body)
-                ingest_run_create_to_canonical(event.body, session)
+                ingest_run_create_to_canonical(event.body, session, project)
                 processed += 1
             elif event.type == "call-create":
-                ingest_call_create_to_canonical(event.body, session)
+                project = authorized_ingestion_project(
+                    request, session, _declared_project(event.body)
+                )
+                ingest_call_create_to_canonical(event.body, session, project)
                 processed += 1
             elif event.type == "call-update":
-                ingest_call_update_to_canonical(event.body, session)
+                project = authorized_ingestion_project(
+                    request, session, _declared_project(event.body)
+                )
+                ingest_call_update_to_canonical(event.body, session, project)
                 processed += 1
             elif event.type == "score-create":
-                await process_score_create(event.body, session)
+                project = authorized_score_project(
+                    request,
+                    session,
+                    trace_id=_optional_str(event.body.get("trace_id")),
+                    observation_id=_optional_str(event.body.get("observation_id")),
+                )
+                await process_score_create(event.body, session, project)
                 processed += 1
             else:
                 errors.append(
@@ -91,6 +107,102 @@ async def batch_ingestion(
     session.commit()
 
     return IngestionResponse(processed=processed, errors=errors)
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _declared_project(body: dict[str, object]) -> str | None:
+    """The Project an event body claims to target, if any.
+
+    A declared Project narrows the write; it never authorizes it
+    (SPEC-178 invariant 2).
+    """
+    return _optional_str(body.get("project"))
+
+
+def authorized_ingestion_project(
+    request: Request,
+    session: Session,
+    declared: str | None,
+) -> str:
+    """Resolve the Project an ingestion event may write.
+
+    - API key / service / Attempt token: exactly the credential's bound
+      Project. A body Project that disagrees is rejected; an absent body
+      Project defaults to the binding (so Langfuse SDK events, which carry
+      no Project field, land in the key's Project).
+    - Session: the declared Project (or ``default``) must be authorized at
+      member role — development-profile open behavior is preserved by
+      ``authorize_project_request``.
+    """
+    auth_method = getattr(request.state, "auth_method", None)
+    if auth_method in ("api_key", "service_token", "attempt_token"):
+        credential_project = getattr(request.state, "project", None)
+        if not isinstance(credential_project, str) or not credential_project:
+            raise HTTPException(status_code=403, detail="Invalid credential context")
+        if declared is not None and declared != credential_project:
+            raise HTTPException(status_code=403, detail="Project mismatch")
+        return credential_project
+
+    target = declared if declared is not None else "default"
+    _ = authorize_project_request(request, session, target, minimum_role="member")
+    return target
+
+
+def authorized_score_project(
+    request: Request,
+    session: Session,
+    *,
+    trace_id: str | None,
+    observation_id: str | None,
+) -> str:
+    """Resolve the Project a score-create event may write to.
+
+    Credential callers are confined to the bound Project (the processor
+    verifies the target exists inside it). Sessions must be a member of a
+    Project that actually owns the target; OTel ids can collide across
+    Projects, so every owner is a candidate. No authorized owner → opaque
+    not-found.
+    """
+    auth_method = getattr(request.state, "auth_method", None)
+    if auth_method in ("api_key", "service_token", "attempt_token"):
+        credential_project = getattr(request.state, "project", None)
+        if not isinstance(credential_project, str) or not credential_project:
+            raise HTTPException(status_code=403, detail="Invalid credential context")
+        return credential_project
+
+    candidates = _score_target_projects(
+        session, trace_id=trace_id, observation_id=observation_id
+    )
+    for project in candidates:
+        try:
+            _ = authorize_project_request(
+                request, session, project, minimum_role="member"
+            )
+        except HTTPException:
+            continue
+        return project
+    raise ValueError("Score target not found")
+
+
+def _score_target_projects(
+    session: Session,
+    *,
+    trace_id: str | None,
+    observation_id: str | None,
+) -> list[str]:
+    """Projects that own the score target (public OTel ids may collide)."""
+    if observation_id:
+        calls = session.exec(
+            select(LoggedCallDB).where(LoggedCallDB.id == observation_id)
+        ).all()
+        return [call.project for call in calls]
+    if trace_id:
+        runs = session.exec(select(RunDB).where(RunDB.id == trace_id)).all()
+        return [run.project for run in runs]
+    raise ValueError("score-create event requires trace_id or observation_id")
 
 
 def _validate_service_token_batch(
