@@ -634,6 +634,73 @@
       ]
     },
     {
+      "_doc": "Issue #146: was arriving unpriced (OpenRouter-prefixed as google/...). Rates verified 2026-08-14 against OpenRouter /api/v1/models: $0.375/$1.875 per MTok, cache read $0.0375. Unlike earlier Gemini flash entries, OpenRouter publishes an explicit cache-write price for this model ($0.0208333/1M) rather than billing writes as input, so cache_write_5m carries that rate. Base tier only — Google's beyond-200k rates for this model were not verified at entry time, so long-context calls price at base (under-charging there).",
+      "match_pattern": "(?i)^gemini-3\\.7-flash.*$",
+      "provider": "gemini",
+      "display_name": "Gemini 3.7 Flash",
+      "start_date": null,
+      "updated_at": "2026-08-14T00:00:00Z",
+      "last_reviewed": "2026-08",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 0.375,
+            "cache_read": 0.0375,
+            "cache_write_5m": 0.0208333,
+            "output": 1.875
+          }
+        }
+      ]
+    },
+    {
+      "_doc": "Issue #146: grok-4.6 was arriving unpriced (xAI via OpenRouter, no gen_ai.system on the observation, so provider stays 'generic' — matching keys on pattern only). Rates verified 2026-08-14 against OpenRouter /api/v1/models and xAI's published pricing: $2/$6 per MTok, cached input $0.50; requests beyond 200k context double to $4/$12 (cached $1.00). xAI charges no cache-write premium — writes bill as ordinary input, so cache_write_5m equals the tier's input rate. Anchored to the exact id so a future grok-4.6-fast (2x rates) does not silently inherit these prices.",
+      "match_pattern": "(?i)^grok-4\\.6$",
+      "provider": "generic",
+      "display_name": "Grok 4.6",
+      "start_date": null,
+      "updated_at": "2026-08-14T00:00:00Z",
+      "last_reviewed": "2026-08",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 2.0,
+            "cache_read": 0.5,
+            "cache_write_5m": 2.0,
+            "output": 6.0
+          }
+        },
+        {
+          "name": "large-context",
+          "is_default": false,
+          "priority": 1,
+          "conditions": [
+            {
+              "keys": [
+                "input",
+                "cache_read"
+              ],
+              "operator": "gt",
+              "threshold": 200000
+            }
+          ],
+          "prices": {
+            "input": 4.0,
+            "cache_read": 1.0,
+            "cache_write_5m": 4.0,
+            "output": 12.0
+          }
+        }
+      ]
+    },
+    {
       "match_pattern": "(?i)^command-r-plus$",
       "provider": "generic",
       "display_name": "Command R+",
@@ -692,6 +759,29 @@
             "cache_read": 0.0028,
             "cache_write_5m": 0.14,
             "output": 0.28
+          }
+        }
+      ]
+    },
+    {
+      "_doc": "Issue #146: was arriving unpriced. OpenRouter rates verified 2026-08-14: $0.435/$0.87 per MTok with a $0.003625 cache read (explicitly dated slug, anchored like deepseek-v4-flash-0731 in issue #94 so a later build does not silently inherit these rates). DeepSeek charges no cache-write premium — writes bill as ordinary input, so cache_write_5m equals the input rate. Direct DeepSeek API peak/off-peak tiers differ; these are the flat OpenRouter rates the routed observations bill at.",
+      "match_pattern": "(?i)^deepseek-v4-pro-0813$",
+      "provider": "generic",
+      "display_name": "DeepSeek V4 Pro (0813)",
+      "start_date": null,
+      "updated_at": "2026-08-14T00:00:00Z",
+      "last_reviewed": "2026-08",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 0.435,
+            "cache_read": 0.003625,
+            "cache_write_5m": 0.435,
+            "output": 0.87
           }
         }
       ]
