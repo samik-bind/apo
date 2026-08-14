@@ -31,6 +31,8 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.engine import CursorResult
 from sqlmodel import Session, select
 
+from fastapi import HTTPException
+
 from ..db import DATA_DIR, SQLITE_FILE_NAME, engine, _is_sqlite
 from ..db_helpers import _as_column
 from ..models.db import AgentTaskDeliverableDB
@@ -201,7 +203,11 @@ async def delete_deliverable_objects_for_project(
 
     SPEC-178 §Project deletion: object cleanup happens while relational
     metadata still exists, so the manifest rows are readable when deciding
-    which backend/key to delete. Missing objects are idempotent success.
+    which backend/key to delete. Missing objects are idempotent success
+    (the ArtifactStore contract). A non-missing object that cannot be
+    deleted raises a retryable 503 BEFORE any row is removed, so cleanup
+    can be retried and bytes are never orphaned. The denial body carries
+    no object keys or storage paths.
     """
     rows = session.exec(
         select(AgentTaskDeliverableDB).where(
@@ -217,7 +223,16 @@ async def delete_deliverable_objects_for_project(
         store = get_store(backend)
         for row in group:
             if row.storage_key is not None:
-                await store.delete(row.storage_key)
+                try:
+                    await store.delete(row.storage_key)
+                except Exception as exc:
+                    raise HTTPException(
+                        status_code=503,
+                        detail=(
+                            "artifact storage cleanup failed; "
+                            "project data was kept — retry deletion"
+                        ),
+                    ) from exc
 
 
 async def cleanup_expired_artifact_uploads(session: Session) -> dict[str, int]:

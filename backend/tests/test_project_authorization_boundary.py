@@ -13,7 +13,7 @@ later commits as each route group is closed.
 # pyright: reportAny=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedImport=false, reportUnusedCallResult=false, reportAttributeAccessIssue=false
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -24,6 +24,7 @@ from sqlmodel import Session, select
 
 from apo.models.db import (
     AgentTaskBatchRunDB,
+    AgentTaskDeliverableDB,
     AgentTaskRunDB,
     AgentTaskScheduleDB,
     ApiKeyDB,
@@ -31,6 +32,7 @@ from apo.models.db import (
     ProjectMembershipDB,
     UserDB,
 )
+from apo.services.artifact_stores.local import LocalArtifactStore
 from apo.services.project_memberships import (
     authorize_project_request,
     readable_project_ids_for_request,
@@ -1439,3 +1441,234 @@ def test_project_owned_modules_have_cross_project_scene_tests() -> None:
                 f"Scene test {test_name} not found in {file_name} — "
                 "update the SPEC-178 route audit inventory."
             )
+
+
+# ---------------------------------------------------------------------------
+# Scenes 28-30: Project deletion removes rows AND bytes, is retry-safe on
+# ArtifactStore failure, and outsiders cannot trigger it
+# ---------------------------------------------------------------------------
+
+_DELIV_KEY = "deliverables/run-del-bytes/report.json"
+_BUNDLE_KEY = "task-revisions/rev-del-bytes/bundle.tar"
+
+
+def _seed_project_with_bytes(
+    session: Session, tmp_path: Any
+) -> LocalArtifactStore:
+    """Seed Project A with a file Deliverable and a Task Revision bundle,
+    both backed by a real LocalArtifactStore under ``tmp_path``."""
+    from apo.models.db import TaskRevisionDB
+
+    store = LocalArtifactStore(root=tmp_path / "store")
+    _seed_http_world(session)  # Alice owns A, Bob owns B (+ one run each)
+
+    session.add(
+        AgentTaskBatchRunDB(
+            id="batch-bytes", project=_PROJECT_A, created_at=datetime.now(timezone.utc),
+            status="completed", total_tasks=1, task_root="/t", environment="default",
+            selection_type="task",
+        )
+    )
+    session.flush()
+    session.add(
+        AgentTaskRunDB(
+            id="run-del-bytes", batch_run_id="batch-bytes", task_id="evals/bytes",
+            task_path="/t/evals/bytes", status="passed", pass_result=True,
+            started_at=datetime.now(timezone.utc), completed_at=datetime.now(timezone.utc),
+        )
+    )
+    session.flush()
+    session.add(
+        AgentTaskDeliverableDB(
+            id="del-bytes", task_run_id="run-del-bytes", project=_PROJECT_A,
+            name="report", kind="artifact", status="ready",
+            storage_backend="local", storage_key=_DELIV_KEY,
+            media_type="application/json", size_bytes=9, sha256="b" * 64,
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    session.add(
+        TaskRevisionDB(
+            project=_PROJECT_A,
+            batch_run_id="batch-bytes",
+            materialization="bundled",
+            source_type="source",
+            content_sha256="c" * 64,
+            file_count=1,
+            uncompressed_size_bytes=10,
+            manifest_summary_json={},
+            bundle_storage_backend="local",
+            bundle_storage_key=_BUNDLE_KEY,
+        )
+    )
+    session.commit()
+
+    import asyncio
+    import hashlib
+
+    async def _put(key: str, data: bytes) -> None:
+        async def chunks() -> AsyncIterator[bytes]:
+            yield data
+
+        await store.put(
+            key,
+            chunks(),
+            expected_size=len(data),
+            expected_sha256=hashlib.sha256(data).hexdigest(),
+        )
+
+    asyncio.run(_put(_DELIV_KEY, b"sentinel"))
+    asyncio.run(_put(_BUNDLE_KEY, b"bundle-bytes"))
+    return store
+
+
+class _FlakyStore:
+    """Wraps a store, failing ``delete`` for the given keys while armed."""
+
+    def __init__(self, inner: LocalArtifactStore, fail_keys: set[str]) -> None:
+        self._inner = inner
+        self._fail_keys = fail_keys
+        self.armed = True
+
+    async def delete(self, key: str) -> None:
+        if self.armed and key in self._fail_keys:
+            raise RuntimeError(f"simulated store failure for {key}")
+        await self._inner.delete(key)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+def _patch_stores(
+    monkeypatch: pytest.MonkeyPatch, store: Any
+) -> None:
+    monkeypatch.setattr("apo.services.retention.get_store", lambda backend, **kw: store)
+    monkeypatch.setattr("apo.services.task_revisions.get_store", lambda backend, **kw: store)
+
+
+def test_project_deletion_removes_rows_and_bytes(
+    session: Session,
+    make_authed_client: Callable[..., TestClient],
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scene 28: deletion removes the Project's rows AND stored objects;
+    Project B and its data remain."""
+    from apo.models.db import ProjectDB, TaskRevisionDB
+
+    store = _seed_project_with_bytes(session, tmp_path)
+    _patch_stores(monkeypatch, store)
+
+    alice_client = make_authed_client(_USER_ALICE, session)
+    resp = alice_client.delete(f"/v1/projects/{_PROJECT_A}")
+    assert resp.status_code == 200, resp.text
+
+    # Relational rows are gone for A, kept for B.
+    assert session.get(ProjectDB, _PROJECT_A) is None
+    assert session.get(AgentTaskDeliverableDB, "del-bytes") is None
+    assert (
+        session.exec(
+            select(TaskRevisionDB).where(TaskRevisionDB.project == _PROJECT_A)
+        ).first()
+        is None
+    )
+    assert session.get(ProjectDB, _PROJECT_B) is not None
+    assert session.get(AgentTaskRunDB, _RUN_B) is not None
+
+    # The stored objects themselves are gone.
+    assert not (tmp_path / "store" / "objects" / _DELIV_KEY).exists()
+    assert not (tmp_path / "store" / "objects" / _BUNDLE_KEY).exists()
+
+
+def test_project_deletion_is_retry_safe_on_deliverable_store_failure(
+    session: Session,
+    make_authed_client: Callable[..., TestClient],
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scene 29: a store failure on one object returns a retryable 503 with
+    relational ownership retained; after the store recovers, retry succeeds."""
+    from apo.models.db import ProjectDB
+
+    store = _seed_project_with_bytes(session, tmp_path)
+    flaky = _FlakyStore(store, {_DELIV_KEY})
+    _patch_stores(monkeypatch, flaky)
+
+    alice_client = make_authed_client(_USER_ALICE, session)
+    resp = alice_client.delete(f"/v1/projects/{_PROJECT_A}")
+    assert resp.status_code == 503, resp.text
+    # Bounded detail only — no object keys or paths leak.
+    assert _DELIV_KEY not in resp.text
+
+    # Relational ownership survives for retry.
+    assert session.get(ProjectDB, _PROJECT_A) is not None
+    assert session.get(AgentTaskDeliverableDB, "del-bytes") is not None
+    assert session.get(AgentTaskRunDB, "run-del-bytes") is not None
+    assert (tmp_path / "store" / "objects" / _DELIV_KEY).exists()
+
+    # Store recovers → retry succeeds and removes everything.
+    flaky.armed = False
+    retry = alice_client.delete(f"/v1/projects/{_PROJECT_A}")
+    assert retry.status_code == 200, retry.text
+    assert session.get(ProjectDB, _PROJECT_A) is None
+    assert not (tmp_path / "store" / "objects" / _DELIV_KEY).exists()
+    assert not (tmp_path / "store" / "objects" / _BUNDLE_KEY).exists()
+
+
+def test_project_deletion_is_retry_safe_on_bundle_store_failure(
+    session: Session,
+    make_authed_client: Callable[..., TestClient],
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scene 29 (bundle variant): a failing Task Revision bundle store must
+    NOT be swallowed — rows are retained instead of orphaning the bytes."""
+    from apo.models.db import ProjectDB, TaskRevisionDB
+
+    store = _seed_project_with_bytes(session, tmp_path)
+    flaky = _FlakyStore(store, {_BUNDLE_KEY})
+    _patch_stores(monkeypatch, flaky)
+
+    alice_client = make_authed_client(_USER_ALICE, session)
+    resp = alice_client.delete(f"/v1/projects/{_PROJECT_A}")
+    assert resp.status_code == 503, resp.text
+
+    # Rows retained — the bundle object is not orphaned.
+    assert session.get(ProjectDB, _PROJECT_A) is not None
+    assert (
+        session.exec(
+            select(TaskRevisionDB).where(TaskRevisionDB.project == _PROJECT_A)
+        ).first()
+        is not None
+    )
+    assert (tmp_path / "store" / "objects" / _BUNDLE_KEY).exists()
+
+    flaky.armed = False
+    retry = alice_client.delete(f"/v1/projects/{_PROJECT_A}")
+    assert retry.status_code == 200, retry.text
+    assert not (tmp_path / "store" / "objects" / _BUNDLE_KEY).exists()
+
+
+def test_outsider_cannot_delete_or_reset_project(
+    session: Session,
+    make_authed_client: Callable[..., TestClient],
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scene 30: a non-member is denied before any object or row cleanup."""
+    from apo.models.db import ProjectDB
+
+    store = _seed_project_with_bytes(session, tmp_path)
+    _patch_stores(monkeypatch, store)
+
+    bob_client = make_authed_client(_USER_BOB, session)
+    delete_resp = bob_client.delete(f"/v1/projects/{_PROJECT_A}")
+    reset_resp = bob_client.post(f"/v1/projects/{_PROJECT_A}/reset-data")
+    assert delete_resp.status_code in (403, 404)
+    assert reset_resp.status_code in (403, 404)
+
+    # Nothing was removed — rows and bytes intact.
+    assert session.get(ProjectDB, _PROJECT_A) is not None
+    assert session.get(AgentTaskDeliverableDB, "del-bytes") is not None
+    assert (tmp_path / "store" / "objects" / _DELIV_KEY).exists()
+    assert (tmp_path / "store" / "objects" / _BUNDLE_KEY).exists()

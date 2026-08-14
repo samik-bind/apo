@@ -23,6 +23,7 @@ from collections.abc import AsyncIterator, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
+from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from apo.db_helpers import _as_column
@@ -409,7 +410,9 @@ async def delete_task_revision_bundles_for_batches(
 
     Mirrors ``delete_deliverable_objects_for_runs``: objects are
     removed idempotently first, grouped by backend; only after success may the
-    relational rows go. Returns the number of objects deleted.
+    relational rows go. A store failure raises so the rows are retained for
+    the next cleanup — objects are never orphaned by deleting the rows first.
+    Returns the number of objects deleted.
     """
     if not batch_ids:
         return 0
@@ -419,25 +422,38 @@ async def delete_task_revision_bundles_for_batches(
             _as_column(TaskRevisionDB.bundle_storage_key).is_not(None),
         )
     ).all()
-    return await _delete_bundled_objects(rows)
+    return await _delete_bundled_objects(rows, strict=True)
 
 
 async def delete_task_revision_bundles_for_project(
     session: Session,
     project_id: str,
 ) -> int:
-    """Delete bundle objects for all revisions in a project BEFORE their rows."""
+    """Delete bundle objects for all revisions in a project BEFORE their rows.
+
+    SPEC-178 §Project deletion: strict — a store failure raises a retryable
+    503 before any row is removed, so Project deletion can be retried and
+    bundle bytes are never orphaned.
+    """
     rows = session.exec(
         select(TaskRevisionDB).where(
             TaskRevisionDB.project == project_id,
             _as_column(TaskRevisionDB.bundle_storage_key).is_not(None),
         )
     ).all()
-    return await _delete_bundled_objects(rows)
+    return await _delete_bundled_objects(rows, strict=True)
 
 
-async def _delete_bundled_objects(rows: Sequence[TaskRevisionDB]) -> int:
-    """Delete objects grouped by the backend recorded on each row. Idempotent."""
+async def _delete_bundled_objects(
+    rows: Sequence[TaskRevisionDB], *, strict: bool = False
+) -> int:
+    """Delete objects grouped by the backend recorded on each row. Idempotent.
+
+    ``strict=True`` (Project deletion / retention sweeps): a non-missing
+    object that cannot be deleted raises a retryable 503 so the caller keeps
+    the relational rows — bytes are never orphaned. ``strict=False`` (single
+    best-effort rollback cleanups): failures are swallowed.
+    """
     by_backend: dict[str, list[TaskRevisionDB]] = {}
     for row in rows:
         backend = row.bundle_storage_backend or "local"
@@ -451,7 +467,14 @@ async def _delete_bundled_objects(rows: Sequence[TaskRevisionDB]) -> int:
                     await store.delete(row.bundle_storage_key)
                     deleted += 1
                 except Exception:
-                    pass
+                    if strict:
+                        raise HTTPException(
+                            status_code=503,
+                            detail=(
+                                "artifact storage cleanup failed; "
+                                "project data was kept — retry deletion"
+                            ),
+                        )
     return deleted
 
 
