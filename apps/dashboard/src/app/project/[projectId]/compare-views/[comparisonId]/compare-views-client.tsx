@@ -6,7 +6,7 @@
 // header: view configs (Model · Effort · Date) instead of batch summaries.
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 
 import type { AgentTaskRunSummary, AgentTaskSummary } from "@/lib/agent-task-api";
@@ -38,9 +38,15 @@ export function CompareViewsClient({
 }) {
   // SPEC-177: single active task — opening one task closes the previous so
   // only one evidence pair is in memory at a time. The expand URL param holds
-  // one task id; a legacy comma-separated value opens only the first.
+  // one task id; a legacy comma-separated value opens only the first and is
+  // rewritten to the canonical single value on load.
   const [activeTaskId, setActiveTaskId] = useUrlParam("expand");
   const firstLegacyTask = activeTaskId.split(",")[0]?.trim() || "";
+  useEffect(() => {
+    if (activeTaskId && activeTaskId !== firstLegacyTask) {
+      setActiveTaskId(firstLegacyTask || null);
+    }
+  }, [activeTaskId, firstLegacyTask, setActiveTaskId]);
   const expanded = useMemo(
     () => (firstLegacyTask ? new Set([firstLegacyTask]) : new Set<string>()),
     [firstLegacyTask],

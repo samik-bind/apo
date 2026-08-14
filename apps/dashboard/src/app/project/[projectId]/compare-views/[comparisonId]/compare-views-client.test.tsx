@@ -106,6 +106,7 @@ describe("CompareViewsClient single-task expansion (SPEC-177)", () => {
   beforeEach(() => {
     setActiveTaskId.mockReset();
     onToggleExpand.mockReset();
+    useUrlParamMock.mockReturnValue(["", setActiveTaskId]);
   });
 
   it("expanding a task sets the URL param to that task", () => {
