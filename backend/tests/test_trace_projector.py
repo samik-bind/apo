@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportDeprecated=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 """Tests for the Trace Projector.
 
@@ -177,9 +177,9 @@ class TestTraceProjectorBasics:
             assert call.prompt_tokens == 100
             assert call.completion_tokens == 50
             assert call.input is not None
-            assert "messages" in call.input
+            assert "messages" in call.input  # pyright: ignore[reportOperatorIssue]
             assert call.output is not None
-            assert call.output.get("text") == "hello"
+            assert call.output.get("text") == "hello"  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class TestTraceProjectorFlowName:
@@ -274,7 +274,7 @@ class TestTraceProjectorIdempotency:
         with Session(engine) as session:
             calls = list(
                 session.exec(
-                    select(LoggedCallDB).where(LoggedCallDB.span_id == "span-i-01")
+                    select(LoggedCallDB).where(LoggedCallDB.span_id == "span-i-01")  # pyright: ignore[reportAttributeAccessIssue]
                     if hasattr(LoggedCallDB, "span_id")
                     else select(LoggedCallDB).where(LoggedCallDB.id == "span-i-01")
                 )

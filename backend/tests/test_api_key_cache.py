@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnusedParameter=false, reportExplicitAny=false, reportUnusedFunction=false, reportAttributeAccessIssue=false, reportAssignmentType=false
+# pyright: reportAny=false, reportAssignmentType=false, reportAttributeAccessIssue=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnusedFunction=false, reportUnusedImport=false, reportUnusedParameter=false
 
 """Tests for the API key auth cache.
 

@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportDeprecated=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 """Tests for the TraceIngestionQueue.
 
@@ -74,7 +74,7 @@ class TestDbBackedQueue:
             asyncio.run(queue.enqueue("queue-test-001"))
 
             batch = session.get(OtlpIngestBatchDB, "queue-test-001")
-            assert batch.status == "queued"
+            assert batch.status == "queued"  # pyright: ignore[reportOptionalMemberAccess]
 
     def test_claim_next_returns_oldest_queued_batch(self):
         """claim_next() returns the oldest batch with status='queued'."""
@@ -110,7 +110,7 @@ class TestDbBackedQueue:
 
         with Session(engine) as session:
             batch = session.get(OtlpIngestBatchDB, "queue-claim-001")
-            assert batch.status == "processing"
+            assert batch.status == "processing"  # pyright: ignore[reportOptionalMemberAccess]
 
     def test_claim_next_returns_none_when_empty(self):
         """claim_next() returns None when no batches are queued."""
@@ -131,8 +131,8 @@ class TestDbBackedQueue:
 
         assert asyncio.run(queue.claim("queue-exact-new")) is True
         with Session(engine) as session:
-            assert session.get(OtlpIngestBatchDB, "queue-exact-old").status == "queued"
-            assert session.get(OtlpIngestBatchDB, "queue-exact-new").status == "processing"
+            assert session.get(OtlpIngestBatchDB, "queue-exact-old").status == "queued"  # pyright: ignore[reportOptionalMemberAccess]
+            assert session.get(OtlpIngestBatchDB, "queue-exact-new").status == "processing"  # pyright: ignore[reportOptionalMemberAccess]
 
     def test_mark_complete_sets_status(self):
         """mark_complete() sets batch status to 'projected'."""
@@ -148,7 +148,7 @@ class TestDbBackedQueue:
 
         with Session(engine) as session:
             batch = session.get(OtlpIngestBatchDB, "queue-done-001")
-            assert batch.status == "projected"
+            assert batch.status == "projected"  # pyright: ignore[reportOptionalMemberAccess]
 
     def test_mark_failed_sets_status_and_error(self):
         """mark_failed() sets status to 'failed' and records the error."""
@@ -164,8 +164,8 @@ class TestDbBackedQueue:
 
         with Session(engine) as session:
             batch = session.get(OtlpIngestBatchDB, "queue-fail-001")
-            assert batch.status == "failed"
-            assert "projection crashed" in (batch.error_message or "")
+            assert batch.status == "failed"  # pyright: ignore[reportOptionalMemberAccess]
+            assert "projection crashed" in (batch.error_message or "")  # pyright: ignore[reportOptionalMemberAccess]
 
     def test_failed_batch_can_be_retried(self):
         """A failed batch goes back to 'queued' for retry."""
@@ -182,8 +182,8 @@ class TestDbBackedQueue:
 
         with Session(engine) as session:
             batch = session.get(OtlpIngestBatchDB, "queue-retry-001")
-            assert batch.status == "queued"
-            assert batch.error_message is None  # error cleared
+            assert batch.status == "queued"  # pyright: ignore[reportOptionalMemberAccess]
+            assert batch.error_message is None  # error cleared  # pyright: ignore[reportOptionalMemberAccess]
 
     def test_recover_stale_requeues_processing_batches(self):
         queue = DbBackedQueue()
@@ -264,7 +264,7 @@ class TestQueueWorker:
             batch = session.exec(
                 select(OtlpIngestBatchDB).where(OtlpIngestBatchDB.project_id == "test-worker")
             ).first()
-            assert batch.status == "projected"
+            assert batch.status == "projected"  # pyright: ignore[reportOptionalMemberAccess]
 
             # Spans should exist in the canonical store
             spans = session.exec(select(OtlpSpanDB)).all()
@@ -377,7 +377,7 @@ class TestQueueWorker:
             batch = session.exec(
                 select(OtlpIngestBatchDB).where(OtlpIngestBatchDB.project_id == "test-fail")
             ).first()
-            batch.payload = "corrupted-json{"
+            batch.payload = "corrupted-json{"  # pyright: ignore[reportOptionalMemberAccess]
             session.add(batch)
             session.commit()
 
@@ -387,8 +387,8 @@ class TestQueueWorker:
             batch = session.exec(
                 select(OtlpIngestBatchDB).where(OtlpIngestBatchDB.project_id == "test-fail")
             ).first()
-            assert batch.status == "failed"
-            assert batch.error_message is not None
+            assert batch.status == "failed"  # pyright: ignore[reportOptionalMemberAccess]
+            assert batch.error_message is not None  # pyright: ignore[reportOptionalMemberAccess]
 
     def test_worker_marks_mixed_projection_result_partial(self, monkeypatch):
         payload = json.dumps({

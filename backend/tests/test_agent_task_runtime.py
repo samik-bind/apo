@@ -1,5 +1,7 @@
 """Tests for containerized agent-task runtime packaging."""
 
+# pyright: reportAny=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnnecessaryCast=false
+
 from pathlib import Path
 from types import ModuleType
 from typing import cast

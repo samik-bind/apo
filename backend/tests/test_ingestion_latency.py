@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false
+# pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 """Tests for the trace-quality latency fix.
 

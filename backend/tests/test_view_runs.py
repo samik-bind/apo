@@ -11,6 +11,8 @@ tests it at its own interface so the seam can be evolved without routing
 through two layers of FastAPI.
 """
 
+# pyright: reportUnusedCallResult=false, reportUnusedImport=false
+
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -225,7 +227,7 @@ def test_runs_in_view_orders_by_started_at_desc(session: Session) -> None:
         view=TaskViewConfig(),
     )
     started = [r.started_at for r in runs]
-    assert started == sorted(started, reverse=True)
+    assert started == sorted(started, reverse=True)  # pyright: ignore[reportArgumentType]
     # The very first row is one of the runs seeded at now - 1h (the most recent).
     assert started[0] is not None
 

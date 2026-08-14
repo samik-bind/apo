@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false
+# pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnusedParameter=false
 
 """Regression tests for issue #14: DELETE /v1/projects/{id} cascade.
 

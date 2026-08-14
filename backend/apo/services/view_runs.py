@@ -19,6 +19,8 @@ the bounded selections comparison and stats actually serve. A JSON or
 transcript column would change that calculus — none is included.
 """
 
+# pyright: reportAny=false, reportDeprecated=false, reportPrivateUsage=false
+
 from __future__ import annotations
 
 from dataclasses import dataclass

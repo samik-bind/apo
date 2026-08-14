@@ -14,6 +14,8 @@ Status lifecycle:
                                    → failed (error, can be re-enqueued for retry)
 """
 
+# pyright: reportAny=false, reportUnusedCallResult=false
+
 from __future__ import annotations
 
 import asyncio

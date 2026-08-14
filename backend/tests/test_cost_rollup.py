@@ -18,11 +18,11 @@ NOW = datetime(2026, 8, 2, tzinfo=timezone.utc)
 
 
 @pytest.fixture
-def session() -> Session:
+def session() -> Session:  # pyright: ignore[reportInvalidTypeForm]
     eng = create_engine("sqlite://", poolclass=StaticPool)
     SQLModel.metadata.create_all(eng)
     sess = Session(eng)
-    yield sess
+    yield sess  # pyright: ignore[reportReturnType]
     sess.close()
 
 
@@ -47,7 +47,7 @@ def _make_call(
     provenance: str | None = None,
     total_tokens: int | None = None,
 ) -> LoggedCallDB:
-    return LoggedCallDB(
+    return LoggedCallDB(  # pyright: ignore[reportCallIssue]
         id=cid,
         project="default",
         task_id="task/x",

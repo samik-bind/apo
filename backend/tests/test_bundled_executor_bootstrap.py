@@ -1,4 +1,4 @@
-# pyright: reportCallInDefaultInitializer=false
+# pyright: reportCallInDefaultInitializer=false, reportUnusedCallResult=false
 
 """Bundled Executor provider bootstrap and default-Pool tests."""
 

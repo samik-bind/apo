@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false
+# pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnusedCallResult=false, reportUnusedParameter=false, reportUnusedVariable=false
 
 """Tests for project-scoped invitation flow."""
 
@@ -188,7 +188,7 @@ class TestCreateInvitation:
                 role="superuser",
                 invited_by_user_id=owner.id,
             )
-        assert exc.value.status_code == 422
+        assert exc.value.status_code == 422  # pyright: ignore[reportAttributeAccessIssue]
 
     def test_admin_cannot_invite_owner(self, session: Session) -> None:
         owner = _make_user(session, "owner@test.com")
@@ -203,8 +203,8 @@ class TestCreateInvitation:
                 invited_by_user_id=owner.id,
                 invited_by_role="admin",  # admin is not allowed to invite owners
             )
-        assert exc.value.status_code == 403
-        assert "owner" in exc.value.detail.lower()
+        assert exc.value.status_code == 403  # pyright: ignore[reportAttributeAccessIssue]
+        assert "owner" in exc.value.detail.lower()  # pyright: ignore[reportAttributeAccessIssue]
 
     def test_owner_can_invite_owner(self, session: Session) -> None:
         owner = _make_user(session, "owner@test.com")
@@ -230,7 +230,7 @@ class TestCreateInvitation:
                 email="new@example.com",
                 invited_by_user_id=owner.id,
             )
-        assert exc.value.status_code == 403
+        assert exc.value.status_code == 403  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class TestReinviteSameEmail:
@@ -262,8 +262,8 @@ class TestReinviteSameEmail:
             session.exec(
                 select(ProjectInvitationDB).where(
                     ProjectInvitationDB.project_id == project.id,
-                    ProjectInvitationDB.accepted_at.is_(None),  # pyright: ignore[reportOptionalMemberAccess]
-                    ProjectInvitationDB.revoked_at.is_(None),  # pyright: ignore[reportOptionalMemberAccess]
+                    ProjectInvitationDB.accepted_at.is_(None),  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+                    ProjectInvitationDB.revoked_at.is_(None),  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
                 )
             ).all()
         )
@@ -288,8 +288,8 @@ class TestReinviteSameEmail:
                 email="existing@test.com",
                 invited_by_user_id=owner.id,
             )
-        assert exc.value.status_code == 409
-        assert "already a member" in exc.value.detail.lower()
+        assert exc.value.status_code == 409  # pyright: ignore[reportAttributeAccessIssue]
+        assert "already a member" in exc.value.detail.lower()  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class TestResendRotatesToken:
@@ -306,7 +306,7 @@ class TestResendRotatesToken:
         first_token = first.invite_url.split("token=")[-1]
         first_expires = find_active_invitation(
             session, project.id, "rot@example.com"
-        ).expires_at
+        ).expires_at  # pyright: ignore[reportOptionalMemberAccess]
 
         refreshed = asyncio.run(
             resend_invitation(
@@ -315,7 +315,7 @@ class TestResendRotatesToken:
                 invitation_id=first.invitation.id,
             )
         )
-        new_token = refreshed.invite_url.split("token=")[-1]
+        new_token = refreshed.invite_url.split("token=")[-1]  # pyright: ignore[reportOptionalMemberAccess]
 
         assert new_token != first_token, "resend must rotate the token"
 
@@ -328,7 +328,7 @@ class TestResendRotatesToken:
 
         new_expires = find_active_invitation(
             session, project.id, "rot@example.com"
-        ).expires_at
+        ).expires_at  # pyright: ignore[reportOptionalMemberAccess]
         assert new_expires >= first_expires
 
 
@@ -404,7 +404,7 @@ class TestRevoke:
                 invitation_id=created.invitation.id,
                 actor_role="admin",
             )
-        assert exc.value.status_code == 403
+        assert exc.value.status_code == 403  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class TestPreview:
@@ -511,7 +511,7 @@ class TestAcceptCreateAccount:
                 name="Weak",
                 password="short",  # too short + no number
             )
-        assert exc.value.status_code == 422
+        assert exc.value.status_code == 422  # pyright: ignore[reportAttributeAccessIssue]
 
         # Invitation must not be consumed.
         invitation = find_by_raw_token(session, raw_token)
@@ -537,7 +537,7 @@ class TestAcceptCreateAccount:
                 name="Dup",
                 password="strongpass1",
             )
-        assert exc.value.status_code == 409
+        assert exc.value.status_code == 409  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class TestAcceptExistingAccount:
@@ -591,7 +591,7 @@ class TestAcceptExistingAccount:
                 raw_token=raw_token,
                 accepting_user_id=wrong_user.id,
             )
-        assert exc.value.status_code == 409
+        assert exc.value.status_code == 409  # pyright: ignore[reportAttributeAccessIssue]
 
         invitation = find_by_raw_token(session, raw_token)
         assert invitation is not None

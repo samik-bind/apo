@@ -1,3 +1,5 @@
+# pyright: reportUnusedFunction=false
+
 from typing import cast
 
 

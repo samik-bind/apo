@@ -33,7 +33,7 @@ from apo.services.check_report_storage import (
 
 
 @pytest.fixture
-def session() -> Session:
+def session() -> Session:  # pyright: ignore[reportInvalidTypeForm]
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -268,7 +268,7 @@ class TestNestedReportNormalization:
             }
         ]
         result = normalize_check_report(checks)
-        received = result[0]["assertions"][0]["received"]  # type: ignore[index]
+        received = result[0]["assertions"][0]["received"]  # type: ignore[index]  # pyright: ignore[reportIndexIssue]
         assert isinstance(received, dict)
         assert received["kind"] == "truncated"
         assert received["sha256"] == _sha(encoded)
@@ -289,9 +289,9 @@ class TestNestedReportNormalization:
         ]
         result = normalize_check_report(checks)
         judge = result[0]["judge"]  # type: ignore[index]
-        assert judge["prompt"]["system"]["kind"] == "truncated"  # type: ignore[index]
-        assert judge["prompt"]["user"]["kind"] == "truncated"  # type: ignore[index]
-        assert judge["response"]["kind"] == "truncated"  # type: ignore[index]
+        assert judge["prompt"]["system"]["kind"] == "truncated"  # type: ignore[index]  # pyright: ignore[reportIndexIssue]
+        assert judge["prompt"]["user"]["kind"] == "truncated"  # type: ignore[index]  # pyright: ignore[reportIndexIssue]
+        assert judge["response"]["kind"] == "truncated"  # type: ignore[index]  # pyright: ignore[reportIndexIssue]
 
     def test_assertion_level_judge_nested_paths_are_truncated(self):
         checks = [
@@ -314,7 +314,7 @@ class TestNestedReportNormalization:
             }
         ]
         result = normalize_check_report(checks)
-        assertion = result[0]["assertions"][0]  # type: ignore[index]
+        assertion = result[0]["assertions"][0]  # type: ignore[index]  # pyright: ignore[reportIndexIssue]
         assert assertion["judge"]["prompt"]["system"]["kind"] == "truncated"  # type: ignore[index]
         assert assertion["judge"]["response"]["kind"] == "truncated"  # type: ignore[index]
 
@@ -332,7 +332,7 @@ class TestNestedReportNormalization:
         ]
         result = normalize_check_report(checks)
         assert result[0]["reasoning"] == big  # type: ignore[index]
-        assert result[1]["assertions"][0]["reasoning"] == big  # type: ignore[index]
+        assert result[1]["assertions"][0]["reasoning"] == big  # type: ignore[index]  # pyright: ignore[reportIndexIssue]
 
     def test_small_values_preserve_type(self):
         checks = [
@@ -351,8 +351,8 @@ class TestNestedReportNormalization:
         ]
         result = normalize_check_report(checks)
         assert result[0]["received"] == {"count": 42}  # type: ignore[index]
-        assert result[0]["judge"]["prompt"]["system"] == "short"  # type: ignore[index]
-        assert result[0]["assertions"][0]["received"] == [1, 2, 3]  # type: ignore[index]
+        assert result[0]["judge"]["prompt"]["system"] == "short"  # type: ignore[index]  # pyright: ignore[reportIndexIssue]
+        assert result[0]["assertions"][0]["received"] == [1, 2, 3]  # type: ignore[index]  # pyright: ignore[reportIndexIssue]
 
     def test_unknown_fields_preserved(self):
         checks = [
@@ -483,4 +483,4 @@ class TestHistoricalReadNormalization:
 
         row = session.get(AgentTaskCheckReportDB, run.id)
         assert row is not None
-        assert row.value_json[0]["judge"]["response"] == big  # unchanged on disk
+        assert row.value_json[0]["judge"]["response"] == big  # unchanged on disk  # pyright: ignore[reportOptionalSubscript, reportIndexIssue]

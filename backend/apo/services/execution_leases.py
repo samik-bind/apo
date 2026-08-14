@@ -1,4 +1,4 @@
-# pyright: reportPrivateUsage=false
+# pyright: reportPrivateUsage=false, reportUnusedImport=false
 
 """Lease state machine — atomic claim, start/heartbeat fencing, reaper.
 

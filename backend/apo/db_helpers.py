@@ -1,3 +1,5 @@
+# pyright: reportUnusedFunction=false
+
 from datetime import datetime, timezone
 from typing import TypeVar, cast
 

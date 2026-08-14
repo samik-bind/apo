@@ -7,7 +7,7 @@ are mirrored into the canonical ``OtlpSpanDB`` store alongside the direct
 canonical path rather than a separate direct writer.
 """
 
-# pyright: reportCallInDefaultInitializer=false, reportPrivateUsage=false
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportPrivateUsage=false, reportUnusedCallResult=false
 
 from datetime import datetime
 from typing import cast

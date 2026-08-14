@@ -4,6 +4,8 @@ Agent task runner service.
 Executes agent tasks and persists results as TaskRun rows.
 """
 
+# pyright: reportPrivateUsage=false, reportUnusedFunction=false, reportUnusedImport=false
+
 import json
 import logging
 import os

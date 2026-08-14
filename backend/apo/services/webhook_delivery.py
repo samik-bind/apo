@@ -1,5 +1,7 @@
 """Webhook delivery service: sign payloads, deliver with retry, track failures."""
 
+# pyright: reportUnusedCallResult=false
+
 from __future__ import annotations
 
 import asyncio

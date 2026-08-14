@@ -16,6 +16,8 @@ request JSON or query parameters.
   access is opaque (404) so an opaque ID does not reveal existence.
 """
 
+# pyright: reportUnusedCallResult=false
+
 from __future__ import annotations
 
 from fastapi import HTTPException, Request

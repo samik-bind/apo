@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportDeprecated=false, reportUnknownArgumentType=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 """Tests for the OTLP span normalizer.
 

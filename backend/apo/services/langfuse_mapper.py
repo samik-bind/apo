@@ -6,6 +6,8 @@ Handles conversion between Langfuse's batch ingestion format
 run-create, call-create, call-update event types.
 """
 
+# pyright: reportPrivateUsage=false
+
 from datetime import datetime, timezone
 from typing import Literal, cast
 

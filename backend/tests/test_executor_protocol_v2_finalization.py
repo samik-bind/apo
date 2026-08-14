@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
+# pyright: reportAny=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedParameter=false
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
@@ -322,8 +322,8 @@ def test_claim_uses_shared_capacity_authority(isolated_engine):
 
     with Session(engine) as s:
         ex = s.get(ExecutorDB, ex_id)
-        first = claim_next_source_owned_attempt(s, executor=ex)
-        second = claim_next_source_owned_attempt(s, executor=ex)
+        first = claim_next_source_owned_attempt(s, executor=ex)  # pyright: ignore[reportArgumentType]
+        second = claim_next_source_owned_attempt(s, executor=ex)  # pyright: ignore[reportArgumentType]
     assert first is not None  # capacity 1 → first claim leases
     assert second is None     # at capacity → no second claim
 
@@ -344,7 +344,7 @@ def test_claim_cannot_cross_user_or_assignment_kind(isolated_engine):
 
     with Session(engine) as s:
         ex = s.get(ExecutorDB, ex_id)
-        result = claim_next_source_owned_attempt(s, executor=ex)
+        result = claim_next_source_owned_attempt(s, executor=ex)  # pyright: ignore[reportArgumentType]
     assert result is None  # never claims another member's work
 
 
@@ -361,8 +361,8 @@ def test_claim_respects_sequential_batch_order(isolated_engine):
 
     with Session(engine) as s:
         ex = s.get(ExecutorDB, ex_id)
-        first = claim_next_source_owned_attempt(s, executor=ex)
+        first = claim_next_source_owned_attempt(s, executor=ex)  # pyright: ignore[reportArgumentType]
         # While seq0 is merely leased (not terminal), seq1 must not leapfrog.
-        second = claim_next_source_owned_attempt(s, executor=ex)
+        second = claim_next_source_owned_attempt(s, executor=ex)  # pyright: ignore[reportArgumentType]
     assert first is not None and first.attempt.id == "seq0"
     assert second is None

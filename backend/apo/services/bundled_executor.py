@@ -6,7 +6,7 @@ through a restrictive, atomic bootstrap file. The long-lived Executor
 credential is never written by the Control Plane.
 """
 
-# pyright: reportPrivateUsage=false
+# pyright: reportImplicitStringConcatenation=false, reportPrivateUsage=false
 
 from __future__ import annotations
 

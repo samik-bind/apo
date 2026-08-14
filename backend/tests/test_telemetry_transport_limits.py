@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
+# pyright: reportAny=false, reportImplicitOverride=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUntypedFunctionDecorator=false, reportUnusedCallResult=false, reportUnusedImport=false
 # pyright: reportAttributeAccessIssue=false
 
 """Acceptance tests: bounded public OTLP request work.
@@ -70,7 +70,7 @@ class TestTransportLimitDefaults:
 class TestTransportLimitValidation:
     """Acceptance test 2: invalid limits fail startup, naming the bad variable."""
 
-    @pytest.mark.parametrize("bad_value", ["", "abc", "0", "-1", "3.5", " "])
+    @pytest.mark.parametrize("bad_value", ["", "abc", "0", "-1", "3.5", " "])  # pyright: ignore[reportCallIssue]
     def test_each_var_rejects_invalid_values(
         self, monkeypatch: pytest.MonkeyPatch, bad_value: str
     ) -> None:
@@ -171,7 +171,7 @@ async def _drive_otlp(
         except StopIteration:
             return {"type": "http.request", "body": b"", "more_body": False}
 
-    sent: list[dict] = []
+    sent: list[dict] = []  # pyright: ignore[reportMissingTypeArgument]
 
     async def send(message):
         sent.append(message)

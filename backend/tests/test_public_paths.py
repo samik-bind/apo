@@ -13,6 +13,8 @@ open-dev bypass off, every password/authenticated-in-handler bootstrap
 route must still be reachable without a session.
 """
 
+# pyright: reportAny=false, reportPrivateUsage=false
+
 from __future__ import annotations
 
 from _pytest.monkeypatch import MonkeyPatch

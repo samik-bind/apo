@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
+# pyright: reportAny=false, reportMissingParameterType=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUntypedFunctionDecorator=false, reportUnusedCallResult=false, reportUnusedImport=false
 # pyright: reportAttributeAccessIssue=false
 
 """Acceptance tests: shared telemetry admission control.
@@ -79,7 +79,7 @@ class TestAdmissionDefaults:
 class TestAdmissionValidation:
     """Acceptance test 2: invalid admission configuration fails startup."""
 
-    @pytest.mark.parametrize("bad_value", ["", "abc", "0", "-1", "3.5"])
+    @pytest.mark.parametrize("bad_value", ["", "abc", "0", "-1", "3.5"])  # pyright: ignore[reportCallIssue]
     def test_each_var_rejects_invalid_values(
         self, monkeypatch: pytest.MonkeyPatch, bad_value: str
     ) -> None:

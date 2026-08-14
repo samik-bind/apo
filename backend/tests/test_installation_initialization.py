@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
+# pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUnusedImport=false
 # pyright: reportAttributeAccessIssue=false
 
 """Acceptance tests: installation initialization (tests 1-7)."""

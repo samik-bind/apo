@@ -5,6 +5,8 @@ can render CodeMirror with the historical definition that produced stored
 Check evidence. Authorization is Project-bound through the Run's Batch.
 """
 
+# pyright: reportCallInDefaultInitializer=false
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status

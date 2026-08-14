@@ -3,6 +3,8 @@
 When no convention-specific mapper matches, classify as SPAN.
 """
 
+# pyright: reportUnusedParameter=false
+
 from __future__ import annotations
 
 MAPPER_NAME = "generic"

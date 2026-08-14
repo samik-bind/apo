@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
+# pyright: reportAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUntypedFunctionDecorator=false, reportUnusedCallResult=false, reportUnusedImport=false
 # pyright: reportAttributeAccessIssue=false
 
 """Acceptance tests: installation secret validation."""
@@ -27,7 +27,7 @@ class TestAuthSecretProblem:
         from apo.services.installation_secrets import auth_secret_problem
         assert auth_secret_problem("", required=False) is None
 
-    @pytest.mark.parametrize("p", ["change-me-in-production", "change-me", "dev-secret", "dev-secret-change-me", "secret", "SECRET", "  dev-secret  "])
+    @pytest.mark.parametrize("p", ["change-me-in-production", "change-me", "dev-secret", "dev-secret-change-me", "secret", "SECRET", "  dev-secret  "])  # pyright: ignore[reportCallIssue]
     def test_placeholders_rejected(self, p: str) -> None:
         from apo.services.installation_secrets import auth_secret_problem
         assert auth_secret_problem(p, required=True) is not None

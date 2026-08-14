@@ -8,6 +8,8 @@ assert that ``_run_git`` never lets those credentials reach
 ``GitError`` messages, which flow into ``source.last_error`` and the UI.
 """
 
+# pyright: reportPrivateUsage=false, reportUnusedCallResult=false
+
 from __future__ import annotations
 
 import subprocess

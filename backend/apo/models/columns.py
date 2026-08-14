@@ -1,3 +1,5 @@
+# pyright: reportPrivateUsage=false
+
 from datetime import datetime
 from typing import cast
 

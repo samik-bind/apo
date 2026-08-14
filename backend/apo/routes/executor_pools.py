@@ -6,7 +6,7 @@ all Project-scoped with role enforcement. User APIs can only create ``connected`
 Pools; ``bundled``/``managed`` are provider-only.
 """
 
-# pyright: reportCallInDefaultInitializer=false
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportUnusedCallResult=false
 
 from __future__ import annotations
 

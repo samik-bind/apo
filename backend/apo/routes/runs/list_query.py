@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportExplicitAny=false, reportCallInDefaultInitializer=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedCallResult=false
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnnecessaryComparison=false, reportUnusedCallResult=false
 
 """Run-list query, hydration, and status computation.
 

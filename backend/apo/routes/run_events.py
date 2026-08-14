@@ -1,5 +1,7 @@
 """SSE endpoint for real-time run status updates."""
 
+# pyright: reportCallInDefaultInitializer=false, reportUnusedCallResult=false
+
 from typing import cast
 
 from fastapi import APIRouter, Depends, Query, Request

@@ -1,4 +1,4 @@
-# pyright: reportCallInDefaultInitializer=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportDeprecated=false, reportPrivateUsage=false, reportUnusedCallResult=false
 
 from datetime import datetime, timedelta
 from typing import cast

@@ -14,7 +14,7 @@ from apo.services.pricing.resolution import resolve_model_era
 
 
 @pytest.fixture
-def session() -> Session:
+def session() -> Session:  # pyright: ignore[reportInvalidTypeForm]
     eng = create_engine("sqlite://")
     SQLModel.metadata.create_all(eng)
     sess = Session(eng)

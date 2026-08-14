@@ -5,7 +5,7 @@ Provides endpoints for discovering tasks, managing batch runs,
 and inspecting individual task runs.
 """
 
-# pyright: reportCallInDefaultInitializer=false, reportArgumentType=false
+# pyright: reportAny=false, reportArgumentType=false, reportCallInDefaultInitializer=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 import os
 from collections.abc import Sequence

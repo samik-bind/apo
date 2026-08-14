@@ -24,7 +24,7 @@ from apo.models.usage_keys import UsageKey
 
 
 @pytest.fixture
-def session() -> Session:
+def session() -> Session:  # pyright: ignore[reportInvalidTypeForm]
     """Fresh in-memory SQLite with only the new pricing tables."""
     engine = create_engine("sqlite://")
     SQLModel.metadata.create_all(engine)

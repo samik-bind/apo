@@ -6,6 +6,8 @@ Mimics the slice of the boto3 client API that ``S3ArtifactStore`` calls:
 returns a simple readable; no botocore dependency required.
 """
 
+# pyright: reportExplicitAny=false, reportUnannotatedClassAttribute=false, reportUnusedCallResult=false, reportUnusedParameter=false
+
 from __future__ import annotations
 
 from typing import Any

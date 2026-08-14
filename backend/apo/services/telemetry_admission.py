@@ -9,6 +9,8 @@ The controller is process-local, thread-safe (one lock), uses
 identity cardinality. A process restart resets all buckets.
 """
 
+# pyright: reportAny=false, reportDeprecated=false, reportExplicitAny=false, reportUnannotatedClassAttribute=false, reportUnusedCallResult=false
+
 from __future__ import annotations
 
 import math

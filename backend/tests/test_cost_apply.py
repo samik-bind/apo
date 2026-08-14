@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownLambdaType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false
+# pyright: reportAny=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportExplicitAny=false, reportMissingParameterType=false, reportPrivateUsage=false, reportReturnType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 """Regression tests for the cost-application seam (audit P1 #1, #2).
 
@@ -9,6 +9,8 @@ Covers:
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from datetime import datetime, timezone
 
@@ -24,7 +26,7 @@ NOW = datetime(2026, 7, 23, tzinfo=timezone.utc)
 
 
 @pytest.fixture
-def session() -> Session:
+def session() -> Session:  # pyright: ignore[reportInvalidTypeForm]
     eng = create_engine("sqlite://")
     SQLModel.metadata.create_all(eng)
     sess = Session(eng)
@@ -33,8 +35,8 @@ def session() -> Session:
     sess.close()
 
 
-def _make_call(**kwargs: object) -> LoggedCallDB:
-    defaults: dict[str, object] = {
+def _make_call(**kwargs: Any) -> LoggedCallDB:
+    defaults: dict[str, Any] = {
         "id": "t1", "project": "default", "task_id": "", "model": "gpt-4o",
         "observation_type": "GENERATION", "created_at": NOW,
     }

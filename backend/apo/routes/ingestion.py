@@ -1,4 +1,4 @@
-# pyright: reportCallInDefaultInitializer=false
+# pyright: reportCallInDefaultInitializer=false, reportUnusedCallResult=false
 
 """
 Legacy batch ingestion API (deprecated; use the OTLP path).

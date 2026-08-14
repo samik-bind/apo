@@ -14,6 +14,8 @@ log-only (or raises), invitation creation still succeeds and the caller
 receives a copyable ``invite_url``.
 """
 
+# pyright: reportPrivateUsage=false, reportUnknownArgumentType=false
+
 from __future__ import annotations
 
 import hashlib

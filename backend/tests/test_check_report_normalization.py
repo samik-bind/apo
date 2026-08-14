@@ -33,7 +33,7 @@ _LARGE_TEXT = "y" * (JUDGE_SEGMENT_LIMIT + 500)
 
 
 def test_nested_assertion_received_is_truncated() -> None:
-    checks = [
+    checks: list[dict[str, object]] = [
         {
             "name": "check-1",
             "assertions": [
@@ -42,16 +42,16 @@ def test_nested_assertion_received_is_truncated() -> None:
         }
     ]
     result = normalize_check_report(checks)
-    marker = result[0]["assertions"][0]["received"]
+    marker = result[0]["assertions"][0]["received"]  # pyright: ignore[reportIndexIssue]
     assert isinstance(marker, dict)
     assert marker["kind"] == "truncated"
     assert marker["size_bytes"] > RECEIVED_VALUE_LIMIT
     assert "sha256" in marker
-    assert result[0]["assertions"][0]["reasoning"] == "keep me"
+    assert result[0]["assertions"][0]["reasoning"] == "keep me"  # pyright: ignore[reportIndexIssue]
 
 
 def test_check_level_judge_prompt_and_response_truncated() -> None:
-    checks = [
+    checks: list[dict[str, object]] = [
         {
             "name": "check-1",
             "judge": {
@@ -73,7 +73,7 @@ def test_check_level_judge_prompt_and_response_truncated() -> None:
 
 
 def test_assertion_level_judge_truncated() -> None:
-    checks = [
+    checks: list[dict[str, object]] = [
         {
             "name": "check-1",
             "assertions": [
@@ -88,7 +88,7 @@ def test_assertion_level_judge_truncated() -> None:
         }
     ]
     result = normalize_check_report(checks)
-    assertion = result[0]["assertions"][0]
+    assertion = result[0]["assertions"][0]  # pyright: ignore[reportIndexIssue]
     judge = assertion["judge"]
     assert isinstance(judge["prompt"]["system"], dict)
     assert judge["prompt"]["system"]["kind"] == "truncated"
@@ -99,13 +99,13 @@ def test_assertion_level_judge_truncated() -> None:
 
 def test_legacy_top_level_received_truncated() -> None:
     checks = [{"name": "c1", "received": _LARGE_RECEIVED}]
-    result = normalize_check_report(checks)
+    result = normalize_check_report(checks)  # pyright: ignore[reportArgumentType]
     assert isinstance(result[0]["received"], dict)
     assert result[0]["received"]["kind"] == "truncated"
 
 
 def test_legacy_judge_prompt_response_truncated() -> None:
-    checks = [
+    checks: list[dict[str, object]] = [
         {
             "name": "c1",
             "judge_prompt": _LARGE_TEXT,
@@ -120,7 +120,7 @@ def test_legacy_judge_prompt_response_truncated() -> None:
 
 
 def test_small_values_preserved_without_type_change() -> None:
-    checks = [
+    checks: list[dict[str, object]] = [
         {
             "name": "c1",
             "received": {"small": "data"},
@@ -132,14 +132,14 @@ def test_small_values_preserved_without_type_change() -> None:
     ]
     result = normalize_check_report(checks)
     assert result[0]["received"] == {"small": "data"}
-    assert result[0]["judge"]["prompt"]["system"] == "ok"
-    assert result[0]["judge"]["response"] == "ok"
+    assert result[0]["judge"]["prompt"]["system"] == "ok"  # pyright: ignore[reportIndexIssue]
+    assert result[0]["judge"]["response"] == "ok"  # pyright: ignore[reportIndexIssue]
 
 
 def test_reasoning_and_instruction_preserved() -> None:
     big_reasoning = "r" * (JUDGE_SEGMENT_LIMIT * 2)
     big_instruction = "i" * (JUDGE_SEGMENT_LIMIT * 2)
-    checks = [
+    checks: list[dict[str, object]] = [
         {
             "name": "c1",
             "reasoning": big_reasoning,
@@ -166,12 +166,12 @@ def test_normalize_does_not_mutate_input() -> None:
         }
     ]
     snapshot = copy.deepcopy(original)
-    _ = normalize_check_report(original)
+    _ = normalize_check_report(original)  # pyright: ignore[reportArgumentType]
     assert original == snapshot
 
 
 def test_normalize_is_idempotent() -> None:
-    checks = [
+    checks: list[dict[str, object]] = [
         {
             "name": "c1",
             "received": _LARGE_RECEIVED,
@@ -191,7 +191,7 @@ def test_existing_marker_left_unchanged() -> None:
         "sha256": hashlib.sha256(b"abc").hexdigest(),
     }
     checks = [{"name": "c1", "received": marker}]
-    result = normalize_check_report(checks)
+    result = normalize_check_report(checks)  # pyright: ignore[reportArgumentType]
     assert result[0]["received"] == marker
 
 
@@ -233,7 +233,7 @@ def test_load_check_report_normalizes_historical_oversized_row(
     ]
     session.add(AgentTaskCheckReportDB(
         run_id=run_id,
-        value_json=oversized,
+        value_json=oversized,  # pyright: ignore[reportArgumentType]
         created_at=datetime.now(timezone.utc),
     ))
     session.commit()
@@ -246,7 +246,7 @@ def test_load_check_report_normalizes_historical_oversized_row(
     # The stored row remains unchanged — normalization is transport-only.
     row = session.get(AgentTaskCheckReportDB, run_id)
     assert row is not None
-    assert row.value_json[0]["received"] == _LARGE_RECEIVED
+    assert row.value_json[0]["received"] == _LARGE_RECEIVED  # pyright: ignore[reportOptionalSubscript]
 
 
 if __name__ == "__main__":

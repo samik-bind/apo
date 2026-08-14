@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportDeprecated=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 """Tests for the Score domain API.
 
@@ -80,8 +80,8 @@ class TestTraceScoreAPI:
 
         with Session(engine) as s:
             metrics = list(
-                s.exec(
-                    text("SELECT * FROM run_metrics WHERE run_id = 'score-test-trace' AND metric_name = 'helpfulness'")
+                s.exec(  # pyright: ignore[reportCallIssue]
+                    text("SELECT * FROM run_metrics WHERE run_id = 'score-test-trace' AND metric_name = 'helpfulness'")  # pyright: ignore[reportArgumentType]
                 )
             )
             assert len(metrics) == 1
@@ -131,7 +131,7 @@ class TestObservationScoreAPI:
         # Create a run + call first
         with Session(engine) as s:
             s.add(RunDB(id="obs-test-trace", project="default", environment="default", created_at=_NOW))
-            s.add(LoggedCallDB(
+            s.add(LoggedCallDB(  # pyright: ignore[reportCallIssue]
                 id="obs-test-call",
                 run_id="obs-test-trace",
                 project="default",

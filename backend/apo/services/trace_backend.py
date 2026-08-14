@@ -1,4 +1,4 @@
-# pyright: reportUnusedParameter=false
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedParameter=false
 """Trace backend abstraction.
 
 Defines the contract for *where task-run traces live* and *how the task

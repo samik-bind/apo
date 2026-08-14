@@ -6,6 +6,8 @@ This module re-exports all database models and API schemas for convenient import
 
 # Re-export schemas (API request/response models)
 # noqa: F401 - These are intentional re-exports
+# pyright: reportDuplicateImport=false, reportUnusedImport=false
+
 from ..models.schemas import (  # noqa: F401
     AgentTaskBatchRunDetail,
     AgentTaskBatchRunExternalDetail,

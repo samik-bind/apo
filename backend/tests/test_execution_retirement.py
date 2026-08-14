@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
+# pyright: reportAny=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedVariable=false
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
@@ -143,14 +143,14 @@ class TestBundlePurgeNarrow:
         _seed_installation(session)
         # Two revisions with bundle storage keys, one without (attested).
         for i in range(2):
-            session.add(TaskRevisionDB(
+            session.add(TaskRevisionDB(  # pyright: ignore[reportCallIssue]
                 id=f"rev-{i}", project="p1", batch_run_id="bch-x",
                 materialization="bundled", source_type="connected_worktree",
                 dirty=True, content_sha256="a" * 64, file_count=1, uncompressed_size_bytes=10,
                 bundle_storage_backend="local", bundle_storage_key=f"bundle-key-{i}",
                 bundle_sha256="b" * 64, bundle_size_bytes=100,
             ))
-        session.add(TaskRevisionDB(
+        session.add(TaskRevisionDB(  # pyright: ignore[reportCallIssue]
             id="rev-attested", project="p1", batch_run_id="bch-y",
             materialization="attested", source_type="caller_worktree",
             dirty=False, content_sha256="c" * 64, file_count=0, uncompressed_size_bytes=0,
@@ -171,7 +171,7 @@ class TestBundlePurgeNarrow:
         from apo.services.execution_retirement import purge_legacy_bundle_objects
 
         _seed_installation(session)
-        session.add(TaskRevisionDB(
+        session.add(TaskRevisionDB(  # pyright: ignore[reportCallIssue]
             id="rev-1", project="p1", batch_run_id="bch-x",
             materialization="bundled", source_type="x", dirty=True,
             content_sha256="a" * 64, file_count=1, uncompressed_size_bytes=1,

@@ -10,6 +10,8 @@ known-placeholder ``AUTH_SECRET``. Development remains zero-config. An unknown
 explicit profile fails rather than falling back.
 """
 
+# pyright: reportImplicitStringConcatenation=false, reportUnannotatedClassAttribute=false, reportUnnecessaryIsInstance=false, reportUnusedCallResult=false
+
 from __future__ import annotations
 
 import os

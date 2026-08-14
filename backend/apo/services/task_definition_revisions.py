@@ -6,6 +6,8 @@ never executed, transpiled, imported, or validated beyond structural
 path/content/size checks.
 """
 
+# pyright: reportAny=false, reportDeprecated=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnnecessaryIsInstance=false, reportUnreachable=false, reportUnusedImport=false, reportUnusedParameter=false
+
 from __future__ import annotations
 
 import hashlib

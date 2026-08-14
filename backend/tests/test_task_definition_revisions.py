@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
+# pyright: reportAny=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUnusedImport=false
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
@@ -39,7 +39,7 @@ def session():
         yield s
 
 
-def _doc(content: str = "task('demo', { adapter: 'a' });\n", path: str = "demo.eval.ts") -> dict:
+def _doc(content: str = "task('demo', { adapter: 'a' });\n", path: str = "demo.eval.ts") -> dict:  # pyright: ignore[reportMissingTypeArgument]
     return {"schema_version": 1, "files": [{"path": path, "content": content}]}
 
 

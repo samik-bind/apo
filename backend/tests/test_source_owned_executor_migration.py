@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false
+# pyright: reportAny=false, reportImplicitStringConcatenation=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false
 # pyright: reportPrivateUsage=false, reportUnusedCallResult=false, reportMissingTypeArgument=false
 
 """V17 source-owned heartbeat observations migration.

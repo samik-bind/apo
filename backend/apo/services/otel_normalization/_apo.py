@@ -1,5 +1,7 @@
 """apo override mapper — explicit observation type override (priority 1)."""
 
+# pyright: reportExplicitAny=false, reportUnusedImport=false, reportUnusedParameter=false
+
 from __future__ import annotations
 
 from typing import Any

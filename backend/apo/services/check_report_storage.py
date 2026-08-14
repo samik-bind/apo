@@ -22,6 +22,8 @@ Normalization runs on both write and read, making historical oversized rows
 safe to transport without a database rewrite.
 """
 
+# pyright: reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnnecessaryIsInstance=false, reportUnusedParameter=false
+
 from __future__ import annotations
 
 import hashlib

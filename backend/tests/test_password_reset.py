@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false
+# pyright: reportAny=false, reportExplicitAny=false, reportImplicitOverride=false, reportMissingParameterType=false, reportPrivateUsage=false, reportUnusedCallResult=false
 
 import hashlib
 from datetime import datetime, timedelta, timezone

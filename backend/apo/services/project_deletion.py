@@ -29,6 +29,8 @@ parent rows, and inventory must go before its task source. Ordering within
 each tier is otherwise arbitrary.
 """
 
+# pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedCallResult=false
+
 from __future__ import annotations
 
 from typing import Any
@@ -303,7 +305,7 @@ def delete_project_data(
 
 
 def _delete_by_column(
-    session: Session, model: type[Any], where_clause: Any  # pyright: ignore[reportExplicitAny, reportAny]
+    session: Session, model: type[Any], where_clause: Any
 ) -> int:
     """Delete every row of ``model`` matching ``where_clause`` and return the count.
 
@@ -312,7 +314,7 @@ def _delete_by_column(
     column attributes don't narrow to a single ``ColumnElement[bool]``
     without per-call casts — the runtime contract is straightforward.
     """
-    rows = list(session.exec(select(model).where(where_clause)).all())  # pyright: ignore[reportAny]
+    rows = list(session.exec(select(model).where(where_clause)).all())
     for row in rows:
         session.delete(row)
     return len(rows)
@@ -321,8 +323,8 @@ def _delete_by_column(
 def _delete_transitive(
     session: Session,
     model: type[Any],
-    fk_column: Any,  # pyright: ignore[reportExplicitAny, reportAny]
-    parent_ids_query: Any,  # pyright: ignore[reportExplicitAny, reportAny]
+    fk_column: Any,
+    parent_ids_query: Any,
 ) -> int:
     """Delete rows of ``model`` whose ``fk_column`` matches any parent id.
 
@@ -334,11 +336,11 @@ def _delete_transitive(
     column attributes and ``select()`` results don't narrow to the concrete
     SQLAlchemy generic types without per-call casts.
     """
-    parent_ids = list(session.exec(parent_ids_query).all())  # pyright: ignore[reportAny]
+    parent_ids = list(session.exec(parent_ids_query).all())
     if not parent_ids:
         return 0
     rows = list(
-        session.exec(select(model).where(fk_column.in_(parent_ids))).all()  # pyright: ignore[reportAny]
+        session.exec(select(model).where(fk_column.in_(parent_ids))).all()
     )
     for row in rows:
         session.delete(row)

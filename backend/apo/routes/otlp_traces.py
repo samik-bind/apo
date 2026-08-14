@@ -10,6 +10,8 @@ semantics: individual span failures don't fail the batch. The response
 encoding matches the request encoding (protobuf → protobuf, JSON → JSON).
 """
 
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportImplicitStringConcatenation=false, reportPrivateUsage=false, reportUnannotatedClassAttribute=false, reportUnusedVariable=false
+
 from __future__ import annotations
 
 import json

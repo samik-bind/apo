@@ -62,7 +62,7 @@ def _call(
         input={},
         messages=[],
         output={},
-        level=level,
+        level=level,  # pyright: ignore[reportArgumentType]
     )
 
 

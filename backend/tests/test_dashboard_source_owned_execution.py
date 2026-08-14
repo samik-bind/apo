@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
+# pyright: reportAny=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedParameter=false, reportUnusedVariable=false
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
@@ -122,7 +122,7 @@ def _publish_catalog(
                 project=_PROJECT,
                 task_source_id=source.id,
                 task_id=task["task_id"],
-                task_inventory_id=task["task_id"],
+                task_inventory_id=task["task_id"],  # pyright: ignore[reportCallIssue]
                 display_name=task["display_name"],
                 adapter_name=task["adapter_name"],
                 folder_path=task["folder_path"],
@@ -278,7 +278,7 @@ class TestSequentialAttempts:
         task_runs = session.exec(
             select(AgentTaskRunDB)
             .where(AgentTaskRunDB.batch_run_id == batch.id)
-            .order_by(AgentTaskRunDB.sequence_index)
+            .order_by(AgentTaskRunDB.sequence_index)  # pyright: ignore[reportArgumentType]
         ).all()
         assert [tr.task_id for tr in task_runs] == [
             "support/cancel-subscription",

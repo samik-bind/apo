@@ -12,6 +12,8 @@ separately; this adapter bypasses the wire layer and writes the canonical
 model directly.
 """
 
+# pyright: reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownVariableType=false
+
 from __future__ import annotations
 
 import json

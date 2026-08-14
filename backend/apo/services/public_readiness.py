@@ -5,6 +5,8 @@ concurrent-call coalescing, and a caller deadline. Returns only a boolean —
 no check names, paths, or exception detail ever reach the public surface.
 """
 
+# pyright: reportUnannotatedClassAttribute=false, reportUnusedImport=false
+
 from __future__ import annotations
 
 import asyncio

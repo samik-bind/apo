@@ -5,6 +5,8 @@ replacement of a Project's task catalog. No source files, repository
 credentials, or Git operations cross this boundary.
 """
 
+# pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnusedImport=false
+
 from __future__ import annotations
 
 import hashlib

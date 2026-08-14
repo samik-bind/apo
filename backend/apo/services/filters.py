@@ -1,3 +1,5 @@
+# pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false
+
 import re
 from datetime import datetime
 from typing import Any

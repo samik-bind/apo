@@ -13,6 +13,8 @@ These fields are what operators and the operator CLI rely on to confirm
 which topology an instance is actually running in.
 """
 
+# pyright: reportUnknownVariableType=false
+
 from __future__ import annotations
 
 from typing import cast
@@ -182,7 +184,7 @@ class TestRuntimeConfigSerialization:
         monkeypatch.setenv("APO_PUBLIC_URL", "https://apo.example.com")
         monkeypatch.setenv("AGENT_TASK_MAX_CONCURRENT_BATCHES", "2")
 
-        body = cast(dict, get_runtime_config().model_dump())
+        body = cast(dict, get_runtime_config().model_dump())  # pyright: ignore[reportMissingTypeArgument]
 
         assert body["deployment_profile"] == "server"
         assert body["public_url"] == "https://apo.example.com"

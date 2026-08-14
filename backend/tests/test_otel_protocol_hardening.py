@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportDeprecated=false, reportUntypedFunctionDecorator=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 """Regression tests: prove the protocol gaps before fixing.
 
@@ -104,7 +104,7 @@ class TestStandardOtlpJsonTimestamps:
             assert span.start_time == start
             assert span.end_time == end
             # Duration is exactly 5.2 seconds, not derived from ingestion time.
-            assert span.end_time - span.start_time  # sanity: both parsed
+            assert span.end_time - span.start_time  # sanity: both parsed  # pyright: ignore[reportOperatorIssue]
 
     def test_missing_timestamps_do_not_fabricate_ingestion_time(self):
         """A span with no timestamps must not silently substitute now()."""
@@ -134,7 +134,7 @@ class TestStandardOtlpJsonTimestamps:
 class TestOtelIdValidation:
     """trace_id (16 or 32 hex) and span_id (8 hex) must be validated."""
 
-    @pytest.mark.parametrize(
+    @pytest.mark.parametrize(  # pyright: ignore[reportCallIssue]
         "trace_id,span_id",
         [
             ("00000000000000000000000000000000", _ROOT_SPAN_ID),  # zero trace

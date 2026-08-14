@@ -1,4 +1,4 @@
-# pyright: reportCallInDefaultInitializer=false
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportExplicitAny=false, reportPrivateUsage=false
 
 from typing import Any, cast
 

@@ -1,5 +1,7 @@
 """Attempt JWT authorization for trace and Artifact transport."""
 
+# pyright: reportUnknownArgumentType=false, reportUnknownParameterType=false
+
 from __future__ import annotations
 
 import hashlib
@@ -104,7 +106,7 @@ def _mint_token(attempt: TaskExecutionAttemptDB, generation: int = 1) -> str:
     )
 
 
-def _post_intent(client: TestClient, run_id: str, headers: dict) -> tuple[int, str]:
+def _post_intent(client: TestClient, run_id: str, headers: dict) -> tuple[int, str]:  # pyright: ignore[reportMissingTypeArgument]
     artifact = b"abc"
     resp = client.post(
         f"/v1/agent-task-runs/{run_id}/artifact-uploads",

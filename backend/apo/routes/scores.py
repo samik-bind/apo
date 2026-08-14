@@ -5,7 +5,7 @@ Provides endpoints for creating and retrieving scores using existing
 CallMetricDB (observation-level) and RunMetricDB (trace-level) models.
 """
 
-# pyright: reportCallInDefaultInitializer=false
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportUnusedCallResult=false
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 

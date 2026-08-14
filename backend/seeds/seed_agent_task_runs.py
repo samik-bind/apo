@@ -10,6 +10,8 @@ Creates multiple batch runs across different scenarios:
 Run from project root:  python -m seeds.seed_agent_task_runs
 """
 
+# pyright: reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedParameter=false
+
 import sys
 import os
 import uuid
@@ -200,6 +202,7 @@ def create_batch_run(
         task_started = started_at + timedelta(minutes=i * (duration_minutes // max(len(task_indices), 1)))
         task_duration = random.randint(30, 180)
 
+        checks: list[dict[str, object]] | None = None
         if outcome == "error":
             run = AgentTaskRunDB(
                 id=uid(),

@@ -6,6 +6,8 @@ Test cases:
 2. Complete annotation creates score
 """
 
+# pyright: reportAny=false, reportUnusedCallResult=false
+
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient

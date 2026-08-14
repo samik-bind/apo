@@ -7,6 +7,8 @@ sources are lazily re-synced on list/run, git sources are left alone, and the
 "no tasks" error is actionable.
 """
 
+# pyright: reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedParameter=false
+
 from datetime import datetime, timezone
 
 from apo.models.db import (

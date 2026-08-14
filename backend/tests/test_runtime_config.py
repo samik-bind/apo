@@ -1,5 +1,7 @@
 """Tests for self-hosted alpha topology runtime config + readiness."""
 
+# pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false
+
 from typing import Any
 
 from _pytest.monkeypatch import MonkeyPatch

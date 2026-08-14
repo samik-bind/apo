@@ -1,4 +1,4 @@
-# pyright: reportPrivateUsage=false
+# pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 """Execution Attempt finalization (result / failure).
 

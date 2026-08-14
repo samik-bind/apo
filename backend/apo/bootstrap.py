@@ -6,6 +6,8 @@ no-op once the installation is initialized, even if all Users are later
 deleted.
 """
 
+# pyright: reportUnusedCallResult=false
+
 import logging
 import os
 

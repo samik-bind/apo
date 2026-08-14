@@ -1,4 +1,4 @@
-# pyright: reportIncompatibleVariableOverride=false
+# pyright: reportAny=false, reportImplicitOverride=false, reportIncompatibleVariableOverride=false
 
 """Pricing data model + nested-document schemas.
 

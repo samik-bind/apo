@@ -25,7 +25,7 @@ NOW = datetime(2026, 7, 23, tzinfo=timezone.utc)
 
 
 @pytest.fixture
-def session() -> Session:
+def session() -> Session:  # pyright: ignore[reportInvalidTypeForm]
     eng = create_engine("sqlite://")
     SQLModel.metadata.create_all(eng)
     sess = Session(eng)

@@ -1,11 +1,13 @@
-# pyright: reportAny=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false
+# pyright: reportAny=false, reportExplicitAny=false, reportMissingParameterType=false, reportPrivateLocalImportUsage=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnnecessaryTypeIgnoreComment=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedParameter=false
 
+from typing import Any
 import asyncio
 import json
 from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskRunDB, WebhookDB
@@ -29,8 +31,8 @@ from apo.services.webhook_delivery import (
 )
 
 
-def _make_task_run(**overrides: object) -> AgentTaskRunDB:
-    defaults: dict[str, object] = {
+def _make_task_run(**overrides: Any) -> AgentTaskRunDB:
+    defaults: dict[str, Any] = {
         "id": "tr-001",
         "task_id": "smoke-test",
         "batch_run_id": "batch-001",
@@ -48,8 +50,8 @@ def _make_task_run(**overrides: object) -> AgentTaskRunDB:
     return AgentTaskRunDB(**defaults)
 
 
-def _make_batch_run(**overrides: object) -> AgentTaskBatchRunDB:
-    defaults: dict[str, object] = {
+def _make_batch_run(**overrides: Any) -> AgentTaskBatchRunDB:
+    defaults: dict[str, Any] = {
         "id": "batch-001",
         "project": "example-service",
         "status": "completed",
@@ -202,7 +204,9 @@ class TestPayloadBuilders:
             run_metadata={"trigger": {"source": "schedule", "schedule_id": "sched-1"}},
         )
         payload = _build_batch_run_payload(batch, [])
-        assert payload["run_metadata"]["trigger"]["source"] == "schedule"
+        trigger = payload["run_metadata"]
+        assert isinstance(trigger, dict)
+        assert trigger["trigger"]["source"] == "schedule"  # pyright: ignore[reportIndexIssue]
 
 
 # ── HMAC signing ──────────────────────────────────────────────────────────
@@ -234,7 +238,7 @@ class TestHMACSigning:
 
 
 class TestWebhookCRUD:
-    def test_create_webhook(self, client: pytest.fixture):
+    def test_create_webhook(self, client: TestClient):
         resp = client.post(
             "/v1/webhooks",
             json={
@@ -248,7 +252,7 @@ class TestWebhookCRUD:
         assert "id" in data
         assert data["secret"].startswith("whsec_")
 
-    def test_list_webhooks(self, client: pytest.fixture):
+    def test_list_webhooks(self, client: TestClient):
         client.post(
             "/v1/webhooks",
             json={"project": "example-service", "url": "https://example.com/hook1"},
@@ -265,7 +269,7 @@ class TestWebhookCRUD:
         assert data[0]["url"] == "https://example.com/hook1"
         assert "secret" not in data[0]
 
-    def test_get_webhook(self, client: pytest.fixture):
+    def test_get_webhook(self, client: TestClient):
         create_resp = client.post(
             "/v1/webhooks",
             json={"project": "example-service", "url": "https://example.com/hook"},
@@ -276,7 +280,7 @@ class TestWebhookCRUD:
         assert resp.status_code == 200
         assert resp.json()["url"] == "https://example.com/hook"
 
-    def test_update_webhook(self, client: pytest.fixture):
+    def test_update_webhook(self, client: TestClient):
         create_resp = client.post(
             "/v1/webhooks",
             json={"project": "example-service", "url": "https://old.com/hook"},
@@ -291,7 +295,7 @@ class TestWebhookCRUD:
         assert resp.json()["url"] == "https://new.com/hook"
         assert resp.json()["enabled"] is False
 
-    def test_delete_webhook(self, client: pytest.fixture):
+    def test_delete_webhook(self, client: TestClient):
         create_resp = client.post(
             "/v1/webhooks",
             json={"project": "example-service", "url": "https://example.com/hook"},
@@ -304,7 +308,7 @@ class TestWebhookCRUD:
         resp = client.get(f"/v1/webhooks/{wh_id}")
         assert resp.status_code == 404
 
-    def test_rotate_secret(self, client: pytest.fixture):
+    def test_rotate_secret(self, client: TestClient):
         create_resp = client.post(
             "/v1/webhooks",
             json={"project": "example-service", "url": "https://example.com/hook"},
@@ -318,7 +322,7 @@ class TestWebhookCRUD:
         assert new_secret != old_secret
         assert new_secret.startswith("whsec_")
 
-    def test_create_webhook_invalid_events(self, client: pytest.fixture):
+    def test_create_webhook_invalid_events(self, client: TestClient):
         resp = client.post(
             "/v1/webhooks",
             json={
@@ -330,7 +334,7 @@ class TestWebhookCRUD:
         assert resp.status_code == 400
         assert "invalid.event" in resp.json()["detail"]
 
-    def test_webhook_404(self, client: pytest.fixture):
+    def test_webhook_404(self, client: TestClient):
         resp = client.get("/v1/webhooks/9999")
         assert resp.status_code == 404
 
@@ -365,7 +369,7 @@ class TestWebhookDelivery:
             resp = httpx.Response(200, request=httpx.Request("POST", url))
             return resp
 
-        httpx.AsyncClient.post = mock_post  # type: ignore[assignment]
+        httpx.AsyncClient.post = mock_post  # pyright: ignore[reportGeneralTypeIssues, reportAttributeAccessIssue]
         try:
             event_data = {
                 "event_type": "batch_run.completed",
@@ -403,7 +407,7 @@ class TestWebhookDelivery:
             resp = httpx.Response(500, request=httpx.Request("POST", url))
             return resp
 
-        httpx.AsyncClient.post = mock_post_fail  # type: ignore[assignment]
+        httpx.AsyncClient.post = mock_post_fail  # pyright: ignore[reportGeneralTypeIssues, reportAttributeAccessIssue]
         try:
             event_data = {
                 "event_type": "batch_run.completed",
@@ -448,7 +452,7 @@ class TestWebhookDelivery:
             delivered_urls.append(url)
             return httpx.Response(200, request=httpx.Request("POST", url))
 
-        httpx.AsyncClient.post = mock_post  # type: ignore[assignment]
+        httpx.AsyncClient.post = mock_post  # pyright: ignore[reportGeneralTypeIssues, reportAttributeAccessIssue]
         wd_module.engine = test_engine
         try:
             event = RunEvent(
@@ -489,7 +493,7 @@ class TestWebhookDelivery:
             delivered_urls.append(url)
             return httpx.Response(200, request=httpx.Request("POST", url))
 
-        httpx.AsyncClient.post = mock_post  # type: ignore[assignment]
+        httpx.AsyncClient.post = mock_post  # pyright: ignore[reportGeneralTypeIssues, reportAttributeAccessIssue]
         wd_module.engine = test_engine
         try:
             event = RunEvent(

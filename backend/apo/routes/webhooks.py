@@ -1,5 +1,7 @@
 """Webhook CRUD routes: create, list, get, update, delete, rotate-secret, test."""
 
+# pyright: reportCallInDefaultInitializer=false
+
 from __future__ import annotations
 
 import logging

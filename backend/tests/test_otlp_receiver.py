@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportDeprecated=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedVariable=false
 
 """Tests for the OTLP receiver.
 

@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false
+# pyright: reportAny=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedParameter=false
 
 """SPEC-177 backend scene + unit tests for comparison overview/evidence routes
 and the summary loader.
@@ -493,7 +493,7 @@ def test_old_bulk_evidence_route_is_gone() -> None:
     """The old GET /evidence route must not exist on the router."""
     from apo.routes.agent_task_views import router
 
-    paths = {route.path for route in router.routes}
+    paths = {route.path for route in router.routes}  # pyright: ignore[reportAttributeAccessIssue]
     assert "/v1/projects/{project_id}/task-view-comparisons/{comparison_id}/evidence" not in paths
     assert "/v1/projects/{project_id}/task-view-comparisons/{comparison_id}/overview" in paths
     assert "/v1/projects/{project_id}/task-view-comparisons/{comparison_id}/task-evidence" in paths

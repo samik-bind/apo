@@ -1,4 +1,4 @@
-# pyright: reportUnusedCallResult=false
+# pyright: reportDeprecated=false, reportUnusedCallResult=false
 
 """Regression coverage for durable trace projection version stamps."""
 

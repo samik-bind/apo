@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportDeprecated=false, reportUnusedCallResult=false, reportUnusedFunction=false, reportUnusedImport=false
 
 """Tests for the Task-Run-scoped Trace Projection endpoint.
 

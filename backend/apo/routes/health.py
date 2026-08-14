@@ -1,3 +1,5 @@
+# pyright: reportAny=false
+
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select

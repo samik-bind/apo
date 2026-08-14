@@ -1,5 +1,7 @@
 """Public Batch detail exposes useful Attempt state without lease secrets."""
 
+# pyright: reportUnknownMemberType=false
+
 from datetime import datetime, timedelta, timezone
 
 from apo.models.db import (
@@ -59,7 +61,7 @@ def test_batch_detail_projects_safe_attempt_and_pool_state() -> None:
     )
 
     assert detail.execution_target is not None
-    assert detail.execution_target.pool_id == "pool-1"
+    assert detail.execution_target.pool_id == "pool-1"  # pyright: ignore[reportAttributeAccessIssue]
     assert detail.executor_pool_name == "Private VPC"
     assert detail.attempts[0].executor_name == "executor-east"
     assert detail.attempts[0].phase == "running"

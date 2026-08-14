@@ -8,6 +8,8 @@ destroy operator trust before the product has any.
 These tests target the project-scoped product model.
 """
 
+# pyright: reportUnusedParameter=false
+
 from datetime import datetime, timedelta, timezone
 
 from _pytest.monkeypatch import MonkeyPatch
@@ -84,7 +86,7 @@ def _seed_project_state(
         source_type="filesystem",
         source_ref="./tasks",
         source_commit_sha="abc",
-        first_seen_at=datetime.now(timezone.utc),
+        first_seen_at=datetime.now(timezone.utc),  # pyright: ignore[reportCallIssue]
     )
     batch = AgentTaskBatchRunDB(
         id=f"batch-{project}",
@@ -230,7 +232,7 @@ class TestProjectIsolationRuns:
         # Project B's query surface never surfaces it.
         runs_b_via_project = session.exec(
             select(AgentTaskRunDB)
-            .join(AgentTaskBatchRunDB, AgentTaskRunDB.batch_run_id == AgentTaskBatchRunDB.id)
+            .join(AgentTaskBatchRunDB, AgentTaskRunDB.batch_run_id == AgentTaskBatchRunDB.id)  # pyright: ignore[reportArgumentType]
             .where(AgentTaskBatchRunDB.project == project_b.id)
         ).all()
         assert runs_b_via_project == []

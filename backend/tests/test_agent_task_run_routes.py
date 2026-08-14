@@ -1,5 +1,7 @@
 """Regression coverage for task-detail run-history routing."""
 
+# pyright: reportAny=false
+
 from datetime import datetime, timezone
 
 from fastapi.routing import APIRoute

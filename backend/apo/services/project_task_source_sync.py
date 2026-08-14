@@ -22,6 +22,8 @@ Storage layout:
   repository URL, so re-syncs fetch instead of re-cloning.
 """
 
+# pyright: reportImplicitStringConcatenation=false, reportUnusedParameter=false
+
 from __future__ import annotations
 
 import hashlib

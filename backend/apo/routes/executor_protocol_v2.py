@@ -11,7 +11,7 @@ Key differences from v1:
 - /start requires task_revision_id for source_owned attempts
 """
 
-# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnusedCallResult=false
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportPrivateLocalImportUsage=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedVariable=false
 
 from __future__ import annotations
 

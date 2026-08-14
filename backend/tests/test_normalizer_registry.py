@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportDeprecated=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 """Tests for the versioned normalizer registry."""
 
@@ -123,4 +123,4 @@ class TestRegistryDispatch:
         }))
         assert result.model == "gpt-4o"
         assert result.token_usage["prompt"] == 100
-        assert result.input["messages"][0]["content"] == "hi"
+        assert result.input["messages"][0]["content"] == "hi"  # pyright: ignore[reportOptionalSubscript]

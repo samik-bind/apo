@@ -8,6 +8,7 @@ provided-wins-verbatim, skip-on-no-match, skip-on-missing-price.
 """
 
 from __future__ import annotations
+from collections.abc import Iterator
 
 from datetime import datetime, timezone
 
@@ -21,7 +22,7 @@ from apo.services.pricing.resolution import resolve_model_era
 
 
 @pytest.fixture
-def session() -> Session:
+def session() -> Iterator[Session]:
     eng = create_engine("sqlite://")
     SQLModel.metadata.create_all(eng)
     sess = Session(eng)
@@ -37,9 +38,12 @@ def _flat_model(session: Session) -> None:
     m = ModelRowDB(match_pattern=r"(?i)^gpt-4o-mini$", provider="openai", start_date=None)
     session.add(m)
     session.flush()
+    assert m.id is not None
     t = PricingTierDB(model_id=m.id, name="default", is_default=True, conditions_json="[]")
     session.add(t)
     session.flush()
+    assert m.id is not None
+    assert t.id is not None
     # micro-USD per 1M tokens
     session.add(PriceDB(model_id=m.id, tier_id=t.id, usage_key=UsageKey.INPUT.value, price_per_1m=150_000))
     session.add(PriceDB(model_id=m.id, tier_id=t.id, usage_key=UsageKey.OUTPUT.value, price_per_1m=600_000))
@@ -51,9 +55,12 @@ def _cache_tiered_model(session: Session) -> None:
     m = ModelRowDB(match_pattern=r"(?i)^claude-sonnet-4\.5$", provider="anthropic", start_date=None)
     session.add(m)
     session.flush()
+    assert m.id is not None
     t = PricingTierDB(model_id=m.id, name="default", is_default=True, conditions_json="[]")
     session.add(t)
     session.flush()
+    assert m.id is not None
+    assert t.id is not None
     # input=3.0/MTok, output=15.0/MTok, cache_read=0.30/MTok, cache_write_5m=3.75/MTok
     session.add(PriceDB(model_id=m.id, tier_id=t.id, usage_key=UsageKey.INPUT.value, price_per_1m=3_000_000))
     session.add(PriceDB(model_id=m.id, tier_id=t.id, usage_key=UsageKey.OUTPUT.value, price_per_1m=15_000_000))
@@ -67,9 +74,12 @@ def _reasoning_model(session: Session) -> None:
     m = ModelRowDB(match_pattern=r"(?i)^o3$", provider="openai", start_date=None)
     session.add(m)
     session.flush()
+    assert m.id is not None
     t = PricingTierDB(model_id=m.id, name="default", is_default=True, conditions_json="[]")
     session.add(t)
     session.flush()
+    assert m.id is not None
+    assert t.id is not None
     session.add(PriceDB(model_id=m.id, tier_id=t.id, usage_key=UsageKey.INPUT.value, price_per_1m=2_000_000))
     session.add(PriceDB(model_id=m.id, tier_id=t.id, usage_key=UsageKey.OUTPUT.value, price_per_1m=8_000_000))
     session.add(PriceDB(model_id=m.id, tier_id=t.id, usage_key=UsageKey.REASONING.value, price_per_1m=32_000_000))

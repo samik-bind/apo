@@ -6,6 +6,8 @@ the Model / Effort filter dropdowns. Proves the cohort narrows correctly — the
 behaviour the Tasks page tabs depend on.
 """
 
+# pyright: reportAny=false, reportMissingParameterType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedImport=false
+
 from datetime import datetime, timezone
 
 import pytest

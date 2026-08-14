@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportDeprecated=false, reportUnnecessaryCast=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 """Tests for Langfuse-compatible public API."""
 
@@ -34,7 +34,7 @@ def _fake_request(project: str = "default") -> Request:
     context). In tests we call the endpoints directly, so a SimpleNamespace
     with a ``state`` attribute suffices.
     """
-    return cast(Request, SimpleNamespace(state=SimpleNamespace(project=project)))
+    return cast(Request, SimpleNamespace(state=SimpleNamespace(project=project)))  # pyright: ignore[reportInvalidCast]
 
 
 @pytest.fixture(autouse=True)

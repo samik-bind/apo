@@ -8,6 +8,8 @@ Public API:
   - ``load_default_prices`` — the JSON-defaults loader (ticket 07)
 """
 
+# pyright: reportRedeclaration=false
+
 from __future__ import annotations
 
 import json

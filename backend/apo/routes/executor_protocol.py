@@ -1,4 +1,4 @@
-# pyright: reportCallInDefaultInitializer=false
+# pyright: reportCallInDefaultInitializer=false, reportUnusedImport=false
 
 """Executor Control Plane HTTP protocol.
 

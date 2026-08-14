@@ -3,6 +3,11 @@
 """Tier condition engine (threshold-only)."""
 
 from __future__ import annotations
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from apo.models.pricing import ModelDocumentCreate
 
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
@@ -21,7 +26,7 @@ from apo.services.pricing.validation import validate_model_document
 
 
 @pytest.fixture
-def session() -> Session:
+def session() -> Iterator[Session]:
     eng = create_engine("sqlite://")
     SQLModel.metadata.create_all(eng)
     sess = Session(eng)
@@ -39,6 +44,7 @@ def _make_gemini_25_pro(session: Session) -> ModelRowDB:
     model = ModelRowDB(match_pattern=r"(?i)^gemini-2\.5-pro$", provider="google")
     session.add(model)
     session.flush()
+    assert model.id is not None
 
     default = PricingTierDB(
         model_id=model.id, name="default", is_default=True, priority=0, conditions_json="[]"
@@ -56,6 +62,7 @@ def _make_gemini_25_pro(session: Session) -> ModelRowDB:
     session.flush()
     # Same usage_key set across tiers (validation rule C).
     for tier in (default, large):
+        assert tier.id is not None
         session.add(
             PriceDB(
                 model_id=model.id,
@@ -152,7 +159,7 @@ class TestValidateTierGraph:
         validate_model_document(doc)  # no raise
 
 
-def _doc(tiers: list[TierDocument]) -> object:
-    from apo.models.pricing import ModelDocumentCreate
+def _doc(tiers: list[TierDocument]) -> "ModelDocumentCreate":
+    from apo.models.pricing import ModelDocumentCreate as _M
 
-    return ModelDocumentCreate(match_pattern="^x$", provider="openai", pricing_tiers=tiers)
+    return _M(match_pattern="^x$", provider="openai", pricing_tiers=tiers)

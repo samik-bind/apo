@@ -14,6 +14,8 @@ Routes still re-check semantic limits in the service layer so direct service
 calls and tests cannot bypass them; this middleware is the network boundary.
 """
 
+# pyright: reportAny=false, reportImplicitOverride=false, reportPrivateUsage=false, reportUnannotatedClassAttribute=false, reportUnusedClass=false
+
 from __future__ import annotations
 
 import asyncio

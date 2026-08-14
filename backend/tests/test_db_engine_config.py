@@ -1,3 +1,5 @@
+# pyright: reportMissingParameterType=false, reportPrivateUsage=false, reportUnknownMemberType=false, reportUnknownParameterType=false
+
 from sqlalchemy.pool import NullPool
 
 from apo import db

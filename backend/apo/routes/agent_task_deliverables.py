@@ -16,7 +16,7 @@ derived through the batch run, never from request JSON; service tokens are
 confined to their own Task Run.
 """
 
-# pyright: reportCallInDefaultInitializer=false
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportExplicitAny=false, reportUnusedImport=false
 
 from __future__ import annotations
 

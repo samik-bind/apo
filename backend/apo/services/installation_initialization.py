@@ -6,6 +6,8 @@ the User count. An atomic database compare-and-set ensures exactly one
 initial-user claim can succeed, even under concurrency.
 """
 
+# pyright: reportDeprecated=false, reportUnusedCallResult=false
+
 from __future__ import annotations
 
 from dataclasses import dataclass

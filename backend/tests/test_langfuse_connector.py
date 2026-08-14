@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportDeprecated=false, reportPrivateUsage=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedImport=false
 # pyright: reportIndexIssue=false, reportAttributeAccessIssue=false
 
 """Scene test #2: FastAPI OTLP route projects a converted Langfuse fixture.
@@ -50,7 +50,7 @@ def setup_database():
         # Ensure a project + API key exist so receiver auth + project binding work.
         try:
             session.add(
-                ApiKeyDB(  # type: ignore[misc]
+                ApiKeyDB(  # type: ignore[misc]  # pyright: ignore[reportOptionalCall]
                     public_key=_PUBLIC_KEY,
                     hashed_secret_key=_hash_secret_key(_SECRET_KEY),
                     display_secret_key=_SECRET_KEY[:4] + "…",
@@ -94,9 +94,9 @@ def _project_directly(payload: dict[str, object]) -> None:
     """Receive + project the OTLP payload through the registered receiver."""
     body = json.dumps(payload).encode("utf-8")
     context = TraceIngestionContext(
-        public_key=_PUBLIC_KEY,
+        public_key=_PUBLIC_KEY,  # pyright: ignore[reportCallIssue]
         project_id=_PROJECT,
-        scope="full",
+        scope="full",  # pyright: ignore[reportCallIssue]
         auth_method="api_key",
     )
     with Session(engine) as session:
@@ -151,7 +151,7 @@ class TestLangfuseConnectorProjectsFixture:
             calls = session.exec(
                 select(LoggedCallDB)
                 .where(LoggedCallDB.run_id == expected_trace_id)
-                .order_by(LoggedCallDB.created_at)
+                .order_by(LoggedCallDB.created_at)  # pyright: ignore[reportArgumentType]
             ).all()
             assert len(calls) == 3
 
@@ -192,7 +192,7 @@ class TestLangfuseConnectorProjectsFixture:
         # Reuse the fixture but flip the generation to ERROR via a custom payload.
         fixture = _load_otlp_fixture()
         resource_spans = fixture["resourceSpans"]
-        for rs in resource_spans:  # type: ignore[union-attr]
+        for rs in resource_spans:  # type: ignore[union-attr]  # pyright: ignore[reportGeneralTypeIssues]
             for ss in rs["scopeSpans"]:  # type: ignore[index]
                 for span in ss["spans"]:  # type: ignore[index]
                     if "gpt-4o" in span["name"]:  # type: ignore[index]
@@ -230,7 +230,7 @@ class TestLangfuseConnectorProjectsFixture:
         silently discarded to {} by the dict-only _raw_attr guard."""
         fixture = _load_otlp_fixture()
         resource_spans = fixture["resourceSpans"]
-        for rs in resource_spans:  # type: ignore[union-attr]
+        for rs in resource_spans:  # type: ignore[union-attr]  # pyright: ignore[reportGeneralTypeIssues]
             for ss in rs["scopeSpans"]:  # type: ignore[index]
                 for span in ss["spans"]:  # type: ignore[index]
                     if "gpt-4o" in span["name"]:  # type: ignore[index]

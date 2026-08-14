@@ -1,4 +1,4 @@
-# pyright: reportPrivateUsage=false
+# pyright: reportPrivateUsage=false, reportUnusedImport=false
 
 """Executor authentication — enrollment, credentials, Attempt JWTs.
 

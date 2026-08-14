@@ -6,6 +6,8 @@ derives a stable internal identity, consumes request tokens, acquires a
 concurrency lease, and returns a 429 rate-limit response on rejection.
 """
 
+# pyright: reportImplicitOverride=false, reportUnannotatedClassAttribute=false
+
 from __future__ import annotations
 
 import re

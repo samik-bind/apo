@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportDeprecated=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 """Tests for the reproject endpoint.
 
@@ -87,10 +87,10 @@ class TestReprojectTrace:
 
         # Delete the projection (simulate a mapper change that broke projections)
         with Session(engine) as session:
-            session.exec(text("DELETE FROM call_metrics"))
-            session.exec(text("DELETE FROM run_metrics"))
-            session.exec(text("DELETE FROM logged_calls"))
-            session.exec(text("DELETE FROM runs"))
+            session.execute(text("DELETE FROM call_metrics"))
+            session.execute(text("DELETE FROM run_metrics"))
+            session.execute(text("DELETE FROM logged_calls"))
+            session.execute(text("DELETE FROM runs"))
             session.commit()
 
         # Verify projection is gone
@@ -107,8 +107,8 @@ class TestReprojectTrace:
             assert run is not None
             assert run.project == "reproject-test"
 
-            calls = list(session.exec(
-                text("SELECT * FROM logged_calls WHERE run_id = :tid"),
+            calls = list(session.exec(  # pyright: ignore[reportCallIssue]
+                text("SELECT * FROM logged_calls WHERE run_id = :tid"),  # pyright: ignore[reportArgumentType]
                 params={"tid": trace_id},
             ))
             assert len(calls) == 2
@@ -126,8 +126,8 @@ class TestReprojectTrace:
         assert count2 == 2
 
         with Session(engine) as session:
-            calls = list(session.exec(
-                text("SELECT * FROM logged_calls WHERE run_id = :tid"),
+            calls = list(session.exec(  # pyright: ignore[reportCallIssue]
+                text("SELECT * FROM logged_calls WHERE run_id = :tid"),  # pyright: ignore[reportArgumentType]
                 params={"tid": trace_id},
             ))
             assert len(calls) == 2  # not 4
@@ -159,8 +159,8 @@ class TestReprojectTrace:
 
         # Verify the projection has the updated model
         with Session(engine) as session:
-            call = session.exec(
-                text("SELECT model FROM logged_calls WHERE id = 'b2c3d4e5f6a7b2c3'")
+            call = session.exec(  # pyright: ignore[reportCallIssue]
+                text("SELECT model FROM logged_calls WHERE id = 'b2c3d4e5f6a7b2c3'")  # pyright: ignore[reportArgumentType]
             ).first()
             assert call is not None
             assert call[0] == "gpt-4.1"

@@ -14,6 +14,8 @@ The v1 contract:
   unauthenticated — they fail closed (401), not open.
 """
 
+# pyright: reportPrivateUsage=false, reportUnusedCallResult=false, reportUnusedParameter=false
+
 from __future__ import annotations
 
 from _pytest.monkeypatch import MonkeyPatch

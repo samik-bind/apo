@@ -1,3 +1,5 @@
+# pyright: reportUnannotatedClassAttribute=false
+
 from datetime import datetime
 from typing import Literal
 

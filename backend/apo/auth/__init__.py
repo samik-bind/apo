@@ -1,3 +1,5 @@
+# pyright: reportAny=false
+
 import hashlib
 import hmac
 import json

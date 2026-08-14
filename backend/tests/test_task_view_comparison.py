@@ -6,6 +6,8 @@ aligned, task-definition-revision mismatch, execution-revision mismatch, and a
 task with no run on one side.
 """
 
+# pyright: reportAny=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false
+
 from datetime import datetime, timezone
 
 import pytest
@@ -107,7 +109,7 @@ def _create(cmp_client: TestClient, task_ids: list[str]) -> dict[str, object]:
 def test_comparison_resolves_and_classifies_state(cmp_client: TestClient) -> None:
     snap = _create(cmp_client, [_W, _X, _Y, _Z])
     assert snap["coverage"] == {"both_run": 3, "aligned": 2, "scope": 4}
-    by_task = {c["task_id"]: c for c in snap["resolved"]}
+    by_task = {c["task_id"]: c for c in snap["resolved"]}  # pyright: ignore[reportGeneralTypeIssues]
     assert by_task[_W]["state"] == "aligned"
     assert by_task[_X]["state"] == "different_definition"  # def mismatch
     assert by_task[_Y]["state"] == "aligned"  # same def, different bundle — still aligned

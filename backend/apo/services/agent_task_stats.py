@@ -16,6 +16,8 @@ explicit minimal shape, so the cost cannot silently regress: there is no
 attribute on it that *could* hold a transcript.
 """
 
+# pyright: reportAny=false, reportDeprecated=false, reportPrivateUsage=false
+
 from __future__ import annotations
 
 from collections.abc import Sequence

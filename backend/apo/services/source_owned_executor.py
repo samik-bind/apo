@@ -7,6 +7,8 @@ Reuses the existing executor identity, enrollment, and lease services.
 Does not duplicate credential hashing, JWT issuance, or finalization.
 """
 
+# pyright: reportUnusedImport=false, reportUnusedParameter=false
+
 from __future__ import annotations
 
 from dataclasses import dataclass

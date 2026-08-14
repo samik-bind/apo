@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportDeprecated=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUntypedFunctionDecorator=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedParameter=false
 
 """Fixture corpus loader and contract validation for OTLP tracing.
 
@@ -56,7 +56,7 @@ class TestFixtureStructure:
     def test_at_least_one_fixture_exists(self, all_fixtures):
         assert len(all_fixtures) >= 5, "Expected at least 5 OTLP fixtures"
 
-    @pytest.mark.parametrize(
+    @pytest.mark.parametrize(  # pyright: ignore[reportCallIssue]
         "name,fixture",
         [(f[0], f[1]) for f in _all_fixtures()],
         ids=[f[0] for f in _all_fixtures()],
@@ -65,7 +65,7 @@ class TestFixtureStructure:
         for field in ("description", "source", "input", "expected"):
             assert field in fixture, f"{name}: missing required field '{field}'"
 
-    @pytest.mark.parametrize(
+    @pytest.mark.parametrize(  # pyright: ignore[reportCallIssue]
         "name,fixture",
         [(f[0], f[1]) for f in _all_fixtures()],
         ids=[f[0] for f in _all_fixtures()],
@@ -77,7 +77,7 @@ class TestFixtureStructure:
         assert isinstance(resource_spans, list)
         assert len(resource_spans) > 0
 
-    @pytest.mark.parametrize(
+    @pytest.mark.parametrize(  # pyright: ignore[reportCallIssue]
         "name,fixture",
         [(f[0], f[1]) for f in _all_fixtures()],
         ids=[f[0] for f in _all_fixtures()],
@@ -93,42 +93,42 @@ class TestFixtureStructure:
 class TestFixtureConsistency:
     """The input and expected projections must be internally consistent."""
 
-    @pytest.mark.parametrize(
+    @pytest.mark.parametrize(  # pyright: ignore[reportCallIssue]
         "name,fixture",
         [(f[0], f[1]) for f in _all_fixtures()],
         ids=[f[0] for f in _all_fixtures()],
     )
     def test_trace_ids_match(self, name: str, fixture: dict[str, object]):
         """All spans in the input must share the same trace_id as the expected."""
-        expected_trace_id = fixture["expected"]["trace_id"]
+        expected_trace_id = fixture["expected"]["trace_id"]  # pyright: ignore[reportIndexIssue]
 
         input_data = fixture["input"]
-        for rs in input_data["resourceSpans"]:
+        for rs in input_data["resourceSpans"]:  # pyright: ignore[reportIndexIssue]
             for ss in rs.get("scopeSpans", []):
                 for span in ss.get("spans", []):
                     assert span["traceId"] == expected_trace_id, (
                         f"{name}: input traceId {span['traceId']} != expected {expected_trace_id}"
                     )
 
-    @pytest.mark.parametrize(
+    @pytest.mark.parametrize(  # pyright: ignore[reportCallIssue]
         "name,fixture",
         [(f[0], f[1]) for f in _all_fixtures()],
         ids=[f[0] for f in _all_fixtures()],
     )
     def test_span_ids_unique(self, name: str, fixture: dict[str, object]):
         """Span IDs within a trace must be unique."""
-        span_ids = [s["span_id"] for s in fixture["expected"]["spans"]]
+        span_ids = [s["span_id"] for s in fixture["expected"]["spans"]]  # pyright: ignore[reportIndexIssue]
         assert len(span_ids) == len(set(span_ids)), f"{name}: duplicate span_ids in expected"
 
-    @pytest.mark.parametrize(
+    @pytest.mark.parametrize(  # pyright: ignore[reportCallIssue]
         "name,fixture",
         [(f[0], f[1]) for f in _all_fixtures()],
         ids=[f[0] for f in _all_fixtures()],
     )
     def test_parent_references_resolve(self, name: str, fixture: dict[str, object]):
         """Every parent_span_id in the expected projection must reference another span."""
-        span_ids = {s["span_id"] for s in fixture["expected"]["spans"]}
-        for span in fixture["expected"]["spans"]:
+        span_ids = {s["span_id"] for s in fixture["expected"]["spans"]}  # pyright: ignore[reportIndexIssue]
+        for span in fixture["expected"]["spans"]:  # pyright: ignore[reportIndexIssue]
             parent = span.get("parent_span_id")
             if parent is not None:
                 assert parent in span_ids, (
@@ -136,14 +136,14 @@ class TestFixtureConsistency:
                     f"which is not in the trace"
                 )
 
-    @pytest.mark.parametrize(
+    @pytest.mark.parametrize(  # pyright: ignore[reportCallIssue]
         "name,fixture",
         [(f[0], f[1]) for f in _all_fixtures()],
         ids=[f[0] for f in _all_fixtures()],
     )
     def test_exactly_one_root(self, name: str, fixture: dict[str, object]):
         """Each trace should have exactly one root span (no parent)."""
-        roots = [s for s in fixture["expected"]["spans"] if s.get("is_root")]
+        roots = [s for s in fixture["expected"]["spans"] if s.get("is_root")]  # pyright: ignore[reportIndexIssue]
         assert len(roots) == 1, f"{name}: expected 1 root span, found {len(roots)}"
 
 
@@ -158,7 +158,7 @@ class TestSpecificFixtures:
         f = _load_fixture("openai-instrumentation")
         assert f["source"] == "openai-instrumentation-v2"
         # Verify content capture attributes are present in the input
-        spans = f["input"]["resourceSpans"][0]["scopeSpans"][0]["spans"]
+        spans = f["input"]["resourceSpans"][0]["scopeSpans"][0]["spans"]  # pyright: ignore[reportIndexIssue]
         attrs = {a["key"] for a in spans[0]["attributes"]}
         assert "gen_ai.input.messages" in attrs
         assert "gen_ai.output.messages" in attrs
@@ -172,7 +172,7 @@ class TestSpecificFixtures:
         assert f.get("edge_case") == "child-before-root"
         # The child must come first in the input
         all_spans = []
-        for rs in f["input"]["resourceSpans"]:
+        for rs in f["input"]["resourceSpans"]:  # pyright: ignore[reportIndexIssue]
             for ss in rs.get("scopeSpans", []):
                 all_spans.extend(ss["spans"])
         assert all_spans[0].get("parentSpanId") is not None
@@ -180,10 +180,10 @@ class TestSpecificFixtures:
     def test_error_status_fixture_exists(self):
         f = _load_fixture("edge-error-status")
         assert f.get("edge_case") == "error-status"
-        spans = f["input"]["resourceSpans"][0]["scopeSpans"][0]["spans"]
+        spans = f["input"]["resourceSpans"][0]["scopeSpans"][0]["spans"]  # pyright: ignore[reportIndexIssue]
         assert spans[0]["status"]["code"] == 2  # ERROR
 
     def test_duplicate_idempotent_fixture_exists(self):
         f = _load_fixture("edge-duplicate-idempotent")
         assert f.get("edge_case") == "duplicate-idempotent"
-        assert f["expected"].get("idempotent") is True
+        assert f["expected"].get("idempotent") is True  # pyright: ignore[reportAttributeAccessIssue]

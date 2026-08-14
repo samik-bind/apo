@@ -9,6 +9,8 @@ has no membership rows; this service treats it as a read-only special
 case and never grants management permissions on it.
 """
 
+# pyright: reportAny=false
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

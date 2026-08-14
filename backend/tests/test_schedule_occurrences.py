@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
+# pyright: reportAny=false, reportMissingParameterType=false, reportUnknownLambdaType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedVariable=false
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
@@ -107,7 +107,7 @@ def _publish_catalog(session, *, tasks: list[str], digest: str = "sha256:catalog
         session.add(
             ProjectTaskInventoryDB(
                 project=_PROJECT, task_source_id=source.id, task_id=task_id,
-                task_inventory_id=task_id, display_name=display, adapter_name="cc",
+                task_inventory_id=task_id, display_name=display, adapter_name="cc",  # pyright: ignore[reportCallIssue]
                 folder_path=folder, task_path=f"tasks/{task_id}", source_type="published",
             )
         )
@@ -155,7 +155,7 @@ def _occurrences(session, schedule_id: str = "sched-1") -> list[AgentTaskSchedul
         session.exec(
             select(AgentTaskScheduleOccurrenceDB)
             .where(AgentTaskScheduleOccurrenceDB.schedule_id == schedule_id)
-            .order_by(AgentTaskScheduleOccurrenceDB.scheduled_for)
+            .order_by(AgentTaskScheduleOccurrenceDB.scheduled_for)  # pyright: ignore[reportArgumentType]
         ).all()
     )
 
@@ -435,7 +435,7 @@ class TestTerminalBatchResolution:
         ).first()
         assert occ is not None and occ.status == "pending"
 
-        mark_occurrence_delivered_on_start(session, batch_run_id=result.batch_run_id, now=_now())
+        mark_occurrence_delivered_on_start(session, batch_run_id=result.batch_run_id, now=_now())  # pyright: ignore[reportArgumentType]
 
         session.refresh(occ)
         assert occ.status == "delivered"

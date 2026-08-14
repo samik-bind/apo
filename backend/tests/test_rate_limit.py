@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false
+# pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnusedFunction=false
 
 import time
 from unittest.mock import patch

@@ -1,3 +1,5 @@
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportDeprecated=false, reportImplicitStringConcatenation=false
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request

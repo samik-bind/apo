@@ -8,6 +8,8 @@ is the earliest next-run across all its task states.
 
 """
 
+# pyright: reportUnknownVariableType=false
+
 import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError

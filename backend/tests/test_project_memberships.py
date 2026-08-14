@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false
+# pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnknownMemberType=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedParameter=false
 
 """Tests for project-scoped admins and membership."""
 
@@ -112,8 +112,8 @@ class TestRequireProjectRole:
             require_project_role(
                 session, project.id, member.id, minimum_role="admin"
             )
-        assert exc.value.status_code == 403
-        assert "admin" in exc.value.detail
+        assert exc.value.status_code == 403  # pyright: ignore[reportAttributeAccessIssue]
+        assert "admin" in exc.value.detail  # pyright: ignore[reportAttributeAccessIssue]
 
     def test_non_member_rejected(self, session: Session) -> None:
         owner = _make_user(session, "owner@test.com")
@@ -126,7 +126,7 @@ class TestRequireProjectRole:
             require_project_member(session, "proj-does-not-exist", other.id)
         # project exists check happens at the route layer; at service
         # layer we just see no membership.
-        assert exc.value.status_code == 403
+        assert exc.value.status_code == 403  # pyright: ignore[reportAttributeAccessIssue]
 
     def test_demo_returns_synthetic_member(self, session: Session) -> None:
         user = _make_user(session, "demo-user@test.com")
@@ -144,7 +144,7 @@ class TestRequireProjectRole:
             require_project_role(
                 session, DEMO_PROJECT_ID, user.id, minimum_role="admin"
             )
-        assert exc.value.status_code == 403
+        assert exc.value.status_code == 403  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class TestComputePermissions:
@@ -196,8 +196,8 @@ class TestLastOwnerProtection:
                 actor_id=owner.id,
                 actor_role="owner",
             )
-        assert exc.value.status_code == 400
-        assert "last owner" in exc.value.detail.lower()
+        assert exc.value.status_code == 400  # pyright: ignore[reportAttributeAccessIssue]
+        assert "last owner" in exc.value.detail.lower()  # pyright: ignore[reportAttributeAccessIssue]
 
     def test_can_demote_owner_when_others_exist(self, session: Session) -> None:
         owner1 = _make_user(session, "owner1@test.com")
@@ -265,7 +265,7 @@ class TestAdminCannotPromoteToOwner:
                 actor_id=admin.id,
                 actor_role="admin",
             )
-        assert exc.value.status_code == 403
+        assert exc.value.status_code == 403  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class TestAddMember:
@@ -307,7 +307,7 @@ class TestAddMember:
                 role="member",
                 actor_role="owner",
             )
-        assert exc.value.status_code == 409
+        assert exc.value.status_code == 409  # pyright: ignore[reportAttributeAccessIssue]
 
     def test_unknown_email_rejected(self, session: Session) -> None:
         owner = _make_user(session, "owner@test.com")
@@ -323,7 +323,7 @@ class TestAddMember:
                 role="member",
                 actor_role="owner",
             )
-        assert exc.value.status_code == 404
+        assert exc.value.status_code == 404  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class TestLegacyFallback:

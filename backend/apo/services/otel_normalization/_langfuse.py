@@ -14,6 +14,8 @@ Langfuse as the last fallback instead — for a span carrying both `gen_ai.*` an
 `langfuse.*`, the established convention keeps its well-tested extraction.
 """
 
+# pyright: reportExplicitAny=false
+
 from __future__ import annotations
 
 from typing import Any

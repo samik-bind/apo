@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportExplicitAny=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnknownLambdaType=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUntypedFunctionDecorator=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false, reportMissingTypeArgument=false, reportArgumentType=false
+# pyright: reportAny=false, reportArgumentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportExplicitAny=false, reportMissingParameterType=false, reportMissingTypeArgument=false, reportReturnType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUntypedFunctionDecorator=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 """Execution_pools — Pool CRUD, default Pool, ProjectActor."""
 
@@ -104,4 +104,4 @@ def test_set_default_pool_validates_ownership(session: Session) -> None:
         set_default_pool(session, project_id="proj-b", pool_id=pool_a.id)
     set_default_pool(session, project_id="proj-a", pool_id=pool_a.id)
     session.refresh(session.get(ProjectDB, "proj-a"))  # type: ignore[arg-type]
-    assert session.get(ProjectDB, "proj-a").default_executor_pool_id == pool_a.id  # type: ignore[union-attr]
+    assert session.get(ProjectDB, "proj-a").default_executor_pool_id == pool_a.id  # type: ignore[union-attr]  # pyright: ignore[reportOptionalMemberAccess]

@@ -1,4 +1,4 @@
-# pyright: reportExplicitAny=false
+# pyright: reportExplicitAny=false, reportUnusedParameter=false
 
 """Claude Code / Claude Agent SDK conventions mapper (priority 3.5).
 

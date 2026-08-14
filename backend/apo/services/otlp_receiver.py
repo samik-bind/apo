@@ -11,6 +11,8 @@ gzip, returns standard OTLP responses, and is idempotent by
 ``(project_id, trace_id, span_id)``.
 """
 
+# pyright: reportAny=false, reportExplicitAny=false, reportUnannotatedClassAttribute=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedParameter=false
+
 from __future__ import annotations
 
 import base64

@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownLambdaType=false, reportUnknownVariableType=false, reportUnknownMemberType=false, reportCallIssue=false, reportAttributeAccessIssue=false, reportReturnType=false
+# pyright: reportAny=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportMissingParameterType=false, reportPrivateUsage=false, reportReturnType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUntypedFunctionDecorator=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedParameter=false
 
 """Provider usage normalization.
 
@@ -61,7 +61,7 @@ def test_normalize_fixture_matches_expected(name: str, fixture: dict[str, object
     attrs = fixture["input"]
     provider = fixture.get("provider")
     expected = fixture["expected"]
-    result = normalize_usage(attrs if isinstance(attrs, dict) else {}, provider)  # type: ignore[arg-type]
+    result = normalize_usage(attrs if isinstance(attrs, dict) else {}, provider)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
     assert result == expected, f"{name}: normalized map mismatch"
 
 
@@ -73,7 +73,7 @@ def test_normalize_fixture_matches_expected(name: str, fixture: dict[str, object
 def test_non_overlap_invariant(name: str, fixture: dict[str, object]) -> None:
     attrs = fixture["input"]
     provider = fixture.get("provider")
-    result = normalize_usage(attrs if isinstance(attrs, dict) else {}, provider)  # type: ignore[arg-type]
+    result = normalize_usage(attrs if isinstance(attrs, dict) else {}, provider)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
     _assert_non_overlap(result)
 
 

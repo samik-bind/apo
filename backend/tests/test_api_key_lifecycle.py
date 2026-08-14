@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportAttributeAccessIssue=false, reportArgumentType=false
+# pyright: reportAny=false, reportArgumentType=false, reportAttributeAccessIssue=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnknownMemberType=false, reportUnusedCallResult=false, reportUnusedParameter=false
 """
 Tests for API key lifecycle: last_used_at, expires_at, scopes, rotation.
 

@@ -17,6 +17,8 @@ Storage placement never changes product meaning: a large JSON Deliverable
 stored as an object is still a JSON Deliverable, not an Artifact.
 """
 
+# pyright: reportAny=false, reportImplicitStringConcatenation=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnusedCallResult=false
+
 from __future__ import annotations
 
 import gzip

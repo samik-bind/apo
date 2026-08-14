@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
+# pyright: reportAny=false, reportImplicitOverride=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedParameter=false, reportUnusedVariable=false
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
@@ -126,7 +126,7 @@ class TestResultSubmitPersistsDeliverableRows:
 
                 # Hot row does NOT carry the blob
                 run = s.get(AgentTaskRunDB, "run-deliv")
-                assert run.deliverables_json is None
+                assert run.deliverables_json is None  # pyright: ignore[reportOptionalMemberAccess]
         finally:
             app.dependency_overrides.clear()
 
@@ -163,7 +163,7 @@ class TestResultSubmitPersistsDeliverableRows:
                 assert rows[0].size_bytes > 64 * 1024
 
                 run = s.get(AgentTaskRunDB, "run-deliv")
-                assert run.deliverables_json is None
+                assert run.deliverables_json is None  # pyright: ignore[reportOptionalMemberAccess]
         finally:
             app.dependency_overrides.clear()
 
@@ -400,7 +400,7 @@ class TestProtocolV2UploadToDownload:
 
                 async def _read_body():
                     chunks = []
-                    async for chunk in store.open(row.storage_key):
+                    async for chunk in store.open(row.storage_key):  # pyright: ignore[reportArgumentType]
                         chunks.append(chunk)
                     return b"".join(chunks)
 
@@ -410,8 +410,8 @@ class TestProtocolV2UploadToDownload:
             # 6. Verify the task run is terminal.
             with Session(engine) as s:
                 run = s.get(AgentTaskRunDB, "run-deliv")
-                assert run.status == "passed"
-                assert run.deliverables_json is None
+                assert run.status == "passed"  # pyright: ignore[reportOptionalMemberAccess]
+                assert run.deliverables_json is None  # pyright: ignore[reportOptionalMemberAccess]
         finally:
             app.dependency_overrides.clear()
 
@@ -436,7 +436,7 @@ class TestTaskRunFence:
             jwt = _seed_leased_attempt(s)
             # Terminalize the run before attempting upload.
             run = s.get(AgentTaskRunDB, "run-deliv")
-            run.status = "passed"
+            run.status = "passed"  # pyright: ignore[reportOptionalMemberAccess]
             s.add(run)
             s.commit()
         c = _client(engine)
@@ -483,7 +483,7 @@ class TestTaskRunFence:
             # The run must still be non-terminal (result was rejected).
             with Session(engine) as s:
                 run = s.get(AgentTaskRunDB, "run-deliv")
-                assert run.status == "running"
+                assert run.status == "running"  # pyright: ignore[reportOptionalMemberAccess]
         finally:
             app.dependency_overrides.clear()
 
@@ -508,7 +508,7 @@ class TestTaskRunFence:
 
             with Session(engine) as s:
                 run = s.get(AgentTaskRunDB, "run-deliv")
-                assert run.status == "error"
+                assert run.status == "error"  # pyright: ignore[reportOptionalMemberAccess]
                 # Ready artifact is still there.
                 from apo.services.agent_task_deliverables import load_deliverable_for_download
                 row = load_deliverable_for_download(s, project="p1", deliverable_id="dlv_evidence")

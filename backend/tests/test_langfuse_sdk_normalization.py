@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false
+# pyright: reportAny=false, reportDeprecated=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedParameter=false
 
 """Spans emitted directly by the Langfuse SDK (`@langfuse/tracing`).
 
@@ -179,7 +179,7 @@ def test_plain_text_payload_has_no_parse_error():
         _span({**SIM_USER_ATTRS, "langfuse.observation.output": "just a string"})
     )
     assert result.output == {"text": "just a string"}
-    assert "parse_error" not in result.output
+    assert "parse_error" not in result.output  # pyright: ignore[reportOperatorIssue]
 
 
 # --- projection: the layer where the payload was actually being lost ----------
@@ -241,7 +241,7 @@ def test_projected_row_carries_the_payload_not_an_empty_dict(clean_db):
         assert call.observation_type == "GENERATION"
         assert call.model == "google/gemini-3.1-flash-lite-preview"
         assert call.input != {}
-        assert call.input["systemPrompt"].startswith("You are simulating a user")
+        assert call.input["systemPrompt"].startswith("You are simulating a user")  # pyright: ignore[reportIndexIssue, reportCallIssue, reportAttributeAccessIssue, reportArgumentType]
         assert call.output == {"response": "Yes, do all of that."}
         assert call.prompt_tokens == 1200
         assert call.completion_tokens == 34

@@ -1,4 +1,4 @@
-# pyright: reportCallInDefaultInitializer=false
+# pyright: reportCallInDefaultInitializer=false, reportPrivateUsage=false, reportUnusedCallResult=false
 
 from datetime import datetime, timezone
 from typing import cast

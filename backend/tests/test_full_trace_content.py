@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
+# pyright: reportAny=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedParameter=false
 # pyright: reportAttributeAccessIssue=false
 
 """Always store full Trace Content.

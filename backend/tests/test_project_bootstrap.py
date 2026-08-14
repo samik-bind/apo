@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false
+# pyright: reportAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnusedImport=false
 """Tests for POST /v1/projects/bootstrap (first-project creation on a fresh instance).
 
 Solves the chicken-and-egg of `apo login` (needs a project to scope a key to)

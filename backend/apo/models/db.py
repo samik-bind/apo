@@ -1,4 +1,4 @@
-# pyright: reportIncompatibleVariableOverride=false
+# pyright: reportIncompatibleVariableOverride=false, reportUnannotatedClassAttribute=false
 
 from datetime import datetime, timezone
 from typing import ClassVar, final, override

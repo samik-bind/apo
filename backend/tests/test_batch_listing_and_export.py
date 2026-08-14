@@ -68,7 +68,7 @@ def _task_run(
         task_path="/t1",
         adapter_name="claude",
         status=status,
-        project=project,
+        project=project,  # pyright: ignore[reportCallIssue]
         configured_model=model,
         configured_effort=effort,
         total_cost=cost,
@@ -291,9 +291,9 @@ def test_collect_runs_for_export_serializes_run_metrics_calls(session: Session):
 
     data = collect_runs_for_export(session, ["r1"], "p")
     assert len(data) == 1
-    assert data[0]["run"]["id"] == "r1"
-    assert len(data[0]["metrics"]) == 1
-    assert len(data[0]["calls"]) == 1
+    assert data[0]["run"]["id"] == "r1"  # pyright: ignore[reportIndexIssue]
+    assert len(data[0]["metrics"]) == 1  # pyright: ignore[reportArgumentType]
+    assert len(data[0]["calls"]) == 1  # pyright: ignore[reportArgumentType]
 
 
 def test_collect_runs_for_export_skips_unknown_ids(session: Session):
@@ -302,7 +302,7 @@ def test_collect_runs_for_export_skips_unknown_ids(session: Session):
 
     data = collect_runs_for_export(session, ["r1", "nonexistent"], "p")
     assert len(data) == 1
-    assert data[0]["run"]["id"] == "r1"
+    assert data[0]["run"]["id"] == "r1"  # pyright: ignore[reportIndexIssue]
 
 
 def test_collect_runs_for_export_respects_project_scope(session: Session):
@@ -312,7 +312,7 @@ def test_collect_runs_for_export_respects_project_scope(session: Session):
 
     data = collect_runs_for_export(session, ["r1", "r2"], "proj-a")
     assert len(data) == 1
-    assert data[0]["run"]["id"] == "r1"
+    assert data[0]["run"]["id"] == "r1"  # pyright: ignore[reportIndexIssue]
 
 
 if __name__ == "__main__":

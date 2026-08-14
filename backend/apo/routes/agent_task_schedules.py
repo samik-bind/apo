@@ -2,7 +2,7 @@
 Agent task schedule API endpoints.
 """
 
-# pyright: reportCallInDefaultInitializer=false
+# pyright: reportCallInDefaultInitializer=false, reportUnusedCallResult=false
 
 from datetime import datetime, timezone
 from typing import Literal, cast

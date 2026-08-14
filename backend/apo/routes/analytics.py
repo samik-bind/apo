@@ -5,7 +5,7 @@ Provides structured query endpoints for traces and observations with filtering,
 aggregation, and analytics capabilities.
 """
 
-# pyright: reportCallInDefaultInitializer=false, reportDeprecated=false, reportAny=false
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportDeprecated=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnnecessaryComparison=false, reportUnusedCallResult=false
 
 from datetime import datetime
 from typing import Any, cast

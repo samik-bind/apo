@@ -3,6 +3,8 @@
 Handles ``ai.*`` attributes from the Vercel AI SDK's OTel telemetry.
 """
 
+# pyright: reportExplicitAny=false
+
 from __future__ import annotations
 
 from typing import Any

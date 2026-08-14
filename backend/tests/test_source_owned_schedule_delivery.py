@@ -1,4 +1,4 @@
-# pyright: reportUnusedImport=false, reportUnusedCallResult=false, reportAny=false
+# pyright: reportAny=false, reportImplicitOverride=false, reportMissingParameterType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUnusedImport=false, reportUnusedParameter=false
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
@@ -77,7 +77,7 @@ def _seed_source_owned_schedule(engine) -> str:
             session.add(
                 ProjectTaskInventoryDB(
                     project=_PROJECT, task_source_id=source.id, task_id=tid,
-                    task_inventory_id=tid, display_name=display, adapter_name="cc",
+                    task_inventory_id=tid, display_name=display, adapter_name="cc",  # pyright: ignore[reportCallIssue]
                     folder_path="support", task_path=f"tasks/{tid}", source_type="published",
                 )
             )
@@ -117,18 +117,18 @@ def test_run_due_schedules_once_creates_occurrence_and_source_owned_batch(bound_
         from apo.models.db import AgentTaskBatchRunDB
 
         batch = session.get(AgentTaskBatchRunDB, occs[0].batch_run_id)
-        assert batch.execution_target_json == {"kind": "source_owned"}
-        assert batch.requested_by_user_id == owner_id
+        assert batch.execution_target_json == {"kind": "source_owned"}  # pyright: ignore[reportOptionalMemberAccess]
+        assert batch.requested_by_user_id == owner_id  # pyright: ignore[reportOptionalMemberAccess]
         runs = list(
             session.exec(
-                select(AgentTaskRunDB).where(AgentTaskRunDB.batch_run_id == batch.id)
+                select(AgentTaskRunDB).where(AgentTaskRunDB.batch_run_id == batch.id)  # pyright: ignore[reportOptionalMemberAccess]
             ).all()
         )
         assert [r.sequence_index for r in runs] == [0, 1]
         attempts = list(
             session.exec(
                 select(TaskExecutionAttemptDB).where(
-                    TaskExecutionAttemptDB.batch_run_id == batch.id
+                    TaskExecutionAttemptDB.batch_run_id == batch.id  # pyright: ignore[reportOptionalMemberAccess]
                 )
             ).all()
         )
@@ -136,11 +136,11 @@ def test_run_due_schedules_once_creates_occurrence_and_source_owned_batch(bound_
         assert all(a.assignment_kind == "source_owned" for a in attempts)
 
         schedule = session.get(AgentTaskScheduleDB, "sched-1")
-        assert schedule.active_batch_run_id == batch.id
-        assert schedule.next_run_at is not None
+        assert schedule.active_batch_run_id == batch.id  # pyright: ignore[reportOptionalMemberAccess]
+        assert schedule.next_run_at is not None  # pyright: ignore[reportOptionalMemberAccess]
         # next_run_at round-trips through SQLite naive (UTC implied); compare
         # as UTC so the next cadence is provably in the future.
-        next_run = schedule.next_run_at
+        next_run = schedule.next_run_at  # pyright: ignore[reportOptionalMemberAccess]
         if next_run.tzinfo is None:
             next_run = next_run.replace(tzinfo=timezone.utc)
         assert next_run > _now()
@@ -204,7 +204,7 @@ def _seed_catalog(engine) -> None:
             session.add(
                 ProjectTaskInventoryDB(
                     project=_PROJECT, task_source_id=source.id, task_id=tid,
-                    task_inventory_id=tid, display_name=display, adapter_name="cc",
+                    task_inventory_id=tid, display_name=display, adapter_name="cc",  # pyright: ignore[reportCallIssue]
                     folder_path="support", task_path=f"tasks/{tid}", source_type="published",
                 )
             )
