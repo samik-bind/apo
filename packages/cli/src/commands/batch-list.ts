@@ -29,12 +29,15 @@ export async function run(argv: string[]): Promise<number> {
 
   let batches: BatchSummary[];
   try {
-    batches = await apiGet<BatchSummary[]>(
+    // The backend returns a paginated payload ({data: [...], total_count, ...});
+    // older deployments answered with a bare array. Accept both.
+    const payload = await apiGet<BatchSummary[] | { data: BatchSummary[] }>(
       config.backendUrl,
       "/v1/agent-task-batch-runs",
       params,
       config,
     );
+    batches = Array.isArray(payload) ? payload : payload.data;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.startsWith("Backend error")) {

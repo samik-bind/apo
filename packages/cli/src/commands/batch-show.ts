@@ -119,12 +119,12 @@ async function resolveBatchIdByPrefix(
   const params: Record<string, string> = {};
   if (config.projectId) params.project = config.projectId;
 
-  const batches = await apiGet<Array<{ id: string }>>(
-    backendUrl,
-    "/v1/agent-task-batch-runs",
-    params,
-    config,
-  );
+  // The backend returns a paginated payload ({data: [...]}); accept a bare
+  // array from older deployments too.
+  const payload = await apiGet<
+    Array<{ id: string }> | { data: Array<{ id: string }> }
+  >(backendUrl, "/v1/agent-task-batch-runs", params, config);
+  const batches = Array.isArray(payload) ? payload : payload.data;
   const result = findByPrefix(batches, prefix, (b) => b.id);
   if (result.status === "none") {
     throw new Error(`Backend error 404: {"detail":"Batch run not found"}`);
