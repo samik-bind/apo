@@ -3,6 +3,10 @@
 Thin wrapper around the generic Broadcaster that adds trace-specific event
 types and convenience methods. The SSE plumbing (queues, locks, listener
 management, disconnect cleanup) lives once in Broadcaster.
+
+SPEC-178 §SSE channel identity: channels are keyed by
+``(project_id, trace_id)`` — public OTel trace IDs are client-generated and
+can collide across Projects, so the trace ID alone is never a channel key.
 """
 
 from __future__ import annotations
@@ -13,6 +17,9 @@ from datetime import datetime, timezone
 
 from .broadcaster import Broadcaster
 from .sse import format_sse_event
+
+# (project_id, trace_id) — the Project-qualified live channel identity.
+TraceChannelKey = tuple[str, str]
 
 
 class TraceEvent:
@@ -50,44 +57,55 @@ class TraceEvent:
 class TraceBroadcaster:
     """Broadcasts trace events to connected SSE clients.
 
-    Wraps a generic Broadcaster[str], delegating subscribe/publish/cleanup
-    to it and adding only trace-event formatting and convenience methods.
+    Wraps a generic ``Broadcaster[TraceChannelKey]``, delegating
+    subscribe/publish/cleanup to it and adding only trace-event formatting
+    and convenience methods. Every channel is Project-qualified: an event
+    published for ``(A, trace)`` never reaches a subscriber of
+    ``(B, trace)`` even when both Projects share the public trace ID.
     """
 
     def __init__(self) -> None:
-        self._inner: Broadcaster[str] = Broadcaster()
+        self._inner: Broadcaster[TraceChannelKey] = Broadcaster()
 
-    def subscribe(self, trace_id: str) -> AsyncIterator[str]:
-        """Subscribe to SSE events for a specific trace.
+    def subscribe(self, project_id: str, trace_id: str) -> AsyncIterator[str]:
+        """Subscribe to SSE events for one Project's trace.
 
         Yields pre-formatted SSE message strings. Automatically cleaned up
         on disconnect.
         """
-        return self._inner.subscribe(trace_id)
+        return self._inner.subscribe((project_id, trace_id))
 
-    async def publish(self, trace_id: str, event: TraceEvent) -> None:
-        """Publish a trace event to all subscribers of a trace."""
-        await self._inner.publish(trace_id, event.to_sse_format())
+    async def publish(self, project_id: str, trace_id: str, event: TraceEvent) -> None:
+        """Publish a trace event to all subscribers of a Project's trace."""
+        await self._inner.publish((project_id, trace_id), event.to_sse_format())
 
-    async def broadcast_trace_created(self, trace_id: str, data: dict[str, object]) -> None:
+    async def broadcast_trace_created(
+        self, project_id: str, trace_id: str, data: dict[str, object]
+    ) -> None:
         """Broadcast a trace:created event."""
-        await self.publish(trace_id, TraceEvent("trace:created", trace_id, data))
+        await self.publish(project_id, trace_id, TraceEvent("trace:created", trace_id, data))
 
-    async def broadcast_span_created(self, trace_id: str, data: dict[str, object]) -> None:
+    async def broadcast_span_created(
+        self, project_id: str, trace_id: str, data: dict[str, object]
+    ) -> None:
         """Broadcast a span:created event."""
-        await self.publish(trace_id, TraceEvent("span:created", trace_id, data))
+        await self.publish(project_id, trace_id, TraceEvent("span:created", trace_id, data))
 
-    async def broadcast_span_updated(self, trace_id: str, data: dict[str, object]) -> None:
+    async def broadcast_span_updated(
+        self, project_id: str, trace_id: str, data: dict[str, object]
+    ) -> None:
         """Broadcast a span:updated event."""
-        await self.publish(trace_id, TraceEvent("span:updated", trace_id, data))
+        await self.publish(project_id, trace_id, TraceEvent("span:updated", trace_id, data))
 
-    async def broadcast_trace_completed(self, trace_id: str, data: dict[str, object]) -> None:
+    async def broadcast_trace_completed(
+        self, project_id: str, trace_id: str, data: dict[str, object]
+    ) -> None:
         """Broadcast a trace:completed event."""
-        await self.publish(trace_id, TraceEvent("trace:completed", trace_id, data))
+        await self.publish(project_id, trace_id, TraceEvent("trace:completed", trace_id, data))
 
-    async def get_listener_count(self, trace_id: str) -> int:
-        """Get the number of active listeners for a trace."""
-        return await self._inner.get_listener_count(trace_id)
+    async def get_listener_count(self, project_id: str, trace_id: str) -> int:
+        """Get the number of active listeners for a Project's trace."""
+        return await self._inner.get_listener_count((project_id, trace_id))
 
     async def close_all(self) -> None:
         """Close all listener connections."""

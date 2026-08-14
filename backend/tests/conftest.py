@@ -249,6 +249,51 @@ def make_authed_client_fixture():
     return _create
 
 
+@pytest.fixture(name="make_api_key_client")
+def make_api_key_client_fixture():
+    """Factory fixture that creates an API-key TestClient.
+
+    Injects the same request.state attributes the real AuthMiddleware sets
+    for an API-key credential (middleware.py): the key's bound ``project``,
+    the creator's ``user_id``, ``api_key_scope``, and
+    ``auth_method="api_key"``.
+
+    Usage::
+        keyed = make_api_key_client(creator_id, "proj-a", session)
+    """
+
+    def _create(
+        creator_user_id: str,
+        bound_project: str,
+        session: Session,
+        scope: str = "full",
+    ) -> TestClient:
+        class InjectApiKeyMiddleware(BaseHTTPMiddleware):
+            async def dispatch(
+                self,
+                request: Request,
+                call_next: Callable[[Request], Awaitable[Response]],
+            ) -> Response:
+                request.state.user_id = creator_user_id
+                request.state.project = bound_project
+                request.state.auth_method = "api_key"
+                request.state.api_key_scope = scope
+                request.state.api_key_id = "test-key"
+                return await call_next(request)
+
+        new_app = FastAPI()
+        new_app.include_router(app.router)
+        new_app.add_middleware(InjectApiKeyMiddleware)
+
+        def _session_override() -> Session:
+            return session
+
+        new_app.dependency_overrides[get_session] = _session_override
+        return TestClient(new_app)
+
+    return _create
+
+
 def pytest_pyfunc_call(pyfuncitem: Any) -> bool | None:
     test_function = pyfuncitem.obj
     if not inspect.iscoroutinefunction(test_function):

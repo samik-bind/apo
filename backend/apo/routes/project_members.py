@@ -33,8 +33,8 @@ from ..services.project_invitations import (
 )
 from ..services.project_memberships import (
     add_member,
+    enforce_project_role_from_request,
     remove_member,
-    require_project_role,
     serialize_members,
     update_member_role,
 )
@@ -72,10 +72,9 @@ async def list_project_members(
     session: Session = Depends(get_session),
 ) -> list[ProjectMemberSummary]:
     """List all members of a project. Requires admin/owner role."""
-    user_id = _get_user_id(request)
     _ensure_project_exists(session, project_id)
-    actor = require_project_role(
-        session, project_id, user_id, minimum_role="admin"
+    actor = enforce_project_role_from_request(
+        request, session, project_id, minimum_role="admin"
     )
     _ = actor
     return serialize_members(session, project_id)
@@ -97,10 +96,9 @@ async def add_project_member(
     Only owners can add a new owner directly; admins are limited to the
     ``member`` and ``admin`` roles.
     """
-    user_id = _get_user_id(request)
     _ensure_project_exists(session, project_id)
-    actor = require_project_role(
-        session, project_id, user_id, minimum_role="admin"
+    actor = enforce_project_role_from_request(
+        request, session, project_id, minimum_role="admin"
     )
     return add_member(
         session,
@@ -129,8 +127,8 @@ async def update_project_member(
     """
     actor_id = _get_user_id(request)
     _ensure_project_exists(session, project_id)
-    actor = require_project_role(
-        session, project_id, actor_id, minimum_role="admin"
+    actor = enforce_project_role_from_request(
+        request, session, project_id, minimum_role="admin"
     )
     if body.role is None:
         raise HTTPException(status_code=422, detail="role is required")
@@ -157,8 +155,8 @@ async def remove_project_member(
     """
     actor_id = _get_user_id(request)
     _ensure_project_exists(session, project_id)
-    actor = require_project_role(
-        session, project_id, actor_id, minimum_role="admin"
+    actor = enforce_project_role_from_request(
+        request, session, project_id, minimum_role="admin"
     )
     remove_member(
         session,
@@ -186,10 +184,9 @@ async def list_project_invitations(
     session: Session = Depends(get_session),
 ) -> list[ProjectInvitationSummary]:
     """List active pending invitations. Requires admin/owner role."""
-    user_id = _get_user_id(request)
     _ensure_project_exists(session, project_id)
-    actor = require_project_role(
-        session, project_id, user_id, minimum_role="admin"
+    actor = enforce_project_role_from_request(
+        request, session, project_id, minimum_role="admin"
     )
     _ = actor
     return list_pending_invitations(session, project_id=project_id)
@@ -214,8 +211,8 @@ async def create_project_invitation(
     """
     user_id = _get_user_id(request)
     _ensure_project_exists(session, project_id)
-    actor = require_project_role(
-        session, project_id, user_id, minimum_role="admin"
+    actor = enforce_project_role_from_request(
+        request, session, project_id, minimum_role="admin"
     )
     return await create_or_refresh_invitation(
         session,
@@ -237,10 +234,9 @@ async def resend_project_invitation(
     session: Session = Depends(get_session),
 ) -> CreateProjectInvitationResponse:
     """Rotate token + extend expiry on an existing invitation."""
-    user_id = _get_user_id(request)
     _ensure_project_exists(session, project_id)
-    actor = require_project_role(
-        session, project_id, user_id, minimum_role="admin"
+    actor = enforce_project_role_from_request(
+        request, session, project_id, minimum_role="admin"
     )
     _ = actor
     return await resend_invitation(
@@ -259,10 +255,9 @@ async def revoke_project_invitation(
 
     Owner-role invitations may only be revoked by owners.
     """
-    user_id = _get_user_id(request)
     _ensure_project_exists(session, project_id)
-    actor = require_project_role(
-        session, project_id, user_id, minimum_role="admin"
+    actor = enforce_project_role_from_request(
+        request, session, project_id, minimum_role="admin"
     )
     revoke_invitation(
         session,

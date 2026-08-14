@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass
+from typing import Any, cast
 import pytest
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -30,6 +31,20 @@ class _DirectResponse:
         return self.payload
 
 
+def _direct_request() -> Any:
+    """A minimal starlette Request for direct handler calls (no credential).
+
+    An empty ``scope["state"]`` means no ``user_id`` — the dev-profile
+    legacy-owner fallback applies, matching the original pre-SPEC-178
+    direct-call semantics of these tests.
+    """
+    from starlette.requests import Request as StarletteRequest
+
+    return StarletteRequest(
+        {"type": "http", "method": "GET", "headers": [], "state": {}}
+    )
+
+
 class _AnalyticsClient:
     def __init__(self, session: Session):
         self._session = session
@@ -37,13 +52,14 @@ class _AnalyticsClient:
     def post(self, url: str, *, json: dict[str, object]) -> _DirectResponse:
         if url == "/api/v1/traces/search":
             payload = asyncio.run(
-                search_traces(TraceFilter.model_validate(json), self._session)
+                search_traces(_direct_request(), TraceFilter.model_validate(json), self._session)
             )
             return _DirectResponse(200, payload.model_dump(mode="json"))
 
         if url == "/api/v1/observations/search":
             payload = asyncio.run(
                 search_observations(
+                    _direct_request(),
                     ObservationFilter.model_validate(json),
                     self._session,
                 )
@@ -52,7 +68,7 @@ class _AnalyticsClient:
 
         if url == "/api/v1/metrics/query":
             payload = asyncio.run(
-                query_metrics(MetricsQuery.model_validate(json), self._session)
+                query_metrics(_direct_request(), MetricsQuery.model_validate(json), self._session)
             )
             return _DirectResponse(
                 200,
@@ -70,7 +86,7 @@ class _AnalyticsClient:
         project = str(params["project"])
         if url == "/api/v1/metrics/models":
             payload = asyncio.run(
-                get_model_metrics(project=project, environment=None, session=self._session)
+                get_model_metrics(_direct_request(), project=project, environment=None, session=self._session)
             )
             return _DirectResponse(
                 200,
@@ -80,6 +96,7 @@ class _AnalyticsClient:
         if url == "/api/v1/metrics/summary":
             payload = asyncio.run(
                 get_project_summary(
+                    _direct_request(),
                     project=project,
                     environment=None,
                     session=self._session,
@@ -141,7 +158,7 @@ def _create_call(
         run_id=run_id,
         model=model,
         latency_ms=latency_ms,
-        cost=cost,
+        cost=cast("int | None", cost),  # runtime keeps the float; model column is int-typed
         observation_type=observation_type,
         level=level,
         environment=environment,

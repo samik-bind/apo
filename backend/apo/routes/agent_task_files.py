@@ -9,7 +9,6 @@ Provides endpoints for browsing and reading task source files
 
 import os
 from pathlib import Path
-from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -24,7 +23,7 @@ from ..services.project_task_source_sync import (
     resolve_inventory_task_dir,
 )
 from ..services.project_task_sources import DEMO_PROJECT_ID, get_task_source_db
-from ..services.project_memberships import require_project_member
+from ..services.project_memberships import enforce_project_read_from_request
 
 router = APIRouter(prefix="/v1", tags=["agent-tasks"])
 
@@ -80,13 +79,6 @@ def _detect_language(extension: str) -> str:
     return EXTENSION_LANGUAGE_MAP.get(extension.lower(), "text")
 
 
-def _get_user_id(request: Request) -> str:
-    user_id = cast(str | None, getattr(request.state, "user_id", None))
-    if user_id:
-        return user_id
-    raise HTTPException(status_code=401, detail="Authentication required")
-
-
 def _load_project_for_request(
     session: Session,
     project_id: str,
@@ -97,8 +89,9 @@ def _load_project_for_request(
         raise HTTPException(status_code=404, detail="Project not found")
     if project_id == DEMO_PROJECT_ID:
         return project
-    user_id = _get_user_id(request)
-    require_project_member(session, project_id, user_id)
+    # SPEC-178: canonical credential-aware guard — an API key is limited
+    # to its bound Project even when its creator is a member elsewhere.
+    enforce_project_read_from_request(request, session, project_id)
     return project
 
 

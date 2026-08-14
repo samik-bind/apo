@@ -23,7 +23,7 @@ from ..auth.api_key_cache import (
 from ..auth.deps import require_api_key_scope
 from ..auth.rate_limit import LoginRateLimiter
 from ..db import get_session
-from ..models.db import ApiKeyDB, UserDB
+from ..models.db import ApiKeyDB, ProjectDB, UserDB
 from ..models.schemas import (
     ApiKeyBootstrapRequest,
     ApiKeyCreate,
@@ -33,7 +33,9 @@ from ..models.schemas import (
 )
 from ..services.demo_workspace import require_project_not_demo
 from ..services.project_memberships import (
-    require_project_role_or_legacy,
+    enforce_project_role_from_request,
+    list_projects_with_minimum_role,
+    readable_project_ids_for_request,
     require_project_role_strict,
 )
 
@@ -155,13 +157,14 @@ def create_api_key(
     expires_at = _parse_expires_at(body.expires_at)
 
     require_project_not_demo(body.project)
-    # API key creation requires admin role on the project.
-    # Issue #11: use the STRICT check — minting a key scoped to a
-    # nonexistent project would let any admin mint a ghost-scoped key.
-    # Real projects created through `POST /v1/projects` (or the
-    # dashboard) always pass this check.
-    _ = require_project_role_strict(
-        session, body.project, user_id, minimum_role="admin"
+    # SPEC-178: API-key creation requires admin role on the target Project
+    # through the canonical credential-aware guard (Issue #11 strictness is
+    # preserved by the explicit existence check — no ghost-scoped keys, and
+    # a key bound to Project A can never mint keys for Project B).
+    if session.get(ProjectDB, body.project) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    enforce_project_role_from_request(
+        request, session, body.project, minimum_role="admin"
     )
 
     public_key, secret_key, hashed_secret_key, display_secret_key = generate_key_pair()
@@ -214,38 +217,46 @@ def list_api_keys(
     # API key inventory is admin-scoped per the spec ("API
     # keys are managed by project admins/owners"). Ordinary members
     # must not enumerate keys for a project, even read-only.
-    from ..services.project_memberships import (
-        list_projects_with_minimum_role,
-        require_project_role_or_legacy,
-    )
 
     if project:
-        # Project-scoped query: caller must be admin/owner (or legacy
-        # owner of an ad-hoc project) to see any keys at all.
-        _ = require_project_role_or_legacy(
-            session, project, user_id, minimum_role="admin"
+        # Project-scoped query: caller must be admin/owner of that exact
+        # Project. SPEC-178: the canonical guard also enforces API-key
+        # Project binding — an A-bound key never lists B's keys.
+        enforce_project_role_from_request(
+            request, session, project, minimum_role="admin"
         )
         statement = select(ApiKeyDB).where(
             ApiKeyDB.project == project,
         )
     else:
-        # Unscoped query: only return keys for projects where the user
-        # has admin/owner role, plus any legacy ad-hoc keys they
-        # created directly (no ProjectDB row, no memberships).
+        # Unscoped query: only Projects where the CREDENTIAL has admin
+        # authority. SPEC-178: an API key is limited to its bound Project
+        # (never the creator's other Projects), and a demoted creator
+        # stops seeing keys because membership is intersected.
+        readable = readable_project_ids_for_request(request, session)
         admin_project_ids = set(
             list_projects_with_minimum_role(
                 session, user_id, minimum_role="admin"
             )
         )
-        statement = select(ApiKeyDB)
-        if admin_project_ids:
-            statement = statement.where(
-                (ApiKeyDB.project.in_(admin_project_ids))  # pyright: ignore[reportAttributeAccessIssue]
-                | (ApiKeyDB.created_by == user_id)
-            )
+        if readable is None:
+            # open-dev: legacy behavior — admin Projects plus the user's
+            # own ad-hoc keys (projects without a ProjectDB row).
+            statement = select(ApiKeyDB)
+            if admin_project_ids:
+                statement = statement.where(
+                    (ApiKeyDB.project.in_(admin_project_ids))  # pyright: ignore[reportAttributeAccessIssue]
+                    | (ApiKeyDB.created_by == user_id)
+                )
+            else:
+                # No admin role anywhere — only legacy keys they created.
+                statement = statement.where(ApiKeyDB.created_by == user_id)
         else:
-            # No admin role anywhere — only legacy keys they created.
-            statement = statement.where(ApiKeyDB.created_by == user_id)
+            allowed = admin_project_ids & set(readable)
+            # An empty set must return nothing, not the whole table.
+            statement = select(ApiKeyDB).where(
+                ApiKeyDB.project.in_(allowed)  # pyright: ignore[reportAttributeAccessIssue]
+            )
     keys = session.exec(statement).all()
 
     return [
@@ -285,13 +296,13 @@ def revoke_api_key(
 
     require_project_not_demo(api_key.project)
 
-    # API key revocation requires admin role on the project.
-    # The legacy ``request.state.is_admin`` check was dead code (the
-    # middleware never set that attribute); it is replaced by the
-    # membership check. Legacy projects (no ProjectDB row) tolerate the
-    # creator as implicit owner.
-    membership = require_project_role_or_legacy(
-        session, api_key.project, user_id, minimum_role="admin"
+    # API key revocation requires admin role on the key's Project through
+    # the canonical credential-aware guard (SPEC-178: an A-bound key can
+    # never revoke B's keys even when its creator is a B admin).
+    # Legacy projects (no ProjectDB row) tolerate the creator as implicit
+    # owner via the dev-profile fallback inside the guard.
+    membership = enforce_project_role_from_request(
+        request, session, api_key.project, minimum_role="admin"
     )
     is_legacy = membership.id.startswith("legacy-")
     if api_key.created_by != user_id and is_legacy:
@@ -327,10 +338,10 @@ def rotate_api_key(
 
     require_project_not_demo(api_key.project)
 
-    # API key rotation requires admin role on the project
-    # (replaces dead ``request.state.is_admin`` code path).
-    membership = require_project_role_or_legacy(
-        session, api_key.project, user_id, minimum_role="admin"
+    # API key rotation requires admin role on the key's Project through
+    # the canonical credential-aware guard (SPEC-178 key binding).
+    membership = enforce_project_role_from_request(
+        request, session, api_key.project, minimum_role="admin"
     )
     is_legacy = membership.id.startswith("legacy-")
     if api_key.created_by != user_id and is_legacy:

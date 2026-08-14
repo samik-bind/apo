@@ -602,6 +602,7 @@ def _broadcast_projection(
 
         # Capture everything synchronously — the ORM objects will be detached
         # by the time the async task runs.
+        project = span.project_id
         trace_id = span.trace_id
         has_end_time = span.end_time is not None
         body = _call_sse_body(span, normalized)
@@ -609,14 +610,14 @@ def _broadcast_projection(
         async def _fire() -> None:
             broadcaster = await get_trace_broadcaster()
             if is_root and not run_existed:
-                await broadcaster.broadcast_trace_created(trace_id, {"id": trace_id})
+                await broadcaster.broadcast_trace_created(project, trace_id, {"id": trace_id})
             if is_root and has_end_time:
-                await broadcaster.broadcast_trace_completed(trace_id, {"id": trace_id})
+                await broadcaster.broadcast_trace_completed(project, trace_id, {"id": trace_id})
             if not is_root:
                 if is_new_call:
-                    await broadcaster.broadcast_span_created(trace_id, body)
+                    await broadcaster.broadcast_span_created(project, trace_id, body)
                 else:
-                    await broadcaster.broadcast_span_updated(trace_id, body)
+                    await broadcaster.broadcast_span_updated(project, trace_id, body)
 
         loop.create_task(_fire())
     except Exception:

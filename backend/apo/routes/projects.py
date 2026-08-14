@@ -386,11 +386,13 @@ async def delete_project(
     _project, _role = _load_project_with_role(
         session, project_id, user_id, minimum_role="owner"
     )
-    # remove Task Revision bundle objects BEFORE their rows go, while
-    # their keys are still resolvable (objects live outside the relational DB).
+    # remove stored objects BEFORE their rows go, while their keys are still
+    # resolvable (objects live outside the relational DB).
+    from apo.services.retention import delete_deliverable_objects_for_project
     from apo.services.task_revisions import delete_task_revision_bundles_for_project
 
     await delete_task_revision_bundles_for_project(session, project_id)
+    await delete_deliverable_objects_for_project(session, project_id)
     delete_project_data(
         session,
         project_id,
@@ -608,10 +610,12 @@ async def reset_project_data(
     _project, _role = _load_project_with_role(
         session, project_id, user_id, minimum_role="owner"
     )
-    # remove Task Revision bundle objects BEFORE their rows go.
+    # remove stored objects BEFORE their rows go.
+    from apo.services.retention import delete_deliverable_objects_for_project
     from apo.services.task_revisions import delete_task_revision_bundles_for_project
 
     await delete_task_revision_bundles_for_project(session, project_id)
+    await delete_deliverable_objects_for_project(session, project_id)
 
     deleted_counts = delete_project_data(
         session,
@@ -634,8 +638,13 @@ def get_task_catalog(
     session: Session = Depends(get_session),
 ):
     """Return the project's task catalog status, or null if unpublished."""
+    from ..services.project_memberships import enforce_project_role_from_request
     from ..services.task_catalog import get_catalog_status
 
+    # SPEC-178: member read — the catalog is Project-owned inventory.
+    enforce_project_role_from_request(
+        request, session, project_id, minimum_role="member"
+    )
     return get_catalog_status(session, project_id)
 
 
@@ -646,7 +655,13 @@ async def publish_task_catalog(
     session: Session = Depends(get_session),
 ):
     """Replace the project's task catalog with a new publication."""
+    from ..services.project_memberships import enforce_project_role_from_request
     from ..services.task_catalog import publish_catalog, validate_catalog_request
+
+    # SPEC-178: publication is an admin operation on Project-owned inventory.
+    enforce_project_role_from_request(
+        request, session, project_id, minimum_role="admin"
+    )
 
     body = await request.json()
     tasks = body.get("tasks", [])

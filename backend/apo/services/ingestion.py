@@ -224,7 +224,7 @@ async def process_call_create(body: dict[str, object], session: Session) -> None
     if run_id:
         try:
             broadcaster = await get_trace_broadcaster()
-            await broadcaster.broadcast_span_created(run_id, body)
+            await broadcaster.broadcast_span_created(call.project, run_id, body)
         except Exception:
             pass
 
@@ -327,7 +327,9 @@ async def process_call_update(body: dict[str, object], session: Session) -> None
     if call.run_id:
         try:
             broadcaster = await get_trace_broadcaster()
-            await broadcaster.broadcast_span_updated(call.run_id, {"id": call_id, **body})
+            await broadcaster.broadcast_span_updated(
+                call.project, call.run_id, {"id": call_id, **body}
+            )
         except Exception:
             pass
 

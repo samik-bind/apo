@@ -9,28 +9,40 @@ Supports creating, listing, deleting comments, and toggling emoji reactions.
 import uuid
 from collections.abc import Sequence
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlmodel import Session, select, func
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlmodel import Session, select, func, col
 
 from ..db import get_session
-from ..models.db import CommentDB, CommentReactionDB
+from ..models.db import CommentDB, CommentReactionDB, LoggedCallDB, RunDB
 from ..services.demo_workspace import require_project_not_demo
+from ..services.project_memberships import (
+    authorize_project_request,
+    readable_project_ids_for_request,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["comments"])
 
 
 @router.get("/comments")
 async def list_comments(
+    request: Request,
     object_id: str = Query(...),
     object_type: str = Query(...),
     session: Session = Depends(get_session),
 ) -> list[dict[str, object]]:
     """List all comments for a given object (trace or observation)."""
-    comments = session.exec(
+    # SPEC-178: scope by readable Projects so cross-Project object IDs
+    # do not leak comments from a Project the caller cannot read.
+    readable = readable_project_ids_for_request(request, session)
+    query = (
         select(CommentDB)
         .where(CommentDB.object_id == object_id)
         .where(CommentDB.object_type == object_type)
-        .order_by(CommentDB.created_at.asc())  # type: ignore[union-attr]
+    )
+    if readable is not None:
+        query = query.where(col(CommentDB.project_id).in_(readable))
+    comments = session.exec(
+        query.order_by(CommentDB.created_at.asc())  # type: ignore[union-attr]
     ).all()
 
     result: list[dict[str, object]] = []
@@ -46,6 +58,7 @@ async def list_comments(
 
 @router.post("/comments", status_code=201)
 async def create_comment(
+    request: Request,
     body: dict[str, object],
     session: Session = Depends(get_session),
 ) -> dict[str, object]:
@@ -53,9 +66,6 @@ async def create_comment(
     object_id = body.get("object_id")
     object_type = body.get("object_type")
     content = body.get("content")
-    project_id = body.get("project_id", "")
-
-    require_project_not_demo(str(project_id) if project_id else None)
 
     if not object_id or not object_type or not content:
         raise HTTPException(
@@ -65,6 +75,15 @@ async def create_comment(
 
     if not isinstance(content, str) or not content.strip():
         raise HTTPException(status_code=400, detail="content must not be empty")
+
+    # SPEC-178 scene 25: the Project comes from the TARGET's durable
+    # ownership, never from the body's ``project_id`` — the body value
+    # cannot authorize and cannot re-home the comment into another Project.
+    target_project = _resolve_comment_target_project(
+        session, str(object_type), str(object_id)
+    )
+    authorize_project_request(request, session, target_project)
+    require_project_not_demo(target_project)
 
     mentioned = body.get("mentioned_user_ids")
 
@@ -76,15 +95,27 @@ async def create_comment(
     selection_range_end = body.get("selection_range_end")
     selected_text = body.get("selected_text")
 
+    # Authorship is server-derived; the body's author fields are honored
+    # only in open-dev mode where there is no authenticated identity.
+    state_user_id = getattr(request.state, "user_id", None)
+    author_id = (
+        str(state_user_id)
+        if state_user_id
+        else (str(body.get("author_id", "")) or None)
+    )
+    author_name = (
+        None if state_user_id else (str(body.get("author_name", "")) or None)
+    )
+
     has_selection = bool(selection_field and selection_path)
     comment = CommentDB(
         id=str(uuid.uuid4()),
-        project_id=str(project_id),
+        project_id=target_project,
         object_id=str(object_id),
         object_type=str(object_type),
         content=content.strip(),
-        author_id=str(body.get("author_id", "")) or None,
-        author_name=str(body.get("author_name", "")) or None,
+        author_id=author_id,
+        author_name=author_name,
         parent_comment_id=str(body.get("parent_comment_id", "")) or None,
         mentioned_user_ids=mentioned if isinstance(mentioned, list) else None,  # type: ignore[arg-type]
         selection_field=str(selection_field) if has_selection else None,
@@ -105,17 +136,42 @@ async def create_comment(
 
 @router.delete("/comments/{comment_id}", status_code=204)
 async def delete_comment(
+    request: Request,
     comment_id: str,
     session: Session = Depends(get_session),
 ) -> None:
-    """Delete a comment by ID. Only the author should delete."""
+    """Delete a comment by ID. Only the author or a project admin may delete."""
     comment = session.exec(
         select(CommentDB).where(CommentDB.id == comment_id)
     ).first()
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
 
+    # SPEC-178: enforce membership on the comment's derived Project.
+    try:
+        membership = authorize_project_request(request, session, comment.project_id)
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            raise HTTPException(status_code=404, detail="Comment not found") from exc
+        raise
+
     require_project_not_demo(comment.project_id)
+
+    # SPEC-178 scene 25: author/admin deletion policy. A plain member may
+    # not delete another member's comment. Legacy rows without an author
+    # and open-dev requests (no authenticated identity) stay permissive.
+    request_user_id = getattr(request.state, "user_id", None)
+    is_admin = membership.role in ("admin", "owner")
+    if (
+        comment.author_id
+        and request_user_id
+        and comment.author_id != request_user_id
+        and not is_admin
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the author or a project admin can delete this comment",
+        )
 
     reactions = session.exec(
         select(CommentReactionDB).where(
@@ -134,6 +190,7 @@ async def delete_comment(
 
 @router.post("/comments/{comment_id}/reactions")
 async def toggle_reaction(
+    request: Request,
     comment_id: str,
     body: dict[str, object],
     session: Session = Depends(get_session),
@@ -144,6 +201,14 @@ async def toggle_reaction(
     ).first()
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
+
+    # SPEC-178: enforce membership on the comment's derived Project.
+    try:
+        authorize_project_request(request, session, comment.project_id)
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            raise HTTPException(status_code=404, detail="Comment not found") from exc
+        raise
 
     require_project_not_demo(comment.project_id)
 
@@ -185,6 +250,7 @@ async def toggle_reaction(
 
 @router.get("/comments/counts")
 async def get_comment_counts(
+    request: Request,
     object_ids: str = Query(..., description="Comma-separated object IDs"),
     object_type: str = Query(...),
     session: Session = Depends(get_session),
@@ -194,12 +260,16 @@ async def get_comment_counts(
     if not ids:
         return {}
 
-    rows = session.exec(
+    # SPEC-178: scope by readable Projects.
+    query = (
         select(CommentDB.object_id, func.count())
         .where(CommentDB.object_id.in_(ids))  # type: ignore[union-attr]
         .where(CommentDB.object_type == object_type)
-        .group_by(CommentDB.object_id)
-    ).all()
+    )
+    readable = readable_project_ids_for_request(request, session)
+    if readable is not None:
+        query = query.where(col(CommentDB.project_id).in_(readable))
+    rows = session.exec(query.group_by(CommentDB.object_id)).all()
 
     counts = {oid: 0 for oid in ids}
     for row in rows:
@@ -239,3 +309,32 @@ def _comment_to_dict(
         "created_at": comment.created_at.isoformat() if comment.created_at else None,
         "updated_at": comment.updated_at.isoformat() if comment.updated_at else None,
     }
+
+
+def _resolve_comment_target_project(
+    session: Session, object_type: str, object_id: str
+) -> str:
+    """Derive a comment's Project from its target's durable ownership.
+
+    SPEC-178 scene 25: the body's ``project_id`` is never authority. A
+    ``trace`` comment resolves through ``RunDB``; an ``observation``
+    comment through ``LoggedCallDB``. Unknown types and missing targets
+    are denied (400/404) — fail closed rather than guessing a Project.
+    """
+    if object_type == "trace":
+        run = session.exec(
+            select(RunDB).where(RunDB.id == object_id)
+        ).first()
+        if run is None:
+            raise HTTPException(status_code=404, detail="Trace not found")
+        return run.project
+    if object_type == "observation":
+        call = session.exec(
+            select(LoggedCallDB).where(LoggedCallDB.id == object_id)
+        ).first()
+        if call is None:
+            raise HTTPException(status_code=404, detail="Observation not found")
+        return call.project
+    raise HTTPException(
+        status_code=400, detail="object_type must be 'trace' or 'observation'"
+    )

@@ -16,6 +16,7 @@ from sqlmodel import Session, col, select
 from ..db import get_session
 from ..db_helpers import _as_column
 from ..models.db import LoggedCallDB, RunDB
+from ..services.project_memberships import enforce_project_role_from_request
 from ..services.sse import format_sse_event, sse_streaming_response
 from ..services.trace_broadcaster import get_trace_broadcaster
 
@@ -59,15 +60,22 @@ async def stream_trace_events(
     Returns:
         StreamingResponse with SSE content type
     """
+    # SPEC-178 invariant #7: authorize before any broadcaster access or
+    # initial-event construction. A cross-Project denial returns JSON
+    # 403/404 before the text/event-stream response is created.
+    enforce_project_role_from_request(
+        request, session, project, minimum_role="member"
+    )
+
     broadcaster = await get_trace_broadcaster()
 
     initial_events = _build_initial_events(trace_id, project, session)
 
     return sse_streaming_response(
         request,
-        lambda: broadcaster.subscribe(trace_id),
+        lambda: broadcaster.subscribe(project, trace_id),
         initial_events,
-        log_label=f"TraceSSE {trace_id}",
+        log_label=f"TraceSSE {trace_id}@{project}",
     )
 
 

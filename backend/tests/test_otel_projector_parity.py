@@ -116,7 +116,7 @@ class TestProjectorBroadcasts:
         received = asyncio.Event()
 
         async def capture() -> None:
-            async for msg in broadcaster.subscribe(_TRACE):
+            async for msg in broadcaster.subscribe(_PROJECT, _TRACE):
                 events.append(msg)
                 received.set()
 
@@ -153,7 +153,7 @@ class TestProjectorBroadcasts:
         received = asyncio.Event()
 
         async def capture() -> None:
-            async for msg in broadcaster.subscribe(_TRACE):
+            async for msg in broadcaster.subscribe(_PROJECT, _TRACE):
                 events.append(msg)
                 received.set()
 

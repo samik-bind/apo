@@ -16,9 +16,55 @@ Test cases:
 12. Get comment counts for multiple objects
 13. Get comment counts with empty IDs returns empty
 14. Delete comment also deletes its reactions
+
+SPEC-178: a comment's Project is derived from its target, so every test
+target below is seeded as a real run/observation row in ``proj-1``.
 """
 
+from datetime import datetime, timezone
+
+import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import Session
+
+from apo.models.db import LoggedCallDB, RunDB
+
+
+@pytest.fixture(autouse=True)
+def seed_comment_targets(db_schema) -> None:
+    """Seed the run/observation rows the tests comment on (project proj-1)."""
+    from tests.conftest import engine
+
+    now = datetime.now(timezone.utc)
+    with Session(engine) as session:
+        for run_id in ("trace-1", "trace-2", "obj-1", "nonexistent-run"):
+            session.add(
+                RunDB(
+                    id=run_id,
+                    project="proj-1",
+                    task_id="t1",
+                    flow_name="flow1",
+                    version="1",
+                    created_at=now,
+                )
+            )
+        for call_id in ("obs-1", "obj-1"):
+            session.add(
+                LoggedCallDB(
+                    id=call_id,
+                    project="proj-1",
+                    model="gpt-4",
+                    task_id="t1",
+                    run_id="trace-1",
+                    flow_name="flow1",
+                    created_at=now,
+                    input={},
+                    messages=[],
+                    output={},
+                    step_index=0,
+                )
+            )
+        session.commit()
 
 
 class TestCreateComment:

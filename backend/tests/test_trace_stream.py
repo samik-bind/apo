@@ -55,7 +55,7 @@ def test_subscribe_and_publish():
 
     async def run():
         async def collect():
-            async for evt in broadcaster.subscribe("trace-1"):
+            async for evt in broadcaster.subscribe("proj", "trace-1"):
                 received.append(evt)
                 break
 
@@ -63,7 +63,7 @@ def test_subscribe_and_publish():
         await asyncio.sleep(0.01)
 
         event = TraceEvent(event_type="span:created", trace_id="trace-1", data={"id": "s1"})
-        await broadcaster.publish("trace-1", event)
+        await broadcaster.publish("proj", "trace-1", event)
         await asyncio.sleep(0.01)
         await task
 
@@ -79,7 +79,7 @@ def test_events_isolated_by_trace():
 
     async def run():
         async def collect():
-            async for evt in broadcaster.subscribe("trace-1"):
+            async for evt in broadcaster.subscribe("proj", "trace-1"):
                 received.append(evt)
                 break
 
@@ -87,11 +87,11 @@ def test_events_isolated_by_trace():
         await asyncio.sleep(0.01)
 
         event2 = TraceEvent(event_type="span:created", trace_id="trace-2", data={})
-        await broadcaster.publish("trace-2", event2)
+        await broadcaster.publish("proj", "trace-2", event2)
         await asyncio.sleep(0.01)
 
         event1 = TraceEvent(event_type="span:created", trace_id="trace-1", data={})
-        await broadcaster.publish("trace-1", event1)
+        await broadcaster.publish("proj", "trace-1", event1)
         await asyncio.sleep(0.01)
         await task
 
@@ -108,7 +108,7 @@ def test_multiple_subscribers_same_trace():
 
     async def run():
         async def collect(events_list):
-            async for evt in broadcaster.subscribe("trace-1"):
+            async for evt in broadcaster.subscribe("proj", "trace-1"):
                 events_list.append(evt)
                 break
 
@@ -117,7 +117,7 @@ def test_multiple_subscribers_same_trace():
         await asyncio.sleep(0.01)
 
         event = TraceEvent(event_type="trace:created", trace_id="trace-1", data={"project": "p"})
-        await broadcaster.publish("trace-1", event)
+        await broadcaster.publish("proj", "trace-1", event)
         await asyncio.sleep(0.01)
 
         await asyncio.gather(t1, t2)
@@ -135,7 +135,7 @@ def test_broadcast_convenience_methods():
 
     async def run():
         async def collect():
-            async for evt in broadcaster.subscribe("trace-1"):
+            async for evt in broadcaster.subscribe("proj", "trace-1"):
                 received.append(evt)
                 if len(received) >= 4:
                     break
@@ -143,10 +143,10 @@ def test_broadcast_convenience_methods():
         task = asyncio.create_task(collect())
         await asyncio.sleep(0.01)
 
-        await broadcaster.broadcast_trace_created("trace-1", {"project": "p"})
-        await broadcaster.broadcast_span_created("trace-1", {"span_id": "s1"})
-        await broadcaster.broadcast_span_updated("trace-1", {"span_id": "s1", "status": "done"})
-        await broadcaster.broadcast_trace_completed("trace-1", {"duration_ms": 100})
+        await broadcaster.broadcast_trace_created("proj", "trace-1", {"project": "p"})
+        await broadcaster.broadcast_span_created("proj", "trace-1", {"span_id": "s1"})
+        await broadcaster.broadcast_span_updated("proj", "trace-1", {"span_id": "s1", "status": "done"})
+        await broadcaster.broadcast_trace_completed("proj", "trace-1", {"duration_ms": 100})
         await asyncio.sleep(0.01)
         await task
 
@@ -163,16 +163,16 @@ def test_get_listener_count():
     broadcaster = TraceBroadcaster()
 
     async def run():
-        count = await broadcaster.get_listener_count("trace-1")
+        count = await broadcaster.get_listener_count("proj", "trace-1")
         assert count == 0
 
         async def dummy():
-            async for _ in broadcaster.subscribe("trace-1"):
+            async for _ in broadcaster.subscribe("proj", "trace-1"):
                 await asyncio.sleep(10)
 
         t1 = asyncio.create_task(dummy())
         await asyncio.sleep(0.01)
-        assert await broadcaster.get_listener_count("trace-1") == 1
+        assert await broadcaster.get_listener_count("proj", "trace-1") == 1
 
         t1.cancel()
         try:
@@ -191,18 +191,18 @@ def test_close_all():
         received = []
 
         async def collect():
-            async for evt in broadcaster.subscribe("trace-1"):
+            async for evt in broadcaster.subscribe("proj", "trace-1"):
                 received.append(evt)
 
         task = asyncio.create_task(collect())
         await asyncio.sleep(0.01)
 
-        assert await broadcaster.get_listener_count("trace-1") == 1
+        assert await broadcaster.get_listener_count("proj", "trace-1") == 1
 
         await broadcaster.close_all()
         await asyncio.sleep(0.01)
 
-        assert await broadcaster.get_listener_count("trace-1") == 0
+        assert await broadcaster.get_listener_count("proj", "trace-1") == 0
 
         try:
             await task
@@ -230,12 +230,12 @@ def test_sse_disconnect_cleans_up():
 
     async def run():
         async def subscribe_and_cancel():
-            async for _ in broadcaster.subscribe("trace-1"):
+            async for _ in broadcaster.subscribe("proj", "trace-1"):
                 await asyncio.sleep(10)
 
         task = asyncio.create_task(subscribe_and_cancel())
         await asyncio.sleep(0.01)
-        assert await broadcaster.get_listener_count("trace-1") == 1
+        assert await broadcaster.get_listener_count("proj", "trace-1") == 1
 
         task.cancel()
         try:
@@ -244,6 +244,6 @@ def test_sse_disconnect_cleans_up():
             pass
         await asyncio.sleep(0.01)
 
-        assert await broadcaster.get_listener_count("trace-1") == 0
+        assert await broadcaster.get_listener_count("proj", "trace-1") == 0
 
     asyncio.run(run())

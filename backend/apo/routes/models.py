@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlmodel import Session, col, select
 
 from ..db import get_session
@@ -34,6 +34,10 @@ from ..services.pricing.validation import (
     TierValidationError,
     validate_era_no_overlap,
     validate_model_document,
+)
+from ..services.project_memberships import (
+    enforce_project_read_from_request,
+    enforce_project_role_from_request,
 )
 
 router = APIRouter()
@@ -197,12 +201,17 @@ def _conditions_json(conditions: list[TierCondition]) -> str:
 
 @router.get("/api/v1/models", response_model=list[ModelDocument])
 async def list_models(
+    request: Request,
     project: str = Query(default=GLOBAL_PROJECT),
     effective: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> list[ModelDocument]:
     """List models for a project. With ``effective=true``, merge globals + project
     overrides (project rows shadow globals per match_pattern)."""
+    # SPEC-178: global bundled pricing is authenticated-readable; per-project
+    # overrides require member read.
+    if project != GLOBAL_PROJECT:
+        enforce_project_read_from_request(request, session, project)
     if effective and project != GLOBAL_PROJECT:
         rows = list(
             session.exec(
@@ -223,6 +232,7 @@ async def list_models(
 # See AGENTS.md "Catch-All Routes Are Terminal".
 @router.get("/api/v1/models/match", response_model=MatchResponse)
 async def match_model_route(
+    request: Request,
     model: str = Query(...),
     usage: str = Query(
         default="{}",
@@ -239,6 +249,9 @@ async def match_model_route(
     (dict query params are not supported by FastAPI, so the map is passed as a
     JSON string).
     """
+    # SPEC-178: per-project overrides require member read; globals are open.
+    if project != GLOBAL_PROJECT:
+        enforce_project_read_from_request(request, session, project)
     try:
         usage_map_raw = json.loads(usage) if usage else {}
     except json.JSONDecodeError as exc:
@@ -261,17 +274,22 @@ async def match_model_route(
 
 @router.get("/api/v1/models/{model_id}", response_model=ModelDocument)
 async def get_model(
+    request: Request,
     model_id: int,
     session: Session = Depends(get_session),
 ) -> ModelDocument:
     model = session.get(ModelRowDB, model_id)
     if model is None:
         raise HTTPException(status_code=404, detail="model not found")
+    # SPEC-178: per-project overrides require member read.
+    if model.project != GLOBAL_PROJECT:
+        enforce_project_read_from_request(request, session, model.project)
     return _build_document(session, model)
 
 
 @router.post("/api/v1/models", response_model=ModelDocument, status_code=201)
 async def create_model(
+    http_request: Request,
     request: ModelDocumentCreate,
     session: Session = Depends(get_session),
 ) -> ModelDocument:
@@ -282,6 +300,10 @@ async def create_model(
     """
     if request.project == GLOBAL_PROJECT:
         raise HTTPException(status_code=409, detail=_GLOBAL_WRITE_DETAIL)
+    # SPEC-178: per-project overrides require admin write.
+    enforce_project_role_from_request(
+        http_request, session, request.project, minimum_role="admin"
+    )
     try:
         validate_model_document(request)
         validate_era_no_overlap(
@@ -302,6 +324,7 @@ async def create_model(
 
 @router.put("/api/v1/models/{model_id}", response_model=ModelDocument)
 async def replace_model(
+    http_request: Request,
     model_id: int,
     request: ModelDocumentCreate,
     session: Session = Depends(get_session),
@@ -312,6 +335,17 @@ async def replace_model(
         raise HTTPException(status_code=404, detail="model not found")
     if existing.project == GLOBAL_PROJECT or request.project == GLOBAL_PROJECT:
         raise HTTPException(status_code=409, detail=_GLOBAL_WRITE_DETAIL)
+    # SPEC-178: a replacement cannot move the row into another Project —
+    # that would let an A-admin inject pricing overrides into B.
+    if request.project != existing.project:
+        raise HTTPException(
+            status_code=409,
+            detail="A model's project cannot be changed; delete and recreate it in the target project",
+        )
+    # SPEC-178: per-project overrides require admin write.
+    enforce_project_role_from_request(
+        http_request, session, existing.project, minimum_role="admin"
+    )
     try:
         validate_model_document(request)
         validate_era_no_overlap(
@@ -333,6 +367,7 @@ async def replace_model(
 
 @router.delete("/api/v1/models/{model_id}", status_code=204)
 async def delete_model(
+    http_request: Request,
     model_id: int,
     session: Session = Depends(get_session),
 ) -> None:
@@ -341,5 +376,9 @@ async def delete_model(
         raise HTTPException(status_code=404, detail="model not found")
     if model.project == GLOBAL_PROJECT:
         raise HTTPException(status_code=409, detail=_GLOBAL_WRITE_DETAIL)
+    # SPEC-178: per-project overrides require admin write.
+    enforce_project_role_from_request(
+        http_request, session, model.project, minimum_role="admin"
+    )
     _delete_model_graph(session, model_id)
     session.commit()

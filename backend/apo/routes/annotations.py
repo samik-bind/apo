@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models.db import AnnotationQueueDB
+from ..models.db import AnnotationQueueDB, LoggedCallDB, RunDB
 from ..models.schemas import (
     CreateAnnotationQueueRequest,
     AnnotationQueueResponse,
@@ -79,28 +79,22 @@ async def list_queues(
             AnnotationQueueDB.project == project
         )
     else:
-        # Unscoped: restrict to projects the user can access.
-        from ..services.project_memberships import list_projects_for_user
+        # Unscoped: restrict to the Projects this CREDENTIAL can read.
+        # SPEC-178: an API key never widens to the creator's other Projects.
+        from ..services.project_memberships import readable_project_ids_for_request
 
-        user_id_value = getattr(http_request.state, "user_id", None)
-        if not user_id_value:
+        readable = readable_project_ids_for_request(http_request, session)
+        statement = select(AnnotationQueueDB)
+        if readable is None:
             # Open-dev fallback: return all queues (legacy behavior).
-            statement = select(AnnotationQueueDB)
-        else:
-            accessible = set(
-                list_projects_for_user(session, str(user_id_value))
+            pass
+        elif readable:
+            statement = statement.where(
+                AnnotationQueueDB.project.in_(readable)  # pyright: ignore[reportAttributeAccessIssue]
             )
-            statement = select(AnnotationQueueDB)
-            if accessible:
-                statement = statement.where(
-                    AnnotationQueueDB.project.in_(accessible)  # pyright: ignore[reportAttributeAccessIssue]
-                )
-            else:
-                # No memberships: return nothing (or, in legacy mode,
-                # only queues the caller could have created ad-hoc).
-                statement = statement.where(
-                    AnnotationQueueDB.project == "__none__"
-                )
+        else:
+            # Authenticated with no readable Projects: return nothing.
+            statement = statement.where(AnnotationQueueDB.project == "__none__")
 
     queues = session.exec(statement).all()
     return [_queue_to_response(q) for q in queues]
@@ -144,22 +138,43 @@ async def complete_annotation(
 
     try:
         if queue.target_type == "TRACE" and trace_id:
+            # SPEC-178: the target must exist in the queue's Project — an
+            # A queue can never attach scores to another Project's trace.
+            run = session.exec(
+                select(RunDB).where(
+                    RunDB.id == trace_id, RunDB.project == queue.project
+                )
+            ).first()
+            if run is None:
+                raise HTTPException(status_code=404, detail="Trace not found")
             _ = create_trace_score(
                 session=session,
                 trace_id=trace_id,
                 name=queue.name,
                 value=body.score_value,
+                project=queue.project,
                 data_type=data_type,
                 source="ANNOTATION",
                 config_id=queue.score_config_id,
                 comment=body.comment,
             )
         elif queue.target_type == "OBSERVATION" and observation_id:
+            call = session.exec(
+                select(LoggedCallDB).where(
+                    LoggedCallDB.id == observation_id,
+                    LoggedCallDB.project == queue.project,
+                )
+            ).first()
+            if call is None:
+                raise HTTPException(
+                    status_code=404, detail="Observation not found"
+                )
             _ = create_observation_score(
                 session=session,
                 observation_id=observation_id,
                 name=queue.name,
                 value=body.score_value,
+                project=queue.project,
                 data_type=data_type,
                 source="ANNOTATION",
                 config_id=queue.score_config_id,
