@@ -2,6 +2,7 @@
   "venvPath": ".",
   "venv": "backend/.venv",
   "pythonVersion": "3.13",
+  "include": ["backend"],
   "executionEnvironments": [
     {
       "root": "backend",

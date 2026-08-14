@@ -12,7 +12,6 @@ live filesystem scan on every request.
 # pyright: reportAny=false, reportCallInDefaultInitializer=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnusedCallResult=false
 
 from collections.abc import Sequence
-from typing import cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -37,10 +36,8 @@ from ..models.schemas import (
     ProjectBootstrapRequest,
     ProjectDetail,
     ProjectSummary,
-    ProjectTaskSource,
     RunConfigModelFacet,
     UpdateProjectRequest,
-    UpdateProjectTaskSourceRequest,
 )
 from ..routes.api_keys import _get_client_ip, mint_legacy_key
 from ..services.agent_task_stats import (
@@ -224,10 +221,6 @@ async def create_project(
     name = body.get("name")
     if not isinstance(name, str) or not name.strip():
         raise HTTPException(status_code=400, detail="name is required")
-
-        raise HTTPException(
-            status_code=400,
-        )
 
     project = create_project_for_owner(
         session,
@@ -503,7 +496,7 @@ async def list_project_agent_task_run_stats(
     model: str | None = Query(default=None),
     effort: str | None = Query(default=None),
     since: str | None = Query(default=None),
-):
+) -> dict[str, AgentTaskRunStats]:
     """Per-task run stats scoped to a model/effort/date view.
 
     No filter = Main (all-history, identical to the ``run_stats`` already

@@ -90,7 +90,7 @@ async def list_queues(
             pass
         elif readable:
             statement = statement.where(
-                AnnotationQueueDB.project.in_(readable)  # pyright: ignore[reportAttributeAccessIssue]
+                AnnotationQueueDB.project.in_(readable)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
             )
         else:
             # Authenticated with no readable Projects: return nothing.

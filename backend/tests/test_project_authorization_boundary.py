@@ -10,7 +10,7 @@ scene tests (11+) exercise registered routes through TestClient and live in
 later commits as each route group is closed.
 """
 
-# pyright: reportAny=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedImport=false, reportUnusedCallResult=false, reportAttributeAccessIssue=false
+# pyright: reportAny=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedImport=false, reportUnusedCallResult=false, reportAttributeAccessIssue=false, reportExplicitAny=false, reportUnannotatedClassAttribute=false, reportUnusedParameter=false, reportUnusedVariable=false, reportUnknownLambdaType=false
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
@@ -1032,7 +1032,6 @@ def test_annotation_complete_cannot_target_other_projects_trace(
 
     from apo.models.db import AnnotationQueueDB, RunMetricDB
 
-    factory: Callable[..., TestClient] = make_authed_client  # type: ignore[assignment]
     b_trace_id = _seed_annotation_world(session)
 
     alice_client = make_authed_client(_USER_ALICE, session)
@@ -1083,7 +1082,6 @@ def test_model_replace_cannot_move_row_to_other_project(
 
     from apo.models.pricing import ModelRowDB
 
-    factory: Callable[..., TestClient] = make_authed_client  # type: ignore[assignment]
     _seed_http_world(session)
 
     alice_client = make_authed_client(_USER_ALICE, session)
@@ -1166,7 +1164,6 @@ def test_comment_delete_is_author_or_admin(
 
     from apo.models.db import CommentDB
 
-    factory: Callable[..., TestClient] = make_authed_client  # type: ignore[assignment]
     _seed_comment_world(session)
 
     alice_client = make_authed_client(_USER_ALICE, session)
@@ -1206,7 +1203,6 @@ def test_score_config_list_excludes_other_projects(
 
     from apo.models.db import ScoreConfigDB
 
-    factory: Callable[..., TestClient] = make_authed_client  # type: ignore[assignment]
     _seed_http_world(session)
 
     now = datetime.now(timezone.utc)

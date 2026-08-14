@@ -211,7 +211,7 @@ async def list_models(
     # SPEC-178: global bundled pricing is authenticated-readable; per-project
     # overrides require member read.
     if project != GLOBAL_PROJECT:
-        enforce_project_read_from_request(request, session, project)
+        _ = enforce_project_read_from_request(request, session, project)
     if effective and project != GLOBAL_PROJECT:
         rows = list(
             session.exec(
@@ -251,7 +251,7 @@ async def match_model_route(
     """
     # SPEC-178: per-project overrides require member read; globals are open.
     if project != GLOBAL_PROJECT:
-        enforce_project_read_from_request(request, session, project)
+        _ = enforce_project_read_from_request(request, session, project)
     try:
         usage_map_raw = json.loads(usage) if usage else {}
     except json.JSONDecodeError as exc:
@@ -283,7 +283,7 @@ async def get_model(
         raise HTTPException(status_code=404, detail="model not found")
     # SPEC-178: per-project overrides require member read.
     if model.project != GLOBAL_PROJECT:
-        enforce_project_read_from_request(request, session, model.project)
+        _ = enforce_project_read_from_request(request, session, model.project)
     return _build_document(session, model)
 
 
@@ -301,7 +301,7 @@ async def create_model(
     if request.project == GLOBAL_PROJECT:
         raise HTTPException(status_code=409, detail=_GLOBAL_WRITE_DETAIL)
     # SPEC-178: per-project overrides require admin write.
-    enforce_project_role_from_request(
+    _ = enforce_project_role_from_request(
         http_request, session, request.project, minimum_role="admin"
     )
     try:
@@ -343,7 +343,7 @@ async def replace_model(
             detail="A model's project cannot be changed; delete and recreate it in the target project",
         )
     # SPEC-178: per-project overrides require admin write.
-    enforce_project_role_from_request(
+    _ = enforce_project_role_from_request(
         http_request, session, existing.project, minimum_role="admin"
     )
     try:
@@ -377,7 +377,7 @@ async def delete_model(
     if model.project == GLOBAL_PROJECT:
         raise HTTPException(status_code=409, detail=_GLOBAL_WRITE_DETAIL)
     # SPEC-178: per-project overrides require admin write.
-    enforce_project_role_from_request(
+    _ = enforce_project_role_from_request(
         http_request, session, model.project, minimum_role="admin"
     )
     _delete_model_graph(session, model_id)

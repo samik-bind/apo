@@ -1,5 +1,8 @@
+# pyright: reportAny=false, reportUnusedImport=false, reportExplicitAny=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedParameter=false, reportMissingTypeStubs=false
+
 import asyncio
 import inspect
+from typing import override
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -80,7 +83,7 @@ engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, p
 # synchronous pragmas are production concurrency/perf hardening and are
 # irrelevant to a single-connection in-memory DB, so they're not mirrored.
 @event.listens_for(engine, "connect")
-def _enable_foreign_keys(dbapi_conn, _connection_record):
+def _enable_foreign_keys(dbapi_conn, _connection_record):  # pyright: ignore[reportUnusedFunction]
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
@@ -166,19 +169,19 @@ def reset_rate_limiters():
     """Clear module-level rate limiter state between tests."""
     from apo.auth.rate_limit import login_rate_limiter
 
-    login_rate_limiter._attempts.clear()
+    login_rate_limiter._attempts.clear()  # pyright: ignore[reportPrivateUsage]
     try:
         from apo.routes.auth import resend_rate_limiter
 
-        resend_rate_limiter._attempts.clear()
+        resend_rate_limiter._attempts.clear()  # pyright: ignore[reportPrivateUsage]
     except ImportError:
         pass
     yield
-    login_rate_limiter._attempts.clear()
+    login_rate_limiter._attempts.clear()  # pyright: ignore[reportPrivateUsage]
     try:
         from apo.routes.auth import resend_rate_limiter
 
-        resend_rate_limiter._attempts.clear()
+        resend_rate_limiter._attempts.clear()  # pyright: ignore[reportPrivateUsage]
     except ImportError:
         pass
 
@@ -227,6 +230,7 @@ def make_authed_client_fixture():
 
     def _create(user_id: str, session: Session, is_admin: bool = True) -> TestClient:
         class InjectAuthMiddleware(BaseHTTPMiddleware):
+            @override
             async def dispatch(
                 self,
                 request: Request,
@@ -269,6 +273,7 @@ def make_api_key_client_fixture():
         scope: str = "full",
     ) -> TestClient:
         class InjectApiKeyMiddleware(BaseHTTPMiddleware):
+            @override
             async def dispatch(
                 self,
                 request: Request,

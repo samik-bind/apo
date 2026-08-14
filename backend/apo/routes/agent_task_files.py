@@ -91,7 +91,7 @@ def _load_project_for_request(
         return project
     # SPEC-178: canonical credential-aware guard — an API key is limited
     # to its bound Project even when its creator is a member elsewhere.
-    enforce_project_read_from_request(request, session, project_id)
+    _ = enforce_project_read_from_request(request, session, project_id)
     return project
 
 

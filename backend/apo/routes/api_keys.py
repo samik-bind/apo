@@ -88,7 +88,9 @@ def mint_legacy_key(
 
 
 def _get_user_id(request: Request) -> str:
-    user_id = getattr(request.state, "user_id", None) if hasattr(request, "state") else None
+    user_id: object = (
+        getattr(request.state, "user_id", None) if hasattr(request, "state") else None
+    )
     if user_id:
         return str(user_id)
     raise HTTPException(status_code=401, detail="Authentication required")
@@ -163,7 +165,7 @@ def create_api_key(
     # a key bound to Project A can never mint keys for Project B).
     if session.get(ProjectDB, body.project) is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    enforce_project_role_from_request(
+    _ = enforce_project_role_from_request(
         request, session, body.project, minimum_role="admin"
     )
 
@@ -222,7 +224,7 @@ def list_api_keys(
         # Project-scoped query: caller must be admin/owner of that exact
         # Project. SPEC-178: the canonical guard also enforces API-key
         # Project binding — an A-bound key never lists B's keys.
-        enforce_project_role_from_request(
+        _ = enforce_project_role_from_request(
             request, session, project, minimum_role="admin"
         )
         statement = select(ApiKeyDB).where(
@@ -245,7 +247,7 @@ def list_api_keys(
             statement = select(ApiKeyDB)
             if admin_project_ids:
                 statement = statement.where(
-                    (ApiKeyDB.project.in_(admin_project_ids))  # pyright: ignore[reportAttributeAccessIssue]
+                    (ApiKeyDB.project.in_(admin_project_ids))  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
                     | (ApiKeyDB.created_by == user_id)
                 )
             else:
@@ -255,7 +257,7 @@ def list_api_keys(
             allowed = admin_project_ids & set(readable)
             # An empty set must return nothing, not the whole table.
             statement = select(ApiKeyDB).where(
-                ApiKeyDB.project.in_(allowed)  # pyright: ignore[reportAttributeAccessIssue]
+                ApiKeyDB.project.in_(allowed)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownArgumentType]
             )
     keys = session.exec(statement).all()
 

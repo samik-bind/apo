@@ -11,6 +11,8 @@ account. Invitations are project-scoped and never consult
 ``UserDB.is_admin``.
 """
 
+# pyright: reportCallInDefaultInitializer=false
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import Session
 
@@ -43,7 +45,7 @@ router = APIRouter(prefix="/v1/projects", tags=["project-members"])
 
 
 def _get_user_id(request: Request) -> str:
-    user_id = getattr(request.state, "user_id", None)
+    user_id: object = getattr(request.state, "user_id", None)
     if user_id:
         return str(user_id)
     raise HTTPException(status_code=401, detail="Authentication required")
@@ -72,7 +74,7 @@ async def list_project_members(
     session: Session = Depends(get_session),
 ) -> list[ProjectMemberSummary]:
     """List all members of a project. Requires admin/owner role."""
-    _ensure_project_exists(session, project_id)
+    _ = _ensure_project_exists(session, project_id)
     actor = enforce_project_role_from_request(
         request, session, project_id, minimum_role="admin"
     )
@@ -96,7 +98,7 @@ async def add_project_member(
     Only owners can add a new owner directly; admins are limited to the
     ``member`` and ``admin`` roles.
     """
-    _ensure_project_exists(session, project_id)
+    _ = _ensure_project_exists(session, project_id)
     actor = enforce_project_role_from_request(
         request, session, project_id, minimum_role="admin"
     )
@@ -126,7 +128,7 @@ async def update_project_member(
     enforced by the service layer.
     """
     actor_id = _get_user_id(request)
-    _ensure_project_exists(session, project_id)
+    _ = _ensure_project_exists(session, project_id)
     actor = enforce_project_role_from_request(
         request, session, project_id, minimum_role="admin"
     )
@@ -154,7 +156,7 @@ async def remove_project_member(
     Last-owner protection prevents orphaning a project.
     """
     actor_id = _get_user_id(request)
-    _ensure_project_exists(session, project_id)
+    _ = _ensure_project_exists(session, project_id)
     actor = enforce_project_role_from_request(
         request, session, project_id, minimum_role="admin"
     )
@@ -184,7 +186,7 @@ async def list_project_invitations(
     session: Session = Depends(get_session),
 ) -> list[ProjectInvitationSummary]:
     """List active pending invitations. Requires admin/owner role."""
-    _ensure_project_exists(session, project_id)
+    _ = _ensure_project_exists(session, project_id)
     actor = enforce_project_role_from_request(
         request, session, project_id, minimum_role="admin"
     )
@@ -210,7 +212,7 @@ async def create_project_invitation(
     the response still succeeds and returns a copyable ``invite_url``.
     """
     user_id = _get_user_id(request)
-    _ensure_project_exists(session, project_id)
+    _ = _ensure_project_exists(session, project_id)
     actor = enforce_project_role_from_request(
         request, session, project_id, minimum_role="admin"
     )
@@ -234,7 +236,7 @@ async def resend_project_invitation(
     session: Session = Depends(get_session),
 ) -> CreateProjectInvitationResponse:
     """Rotate token + extend expiry on an existing invitation."""
-    _ensure_project_exists(session, project_id)
+    _ = _ensure_project_exists(session, project_id)
     actor = enforce_project_role_from_request(
         request, session, project_id, minimum_role="admin"
     )
@@ -255,7 +257,7 @@ async def revoke_project_invitation(
 
     Owner-role invitations may only be revoked by owners.
     """
-    _ensure_project_exists(session, project_id)
+    _ = _ensure_project_exists(session, project_id)
     actor = enforce_project_role_from_request(
         request, session, project_id, minimum_role="admin"
     )

@@ -12,6 +12,8 @@ Properties:
   - Dashboard APIs, SSE, and assertion layers read from these tables unchanged.
 """
 
+# pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnnecessaryComparison=false, reportUnusedCallResult=false, reportUnusedParameter=false
+
 from __future__ import annotations
 
 import json

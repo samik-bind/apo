@@ -82,7 +82,7 @@ async def create_comment(
     target_project = _resolve_comment_target_project(
         session, str(object_type), str(object_id)
     )
-    authorize_project_request(request, session, target_project)
+    _ = authorize_project_request(request, session, target_project)
     require_project_not_demo(target_project)
 
     mentioned = body.get("mentioned_user_ids")
@@ -97,7 +97,7 @@ async def create_comment(
 
     # Authorship is server-derived; the body's author fields are honored
     # only in open-dev mode where there is no authenticated identity.
-    state_user_id = getattr(request.state, "user_id", None)
+    state_user_id: object = getattr(request.state, "user_id", None)
     author_id = (
         str(state_user_id)
         if state_user_id
@@ -204,7 +204,7 @@ async def toggle_reaction(
 
     # SPEC-178: enforce membership on the comment's derived Project.
     try:
-        authorize_project_request(request, session, comment.project_id)
+        _ = authorize_project_request(request, session, comment.project_id)
     except HTTPException as exc:
         if exc.status_code == 403:
             raise HTTPException(status_code=404, detail="Comment not found") from exc

@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportUnusedImport=false
+# pyright: reportAny=false, reportUnusedImport=false, reportExplicitAny=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedParameter=false, reportMissingTypeStubs=false
 
 import asyncio
 from dataclasses import dataclass
@@ -46,8 +46,8 @@ def _direct_request() -> Any:
 
 
 class _AnalyticsClient:
-    def __init__(self, session: Session):
-        self._session = session
+    def __init__(self, session: Session) -> None:
+        self._session: Session = session
 
     def post(self, url: str, *, json: dict[str, object]) -> _DirectResponse:
         if url == "/api/v1/traces/search":

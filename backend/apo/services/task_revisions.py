@@ -26,7 +26,7 @@ from pathlib import Path
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from apo.db_helpers import _as_column
+from apo.db_helpers import _as_column  # pyright: ignore[reportPrivateUsage]
 
 from apo.execution.execution_bundle import (
     DEFAULT_BUNDLE_LIMITS,

@@ -21,6 +21,8 @@ SPEC-178: a comment's Project is derived from its target, so every test
 target below is seeded as a real run/observation row in ``proj-1``.
 """
 
+# pyright: reportAny=false, reportUnusedImport=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedParameter=false, reportMissingTypeStubs=false
+
 from datetime import datetime, timezone
 
 import pytest

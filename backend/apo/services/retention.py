@@ -27,6 +27,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
+# pyright: reportPrivateUsage=false, reportDeprecated=false, reportImplicitStringConcatenation=false, reportExplicitAny=false
+
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import CursorResult
 from sqlmodel import Session, select
@@ -318,7 +320,7 @@ def run_retention_cleanup() -> dict[str, int]:
         if old_batch_ids:
             from apo.services.task_revisions import delete_task_revision_bundles_for_batches
 
-            asyncio.run(delete_task_revision_bundles_for_batches(session, old_batch_ids))
+            _ = asyncio.run(delete_task_revision_bundles_for_batches(session, old_batch_ids))
             session.commit()
 
         summary["runs"] = _delete_old_runs(session, cutoff)

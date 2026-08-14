@@ -5,6 +5,8 @@ Contains the core processing logic for creating/updating runs, calls,
 and scores. Used by all ingestion routes (batch, Langfuse, OTel).
 """
 
+# pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnnecessaryComparison=false, reportUnusedCallResult=false, reportUnusedParameter=false
+
 from datetime import datetime, timezone
 from typing import cast
 

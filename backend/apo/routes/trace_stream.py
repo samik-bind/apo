@@ -14,7 +14,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, col, select
 
 from ..db import get_session
-from ..db_helpers import _as_column
+from ..db_helpers import _as_column  # pyright: ignore[reportPrivateUsage]
 from ..models.db import LoggedCallDB, RunDB
 from ..services.project_memberships import enforce_project_role_from_request
 from ..services.sse import format_sse_event, sse_streaming_response
@@ -63,7 +63,7 @@ async def stream_trace_events(
     # SPEC-178 invariant #7: authorize before any broadcaster access or
     # initial-event construction. A cross-Project denial returns JSON
     # 403/404 before the text/event-stream response is created.
-    enforce_project_role_from_request(
+    _ = enforce_project_role_from_request(
         request, session, project, minimum_role="member"
     )
 
