@@ -76,7 +76,7 @@ For a one-shot run in your local workspace:
 <TerminalDemo
   command="apo task run extract-parties"
   lines={[
-    { parts: [{ text: "Running extract-parties...", tone: "dim" }] },
+    { parts: [{ text: "Running task from ./my-tasks/extract-parties...", tone: "dim" }] },
     { text: "" },
     { parts: [{ text: "PASS", tone: "success" }, { text: " extract-parties", tone: "bold" }] },
     { parts: [{ text: "  Checks:", tone: "bold" }] },
@@ -95,7 +95,7 @@ For persistent execution — so the dashboard and Schedules can dispatch work to
   command="apo connect --dir ./my-tasks"
   lines={[
     { text: "Discovered 2 tasks in ./my-tasks" },
-    { parts: [{ text: "Connected to acme-eval · catalog matches · capacity 4", tone: "success" }] },
+    { parts: [{ text: "Connected to a1b2c3d4 · catalog matches · capacity 4", tone: "success" }] },
     { text: "Waiting for assignments…  Ctrl+C to stop" },
   ]}
 />

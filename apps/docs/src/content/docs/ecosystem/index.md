@@ -37,14 +37,16 @@ See the [Flow normalizers](/reference/flow-normalizers/) for signatures.
 
 ## Example adapters
 
-The repo ships two reference adapters, from minimal to full-featured. Read them to learn the pattern:
+The repo ships four reference adapters, from minimal to full-featured. Read them to learn the pattern:
 
 | Adapter | What it shows | Location |
 |---|---|---|
-| **service** | Wrapping an HTTP endpoint — the adapter calls your existing `/api/agent/chat` route. | `apps/example-service/e2e/agent-task-demo/service-adapter.ts` |
+| **ai-sdk** | The minimal "plug your agent into apo" example — a thin membrane over the app's own agent (`app/lib/agent/service.ts`). The adapter knows nothing about the model, tools, or prompt. | `apps/example-service/e2e/agent-task-demo/ai-sdk-adapter.ts` |
 | **real-agent** | The full pattern — `initialize` loads inputs, `sendUserTurn` drives a Vercel AI SDK agent with tools (`read_file`, `search_content`, etc.), `collectDeliverables` shapes the output. | `apps/example-service/e2e/agent-task-demo/real-agent-adapter.ts` |
+| **claude** | The native-OpenTelemetry pattern — the adapter owns only the lifecycle wiring; the agent itself (prompt, tools, the `query()` call) is plain user code in `agent/claude-agent.ts`. | `apps/example-service/e2e/agent-task-demo/claude-adapter.ts` |
+| **harbor** | Wrapping an external runner as a subprocess — the adapter drives the `harbor` CLI in a child process instead of an in-process function. | `apps/example-service/e2e/agent-task-demo/harbor-adapter.ts` |
 
-The **real-agent** adapter also ships ten ready-made tasks (`document-qa`, `code-review`, `data-extraction`, `bug-triage`, etc.) under `apps/example-service/e2e/agent-task-demo/tasks/real-agent/` — each a folder with a `.eval.ts` and `files/`. Run them with `apo task run <name>`.
+The **real-agent** adapter also ships ten ready-made tasks under `apps/example-service/e2e/agent-task-demo/tasks/real-agent/`, grouped by domain — `documents/document-qa`, `engineering/code-review`, `engineering/bug-triage`, `security/security-audit`, and so on. Each is a folder with a `.eval.ts` and `files/`. Run them by folder-scoped id: `apo task run documents/document-qa`.
 
 ## CI integration
 

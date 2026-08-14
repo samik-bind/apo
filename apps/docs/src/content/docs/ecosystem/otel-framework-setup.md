@@ -173,7 +173,7 @@ import { generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { registerApoTracing } from "@apo-ai/sdk/agent-task";
 
-// Register once — reads APO_OTLP_ENDPOINT, APO_PUBLIC_KEY, etc. from env.
+// Register once — the task runner's telemetry provider picks this processor up.
 await registerApoTracing();
 
 const client = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });

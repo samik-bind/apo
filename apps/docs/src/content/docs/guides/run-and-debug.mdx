@@ -12,9 +12,11 @@ import TerminalDemo from '../../../components/demos/TerminalDemo.astro';
 <TerminalDemo
 	command="apo task run extract-parties"
 	lines={[
+		{ text: "Running task from ./e2e/extract-parties...", tone: "dim" },
 		{ text: "" },
-		{ text: "→ running extract-parties" },
-		{ parts: [{ text: "→ Result: ", tone: "default" }, { text: "FAIL", tone: "danger" }, { text: "  (exit 1)", tone: "dim" }] },
+		{ parts: [{ text: "FAIL", tone: "danger" }, { text: " extract-parties", tone: "bold" }] },
+		{ parts: [{ text: "  Checks:", tone: "bold" }] },
+		{ parts: [{ text: "    " }, { text: "FAIL", tone: "danger" }, { text: " parties-are-complete" }] },
 	]}
 />
 
@@ -28,13 +30,15 @@ The result is pass or fail, but the breakdown shows which test broke and how:
 		{ text: "" },
 		{ parts: [{ text: "Run: de89cab0", tone: "bold" }] },
 		{ text: "  Task:     extract-parties" },
+		{ text: "  Status:   completed" },
 		{ parts: [{ text: "  Result:   " }, { text: "FAIL", tone: "danger" }] },
 		{ text: "  Checks:   1/2 passed (1 failed)" },
 		{ text: "  Cost:     $0.0042" },
 		{ text: "" },
 		{ parts: [{ text: "  Checks:", tone: "bold" }] },
-		{ parts: [{ text: "    " }, { text: "✓", tone: "success" }, { text: " used-source-document" }] },
-		{ parts: [{ text: "    " }, { text: "✗", tone: "danger" }, { text: " parties-are-complete" }] },
+		{ parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " used-source-document" }] },
+		{ parts: [{ text: "    " }, { text: "FAIL", tone: "danger" }, { text: " parties-are-complete" }] },
+		{ parts: [{ text: "      " }, { text: "✗", tone: "danger" }, { text: " parties-match-schema" }] },
 		{ parts: [{ text: "        " }, { text: "− Expected: ", tone: "success" }, { text: "every named party captured" }] },
 		{ parts: [{ text: "        " }, { text: "+ Received: ", tone: "danger" }, { text: 'missing "acme-corp"' }] },
 		{ text: "" },

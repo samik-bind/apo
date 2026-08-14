@@ -110,12 +110,12 @@ Then run it:
 <TerminalDemo
 	command="apo task run extract-parties"
 	lines={[
+		{ text: "Running task from ./e2e/extract-parties...", tone: "dim" },
 		{ text: "" },
-		{ parts: [{ text: "Run: de89cab0", tone: "bold" }] },
-		{ text: "  Task:     extract-parties" },
-		{ parts: [{ text: "  Result:   " }, { text: "PASS", tone: "success" }] },
-		{ text: "  Checks:   2/2 passed" },
-		{ text: "  Cost:     $0.0042" },
+		{ parts: [{ text: "PASS", tone: "success" }, { text: " extract-parties", tone: "bold" }] },
+		{ parts: [{ text: "  Checks:", tone: "bold" }] },
+		{ parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " used-source-document" }] },
+		{ parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " parties-are-complete" }] },
 	]}
 />
 
