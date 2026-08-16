@@ -12,6 +12,7 @@ live filesystem scan on every request.
 # pyright: reportAny=false, reportCallInDefaultInitializer=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnusedCallResult=false
 
 from collections.abc import Sequence
+from typing import cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -49,11 +50,13 @@ from ..services.agent_task_stats import (
 from ..services.project_deletion import delete_project_data
 from ..services.project_memberships import (
     DEMO_PROJECT_ID,
+    ProjectRole,
     compute_permissions,
     create_owner_membership,
+    enforce_project_read_from_request,
+    enforce_project_role_from_request,
     get_project_membership,
-    list_projects_for_user,
-    require_project_role,
+    readable_project_ids_for_request,
 )
 from ..services.project_task_inventory import (
     get_inventory_row,
@@ -138,37 +141,34 @@ def _format_project_detail(
     )
 
 
-def _load_project_for_user(
-    session: Session, project_id: str, user_id: str
+def _load_project_for_request(
+    session: Session, project_id: str, request: Request
 ) -> tuple[ProjectDB, str | None]:
-    """Load a project, applying membership-aware 404/403 semantics.
+    """Load a project through the canonical credential-aware read guard.
 
-    The demo project is world-readable (read-only semantics are enforced
-    by the mutation endpoints), so it bypasses the membership check.
-    Returns the project and the current user's role (``None`` for demo
-    or for non-members — though non-members raise 403 before that).
+    SPEC-178: the caller's Credential Authority is intersected with
+    membership — an API key is limited to its bound Project even when its
+    creator is a member elsewhere. The demo project stays world-readable
+    (read-only semantics are enforced by the mutation endpoints); returns
+    the project and the caller's current role (``None`` for demo).
     """
     project = session.get(ProjectDB, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     if project_id == DEMO_PROJECT_ID:
         return project, None
-    membership = get_project_membership(session, project_id, user_id)
-    if membership is None:
-        raise HTTPException(
-            status_code=403, detail="You are not a member of this project"
-        )
+    membership = enforce_project_read_from_request(request, session, project_id)
     return project, membership.role
 
 
 def _load_project_with_role(
     session: Session,
     project_id: str,
-    user_id: str,
+    request: Request,
     *,
     minimum_role: str,
 ) -> tuple[ProjectDB, str]:
-    """Load a project and enforce a minimum role.
+    """Load a project and enforce a minimum role via the canonical policy.
 
     The demo project is rejected with 403 because it has no membership
     management; mutations against it are blocked elsewhere by
@@ -177,8 +177,8 @@ def _load_project_with_role(
     project = session.get(ProjectDB, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    membership = require_project_role(
-        session, project_id, user_id, minimum_role=minimum_role
+    membership = enforce_project_role_from_request(
+        request, session, project_id, minimum_role=cast(ProjectRole, minimum_role)
     )
     return project, membership.role
 
@@ -188,9 +188,13 @@ async def list_projects(
     request: Request,
     session: Session = Depends(get_session),
 ):
-    """List all projects the current user is a member of, plus the demo project."""
-    user_id = _get_user_id(request)
-    member_project_ids = set(list_projects_for_user(session, user_id))
+    """List the caller's readable projects (memberships, or the key's bound
+    Project for API-key callers), plus the demo project."""
+    # SPEC-178: the readable set is credential-derived — a Project-A key
+    # lists exactly A, never every project its creator belongs to.
+    # ``None`` (open-dev) behaves as before: nothing but demo.
+    readable = readable_project_ids_for_request(request, session)
+    member_project_ids: set[str] = set(readable) if readable is not None else set()
 
     statement = (
         select(ProjectDB)
@@ -199,6 +203,8 @@ async def list_projects(
     )
     projects = session.exec(statement).all()
 
+    # For role display: the acting user (session user or key creator).
+    user_id = _get_user_id(request)
     summaries: list[ProjectSummary] = []
     for p in projects:
         if p.id == DEMO_PROJECT_ID:
@@ -321,8 +327,7 @@ async def get_project(
     configured. Project-scoped dashboard pages branch on this to decide
     between setup UI and normal data.
     """
-    user_id = _get_user_id(request)
-    project, role = _load_project_for_user(session, project_id, user_id)
+    project, role = _load_project_for_request(session, project_id, request)
     task_source = get_task_source_db(session, project_id)
     return _format_project_detail(
         session, project, task_source, current_user_role=role
@@ -338,9 +343,8 @@ async def update_project(
 ) -> ProjectDetail:
     """Update Project settings. Requires an admin or owner membership."""
     _assert_not_demo(project_id)
-    user_id = _get_user_id(request)
     project, role = _load_project_with_role(
-        session, project_id, user_id, minimum_role="admin"
+        session, project_id, request, minimum_role="admin"
     )
     if body.name is not None:
         name = body.name.strip()
@@ -374,9 +378,8 @@ async def delete_project(
     if project_id == DEMO_PROJECT_ID:
         raise HTTPException(status_code=400, detail="Cannot delete demo project")
 
-    user_id = _get_user_id(request)
     _project, _role = _load_project_with_role(
-        session, project_id, user_id, minimum_role="owner"
+        session, project_id, request, minimum_role="owner"
     )
     # remove stored objects BEFORE their rows go, while their keys are still
     # resolvable (objects live outside the relational DB).
@@ -458,8 +461,7 @@ async def list_project_agent_tasks(
     configured yet — the dashboard should branch on the project payload
     and prompt the user to set up a source before calling this route.
     """
-    user_id = _get_user_id(request)
-    _project, _role = _load_project_for_user(session, project_id, user_id)
+    _project, _role = _load_project_for_request(session, project_id, request)
 
     source = get_task_source_db(session, project_id)
     if source is None:
@@ -503,8 +505,7 @@ async def list_project_agent_task_run_stats(
     the cohort is the Tasks page's active evidence view. Returns one entry per
     task in the project inventory; tasks with no matching runs get all-zero stats.
     """
-    user_id = _get_user_id(request)
-    _project, _role = _load_project_for_user(session, project_id, user_id)
+    _project, _role = _load_project_for_request(session, project_id, request)
 
     rows = list_inventory_for_project(session, project_id)
     task_ids = [row.task_id for row in rows]
@@ -534,8 +535,7 @@ async def list_project_agent_task_run_config_facets(
     model is picked — that model's actual effort tiers. Legacy runs with no
     ``configured_model`` are excluded.
     """
-    user_id = _get_user_id(request)
-    _project, _role = _load_project_for_user(session, project_id, user_id)
+    _project, _role = _load_project_for_request(session, project_id, request)
     return compute_run_config_facets(session, project_id)
 
 
@@ -555,8 +555,7 @@ async def get_project_agent_task(
     Use this in place of ``GET /v1/agent-tasks/{task_id}?project=...``
     for the canonical project-scoped path.
     """
-    user_id = _get_user_id(request)
-    _project, _role = _load_project_for_user(session, project_id, user_id)
+    _project, _role = _load_project_for_request(session, project_id, request)
 
     source = get_task_source_db(session, project_id)
     if source is None:
@@ -598,9 +597,8 @@ async def reset_project_data(
     if project_id == DEMO_PROJECT_ID:
         raise HTTPException(status_code=400, detail="Cannot reset demo project")
 
-    user_id = _get_user_id(request)
     _project, _role = _load_project_with_role(
-        session, project_id, user_id, minimum_role="owner"
+        session, project_id, request, minimum_role="owner"
     )
     # remove stored objects BEFORE their rows go.
     from apo.services.retention import delete_deliverable_objects_for_project

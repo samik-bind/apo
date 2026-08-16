@@ -247,3 +247,4 @@ class TestManifest:
         assert synthesize_legacy_manifest(None) == []
         assert synthesize_legacy_manifest({}) == []
         assert synthesize_legacy_manifest("not a dict") == []
+

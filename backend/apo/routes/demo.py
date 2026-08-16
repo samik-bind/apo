@@ -4,10 +4,11 @@
 
 import asyncio
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlmodel import Session
 
 from ..db import get_session
+from ..models.db import UserDB
 from ..services.demo_workspace import (
     DEMO_PROJECT_ID,
     is_demo_read_only,
@@ -33,10 +34,24 @@ async def demo_status(session: Session = Depends(get_session)):
 
 @router.post("/seed")
 async def seed_demo(
+    request: Request,
     force: bool = Query(False, description="Re-seed by clearing existing demo data"),
     session: Session = Depends(get_session),
 ):
-    """Seed the demo workspace with real task data. Idempotent unless force=True."""
+    """Seed the demo workspace with real task data. Idempotent unless force=True.
+
+    The idempotent first-time seed stays open to any authenticated user
+    (dashboard onboarding). ``force=True`` clears and reseeds the shared
+    demo data, so it is limited to installation admins.
+    """
+    if force:
+        user_id = getattr(request.state, "user_id", None)
+        user = session.get(UserDB, user_id) if isinstance(user_id, str) else None
+        if user is None or not user.is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="Admin access required to re-seed the demo workspace",
+            )
     reset_demo_schedules(session)
     # The synchronous seeder owns its SQLModel session and materializes an
     # async Revision bundle. Run it outside FastAPI's event loop so its

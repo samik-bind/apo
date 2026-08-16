@@ -45,6 +45,24 @@ async def create_queue(
             detail="target_type must be TRACE or OBSERVATION",
         )
 
+    # SPEC-178: a queue's score config must belong to the queue's Project —
+    # a foreign config id is not found, and no dangling cross-Project
+    # reference is persisted on the queue row.
+    if body.score_config_id is not None:
+        from ..models.db import ScoreConfigDB
+
+        config = session.exec(
+            select(ScoreConfigDB).where(
+                ScoreConfigDB.id == body.score_config_id,
+                ScoreConfigDB.project == body.project,
+            )
+        ).first()
+        if config is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Score config {body.score_config_id} not found",
+            )
+
     queue = AnnotationQueueDB(
         project=body.project,
         name=body.name,
@@ -132,7 +150,12 @@ async def complete_annotation(
     if queue.score_config_id:
         from ..models.db import ScoreConfigDB
 
-        config = session.get(ScoreConfigDB, queue.score_config_id)
+        config = session.exec(
+            select(ScoreConfigDB).where(
+                ScoreConfigDB.id == queue.score_config_id,
+                ScoreConfigDB.project == queue.project,
+            )
+        ).first()
         if config:
             data_type = config.data_type
 

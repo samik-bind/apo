@@ -15,13 +15,20 @@ def validate_score_against_config(
     config_id: int,
     value: float,
     string_value: str | None = None,
+    *,
+    project: str | None = None,
 ) -> str | None:
     """
     Validate a score value against its ScoreConfig.
 
     Returns an error message if validation fails, or None if valid.
+
+    SPEC-178: when ``project`` is given, the config must live in that
+    Project — another Project's config id is treated as not found, so its
+    bounds/categories cannot be probed through validation errors and no
+    dangling cross-Project reference is persisted.
     """
-    config = session.get(ScoreConfigDB, config_id)
+    config = _load_config_for_project(session, config_id, project)
     if config is None:
         return f"Score config {config_id} not found"
 
@@ -64,19 +71,33 @@ def _coerce_score_value(
     return float(value), None
 
 
+def _load_config_for_project(
+    session: Session, config_id: int, project: str | None
+) -> ScoreConfigDB | None:
+    """Load a ScoreConfig, scoped to ``project`` when given (SPEC-178)."""
+    statement = select(ScoreConfigDB).where(ScoreConfigDB.id == config_id)
+    if project is not None:
+        statement = statement.where(ScoreConfigDB.project == project)
+    return session.exec(statement).first()
+
+
 def _validate_config_or_raise(
     session: Session,
     config_id: int,
     score_value: float | None,
     string_value: str | None,
+    *,
+    project: str | None = None,
 ) -> None:
     """Validate a coerced score against its ScoreConfig, raising ValueError on failure."""
     if score_value is not None:
         error = validate_score_against_config(
-            session, config_id, score_value, string_value
+            session, config_id, score_value, string_value, project=project
         )
     elif string_value is not None:
-        error = validate_score_against_config(session, config_id, 0.0, string_value)
+        error = validate_score_against_config(
+            session, config_id, 0.0, string_value, project=project
+        )
     else:
         error = None
     if error:
@@ -110,7 +131,9 @@ def record_score(
     score_value, string_value = _coerce_score_value(value, data_type)
 
     if config_id is not None:
-        _validate_config_or_raise(session, config_id, score_value, string_value)
+        _validate_config_or_raise(
+        session, config_id, score_value, string_value, project=project
+    )
 
     if kind == "trace":
         metric: RunMetricDB | CallMetricDB = RunMetricDB(

@@ -27,7 +27,7 @@ from ..models.schemas import (
     TaskViewUpdateRequest,
 )
 from ..services.agent_task_run_details import load_task_run_details, load_task_run_summaries
-from ..services.project_memberships import require_project_member
+from ..services.project_memberships import enforce_project_read_from_request
 from ..services.task_view_comparison import create_comparison, get_comparison, to_snapshot
 
 router = APIRouter(prefix="/v1/projects/{project_id}", tags=["task-views"])
@@ -42,11 +42,16 @@ def _get_user_id(request: Request) -> str:
 
 
 def _authorize(session: Session, project_id: str, request: Request) -> None:
-    """404 if the project is missing, 403 if the caller is not a member."""
+    """404 if the project is missing, 403 if the caller is not a member.
+
+    SPEC-178: the canonical credential-aware guard also confines API keys
+    to their bound Project — a B-bound key cannot read A's views or
+    comparison evidence even when its creator is a member of A.
+    """
     project = session.get(ProjectDB, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    _ = require_project_member(session, project_id, _get_user_id(request))
+    _ = enforce_project_read_from_request(request, session, project_id)
 
 
 def _to_response(row: TaskViewDB) -> TaskViewResponse:

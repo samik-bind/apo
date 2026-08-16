@@ -18,6 +18,7 @@ from ...services.project_memberships import (
 )
 from ...db_helpers import _as_column, _ensure_utc_datetime
 from ...models import (
+    AgentTaskRunDB,
     RunDB,
     RunMetricDB,
     LoggedCallDB,
@@ -102,7 +103,7 @@ def update_run(
 ):
     run = require_run_not_demo(session, run_id)
 
-    _validate_trace_write_access(http_request, run.project)
+    _validate_trace_write_access(http_request, session, run_id, run.project)
     # SPEC-178: for non-service-token callers, require member on the derived Project.
     if getattr(http_request.state, "auth_method", None) != "service_token":
         enforce_project_read_from_request(http_request, session, run.project)
@@ -129,12 +130,25 @@ def update_run(
     return Run.model_validate(run)
 
 
-def _validate_trace_write_access(request: Request, run_project: str) -> None:
+def _validate_trace_write_access(
+    request: Request, session: Session, run_id: str, run_project: str
+) -> None:
     if getattr(request.state, "auth_method", None) != "service_token":
         return
     token_project = getattr(request.state, "project", None)
     if token_project != run_project:
         raise HTTPException(status_code=403, detail="Service token project mismatch")
+    # SPEC-178: the token is a capability for ONE task run, not a Project-wide
+    # write pass. The run being patched must be the trace that task run
+    # claimed at ingestion.
+    token_task_run_id = getattr(request.state, "service_task_run_id", None)
+    task_run = (
+        session.get(AgentTaskRunDB, token_task_run_id)
+        if isinstance(token_task_run_id, str)
+        else None
+    )
+    if task_run is None or task_run.trace_run_id != run_id:
+        raise HTTPException(status_code=403, detail="Service token run mismatch")
 
 
 def _enforce_project_read(request: Request, session: Session, project: str) -> None:
@@ -391,6 +405,9 @@ async def post_custom_metrics(
         try:
             metric_db = RunMetricDB(
                 run_id=run_id,
+                # SPEC-178: stamp the derived Project — the column default
+                # would silently file the metric under "default".
+                project=_run.project,
                 metric_name=metric_result.name,
                 metric_type="quality",
                 score=metric_result.score,
