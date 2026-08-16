@@ -99,13 +99,16 @@ class TestFinalizationStorageBoundary:
                 trace_run_id="trace-1",
                 checks=[],
                 transcript=transcript,
-                deliverables={"verdict": {"reward": 1}},
+                deliverables=None,
             )
             session.commit()
             refreshed = session.get(AgentTaskRunDB, run.id)
             assert refreshed is not None
             assert refreshed.transcript_json == transcript
-            assert refreshed.deliverables_json == {"verdict": {"reward": 1}}
+            # SPEC-179 phase 2: finalize no longer writes the deliverables
+            # column — rows are canonical and the response field derives
+            # from them.
+            assert refreshed.deliverables_json is None
 
     def test_trace_output_is_compact_manifest_not_body(self):
         """RunDB.output carries name/kind/size, never the full deliverable body."""
@@ -116,6 +119,23 @@ class TestFinalizationStorageBoundary:
             task_run = session.get(AgentTaskRunDB, run.id)
             batch_row = session.get(AgentTaskBatchRunDB, batch.id)
             assert task_run is not None and batch_row is not None
+            from apo.services.agent_task_deliverables import persist_json_deliverable
+            from apo.services.artifact_stores.registry import get_store
+
+            store = get_store(None)
+            import asyncio
+
+            for name, value in big_body.items():
+                asyncio.run(
+                    persist_json_deliverable(
+                        session,
+                        project=batch_row.project,
+                        task_run_id=task_run.id,
+                        name=name,
+                        value=value,
+                        store=store,
+                    )
+                )
             finalize_task_run_with_result(
                 session,
                 task_run,
@@ -125,7 +145,7 @@ class TestFinalizationStorageBoundary:
                 trace_run_id="trace-1",
                 checks=[],
                 transcript=None,
-                deliverables=big_body,
+                deliverables=None,
             )
             session.commit()
 

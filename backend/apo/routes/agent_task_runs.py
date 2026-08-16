@@ -39,6 +39,7 @@ from ..services.agent_task_batch_listing import (
     PaginatedBatchRunSummary,
     list_batch_run_summaries,
 )
+from ..services.agent_task_deliverables import derive_deliverables_json
 from ..services.check_report_storage import load_check_report
 from ..services.agent_task_outcome import classify_run_outcome
 from ..services.agent_task_run_access import require_task_run_access
@@ -162,6 +163,7 @@ def _build_task_run_detail(
     trigger: AgentTaskRunTrigger | None = None,
     include_transcript: bool = False,
     task_definition: dict[str, object] | None = None,
+    deliverables_json: dict[str, object] | None = None,
 ) -> AgentTaskRunDetail:
     return AgentTaskRunDetail(
         id=task_run.id,
@@ -187,7 +189,7 @@ def _build_task_run_detail(
         trigger=trigger,
         checks_json=load_check_report(session, task_run.id),
         transcript_json=task_run.transcript_json if include_transcript else None,
-        deliverables_json=task_run.deliverables_json,
+        deliverables_json=deliverables_json,
         error_category=classify_run_outcome(
             task_run.status,
             task_run.error_message,
@@ -707,6 +709,7 @@ async def get_agent_task_run(
         trigger=trigger,
         include_transcript=bool(include and "transcript" in include),
         task_definition=task_definition_summary,
+        deliverables_json=await derive_deliverables_json(session, task_run),
     )
 
 
@@ -784,7 +787,7 @@ async def report_agent_task_run_result(
             trace_run_id=payload.trace_run_id,
             checks=payload.checks,
             transcript=payload.transcript,
-            deliverables=payload.deliverables,
+            deliverables=None,  # rows persisted above (SPEC-179 phase 2)
             errored=payload.errored,
             error_message=payload.error_message,
             run_configuration=payload.run_configuration,
@@ -803,4 +806,9 @@ async def report_agent_task_run_result(
         task_run.batch_run_id
     )
 
-    return _build_task_run_detail(session, task_run, trigger=trigger)
+    return _build_task_run_detail(
+        session,
+        task_run,
+        trigger=trigger,
+        deliverables_json=await derive_deliverables_json(session, task_run),
+    )

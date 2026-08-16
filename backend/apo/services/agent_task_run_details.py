@@ -21,6 +21,7 @@ from ..models.db import (
 )
 from ..models.schemas import AgentTaskRunDetail, AgentTaskRunSummary, AgentTaskRunTrigger
 from .agent_task_configuration import configuration_from_row
+from .agent_task_deliverables import derive_deliverables_json_for_runs
 from .agent_task_outcome import classify_run_outcome
 from .agent_task_projection import parse_trigger
 from .check_report_storage import load_check_reports
@@ -135,12 +136,15 @@ def load_task_run_details(
     definitions = _load_definitions(session, runs)
     check_reports = load_check_reports(session, runs)
 
+    derived = derive_deliverables_json_for_runs(session, list(run_by_id.values()))
     return [
         _to_detail(
+            session,
             run,
             trigger=triggers.get(run.batch_run_id),
             task_definition=definitions.get(run.task_definition_revision_id),
             checks=check_reports.get(run.id),
+            deliverables_json=derived.get(run.id),
         )
         for run_id in unique_ids
         if (run := run_by_id.get(run_id)) is not None
@@ -184,11 +188,13 @@ def _load_definitions(
 
 
 def _to_detail(
+    _session: Session,
     run: AgentTaskRunDB,
     *,
     trigger: AgentTaskRunTrigger | None,
     task_definition: dict[str, object] | None,
     checks: list[dict[str, object]] | None,
+    deliverables_json: dict[str, object] | None = None,
 ) -> AgentTaskRunDetail:
     return AgentTaskRunDetail(
         id=run.id,
@@ -214,7 +220,7 @@ def _to_detail(
         trigger=trigger,
         checks_json=checks,
         transcript_json=None,
-        deliverables_json=run.deliverables_json,
+        deliverables_json=deliverables_json,
         error_category=classify_run_outcome(
             run.status,
             run.error_message,

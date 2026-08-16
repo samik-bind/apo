@@ -276,7 +276,7 @@ def test_bulk_run_evidence_uses_a_fixed_number_of_queries(session: Session) -> N
         event.remove(bind, "before_cursor_execute", _record_statement)
 
     assert len(details) == 7
-    assert len(statements) == 4  # runs + batches/triggers + definitions + checks
+    assert len(statements) == 5  # runs + batches/triggers + definitions + checks + deliverables
 
 
 def test_comparison_rejects_empty_selection(cmp_client: TestClient) -> None:

@@ -25,7 +25,7 @@ import gzip
 import hashlib
 import json
 import secrets
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Literal, cast
 
@@ -221,6 +221,103 @@ def _row_to_summary(
         sha256=row.sha256,
         download_url=f"{download_url}/{row.id}" if is_ready and download_url else None,
     )
+
+
+def _ready_json_rows(
+    session: Session, task_run_id: str
+) -> list[AgentTaskDeliverableDB]:
+    return list(
+        session.exec(
+            select(AgentTaskDeliverableDB).where(
+                AgentTaskDeliverableDB.task_run_id == task_run_id,
+                AgentTaskDeliverableDB.kind == "json",
+                AgentTaskDeliverableDB.status == "ready",
+            )
+        ).all()
+    )
+
+
+def derive_deliverables_json_for_runs(
+    session: Session, runs: Sequence[AgentTaskRunDB]
+) -> dict[str, dict[str, object] | None]:
+    """Batched derivation for bulk detail loads (one query, not N+1).
+
+    Column-carrying (historical) runs return their column; the rest derive
+    from ready inline JSON rows grouped by run.
+    """
+    out: dict[str, dict[str, object] | None] = {}
+    need: list[str] = []
+    for run in runs:
+        if run.deliverables_json is not None:
+            out[run.id] = run.deliverables_json
+        else:
+            out[run.id] = None
+            need.append(run.id)
+    if need:
+        rows = session.exec(
+            select(AgentTaskDeliverableDB).where(
+                AgentTaskDeliverableDB.task_run_id.in_(need),  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                AgentTaskDeliverableDB.kind == "json",
+                AgentTaskDeliverableDB.status == "ready",
+            )
+        ).all()
+        by_run: dict[str, dict[str, object]] = {}
+        for row in rows:
+            if row.inline_value_json is not None:
+                by_run.setdefault(row.task_run_id, {})[row.name] = (
+                    row.inline_value_json.get("value")
+                )
+        for run_id in need:
+            out[run_id] = by_run.get(run_id) or None
+    return out
+
+
+def derive_deliverables_json_sync(
+    session: Session, task_run: AgentTaskRunDB
+) -> dict[str, object] | None:
+    """SPEC-179 phase 2: the detail-response ``deliverables_json`` field.
+
+    Historical rows still carry the legacy column and return it verbatim;
+    new rows derive the field from ready JSON deliverables. Sync paths
+    (comparisons) hydrate inline values only — store-backed JSON needs the
+    async variant.
+    """
+    if task_run.deliverables_json is not None:
+        return task_run.deliverables_json
+    derived: dict[str, object] = {}
+    for row in _ready_json_rows(session, task_run.id):
+        if row.inline_value_json is not None:
+            derived[row.name] = row.inline_value_json.get("value")
+    return derived or None
+
+
+async def derive_deliverables_json(
+    session: Session, task_run: AgentTaskRunDB
+) -> dict[str, object] | None:
+    """Async variant of the response-field derivation.
+
+    Also hydrates store-backed JSON deliverables (gzip through the
+    recorded store), matching what the legacy column held for large
+    values.
+    """
+    from apo.services.artifact_stores.registry import get_store
+
+    if task_run.deliverables_json is not None:
+        return task_run.deliverables_json
+    rows = _ready_json_rows(session, task_run.id)
+    if not rows:
+        return None
+    derived: dict[str, object] = {}
+    for row in rows:
+        if row.inline_value_json is not None:
+            derived[row.name] = row.inline_value_json.get("value")
+        elif row.storage_key is not None:
+            store = get_store(row.storage_backend)
+            raw = b"".join([chunk async for chunk in store.open(row.storage_key)])
+            if row.content_encoding == "gzip":
+                raw = gzip.decompress(raw)
+            derived[row.name] = json.loads(raw.decode("utf-8"))
+    return derived
 
 
 def synthesize_legacy_manifest(

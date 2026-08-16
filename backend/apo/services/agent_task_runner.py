@@ -434,11 +434,12 @@ def finalize_task_run_with_result(
     # together. Direct service calls and tests cannot bypass this — every
     # finalized run has correct counts and a bounded, un-shrunk report.
     persist_check_report(session, task_run, checks)
-    # new recorded runs leave ``transcript_json``/``deliverables_json``
-    # null (the SDK omits transcript; Deliverables persist as rows). Legacy
-    # callers may still populate both during the compatibility window.
+    # ``transcript_json`` is still written (no replacement storage yet).
+    # ``deliverables_json`` is no longer written: every finalize path
+    # persists Deliverables as rows first (SPEC-179 phase 2); historical
+    # column data is read through the derivation helpers.
     task_run.transcript_json = transcript
-    task_run.deliverables_json = deliverables
+    _ = deliverables
     trace_backend = get_trace_backend(batch.project)
     trace_backend.aggregate_costs(session, task_run, batch.project)
     trace_backend.confirm_and_link(session, task_run, batch.project)
