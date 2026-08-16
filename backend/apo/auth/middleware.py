@@ -53,6 +53,11 @@ PUBLIC_PATHS: tuple[str, ...] = (
     # acceptance path stays authenticated.
     "/auth/invitations/preview",
     "/auth/invitations/accept/create-account",
+    # hosted access admission (SPEC-179): the bearer token is the
+    # authority for preview and new-account acceptance. Existing-account
+    # acceptance requires the session before its route runs.
+    "/auth/hosted-access/preview",
+    "/auth/hosted-access/accept/create-account",
     "/v1/api-keys/bootstrap",
     # CLI first-project bootstrap: authenticates via email + password in the
     # handler (mirrors /v1/api-keys/bootstrap). Must be reachable without a

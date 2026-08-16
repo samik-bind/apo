@@ -1048,6 +1048,57 @@ class ProjectInvitationDB(SQLModel, table=True):
     )
 
 
+class HostedAccessInvitationDB(SQLModel, table=True):
+    """Installation-level admission invitation (SPEC-179).
+
+    Lets an Installation Administrator admit one person to the APO
+    installation; acceptance creates or reuses the invited User and
+    materializes exactly one new invitee-owned Project. Admission is
+    never Project membership: no Project exists at issue time and the
+    issuer gains nothing.
+
+    The raw token is never persisted — only its SHA-256 hash. At most
+    one *active* (``accepted_at IS NULL AND revoked_at IS NULL``) row may
+    exist per normalized email; re-inviting refreshes in place.
+    ``accepted_project_id`` is an audit reference only, deliberately not
+    a foreign key (it may outlive the Project row).
+    """
+
+    __tablename__: ClassVar[str] = "hosted_access_invitations"
+    __table_args__: ClassVar[tuple[object, ...]] = (
+        Index(
+            "uq_hosted_access_invitations_active_email",
+            "email",
+            unique=True,
+            sqlite_where=text("accepted_at IS NULL AND revoked_at IS NULL"),
+            postgresql_where=text("accepted_at IS NULL AND revoked_at IS NULL"),
+        ),
+    )
+
+    id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:20])
+    email: str = Field(index=True)
+    token_hash: str = Field(unique=True, index=True)
+    invited_by_user_id: str = Field(foreign_key="users.id", index=True)
+    delivery_method: str = Field(default="email")  # "email" | "link_only"
+    expires_at: datetime = Field(sa_column=Column(UTCDateTime, index=True))
+    accepted_at: datetime | None = Field(
+        default=None, sa_column=Column(UTCDateTime, index=True)
+    )
+    accepted_by_user_id: str | None = Field(default=None, foreign_key="users.id")
+    accepted_project_id: str | None = Field(default=None, index=True)
+    revoked_at: datetime | None = Field(
+        default=None, sa_column=Column(UTCDateTime, index=True)
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now(), onupdate=func.now()),
+    )
+
+
 class ProjectTaskSourceDB(SQLModel, table=True):
     """Project-owned task source configuration.
 

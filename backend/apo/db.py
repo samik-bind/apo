@@ -139,6 +139,21 @@ def _create_unique_index_if_not_exists(
     )
 
 
+def _create_partial_unique_index_if_not_exists(
+    conn, index_name: str, table_name: str, columns: str, where_clause: str
+) -> None:
+    """Create a partial UNIQUE index if it does not already exist.
+
+    ``where_clause`` is raw SQL valid in both SQLite and PostgreSQL
+    (e.g. ``accepted_at IS NULL AND revoked_at IS NULL``) limiting the
+    uniqueness constraint to matching rows.
+    """
+    conn.exec_driver_sql(
+        f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} "
+        f"ON {table_name}({columns}) WHERE {where_clause};"
+    )
+
+
 def _enforce_single_task_trace(conn: Connection) -> None:
     """Keep only the canonical reverse link, then enforce one trace per task run."""
     conn.exec_driver_sql("""
@@ -1915,7 +1930,53 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
     )
 
 
-LATEST_SCHEMA_VERSION = 24
+def _migrate_to_v25() -> None:
+    """Version 25 (SPEC-179): ``hosted_access_invitations`` admission table.
+
+    Installation-level admission invitations. Fresh DBs already have the
+    table via ``SQLModel.metadata.create_all``; this brings existing
+    SQLite and PostgreSQL databases up, including the partial unique
+    index that keeps one active row per normalized email.
+    """
+    ts = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            f"""
+            CREATE TABLE IF NOT EXISTS hosted_access_invitations (
+                id VARCHAR PRIMARY KEY,
+                email VARCHAR NOT NULL,
+                token_hash VARCHAR NOT NULL UNIQUE,
+                invited_by_user_id VARCHAR NOT NULL REFERENCES users(id),
+                delivery_method VARCHAR NOT NULL DEFAULT 'email',
+                expires_at {ts} NOT NULL,
+                accepted_at {ts},
+                accepted_by_user_id VARCHAR REFERENCES users(id),
+                accepted_project_id VARCHAR,
+                revoked_at {ts},
+                created_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        _create_index_if_not_exists(
+            conn, "ix_hosted_access_invitations_email", "hosted_access_invitations", "email"
+        )
+        _create_index_if_not_exists(
+            conn,
+            "ix_hosted_access_invitations_token_hash",
+            "hosted_access_invitations",
+            "token_hash",
+        )
+        _create_partial_unique_index_if_not_exists(
+            conn,
+            "uq_hosted_access_invitations_active_email",
+            "hosted_access_invitations",
+            "email",
+            "accepted_at IS NULL AND revoked_at IS NULL",
+        )
+
+
+LATEST_SCHEMA_VERSION = 25
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -1942,6 +2003,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     22: _migrate_to_v22,
     23: _migrate_to_v23,
     24: _migrate_to_v24,
+    25: _migrate_to_v25,
 }
 
 

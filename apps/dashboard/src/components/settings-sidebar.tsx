@@ -44,7 +44,7 @@ export function SettingsSidebar() {
         {isAdmin && (
           <div className="mt-6">
             <SidebarGroup
-              label="Instance (dev)"
+              label="Instance"
               items={INSTANCE_ITEMS}
               pathname={pathname}
             />

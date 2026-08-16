@@ -175,7 +175,7 @@ EMAIL_FROM_NAME=apo
 - `ses://us-east-1` uses **AWS SES** (boto3). Both transports are built in.
 - Port `465` = implicit TLS, `587` = STARTTLS (auto-detected; override with `EMAIL_SMTP_TLS=true/false`).
 
-Turning it on instantly lights up all senders: invitation emails, verification codes (set `AUTH_EMAIL_VERIFICATION_REQUIRED=true` if you want to require them), and password-reset links.
+Turning it on instantly lights up all senders: invitation emails, verification codes (set `AUTH_EMAIL_VERIFICATION_REQUIRED=true` if you want to require them), password-reset links, and hosted-access admission emails. Without email configured, hosted-access invitations still work — the admin settings page shows a one-time copyable `/join` link to share privately.
 
 **Deliverability:** to land in inboxes rather than spam, send from a domain you own and add the SPF/DKIM/DMARC records your provider generates. A quick free option is [Resend](https://resend.com) (3,000 emails/month, 100/day free) — sign up, verify your domain, and point `EMAIL_TRANSPORT_URL` at its SMTP relay.
 

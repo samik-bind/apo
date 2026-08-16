@@ -153,3 +153,55 @@ Click the link below to get started:
 apo
 """
     return html, text
+
+
+def render_hosted_access_email(
+    invite_url: str,
+    inviter_name: str,
+) -> tuple[str, str]:
+    """Returns (html, text) for the hosted access admission email (SPEC-179).
+
+    Truthful about what the invitation is: the recipient creates their
+    own apo Project on this installation. It must never claim they are
+    joining the issuer's Project.
+    """
+    html = f"""\
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #1a1a1a;">
+  <h1 style="font-size: 22px; font-weight: 600; margin-bottom: 24px;">You're invited to apo</h1>
+  <p style="font-size: 15px; line-height: 1.6; color: #4a4a4a;">
+    <strong>{inviter_name}</strong> has invited you to apo. Accepting creates <strong>your own Project</strong> on this apo installation — a private workspace for your tasks, runs, and evaluations.
+  </p>
+  <p style="font-size: 15px; line-height: 1.6; color: #4a4a4a;">
+    Click the button below to get started:
+  </p>
+  <p style="margin: 32px 0;">
+    <a href="{invite_url}" style="display: inline-block; background-color: #6366f1; color: #ffffff; font-size: 15px; font-weight: 500; text-decoration: none; padding: 12px 32px; border-radius: 8px;">
+      Accept invitation
+    </a>
+  </p>
+  <p style="font-size: 14px; line-height: 1.6; color: #6b7280;">
+    Or copy and paste this link into your browser:<br>
+    <a href="{invite_url}" style="color: #6366f1; word-break: break-all;">{invite_url}</a>
+  </p>
+  <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 32px 0;">
+  <p style="font-size: 13px; color: #9ca3af;">
+    apo
+  </p>
+</body>
+</html>"""
+
+    text = f"""\
+You're invited to apo!
+
+{inviter_name} has invited you to apo. Accepting creates your own Project on this apo installation — a private workspace for your tasks, runs, and evaluations.
+
+Click the link below to get started:
+
+{invite_url}
+
+apo
+"""
+    return html, text

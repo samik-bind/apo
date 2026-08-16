@@ -12,10 +12,16 @@ import { Label } from "@/components/ui/label"
 import { backendFetch } from "@/lib/backend-fetch"
 import { getSafeRedirectPath } from "@/lib/redirect"
 
-export function LoginPage({ noUsers }: { noUsers: boolean }) {
+export function LoginPage({
+  hasUsers,
+  setupAvailable,
+}: {
+  hasUsers: boolean
+  setupAvailable: boolean
+}) {
   return (
     <Suspense>
-      <LoginForm noUsers={noUsers} />
+      <LoginForm hasUsers={hasUsers} setupAvailable={setupAvailable} />
     </Suspense>
   )
 }
@@ -98,7 +104,8 @@ function LoginCredentialsForm({
   retryAfter,
   successMessage,
   loading,
-  noUsers,
+  hasUsers,
+  setupAvailable,
 }: {
   email: string
   password: string
@@ -109,12 +116,13 @@ function LoginCredentialsForm({
   retryAfter: number
   successMessage: string | null
   loading: boolean
-  noUsers: boolean
+  hasUsers: boolean
+  setupAvailable: boolean
 }) {
   return (
     <AuthShell>
       <form onSubmit={onSubmit} className="space-y-4">
-        {noUsers && (
+        {setupAvailable && (
           <div className="border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
             No accounts exist yet.{" "}
             <Link
@@ -202,15 +210,25 @@ function LoginCredentialsForm({
           )}
         </Button>
 
-        <p className="text-center text-xs text-muted-foreground">
-          Need an account?{" "}
-          <Link
-            href="/setup"
-            className="text-foreground underline underline-offset-4 transition-opacity hover:opacity-80"
-          >
-            Create account
-          </Link>
-        </p>
+        {/* SPEC-179: admission is invitation-only once initialized — the
+            /setup link exists only while first-user setup is available. */}
+        {setupAvailable ? (
+          <p className="text-center text-xs text-muted-foreground">
+            Need an account?{" "}
+            <Link
+              href="/setup"
+              className="text-foreground underline underline-offset-4 transition-opacity hover:opacity-80"
+            >
+              Set up the first account
+            </Link>
+          </p>
+        ) : (
+          hasUsers && (
+            <p className="text-center text-xs text-muted-foreground">
+              Accounts on this APO installation are invitation-only.
+            </p>
+          )
+        )}
       </form>
     </AuthShell>
   )
@@ -296,7 +314,13 @@ function loginReducer(state: LoginState, action: LoginAction): LoginState {
   }
 }
 
-function LoginForm({ noUsers }: { noUsers: boolean }) {
+function LoginForm({
+  hasUsers,
+  setupAvailable,
+}: {
+  hasUsers: boolean
+  setupAvailable: boolean
+}) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const callbackUrl = getSafeRedirectPath(searchParams.get("callbackUrl"))
@@ -425,7 +449,8 @@ function LoginForm({ noUsers }: { noUsers: boolean }) {
       retryAfter={retryAfter}
       successMessage={successMessage}
       loading={loading}
-      noUsers={noUsers}
+      hasUsers={hasUsers}
+      setupAvailable={setupAvailable}
     />
   )
 }

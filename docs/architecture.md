@@ -86,6 +86,21 @@ The system has three distinct authentication modes. They should not be mixed.
      Attempt, Run, lease generation, and permissions
    - neither credential ever reuses a browser session cookie
 
+### Admission (SPEC-179)
+
+Admission to an installation is **not** Project membership. A Hosted Access
+Invitation is a single-use bearer capability issued by an Installation
+Administrator; accepting it (publicly for a new account, or with a matching
+authenticated session for an existing one) creates the invitee's User when
+needed, exactly one new Project, one owner membership, and consumes the
+invitation — all in one transaction that rolls back completely on any
+failure. The issuer gains no membership, and the raw token is stored only as
+a SHA-256 hash and shown exactly once (email, or the copy-link fallback when
+`EMAIL_TRANSPORT_URL` is unconfigured). `require_installation_admin` accepts
+browser-session authority only: Project API keys and executor capability
+credentials cannot manage admission even when their creator is an
+administrator.
+
 ### Agent-Task Trace Auth
 
 Agent-task tracing uses an Attempt-scoped short-lived service token:

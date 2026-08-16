@@ -1338,6 +1338,19 @@ _ROUTE_MODULE_AUDIT: dict[str, tuple[str, list[tuple[str, str]]]] = {
         ],
     ),
     "demo": ("public", []),
+    "hosted_access": (
+        "project",
+        [
+            (
+                "tests/test_hosted_access_invitations.py",
+                "test_project_api_key_cannot_issue_even_from_admin_creator",
+            ),
+            (
+                "tests/test_hosted_access_invitations.py",
+                "test_invitee_cannot_read_company_project",
+            ),
+        ],
+    ),
     "executor_pools": (
         "project",
         [

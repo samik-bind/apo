@@ -15,6 +15,7 @@ const NAV_HIDDEN_ROUTES = [
   "/forgot-password",
   "/reset-password",
   "/accept-invitation",
+  "/join",
   "/public",
 ];
 
