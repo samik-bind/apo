@@ -1290,6 +1290,10 @@ _ROUTE_MODULE_AUDIT: dict[str, tuple[str, list[tuple[str, str]]]] = {
         [
             ("tests/test_project_authorization_boundary.py", "test_task_run_list_does_not_cross_projects"),
             ("tests/test_project_authorization_boundary.py", "test_task_run_detail_is_opaque_cross_project"),
+            (
+                "tests/test_boundary_final_gaps.py",
+                "test_cross_project_session_report_is_opaque",
+            ),
         ],
     ),
     "agent_task_schedules": (
@@ -1302,7 +1306,13 @@ _ROUTE_MODULE_AUDIT: dict[str, tuple[str, list[tuple[str, str]]]] = {
     "agent_task_trace_projection": ("capability", []),
     "agent_task_views": (
         "project",
-        [("tests/test_task_view_comparison.py", "test_comparison_requires_membership")],
+        [
+            ("tests/test_task_view_comparison.py", "test_comparison_requires_membership"),
+            (
+                "tests/test_boundary_final_gaps.py",
+                "test_key_cannot_read_foreign_project_views",
+            ),
+        ],
     ),
     "analytics": (
         "project",
@@ -1374,6 +1384,10 @@ _ROUTE_MODULE_AUDIT: dict[str, tuple[str, list[tuple[str, str]]]] = {
         [
             ("tests/test_project_authorization_boundary.py", "test_task_catalog_read_requires_membership"),
             ("tests/test_project_authorization_boundary.py", "test_task_catalog_member_read_and_admin_publish"),
+            (
+                "tests/test_boundary_final_gaps.py",
+                "test_key_cannot_reset_or_delete_foreign_project",
+            ),
         ],
     ),
     "run_events": (
@@ -1985,3 +1999,52 @@ def test_session_score_create_derives_project_from_target(
     ).all()
     assert len(rows) == 1
     assert rows[0].project == _PROJECT_A
+
+
+# ---------------------------------------------------------------------------
+# SPEC-179 phase 1: caller result deliverables persist as rows
+# ---------------------------------------------------------------------------
+
+
+def test_result_submission_persists_inline_json_as_rows(
+    session: Session, make_authed_client: Callable[..., TestClient]
+) -> None:
+    """The caller-execution result's inline JSON deliverables persist as
+    AgentTaskDeliverableDB rows (canonical storage) — not only into the
+    legacy ``deliverables_json`` column."""
+    from apo.models.db import AgentTaskDeliverableDB
+
+    now = datetime.now(timezone.utc)
+    _seed_http_world(session)
+    # A non-terminal run in Project A (the seeded runs are terminal).
+    session.add(
+        AgentTaskRunDB(
+            id="run-live-result", batch_run_id=_BATCH_A, task_id="evals/live",
+            task_path="/t/evals/live", status="running",
+            started_at=now,
+        )
+    )
+    session.commit()
+
+    alice_client = make_authed_client(_USER_ALICE, session)
+    resp = alice_client.post(
+        "/v1/agent-task-runs/run-live-result/result",
+        json={
+            "pass_result": True,
+            "adapter_name": "real-agent",
+            "deliverables": {"report": {"answer": 42}},
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    row = session.exec(
+        select(AgentTaskDeliverableDB).where(
+            AgentTaskDeliverableDB.task_run_id == "run-live-result",
+            AgentTaskDeliverableDB.name == "report",
+        )
+    ).first()
+    assert row is not None
+    assert row.kind == "json"
+    assert row.status == "ready"
+    assert row.project == _PROJECT_A
+    assert row.inline_value_json == {"value": {"answer": 42}}

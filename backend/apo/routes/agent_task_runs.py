@@ -41,6 +41,7 @@ from ..services.agent_task_batch_listing import (
 )
 from ..services.check_report_storage import load_check_report
 from ..services.agent_task_outcome import classify_run_outcome
+from ..services.agent_task_run_access import require_task_run_access
 from ..services.agent_task_projection import (
     parse_trigger,
     to_batch_run_detail,
@@ -715,7 +716,8 @@ async def get_agent_task_run(
 )
 async def report_agent_task_run_result(
     task_run_id: str,
-    request: ReportAgentTaskRunResultRequest,
+    payload: ReportAgentTaskRunResultRequest,
+    request: Request,
     session: Session = Depends(get_session),
 ):
     """Finalize a task run from an external executor (Issue #4).
@@ -724,6 +726,12 @@ async def report_agent_task_run_result(
     executor (typically ``apo task run --local``) reports the verdict,
     checks, transcript, and deliverables back after running the task on its
     own machine.
+
+    Authorization (SPEC-178): the Project is derived through the Batch and
+    the caller must hold authority over it — a service/Attempt token must
+    match this exact run; a session/API-key caller must be a member.
+    Cross-Project reports are opaque 404s, before any verdict, transcript,
+    or Deliverable is written or read back.
 
     Idempotency: reporting against an already-terminal run returns 409.
 
@@ -738,24 +746,48 @@ async def report_agent_task_run_result(
     if task_run is None:
         raise HTTPException(status_code=404, detail="Task run not found")
 
-    batch = session.get(AgentTaskBatchRunDB, task_run.batch_run_id)
-    if batch is None:
-        raise HTTPException(status_code=404, detail="Batch run not found")
-    require_project_not_demo(batch.project)
+    _ = require_task_run_access(request, session, task_run, write=True)
+
+    # SPEC-179 phase 1: inline JSON deliverables persist as canonical
+    # AgentTaskDeliverableDB rows (SPEC-172 placement rules apply: inline
+    # under the threshold, gzip+store above, name collisions rejected).
+    # The legacy ``deliverables_json`` column write below continues during
+    # the transition so the detail response field keeps working.
+    if payload.deliverables:
+        from ..services.agent_task_deliverables import persist_json_deliverable
+        from ..services.artifact_stores.registry import get_store
+
+        batch = session.get(AgentTaskBatchRunDB, task_run.batch_run_id)
+        if batch is None:
+            raise HTTPException(status_code=404, detail="Task run not found")
+        store = get_store(None)
+        try:
+            for name, value in payload.deliverables.items():
+                await persist_json_deliverable(
+                    session,
+                    project=batch.project,
+                    task_run_id=task_run_id,
+                    name=name,
+                    value=value,
+                    store=store,
+                )
+            session.flush()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
         finalize_external_task_run(
             session,
             task_run,
-            pass_result=request.pass_result,
-            adapter_name=request.adapter_name,
-            trace_run_id=request.trace_run_id,
-            checks=request.checks,
-            transcript=request.transcript,
-            deliverables=request.deliverables,
-            errored=request.errored,
-            error_message=request.error_message,
-            run_configuration=request.run_configuration,
+            pass_result=payload.pass_result,
+            adapter_name=payload.adapter_name,
+            trace_run_id=payload.trace_run_id,
+            checks=payload.checks,
+            transcript=payload.transcript,
+            deliverables=payload.deliverables,
+            errored=payload.errored,
+            error_message=payload.error_message,
+            run_configuration=payload.run_configuration,
         )
     except ValueError as e:
         msg = str(e)
