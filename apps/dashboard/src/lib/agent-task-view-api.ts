@@ -20,6 +20,8 @@ export interface RunConfigModelFacet {
   model: string;
   count: number;
   efforts: RunConfigEffortFacet[];
+  /** Retired from the filter dropdowns by a project member. */
+  archived: boolean;
 }
 
 /**
@@ -53,6 +55,26 @@ export const fetchTaskViewConfigFacets = (
   projectId: string,
 ): Promise<RunConfigModelFacet[]> =>
   apiClient(`/v1/projects/${encodeURIComponent(projectId)}/agent-task-run-config-facets`, NO_CACHE);
+
+/**
+ * Retire a model from the project's filter dropdowns, or bring it back.
+ *
+ * Shared across the project and display-only: the model's runs are untouched,
+ * still count toward all-model stats, and stay reachable by `?model=`. A fresh
+ * run of an archived model un-archives it server-side.
+ *
+ * The model travels in the body, not the path — model ids can carry a provider
+ * prefix (`openai/gpt-5.1`) that no encoding makes safe in a path segment.
+ */
+export const setModelArchived = (
+  projectId: string,
+  model: string,
+  archived: boolean,
+): Promise<{ model: string; archived: boolean }> =>
+  apiClient(`/v1/projects/${encodeURIComponent(projectId)}/archived-models`, {
+    method: "PUT",
+    body: { model, archived },
+  });
 
 // ----------------------------------------------------------------------------
 // SPEC-174 Phase 2 — selection-scoped view comparison (immutable snapshot)

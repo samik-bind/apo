@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { ChevronRight, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, Search } from "lucide-react";
 
 import { type EffortFacetOption } from "@/lib/agent-task-api";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { shortModel } from "@/lib/run-configuration";
+import { ModelFilterMenu } from "@/components/model-filter-menu";
 
 import { type ModelOption } from "../runs-model-filter";
 
@@ -27,6 +28,8 @@ interface RunsToolbarProps {
   effortOptions: EffortFacetOption[];
   totalCount: number;
   updateUrl: (updates: Record<string, string | null>) => void;
+  /** Retire a model from the palette, or bring it back. */
+  onSetArchived: (model: string, archived: boolean) => void;
 }
 
 /**
@@ -44,6 +47,7 @@ export function RunsToolbar({
   effortOptions,
   totalCount,
   updateUrl,
+  onSetArchived,
 }: RunsToolbarProps) {
   const [searchInput, setSearchInput] = useState(urlQ);
   // Follow ?q changes that did not come from our own typing (initial load,
@@ -120,25 +124,29 @@ export function RunsToolbar({
         {/* Model dropdown */}
         <label htmlFor="runs-model-filter" className="flex shrink-0 items-center gap-1.5">
           <span className="text-[11px] uppercase tracking-wide text-foreground/50">Model</span>
-          <Select
-            value={selectedModels.size === 1 ? Array.from(selectedModels)[0] : selectedModels.size > 1 ? "__multi" : "__all"}
-            onValueChange={(v) => {
-              if (v === "__all") updateUrl({ model: null, effort: null, page: null });
-              else updateUrl({ model: v, effort: null, page: null });
-            }}
-          >
-            <SelectTrigger id="runs-model-filter" size="sm" className="h-7 w-[140px] bg-muted/40 text-[12px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all" className="text-[12px]">All models</SelectItem>
-              {modelOptions.map((opt) => (
-                <SelectItem key={opt.model} value={opt.model} className="text-[12px] font-mono">
-                  {shortModel(opt.model)} ({opt.count})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <ModelFilterMenu
+            options={modelOptions}
+            selected={selectedModels}
+            onSelect={(model) => updateUrl({ model, effort: null, page: null })}
+            onClear={() => updateUrl({ model: null, effort: null, page: null })}
+            onSetArchived={onSetArchived}
+            trigger={
+              <button
+                id="runs-model-filter"
+                type="button"
+                className="flex h-7 w-[140px] items-center justify-between gap-1 border border-input bg-muted/40 px-2 text-[12px] text-foreground hover:bg-muted/60"
+              >
+                <span className="truncate font-mono">
+                  {selectedModels.size === 1
+                    ? shortModel(Array.from(selectedModels)[0]!)
+                    : selectedModels.size > 1
+                      ? `${selectedModels.size} models`
+                      : "All models"}
+                </span>
+                <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+              </button>
+            }
+          />
         </label>
 
         {/* Effort filter — shown only when one model selected with 2+ tiers */}

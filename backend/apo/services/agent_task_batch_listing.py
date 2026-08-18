@@ -31,6 +31,7 @@ from ..services.agent_task_projection import (
     group_batch_configuration_summaries,
     to_batch_run_summary,
 )
+from ..services.archived_models import load_archived_models
 
 
 _BATCH_CREATED_AT_COL: ColumnElement[object] = as_column(
@@ -53,6 +54,10 @@ class ModelFacetOption(BaseModel):
     model: str
     count: int
     efforts: list[EffortFacetOption] = []
+    # Retired from the dropdown by a project member. Archived models are still
+    # returned so the client can reveal them to un-archive, and so a model the
+    # active filter selects never vanishes from the menu.
+    archived: bool = False
 
 
 class PaginatedBatchRunSummary(BaseModel):
@@ -101,7 +106,7 @@ def list_batch_run_summaries(
     model/effort filtering) so the dropdown is stable.
     """
     base = _apply_base_filters(select(AgentTaskBatchRunDB), filters)
-    model_facets = _compute_model_facets(session, base)
+    model_facets = _compute_model_facets(session, base, _single_project(filters))
     filtered = _apply_config_filters(base, filters.models, filters.efforts)
 
     total_count = session.exec(
@@ -133,6 +138,20 @@ def list_batch_run_summaries(
 # ---------------------------------------------------------------------------
 # Filter building
 # ---------------------------------------------------------------------------
+
+
+def _single_project(filters: BatchRunListFilters) -> str | None:
+    """The one project this listing is scoped to, if it is scoped to one.
+
+    Archived-model choices belong to a project, so they only apply when the
+    listing shows a single one. The dashboard always scopes; the unscoped
+    readable-projects listing gets no archived flags.
+    """
+    if filters.project:
+        return filters.project
+    if filters.project_ids is not None and len(filters.project_ids) == 1:
+        return filters.project_ids[0]
+    return None
 
 
 def _apply_base_filters(
@@ -183,7 +202,9 @@ def _apply_config_filters(
 
 
 def _compute_model_facets(
-    session: Session, base: SelectOfScalar[AgentTaskBatchRunDB]
+    session: Session,
+    base: SelectOfScalar[AgentTaskBatchRunDB],
+    project_id: str | None = None,
 ) -> list[ModelFacetOption]:
     facet_ids = base.with_only_columns(col(AgentTaskBatchRunDB.id))
     facet_stmt = select(
@@ -198,6 +219,9 @@ def _compute_model_facets(
         AgentTaskRunDB.configured_effort,
     )
     rows = session.exec(facet_stmt).all()
+    # Archiving is per project, so a listing spanning several (or all readable)
+    # projects has no single palette to hide anything from.
+    archived = load_archived_models(session, project_id) if project_id else set()
 
     by_model: dict[str, dict[str, int]] = {}
     for model, effort, count in rows:
@@ -213,6 +237,7 @@ def _compute_model_facets(
                 EffortFacetOption(effort=e, count=c)
                 for e, c in sorted(efforts.items()) if e
             ],
+            archived=model in archived,
         )
         for model, efforts in sorted(by_model.items())
     ]

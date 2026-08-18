@@ -79,6 +79,8 @@ export interface ModelFacetOption {
   model: string;
   count: number;
   efforts: EffortFacetOption[];
+  /** Retired from the filter dropdowns by a project member. */
+  archived: boolean;
 }
 
 export interface PaginatedBatchRunSummary {

@@ -32,6 +32,7 @@ from sqlalchemy.sql.elements import ColumnElement
 from ..db_helpers import _as_column
 from ..models.db import AgentTaskBatchRunDB, AgentTaskRunDB
 from ..models.schemas import AgentTaskRunStats, RunConfigEffortFacet, RunConfigModelFacet, TaskViewConfig
+from .archived_models import load_archived_models
 from .view_runs import runs_in_view
 
 
@@ -176,6 +177,10 @@ def compute_run_config_facets(
     runs reported before the v15 config columns existed) are excluded — they
     carry no usable filter value and would only clutter the palette.
 
+    Models the project has archived are returned with ``archived=True`` rather
+    than dropped: the client hides them but can reveal them to un-archive, and
+    it must keep rendering one that the active filter still selects.
+
     Projects only the two scalar config columns (no JSON blobs), then counts in
     Python — the distinct (model, effort) set is small, so this stays OOM-safe
     and fully typed (``func.count()`` would otherwise surface as ``Any``).
@@ -189,6 +194,7 @@ def compute_run_config_facets(
         )
     )
     rows = session.execute(stmt).all()
+    archived = load_archived_models(session, project_id)
 
     # assemble (model -> {effort -> count}) then flatten into sorted facets.
     # null efforts count toward the model total but are excluded from the
@@ -220,6 +226,7 @@ def compute_run_config_facets(
                 model=model,
                 count=model_totals[model],
                 efforts=effort_facets,
+                archived=model in archived,
             )
         )
     return facets

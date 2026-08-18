@@ -44,6 +44,7 @@ from .routes import (
     demo,
     projects,
     project_members,
+    project_model_prefs,
     system_runtime,
     executor_protocol,
     executor_protocol_v2,
@@ -170,6 +171,7 @@ def create_app() -> FastAPI:
     app.include_router(agent_task_schedules.router)
     app.include_router(agent_task_trace_projection.router)
     app.include_router(agent_task_views.router)
+    app.include_router(project_model_prefs.router)
     from .routes import task_definition_sources
     app.include_router(task_definition_sources.router)
     app.include_router(models.router)

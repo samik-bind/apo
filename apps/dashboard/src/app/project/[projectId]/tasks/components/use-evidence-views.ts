@@ -14,6 +14,7 @@ import {
   fetchTaskViewConfigFacets,
   fetchTaskViewStats,
   type RunConfigModelFacet,
+  setModelArchived,
   updateSavedView,
 } from "@/lib/agent-task-view-api";
 
@@ -140,6 +141,21 @@ export function useEvidenceViews({
     if (!isDemoProject) deleteSavedView(projectId, id).catch(() => {});
   };
 
+  // Archiving retires a model from the filter dropdowns project-wide. The
+  // palette is fetched client-side here, so the local copy is patched rather
+  // than refetched (the Runs page renders its facets server-side and refreshes).
+  const setModelArchivedState = async (model: string, archived: boolean) => {
+    const previous = facets;
+    setFacets((prev) => prev.map((f) => (f.model === model ? { ...f, archived } : f)));
+    try {
+      await setModelArchived(projectId, model, archived);
+      toast.success(archived ? "Model archived" : "Model restored");
+    } catch (e: unknown) {
+      setFacets(previous);
+      toast.error(e instanceof Error ? e.message : "Failed to update model");
+    }
+  };
+
   return {
     views,
     activeView,
@@ -152,5 +168,6 @@ export function useEvidenceViews({
     updateActiveView,
     duplicateActive,
     closeView,
+    setModelArchivedState,
   };
 }

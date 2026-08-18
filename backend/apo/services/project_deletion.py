@@ -47,6 +47,7 @@ from ..models.db import (
     AgentTaskScheduleOccurrenceDB,
     AnnotationQueueDB,
     ApiKeyDB,
+    ArchivedModelDB,
     CallMetricDB,
     CommentDB,
     CommentReactionDB,
@@ -274,6 +275,13 @@ def delete_project_data(
             session,
             ProjectInvitationDB,
             ProjectInvitationDB.project_id == project_id,
+        )
+        # Archived-model choices survive reset-data: they describe the
+        # project's model vocabulary, not its observation data.
+        deleted["archived_models"] = _delete_by_column(
+            session,
+            ArchivedModelDB,
+            ArchivedModelDB.project_id == project_id,
         )
         deleted["github_connections"] = _delete_by_column(
             session,

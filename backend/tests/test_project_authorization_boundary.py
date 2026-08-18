@@ -1396,6 +1396,16 @@ _ROUTE_MODULE_AUDIT: dict[str, tuple[str, list[tuple[str, str]]]] = {
         "project",
         [("tests/test_project_authorization_boundary.py", "test_api_key_cannot_manage_other_projects_members")],
     ),
+    "project_model_prefs": (
+        "project",
+        [
+            ("tests/test_archived_models.py", "test_non_member_cannot_archive"),
+            (
+                "tests/test_archived_models.py",
+                "test_archiving_does_not_leak_across_projects",
+            ),
+        ],
+    ),
     "projects": (
         "project",
         [

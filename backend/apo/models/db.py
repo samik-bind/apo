@@ -1322,6 +1322,41 @@ class TaskViewDB(SQLModel, table=True):
     )
 
 
+class ArchivedModelDB(SQLModel, table=True):
+    """A model the project has retired from its filter dropdowns.
+
+    The model palette on the Runs and Tasks pages is derived from the distinct
+    ``configured_model`` values on runs, so a model that ran once stays in the
+    dropdown forever. A row here removes one from those lists.
+
+    Presence is the state — there is no ``archived`` flag. Un-archiving deletes
+    the row, which is also what a new run of that model does: a fresh run means
+    the label is live again (see ``finalize_task_run_with_result``).
+
+    Archiving is project-wide and display-only. It never hides runs, changes
+    stats, or affects ``?model=`` filtering — a shared link or a saved view
+    pinned to an archived model keeps working.
+    """
+
+    __tablename__: ClassVar[str] = "archived_model"
+    __table_args__: ClassVar[tuple[object, ...]] = (
+        UniqueConstraint("project_id", "model", name="uq_archived_model_project_model"),
+    )
+
+    id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:16])
+    project_id: str = Field(foreign_key="projects.id", index=True)
+    model: str
+    archived_by_user_id: str | None = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+
+
 # ============================================================================
 # Execution Control Plane — Pools, Executors, Attempts
 # ============================================================================

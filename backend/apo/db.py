@@ -1407,6 +1407,42 @@ def _migrate_to_v24() -> None:
         _create_index_if_not_exists(conn, "ix_task_view_project_user", "task_view", "project_id, user_id")
 
 
+def _migrate_archived_model_schema(conn: Connection) -> None:
+    """The v25 archived-model migration, runnable against any connection.
+
+    Creates ``archived_model`` — one row per model a project has retired from
+    its filter dropdowns. Presence is the state, so there is no flag column to
+    backfill and nothing to migrate from. Idempotent.
+    """
+    ts = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    conn.exec_driver_sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS archived_model (
+            id VARCHAR PRIMARY KEY,
+            project_id VARCHAR NOT NULL REFERENCES projects(id),
+            model VARCHAR NOT NULL,
+            archived_by_user_id VARCHAR REFERENCES users(id),
+            created_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT uq_archived_model_project_model UNIQUE (project_id, model)
+        )
+        """
+    )
+    _create_index_if_not_exists(
+        conn, "ix_archived_model_project_id", "archived_model", "project_id"
+    )
+
+
+def _migrate_to_v27() -> None:
+    """Version 27: ``archived_model`` — user-retired models in the filter palette.
+
+    New tables are created by ``SQLModel.metadata.create_all`` on fresh DBs, so
+    this only brings existing DBs up. Idempotent.
+    """
+    with engine.begin() as conn:
+        _migrate_archived_model_schema(conn)
+
+
 def _migrate_check_report_schema(conn: Connection) -> None:
     """The v20 check-report migration, runnable against any connection.
 
@@ -2001,7 +2037,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 26
+LATEST_SCHEMA_VERSION = 27
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2030,6 +2066,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     24: _migrate_to_v24,
     25: _migrate_to_v25,
     26: _migrate_to_v26,
+    27: _migrate_to_v27,
 }
 
 

@@ -28,6 +28,7 @@ from ..models.db import (
 )
 from ..models.schemas import AgentTaskRunConfiguration
 from .agent_task_configuration import normalize_run_configuration
+from .archived_models import set_model_archived
 from .lifecycle import TASK_RUN_TERMINAL
 from .agent_task_discovery import DEFAULT_TASK_ROOT, resolve_task_paths
 from .check_report_storage import persist_check_report
@@ -428,6 +429,13 @@ def finalize_task_run_with_result(
     task_run.configured_effort = (
         normalized_config.effort if normalized_config else None
     )
+    # A fresh run means the label is live again, so it comes back to the filter
+    # dropdowns on its own — otherwise you would run an archived model and have
+    # no way to filter for it without knowing to go un-archive it first.
+    if normalized_config and normalized_config.model:
+        set_model_archived(
+            session, batch.project, normalized_config.model, archived=False
+        )
     # persist the scalar verdict onto the run row and the full check
     # evidence into ``agent_task_check_reports`` (off the hot row). Stages on the
     # session; the caller's transaction commits so scalars + report land

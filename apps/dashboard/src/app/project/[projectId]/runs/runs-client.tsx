@@ -25,6 +25,8 @@ import { RunsPagination } from "./components/RunsPagination";
 import { RunsRow } from "./components/RunsRow";
 import { RunsToolbar } from "./components/RunsToolbar";
 import { COL, computeOverlap } from "./components/runs-utils";
+import { setModelArchived } from "@/lib/agent-task-view-api";
+import { toast } from "sonner";
 
 export function RunsClient({
   batchRuns,
@@ -91,9 +93,26 @@ export function RunsClient({
   const modelOptions: ModelOption[] = useMemo(
     () =>
       modelFacets
-        .map((f) => ({ model: f.model, count: f.count }))
+        .map((f) => ({ model: f.model, count: f.count, archived: f.archived }))
         .sort((a, b) => a.model.localeCompare(b.model)),
     [modelFacets],
+  );
+
+  // Archiving retires a model from the dropdowns project-wide. The facets are
+  // server-rendered here (a by-product of the runs list), so a refresh is what
+  // re-reads them — the Tasks page fetches its palette client-side and splices
+  // its own state instead.
+  const setModelArchivedState = useCallback(
+    async (model: string, archived: boolean) => {
+      try {
+        await setModelArchived(projectId, model, archived);
+        router.refresh();
+        toast.success(archived ? "Model archived" : "Model restored");
+      } catch (e: unknown) {
+        toast.error(e instanceof Error ? e.message : "Failed to update model");
+      }
+    },
+    [projectId, router],
   );
 
   // Effort filter — only show when exactly one model is selected and that
@@ -152,6 +171,7 @@ export function RunsClient({
         effortOptions={effortOptions}
         totalCount={totalCount}
         updateUrl={updateUrl}
+        onSetArchived={setModelArchivedState}
       />
 
       <div className="flex-1 overflow-auto">
@@ -183,6 +203,7 @@ export function RunsClient({
                       selected={selectedModels}
                       onToggle={toggleModel}
                       onClear={clearModels}
+                      onSetArchived={setModelArchivedState}
                     />
                   </span>
                 </TableHead>

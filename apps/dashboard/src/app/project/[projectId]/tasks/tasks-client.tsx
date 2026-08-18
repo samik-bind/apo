@@ -56,6 +56,7 @@ export function AgentTasksClient({
     updateActiveView,
     duplicateActive,
     closeView,
+    setModelArchivedState,
   } = useEvidenceViews({ projectId, isDemoProject, tasks });
 
   const statusFilteredTasks = useMemo<AgentTaskSummary[]>(() => {
@@ -190,6 +191,7 @@ export function AgentTasksClient({
               }
               onSelect={setActiveViewId}
               onChange={updateActiveView}
+              onSetArchived={setModelArchivedState}
               onDuplicate={duplicateActive}
               onClose={closeView}
             />

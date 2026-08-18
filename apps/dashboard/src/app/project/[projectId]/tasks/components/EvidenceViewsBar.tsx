@@ -11,6 +11,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { ModelFilterMenu } from "@/components/model-filter-menu";
+import { shortModel } from "@/lib/run-configuration";
 
 import { FilterPicker } from "./FilterPicker";
 import {
@@ -51,6 +53,7 @@ export function EvidenceViewsBar({
   onToggleStatus,
   onSelect,
   onChange,
+  onSetArchived,
   onDuplicate,
   onClose,
 }: {
@@ -71,6 +74,8 @@ export function EvidenceViewsBar({
   onToggleStatus: (status: string) => void;
   onSelect: (id: string) => void;
   onChange: (patch: Partial<Pick<ViewTab, "model" | "effort" | "since" | "label">>) => void;
+  /** Retire a model from the palette, or bring it back. */
+  onSetArchived: (model: string, archived: boolean) => void;
   onDuplicate: () => void;
   onClose: (id: string) => void;
 }) {
@@ -178,15 +183,28 @@ export function EvidenceViewsBar({
         </div>
         {viewsActive && (
           <>
-            <FilterPicker
-              label="Model"
-              value={active.model ?? ALL_MODELS_VALUE}
-              options={[
-                { value: ALL_MODELS_VALUE, label: "All models" },
-                ...facets.map((f) => ({ value: f.model, label: f.model })),
-              ]}
-              onChange={changeModel}
-            />
+            <label className="flex shrink-0 items-center gap-1.5">
+              <span className="text-[11px] uppercase tracking-wide text-foreground/50">Model</span>
+              <ModelFilterMenu
+                options={facets}
+                selected={active.model ? new Set([active.model]) : new Set()}
+                onSelect={(model) => changeModel(model ?? ALL_MODELS_VALUE)}
+                onClear={() => changeModel(ALL_MODELS_VALUE)}
+                onSetArchived={onSetArchived}
+                trigger={
+                  <button
+                    type="button"
+                    aria-label="Model filter"
+                    className="flex h-7 min-w-[140px] items-center justify-between gap-1 border border-input bg-muted/40 px-2 text-[12px] text-foreground hover:bg-muted/60"
+                  >
+                    <span className="truncate font-mono">
+                      {active.model ? shortModel(active.model) : "All models"}
+                    </span>
+                    <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+                  </button>
+                }
+              />
+            </label>
             {effortOptions.length > 0 && (
               <FilterPicker
                 label="Effort"

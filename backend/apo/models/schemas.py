@@ -353,6 +353,10 @@ class RunConfigModelFacet(SQLModel):
     model: str
     count: int
     efforts: list[RunConfigEffortFacet] = []
+    # Retired from the dropdown by a project member. Every model is returned
+    # regardless — the client hides archived ones and offers a "Show archived"
+    # reveal, so the toggle needs no refetch.
+    archived: bool = False
 
 
 # SPEC-174 Phase 2 — selection-scoped view comparison.
