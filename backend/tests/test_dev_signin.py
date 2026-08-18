@@ -88,6 +88,9 @@ def test_signin_provisions_workspace_idempotently(
     ).all()
     assert len(task_runs) >= 3
     assert {run.pass_result for run in task_runs} == {True, False}
+    assert all(
+        run.configured_model == "claude-haiku-4-5-20251001" for run in task_runs
+    )
 
     traces = session.exec(
         select(RunDB).where(RunDB.project == "agent-demo")

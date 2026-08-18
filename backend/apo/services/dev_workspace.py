@@ -41,6 +41,10 @@ logger = logging.getLogger(__name__)
 
 DEV_SIGNIN_ENABLED_ENV = "DEV_SIGNIN_ENABLED"
 DEV_PROJECT_ID_ENV = "APO_DEV_PROJECT_ID"
+DEV_SEED_MODEL_ENV = "APO_DEV_SEED_MODEL"
+# Cheap default — this is fixture data, not a real execution, so the label
+# should reflect what the deployment actually runs day-to-day.
+DEV_SEED_MODEL_DEFAULT = "claude-haiku-4-5-20251001"
 DEV_USER_EMAIL = "dev@apo.local"
 DEV_USER_NAME = "Dev User"
 DEV_PROJECT_DEFAULT_ID = "agent-demo"
@@ -80,6 +84,10 @@ def dev_project_id() -> str:
 
 def dev_landing_path() -> str:
     return f"/project/{dev_project_id()}/tasks"
+
+
+def dev_seed_model() -> str:
+    return os.environ.get(DEV_SEED_MODEL_ENV, "").strip() or DEV_SEED_MODEL_DEFAULT
 
 
 def is_dev_project_seeded(session: Session) -> bool:
@@ -248,6 +256,7 @@ def _seed_dev_runs(
     always-available dev landing must not have.
     """
     task_ids = (_discovered_task_ids() or list(_FALLBACK_TASK_IDS))[:4]
+    model = dev_seed_model()
 
     created_at = now - timedelta(hours=3)
     started_at = created_at + timedelta(seconds=30)
@@ -313,7 +322,7 @@ def _seed_dev_runs(
             failed_checks=total_checks - passed_checks,
             total_cost=1500 + index * 320,
             total_tokens=2_400 + index * 530,
-            configured_model="gpt-5.2",
+            configured_model=model,
             configured_effort="medium",
         )
         session.add(task_run)
@@ -335,6 +344,7 @@ def _seed_dev_runs(
             started_at=run_started,
             duration_seconds=40 + index * 8,
             run_passes=run_passes,
+            model=model,
         )
 
         batch_total_checks += total_checks
@@ -389,6 +399,7 @@ def _seed_trace(
     started_at: datetime,
     duration_seconds: int,
     run_passes: bool,
+    model: str,
 ) -> None:
     duration_ms = float(duration_seconds * 1000)
 
@@ -406,7 +417,7 @@ def _seed_trace(
                 if run_passes
                 else "Deliverable missing the planning step.",
             },
-            primary_model="gpt-5.2",
+            primary_model=model,
             task_run_id=task_run_id,
             created_at=started_at,
             completed_at=started_at + timedelta(seconds=duration_seconds),
@@ -422,7 +433,7 @@ def _seed_trace(
             task_id=task_id,
             run_id=trace_id,
             created_at=started_at,
-            model="gpt-5.2",
+            model=model,
             latency_ms=1_800.0,
             cost=620,
             observation_type="TOOL",
@@ -445,7 +456,7 @@ def _seed_trace(
             task_id=task_id,
             run_id=trace_id,
             created_at=started_at + timedelta(seconds=2),
-            model="gpt-5.2",
+            model=model,
             latency_ms=(duration_ms - 2_000.0),
             cost=880,
             observation_type="GENERATION",

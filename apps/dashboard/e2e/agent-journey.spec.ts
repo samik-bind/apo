@@ -71,7 +71,11 @@ test.describe("Agent journey @agent", () => {
       page.getByRole("button", { name: "Toggle table columns" }),
     ).toBeVisible();
     await traceSearch.fill("agent-demo");
-    await traceSearch.press("Enter");
-    await expect(page).toHaveURL(/search=agent-demo/);
+    // The input renders server-side before hydration attaches the keydown
+    // handler — pressing Enter is idempotent, so retry until the URL moves.
+    await expect(async () => {
+      await traceSearch.press("Enter");
+      await expect(page).toHaveURL(/search=agent-demo/, { timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
   });
 });
