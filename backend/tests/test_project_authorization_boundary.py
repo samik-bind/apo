@@ -1338,6 +1338,10 @@ _ROUTE_MODULE_AUDIT: dict[str, tuple[str, list[tuple[str, str]]]] = {
         ],
     ),
     "demo": ("public", []),
+    # Dev-only sign-in (SPEC-181): an authentication surface gated by an
+    # explicit opt-in flag enforced in the backend, with its own suite
+    # (tests/test_dev_signin.py). Not a Project-owned surface.
+    "dev_signin": ("public", []),
     "hosted_access": (
         "project",
         [

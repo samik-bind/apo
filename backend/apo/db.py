@@ -658,6 +658,31 @@ def _migrate_to_baseline():
 #
 # Schema evolution is tracked by a tiny ``schema_migrations`` table holding
 # the versions applied. Each migration is a numbered, idempotent function
+def _migrate_to_v26() -> None:
+    """Version 26 (SPEC-179 phase 4a): backfill legacy deliverables columns.
+
+    Every run whose ``deliverables_json`` column is non-NULL and has no
+    deliverable rows gets its blob converted through the canonical
+    placement path (inline under the threshold, gzip+store above). Runs
+    with rows are skipped, so the pass is idempotent and never races
+    newer data. The column itself is left intact — the drop is phase 4b,
+    after every database has backfilled.
+    """
+    import logging
+
+    from sqlmodel import Session as _Session
+
+    from apo.services.agent_task_deliverables import (
+        backfill_deliverable_rows_from_column,
+    )
+
+    logger = logging.getLogger(__name__)
+    with _Session(engine) as session:
+        created = backfill_deliverable_rows_from_column(session)
+    if created:
+        logger.info("deliverables backfill created %d rows", created)
+
+
 # registered in ``_SCHEMA_MIGRATIONS``; ``_run_migrations`` applies every
 # migration newer than the database's current version, then stamps the
 # resulting version.
@@ -1976,7 +2001,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 25
+LATEST_SCHEMA_VERSION = 26
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2004,6 +2029,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     23: _migrate_to_v23,
     24: _migrate_to_v24,
     25: _migrate_to_v25,
+    26: _migrate_to_v26,
 }
 
 

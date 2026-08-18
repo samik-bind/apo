@@ -32,7 +32,11 @@ from typing import Literal, cast
 from sqlmodel import Session, select
 
 from apo.db_helpers import _as_column
-from apo.models.db import AgentTaskDeliverableDB, AgentTaskRunDB
+from apo.models.db import (
+    AgentTaskBatchRunDB,
+    AgentTaskDeliverableDB,
+    AgentTaskRunDB,
+)
 from apo.models.schemas import (
     ArtifactUploadIntent,
     DeliverableSummary,
@@ -270,6 +274,80 @@ def derive_deliverables_json_for_runs(
         for run_id in need:
             out[run_id] = by_run.get(run_id) or None
     return out
+
+
+def backfill_deliverable_rows_from_column(session: Session) -> int:
+    """SPEC-179 phase 4a: convert legacy ``deliverables_json`` blobs into rows.
+
+    Runs once from the v26 startup migration. For every run whose column is
+    non-NULL and has NO deliverable rows yet, each entry persists through
+    the canonical placement path (inline <= threshold, gzip+store above,
+    name collisions rejected). Runs that already have rows are skipped, so
+    the pass is idempotent and never races newer, rows-only data. The
+    legacy column itself is left intact — phase 4b drops it once every
+    database has backfilled. Per-run failures are logged and skipped so a
+    single bad legacy blob can never block startup.
+    """
+    import asyncio
+    import logging
+
+    from apo.services.artifact_stores.registry import get_store
+
+    logger = logging.getLogger(__name__)
+    run_ids = session.exec(
+        select(AgentTaskRunDB.id).where(
+            _as_column(AgentTaskRunDB.deliverables_json).is_not(None)
+        )
+    ).all()
+
+    created = 0
+    store = get_store(None)
+    for run_id in run_ids:
+        run = session.get(AgentTaskRunDB, run_id)
+        if run is None or not run.deliverables_json:
+            continue
+        existing = session.exec(
+            select(AgentTaskDeliverableDB.id).where(
+                AgentTaskDeliverableDB.task_run_id == run_id
+            )
+        ).first()
+        if existing is not None:
+            continue
+        project = _run_project(session, run)
+        for name, value in run.deliverables_json.items():
+            try:
+                asyncio.run(
+                    persist_json_deliverable(
+                        session,
+                        project=project,
+                        task_run_id=run_id,
+                        name=name,
+                        value=value,
+                        store=store,
+                    )
+                )
+                session.commit()
+                created += 1
+            except ValueError as exc:
+                # A bad legacy name (or a colliding artifact) skips that one
+                # entry; the run's other entries stay committed.
+                logger.warning(
+                    "deliverables backfill skipped run %s entry %r (%s)",
+                    run_id,
+                    name,
+                    exc,
+                )
+                session.rollback()
+    return created
+
+
+def _run_project(session: Session, run: AgentTaskRunDB) -> str:
+    batch = session.exec(
+        select(AgentTaskBatchRunDB).where(AgentTaskBatchRunDB.id == run.batch_run_id)
+    ).first()
+    if batch is None:
+        return "default"
+    return batch.project
 
 
 def derive_deliverables_json_sync(
