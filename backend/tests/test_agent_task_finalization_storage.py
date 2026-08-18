@@ -80,7 +80,6 @@ class TestFinalizationStorageBoundary:
             refreshed = session.get(AgentTaskRunDB, run.id)
             assert refreshed is not None
             assert refreshed.transcript_json is None
-            assert refreshed.deliverables_json is None
             assert refreshed.status == "passed"
 
     def test_legacy_caller_still_persists_transcript_for_compat(self):
@@ -105,10 +104,6 @@ class TestFinalizationStorageBoundary:
             refreshed = session.get(AgentTaskRunDB, run.id)
             assert refreshed is not None
             assert refreshed.transcript_json == transcript
-            # SPEC-179 phase 2: finalize no longer writes the deliverables
-            # column — rows are canonical and the response field derives
-            # from them.
-            assert refreshed.deliverables_json is None
 
     def test_trace_output_is_compact_manifest_not_body(self):
         """RunDB.output carries name/kind/size, never the full deliverable body."""
@@ -184,7 +179,6 @@ class TestFinalizationStorageBoundary:
             refreshed = session.get(AgentTaskRunDB, run.id)
             assert refreshed is not None
             # evidence lives in the check report row, not checks_json.
-            assert refreshed.checks_json is None
             checks = load_check_report(session, refreshed.id) or []
             assert isinstance(checks[0]["received"], dict)
             assert checks[0]["received"]["kind"] == "truncated"  # type: ignore[index]

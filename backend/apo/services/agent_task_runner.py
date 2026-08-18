@@ -4,7 +4,7 @@ Agent task runner service.
 Executes agent tasks and persists results as TaskRun rows.
 """
 
-# pyright: reportPrivateUsage=false, reportUnusedFunction=false, reportUnusedImport=false
+# pyright: reportPrivateUsage=false, reportUnusedFunction=false, reportUnusedImport=false, reportUnusedParameter=false
 
 import json
 import logging
@@ -443,11 +443,9 @@ def finalize_task_run_with_result(
     # finalized run has correct counts and a bounded, un-shrunk report.
     persist_check_report(session, task_run, checks)
     # ``transcript_json`` is still written (no replacement storage yet).
-    # ``deliverables_json`` is no longer written: every finalize path
-    # persists Deliverables as rows first (SPEC-179 phase 2); historical
-    # column data is read through the derivation helpers.
+    # Deliverables persist as rows at every entry point; the legacy
+    # ``deliverables_json`` column was dropped in schema v28.
     task_run.transcript_json = transcript
-    _ = deliverables
     trace_backend = get_trace_backend(batch.project)
     trace_backend.aggregate_costs(session, task_run, batch.project)
     trace_backend.confirm_and_link(session, task_run, batch.project)

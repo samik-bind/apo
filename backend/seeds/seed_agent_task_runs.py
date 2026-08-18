@@ -234,9 +234,7 @@ def create_batch_run(
                 pass_result=passed,
                 started_at=task_started,
                 completed_at=task_started + timedelta(seconds=task_duration),
-                checks_json=checks,
                 transcript_json=make_transcript(task["id"], passed),
-                deliverables_json=make_deliverables(task["id"], passed),
                 total_cost=cost,
                 total_tokens=tokens,
             )

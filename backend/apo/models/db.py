@@ -490,22 +490,15 @@ class AgentTaskRunDB(SQLModel, table=True):
     error_message: str | None = None
     trace_persistence_status: str = Field(default="pending", index=True)
     trace_error_message: str | None = None
-    checks_json: list[dict[str, object]] | None = Field(
-        default=None, sa_column=Column("checks_json", JSON)
-    )
     # scalar verdict projection of the Check Report. The hot list/stats
-    # path reads these and never touches the evidence document. ``checks_json``
-    # above is the legacy inline copy — NULL after the backfill migration, dropped
-    # in a follow-up release; new runs never populate it (``persist_check_report``
-    # writes ``None``). Kept readable for the compatibility window.
+    # path reads these and never touches the evidence document. The legacy
+    # inline ``checks_json`` copy was dropped in schema v28 (SPEC-180
+    # phase 4b) — the report table is the only evidence store.
     total_checks: int = Field(default=0)
     passed_checks: int = Field(default=0)
     failed_checks: int = Field(default=0)
     transcript_json: dict[str, object] | None = Field(
         default=None, sa_column=Column("transcript_json", JSON)
-    )
-    deliverables_json: dict[str, object] | None = Field(
-        default=None, sa_column=Column("deliverables_json", JSON)
     )
     total_cost: float | None = Field(default=None)
     total_tokens: int | None = Field(default=None)

@@ -27,7 +27,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
-# pyright: reportPrivateUsage=false, reportDeprecated=false, reportImplicitStringConcatenation=false, reportExplicitAny=false
+# pyright: reportDeprecated=false, reportExplicitAny=false, reportImplicitStringConcatenation=false, reportPrivateLocalImportUsage=false, reportPrivateUsage=false
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import CursorResult

@@ -1,4 +1,4 @@
-# pyright: reportCallInDefaultInitializer=false, reportDeprecated=false
+# pyright: reportCallInDefaultInitializer=false, reportDeprecated=false, reportPrivateLocalImportUsage=false
 
 import os
 

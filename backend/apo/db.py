@@ -8,7 +8,10 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.pool import NullPool
 from sqlmodel import JSON, SQLModel, create_engine, Session
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+# DATA_DIR lives in the artifact-stores leaf so registry can resolve the
+# default artifact root without importing this module (engine creation).
+from .services.artifact_stores.paths import DATA_DIR  # noqa: E402
+
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 
@@ -681,6 +684,20 @@ def _migrate_to_v26() -> None:
         created = backfill_deliverable_rows_from_column(session)
     if created:
         logger.info("deliverables backfill created %d rows", created)
+
+
+def _migrate_to_v28() -> None:
+    """Version 28 (SPEC-180 phase 4b): drop the legacy evidence columns.
+
+    ``deliverables_json`` was backfilled into ``agent_task_deliverables``
+    rows by v26 and stopped being written in phase 2; ``checks_json`` was
+    nulled by the check-report migration and replaced by
+    ``agent_task_check_reports``. Both are safe to drop on every upgrade
+    path because migrations apply in order.
+    """
+    with engine.begin() as conn:
+        _drop_column_if_exists(conn, "agent_task_runs", "deliverables_json")
+        _drop_column_if_exists(conn, "agent_task_runs", "checks_json")
 
 
 # registered in ``_SCHEMA_MIGRATIONS``; ``_run_migrations`` applies every
@@ -1490,9 +1507,19 @@ def _migrate_check_report_schema(conn: Connection) -> None:
     # report row, then null the legacy column — all atomically within the
     # caller's transaction. ``raw`` is already in hand per row, so nulling
     # checks_json during the loop cannot affect the remaining rows.
-    rows = conn.exec_driver_sql(
-        "SELECT id, checks_json FROM agent_task_runs WHERE checks_json IS NOT NULL"
-    ).fetchall()
+    # Post-v28 fresh databases never create the legacy column — skip the
+    # backfill loop entirely when it is absent.
+    has_legacy_checks = conn.exec_driver_sql(
+        "SELECT 1 FROM pragma_table_info('agent_task_runs') "
+        "WHERE name = 'checks_json'"
+    ).first()
+    if has_legacy_checks:
+        rows = conn.exec_driver_sql(
+            "SELECT id, checks_json FROM agent_task_runs "
+            "WHERE checks_json IS NOT NULL"
+        ).fetchall()
+    else:
+        rows = []
     now = datetime.now(timezone.utc)
     for run_id, raw in rows:
         try:
@@ -2037,7 +2064,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 27
+LATEST_SCHEMA_VERSION = 28
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2067,6 +2094,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     25: _migrate_to_v25,
     26: _migrate_to_v26,
     27: _migrate_to_v27,
+    28: _migrate_to_v28,
 }
 
 

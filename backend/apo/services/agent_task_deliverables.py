@@ -17,7 +17,7 @@ Storage placement never changes product meaning: a large JSON Deliverable
 stored as an object is still a JSON Deliverable, not an Artifact.
 """
 
-# pyright: reportAny=false, reportImplicitStringConcatenation=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnusedCallResult=false
+# pyright: reportAny=false, reportDeprecated=false, reportImplicitStringConcatenation=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedImport=false
 
 from __future__ import annotations
 
@@ -42,7 +42,6 @@ from apo.models.schemas import (
     DeliverableSummary,
 )
 from apo.services.artifact_store import ArtifactStore
-from apo.services.artifact_stores.registry import artifact_limits
 from apo.services.lifecycle import TASK_RUN_TERMINAL
 
 # — inline threshold is a code constant, not a tuning knob.
@@ -246,17 +245,14 @@ def derive_deliverables_json_for_runs(
 ) -> dict[str, dict[str, object] | None]:
     """Batched derivation for bulk detail loads (one query, not N+1).
 
-    Column-carrying (historical) runs return their column; the rest derive
-    from ready inline JSON rows grouped by run.
+    Derives from ready inline JSON rows grouped by run; the legacy column
+    was dropped in schema v28.
     """
     out: dict[str, dict[str, object] | None] = {}
     need: list[str] = []
     for run in runs:
-        if run.deliverables_json is not None:
-            out[run.id] = run.deliverables_json
-        else:
-            out[run.id] = None
-            need.append(run.id)
+        out[run.id] = None
+        need.append(run.id)
     if need:
         rows = session.exec(
             select(AgentTaskDeliverableDB).where(
@@ -277,34 +273,51 @@ def derive_deliverables_json_for_runs(
 
 
 def backfill_deliverable_rows_from_column(session: Session) -> int:
-    """SPEC-179 phase 4a: convert legacy ``deliverables_json`` blobs into rows.
+    """SPEC-180 phase 4a: convert legacy ``deliverables_json`` blobs into rows.
 
-    Runs once from the v26 startup migration. For every run whose column is
-    non-NULL and has NO deliverable rows yet, each entry persists through
-    the canonical placement path (inline <= threshold, gzip+store above,
-    name collisions rejected). Runs that already have rows are skipped, so
-    the pass is idempotent and never races newer, rows-only data. The
-    legacy column itself is left intact — phase 4b drops it once every
-    database has backfilled. Per-run failures are logged and skipped so a
-    single bad legacy blob can never block startup.
+    Runs from the v26 startup migration. Raw-SQL reads keep it working after
+    the ORM field was removed in phase 4b: on databases upgrading from
+    <= v25 the column still exists and is backfilled; on fresh databases the
+    column is absent and the pass is skipped. Runs that already have rows
+    are skipped, so it is idempotent and never races newer data. Per-entry
+    failures are logged and skipped so a bad legacy blob cannot block
+    startup. The column is dropped afterwards by v28.
     """
     import asyncio
+    import json as _json
     import logging
+
+    from sqlalchemy import text
 
     from apo.services.artifact_stores.registry import get_store
 
     logger = logging.getLogger(__name__)
-    run_ids = session.exec(
-        select(AgentTaskRunDB.id).where(
-            _as_column(AgentTaskRunDB.deliverables_json).is_not(None)
+    has_column = session.execute(
+        text(
+            "SELECT 1 FROM pragma_table_info('agent_task_runs') "
+            "WHERE name = 'deliverables_json'"
+        )
+    ).first()
+    if not has_column:
+        return 0
+
+    blobs = session.execute(
+        text(
+            "SELECT r.id, r.deliverables_json, b.project "
+            "FROM agent_task_runs r "
+            "JOIN agent_task_batch_runs b ON r.batch_run_id = b.id "
+            "WHERE r.deliverables_json IS NOT NULL"
         )
     ).all()
 
     created = 0
     store = get_store(None)
-    for run_id in run_ids:
-        run = session.get(AgentTaskRunDB, run_id)
-        if run is None or not run.deliverables_json:
+    for run_id, blob, project in blobs:
+        try:
+            legacy = _json.loads(blob) if isinstance(blob, str) else blob
+        except (TypeError, ValueError):
+            legacy = None
+        if not isinstance(legacy, dict) or not legacy:
             continue
         existing = session.exec(
             select(AgentTaskDeliverableDB.id).where(
@@ -313,8 +326,7 @@ def backfill_deliverable_rows_from_column(session: Session) -> int:
         ).first()
         if existing is not None:
             continue
-        project = _run_project(session, run)
-        for name, value in run.deliverables_json.items():
+        for name, value in legacy.items():
             try:
                 asyncio.run(
                     persist_json_deliverable(
@@ -329,8 +341,6 @@ def backfill_deliverable_rows_from_column(session: Session) -> int:
                 session.commit()
                 created += 1
             except ValueError as exc:
-                # A bad legacy name (or a colliding artifact) skips that one
-                # entry; the run's other entries stay committed.
                 logger.warning(
                     "deliverables backfill skipped run %s entry %r (%s)",
                     run_id,
@@ -339,15 +349,6 @@ def backfill_deliverable_rows_from_column(session: Session) -> int:
                 )
                 session.rollback()
     return created
-
-
-def _run_project(session: Session, run: AgentTaskRunDB) -> str:
-    batch = session.exec(
-        select(AgentTaskBatchRunDB).where(AgentTaskBatchRunDB.id == run.batch_run_id)
-    ).first()
-    if batch is None:
-        return "default"
-    return batch.project
 
 
 def derive_deliverables_json_sync(
@@ -360,8 +361,6 @@ def derive_deliverables_json_sync(
     (comparisons) hydrate inline values only — store-backed JSON needs the
     async variant.
     """
-    if task_run.deliverables_json is not None:
-        return task_run.deliverables_json
     derived: dict[str, object] = {}
     for row in _ready_json_rows(session, task_run.id):
         if row.inline_value_json is not None:
@@ -380,8 +379,6 @@ async def derive_deliverables_json(
     """
     from apo.services.artifact_stores.registry import get_store
 
-    if task_run.deliverables_json is not None:
-        return task_run.deliverables_json
     rows = _ready_json_rows(session, task_run.id)
     if not rows:
         return None
@@ -398,58 +395,8 @@ async def derive_deliverables_json(
     return derived
 
 
-def synthesize_legacy_manifest(
-    deliverables_json: object,
-) -> list[DeliverableSummary]:
-    """Synthesize a manifest from a legacy ``deliverables_json`` blob.
-
-    Used only for rows written previously that have no Deliverable rows.
-    The body is loaded exactly once, on this one-run request, never from
-    list/statistics/compare queries. Names are surfaced in lexical order.
-    """
-    if not isinstance(deliverables_json, dict) or not deliverables_json:
-        return []
-    items: list[DeliverableSummary] = []
-    for name in sorted(deliverables_json):
-        body = _compact_json_bytes(deliverables_json[name])
-        items.append(
-            DeliverableSummary(
-                id=f"legacy:{name}",
-                name=name,
-                kind="json",
-                status="ready",
-                media_type="application/json",
-                display_filename=None,
-                size_bytes=len(body),
-                sha256=_sha256_hex(body),
-                download_url=None,  # legacy bodies have no per-id route
-            )
-        )
-    return items
 
 
-def read_legacy_deliverable_body(
-    deliverables_json: object,
-    deliverable_id: str,
-) -> tuple[bytes, str]:
-    """Resolve a ``legacy:<name>`` manifest id to its inline body.
-
-    The mirror of :func:`synthesize_legacy_manifest`: the manifest advertises a
-    ``legacy:<name>`` id with a measured ``size_bytes``/``sha256``, and this
-    returns the compact-JSON body bytes plus that same digest so the body
-    endpoint can serve what the manifest promised (issue #105).
-
-    Raises :class:`KeyError` when the id is not a ``legacy:`` id, the inline
-    blob is missing, or the named deliverable does not exist.
-    """
-    prefix = "legacy:"
-    if not deliverable_id.startswith(prefix):
-        raise KeyError(deliverable_id)
-    name = deliverable_id[len(prefix):]
-    if not isinstance(deliverables_json, dict) or name not in deliverables_json:
-        raise KeyError(deliverable_id)
-    body = _compact_json_bytes(deliverables_json[name])
-    return body, _sha256_hex(body)
 
 
 def build_trace_output_manifest(
@@ -521,6 +468,8 @@ async def create_artifact_upload_intent(
         raise ValueError("display_filename must not be empty")
     if not media_type:
         raise ValueError("media_type must not be empty")
+
+    from apo.services.artifact_stores.registry import artifact_limits
 
     max_item, max_run, _ = artifact_limits()
     if size_bytes > max_item:

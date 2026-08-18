@@ -178,7 +178,6 @@ class TestPayloadBuilders:
         tr = _make_task_run(
             status="failed",
             pass_result=False,
-            checks_json=[{"name": "format", "pass": True}, {"name": "safety", "pass": False}],
             total_checks=2,
             passed_checks=1,
         )

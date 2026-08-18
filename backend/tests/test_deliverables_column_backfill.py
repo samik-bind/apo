@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false
+# pyright: reportAny=false, reportDeprecated=false, reportImplicitStringConcatenation=false, reportMissingParameterType=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false
 
 """SPEC-179 phase 4a: backfill legacy deliverables_json columns into rows."""
 
@@ -18,6 +18,24 @@ from apo.models.db import (
 def _seed_run(
     session: Session, run_id: str, deliverables_json: dict[str, object] | None
 ) -> None:
+    import json as _json
+
+    from sqlalchemy import text
+
+    # Fresh test schemas no longer create the legacy column (v28 dropped
+    # it); re-add it so these tests exercise the raw-SQL backfill exactly
+    # as a pre-v28 database upgrading through v26 would.
+    from sqlalchemy import text as _text
+
+    has_col = session.execute(
+        _text(
+            "SELECT 1 FROM pragma_table_info('agent_task_runs') "
+            "WHERE name = 'deliverables_json'"
+        )
+    ).first()
+    if not has_col:
+        session.execute(_text("ALTER TABLE agent_task_runs ADD COLUMN deliverables_json JSON"))
+
     now = datetime.now(timezone.utc)
     session.add(
         AgentTaskBatchRunDB(
@@ -31,9 +49,18 @@ def _seed_run(
         AgentTaskRunDB(
             id=run_id, batch_run_id=f"batch-{run_id}", task_id=run_id,
             task_path=f"/t/{run_id}", status="passed", pass_result=True,
-            started_at=now, completed_at=now, deliverables_json=deliverables_json,
+            started_at=now, completed_at=now,
         )
     )
+    session.flush()
+    if deliverables_json is not None:
+        session.execute(
+            text(
+                "UPDATE agent_task_runs SET deliverables_json = :dj "
+                "WHERE id = :rid"
+            ),
+            {"dj": _json.dumps(deliverables_json), "rid": run_id},
+        )
     session.commit()
 
 
@@ -62,12 +89,6 @@ def test_backfill_converts_column_blob_into_rows(session: Session) -> None:
     assert by_name["report"].status == "ready"
     assert by_name["report"].project == "p1"
     assert by_name["report"].inline_value_json == {"value": {"answer": 42}}
-    # The legacy column is intentionally left intact for the phase-4b drop.
-    fresh = session.exec(
-        select(AgentTaskRunDB).where(AgentTaskRunDB.id == "run-bf-1")
-    ).first()
-    assert fresh is not None
-    assert fresh.deliverables_json == {"report": {"answer": 42}, "stats": {"n": 3}}
 
 
 def test_backfill_is_idempotent_and_skips_runs_with_rows(

@@ -64,8 +64,7 @@ def default_artifact_dir() -> Path:
 
 
 def _data_dir() -> str:
-    # Avoid importing apo.db at module load (engine creation side effects).
-    from apo.db import DATA_DIR
+    from apo.services.artifact_stores.paths import DATA_DIR
 
     return DATA_DIR
 

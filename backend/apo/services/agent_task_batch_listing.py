@@ -40,8 +40,6 @@ _BATCH_CREATED_AT_COL: ColumnElement[object] = as_column(
 
 _TASK_RUN_LIGHT = (
     defer(AgentTaskRunDB.transcript_json),
-    defer(AgentTaskRunDB.deliverables_json),
-    defer(AgentTaskRunDB.checks_json),
 )
 
 

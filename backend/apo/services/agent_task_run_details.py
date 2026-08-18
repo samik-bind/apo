@@ -52,9 +52,7 @@ def load_task_run_summaries(
             AgentTaskBatchRunDB.project == project_id,
         )
         .options(
-            defer(AgentTaskRunDB.checks_json),  # pyright: ignore[reportArgumentType]
             defer(AgentTaskRunDB.transcript_json),  # pyright: ignore[reportArgumentType]
-            defer(AgentTaskRunDB.deliverables_json),  # pyright: ignore[reportArgumentType]
         )
     ).all()
     run_by_id = {run.id: run for run in runs}

@@ -9,6 +9,8 @@ decision: an archived model's runs still exist, still count, and are still
 reachable by ``?model=``; and a fresh run of an archived model un-archives it.
 """
 
+# pyright: reportAny=false, reportMissingParameterType=false, reportPrivateUsage=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnnecessaryTypeIgnoreComment=false, reportUnusedCallResult=false
+
 from datetime import datetime, timezone
 
 import pytest
@@ -199,7 +201,9 @@ def test_archiving_keeps_the_effort_breakdown(client: TestClient) -> None:
     _archive(client, _DEAD)
     facet = _task_facets(client)[_DEAD]
     assert facet["count"] == 1
-    assert [e["effort"] for e in facet["efforts"]] == ["medium"]
+    efforts = facet["efforts"]
+    assert isinstance(efforts, list)
+    assert [e["effort"] for e in efforts] == ["medium"]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
 
 
 # ---------------------------------------------------------------------------

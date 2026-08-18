@@ -23,7 +23,6 @@ from apo.services.agent_task_deliverables import (
     build_deliverable_manifest,
     persist_json_deliverable,
     read_json_deliverable_value,
-    synthesize_legacy_manifest,
 )
 from apo.services.artifact_stores.local import LocalArtifactStore
 
@@ -231,20 +230,4 @@ class TestManifest:
         assert "storage_backend" not in dumped
         assert "inline_value_json" not in dumped
 
-    async def test_legacy_manifest_synthesis_from_deliverables_json(self):
-        legacy = {
-            "verdict": {"reward": 1},
-            "log": "x" * 100,
-        }
-        items = synthesize_legacy_manifest(legacy)
-        names = {i.name for i in items}
-        assert names == {"verdict", "log"}
-        for item in items:
-            assert item.kind == "json"
-            assert item.status == "ready"
-
-    def test_legacy_manifest_handles_empty_and_invalid(self):
-        assert synthesize_legacy_manifest(None) == []
-        assert synthesize_legacy_manifest({}) == []
-        assert synthesize_legacy_manifest("not a dict") == []
 

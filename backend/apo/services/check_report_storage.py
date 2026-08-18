@@ -78,7 +78,6 @@ def persist_check_report(
     run.total_checks = len(cleaned)
     run.passed_checks = sum(1 for c in cleaned if c.get("pass") is True)
     run.failed_checks = run.total_checks - run.passed_checks
-    run.checks_json = None
     session.add(run)
     _upsert_report_row(session, run.id, cleaned)
 
@@ -89,23 +88,17 @@ def load_check_report(
 ) -> list[dict[str, object]] | None:
     """Resolve a run's full check evidence.
 
-    Primary path: the ``agent_task_check_reports`` row. Falls back to the
-    legacy ``checks_json`` column only when no report row exists (a restored
-    backup or a row that predates the backfill); returns ``None`` for an
-    unknown run. After the atomic backfill every run has a report row, so the
-    fallback is a safety net, not a rollout strategy.
-
-    Read-time normalization is applied so historical oversized rows are safe
-    to transport without a database rewrite.
+    The ``agent_task_check_reports`` row is the only store — the legacy
+    ``checks_json`` column fallback was removed with the column (schema
+    v28). Returns ``None`` for an unknown run. Read-time normalization is
+    applied so historical oversized rows are safe to transport without a
+    database rewrite.
     """
     report = session.get(AgentTaskCheckReportDB, run_id)
-    if report is not None:
-        raw = report.value_json
-        return normalize_check_report(raw) if raw is not None else None
-    run = session.get(AgentTaskRunDB, run_id)
-    if run is None or run.checks_json is None:
+    if report is None:
         return None
-    return normalize_check_report(run.checks_json)
+    raw = report.value_json
+    return normalize_check_report(raw) if raw is not None else None
 
 
 def load_check_reports(
@@ -130,16 +123,9 @@ def load_check_reports(
         report.run_id: normalize_check_report(raw) if (raw := report.value_json) is not None else None
         for report in reports
     }
-    return {
-        run_id: report_by_id[run_id]
-        if run_id in report_by_id
-        else (
-            normalize_check_report(run.checks_json)
-            if run.checks_json is not None
-            else None
-        )
-        for run_id, run in run_by_id.items()
-    }
+    # The legacy ``checks_json`` column fallback was removed with the column
+    # (schema v28): runs without a report row simply have no check evidence.
+    return {run_id: report_by_id.get(run_id) for run_id in run_by_id}
 
 
 def _upsert_report_row(

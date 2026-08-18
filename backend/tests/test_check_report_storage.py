@@ -77,7 +77,6 @@ class TestPersistCheckReport:
         assert run.total_checks == 3
         assert run.passed_checks == 2
         assert run.failed_checks == 1
-        assert run.checks_json is None  # legacy column cleared
 
         report = session.get(AgentTaskCheckReportDB, run.id)
         assert report is not None
@@ -91,15 +90,6 @@ class TestPersistCheckReport:
         session.commit()
 
         assert load_check_report(session, run.id) == checks
-
-    def test_load_falls_back_to_legacy_checks_json(self, session: Session):
-        # A restored backup / pre-migration row with no report row still renders.
-        run = _make_run(session)
-        run.checks_json = [{"id": "legacy", "pass": True}]
-        session.add(run)
-        session.commit()
-
-        assert load_check_report(session, run.id) == [{"id": "legacy", "pass": True}]
 
     def test_load_returns_none_for_missing_run(self, session: Session):
         assert load_check_report(session, "nope") is None

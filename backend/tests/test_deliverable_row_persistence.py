@@ -126,7 +126,6 @@ class TestResultSubmitPersistsDeliverableRows:
 
                 # Hot row does NOT carry the blob
                 run = s.get(AgentTaskRunDB, "run-deliv")
-                assert run.deliverables_json is None  # pyright: ignore[reportOptionalMemberAccess]
         finally:
             app.dependency_overrides.clear()
 
@@ -163,7 +162,6 @@ class TestResultSubmitPersistsDeliverableRows:
                 assert rows[0].size_bytes > 64 * 1024
 
                 run = s.get(AgentTaskRunDB, "run-deliv")
-                assert run.deliverables_json is None  # pyright: ignore[reportOptionalMemberAccess]
         finally:
             app.dependency_overrides.clear()
 
@@ -411,7 +409,6 @@ class TestProtocolV2UploadToDownload:
             with Session(engine) as s:
                 run = s.get(AgentTaskRunDB, "run-deliv")
                 assert run.status == "passed"  # pyright: ignore[reportOptionalMemberAccess]
-                assert run.deliverables_json is None  # pyright: ignore[reportOptionalMemberAccess]
         finally:
             app.dependency_overrides.clear()
 

@@ -169,20 +169,10 @@ def _extract_task_input(transcript: object) -> str | None:
 def _trace_output_for_task_run(task_run: AgentTaskRunDB) -> dict[str, object] | None:
     """Build the compact Deliverable manifest written to ``RunDB.output``.
 
-    The trace row carries name/kind/size only, never
-    a body. Legacy rows (``deliverables_json`` set, no Deliverable rows) get a
-    synthesized manifest so old data also stays bounded. New rows with neither
-    Deliverable rows nor legacy JSON leave output null.
+    The trace row carries name/kind/size only, never a body. Runs with no
+    Deliverable rows leave output null. (The legacy ``deliverables_json``
+    synthesis was removed with the column in schema v28.)
     """
-    # Local import avoids a circular dependency at module load (the deliverable
-    # service imports models which import schemas; trace_backend sits earlier).
-    from .agent_task_deliverables import build_trace_output_manifest, synthesize_legacy_manifest
-
-    legacy = task_run.deliverables_json
-    if legacy:
-        items = synthesize_legacy_manifest(legacy)
-        if items:
-            return build_trace_output_manifest(items, task_run.id)
     # New rows: Deliverable rows are written by the service before
     # confirm_and_link runs in finalize_task_run_with_result, but confirm_and_link
     # is also called independently; query them lazily through the session bound
@@ -196,7 +186,10 @@ def _trace_output_for_task_run(task_run: AgentTaskRunDB) -> dict[str, object] | 
     raw_session = Session.object_session(task_run)
     if raw_session is None:
         return None
-    from .agent_task_deliverables import build_deliverable_manifest
+    from .agent_task_deliverables import (
+    build_deliverable_manifest,
+    build_trace_output_manifest,
+)
 
     items = build_deliverable_manifest(cast(SqlModelSession, raw_session), task_run.id)
     if not items:

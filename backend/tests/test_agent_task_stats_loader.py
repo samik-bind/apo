@@ -71,11 +71,9 @@ def _run(
         started_at=started_at,
         completed_at=started_at,
         total_cost=total_cost,
-        checks_json=checks,
         total_checks=len(check_list),
         passed_checks=sum(1 for c in check_list if c.get("pass") is True),
         transcript_json={"messages": ["x" * 100_000]},  # large, must stay on disk
-        deliverables_json={"artifacts": ["y" * 50_000]},  # large, must stay on disk
     )
 
 

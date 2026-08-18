@@ -2094,14 +2094,6 @@ def test_result_deliverables_response_derived_from_rows(
             task_path="/t/evals/p2", status="running", started_at=now,
         )
     )
-    # A historical run whose deliverables live only in the legacy column.
-    session.add(
-        AgentTaskRunDB(
-            id="run-p2-legacy", batch_run_id=_BATCH_A, task_id="evals/p2l",
-            task_path="/t/evals/p2l", status="running", started_at=now,
-            deliverables_json={"old": {"v": 1}},
-        )
-    )
     session.commit()
 
     alice_client = make_authed_client(_USER_ALICE, session)
@@ -2115,12 +2107,6 @@ def test_result_deliverables_response_derived_from_rows(
     )
     assert resp.status_code == 200, resp.text
 
-    # Column stays NULL — the canonical rows carry the data.
-    fresh = session.exec(
-        select(AgentTaskRunDB).where(AgentTaskRunDB.id == "run-p2")
-    ).first()
-    assert fresh is not None
-    assert fresh.deliverables_json is None
     rows = session.exec(
         select(AgentTaskDeliverableDB).where(
             AgentTaskDeliverableDB.task_run_id == "run-p2"
@@ -2135,11 +2121,3 @@ def test_result_deliverables_response_derived_from_rows(
     # The result response itself also carries the derived field.
     assert resp.json()["deliverables_json"] == {"report": {"answer": 42}}
 
-    # Historical column data is still echoed (transition compat).
-    legacy = alice_client.post(
-        "/v1/agent-task-runs/run-p2-legacy/result",
-        json={"pass_result": True, "adapter_name": "real-agent"},
-    )
-    assert legacy.status_code == 200, legacy.text
-    legacy_detail = alice_client.get("/v1/agent-task-runs/run-p2-legacy").json()
-    assert legacy_detail["deliverables_json"] == {"old": {"v": 1}}

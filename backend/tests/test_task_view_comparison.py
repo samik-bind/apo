@@ -64,26 +64,35 @@ def _seed(session: Session) -> None:
     session.flush()
 
     def _run(rid: str, batch: str, task: str, model: str, def_rev: str | None) -> AgentTaskRunDB:
-        return AgentTaskRunDB(
+        run = AgentTaskRunDB(
             id=rid, batch_run_id=batch, task_id=task, task_path=f"/t/{task}",
             status="passed", pass_result=True, configured_model=model,
             configured_effort=None, task_definition_revision_id=def_rev,
             started_at=now, completed_at=now,
             total_checks=1, passed_checks=1, failed_checks=0,
-            checks_json=[{"id": f"check-{rid}", "pass": True, "reasoning": model}],
         )
+        session.add(run)
+        session.flush()
+        session.add(
+            AgentTaskCheckReportDB(
+                run_id=rid,
+                value_json=[{"id": f"check-{rid}", "pass": True, "reasoning": model}],
+                created_at=now,
+            )
+        )
+        return run
 
     # W: opus + deepseek both in b-opus, def d1 -> aligned
-    session.add(_run("w-opus", "b-opus", _W, "claude-opus", "d1"))
-    session.add(_run("w-deep", "b-opus", _W, "deepseek", "d1"))
+    _run("w-opus", "b-opus", _W, "claude-opus", "d1")
+    _run("w-deep", "b-opus", _W, "deepseek", "d1")
     # X: opus (d1) + deepseek (d2) -> def mismatch
-    session.add(_run("x-opus", "b-opus", _X, "claude-opus", "d1"))
-    session.add(_run("x-deep", "b-deep", _X, "deepseek", "d2"))
+    _run("x-opus", "b-opus", _X, "claude-opus", "d1")
+    _run("x-deep", "b-deep", _X, "deepseek", "d2")
     # Y: opus (b-opus, d1) + deepseek (b-deep, d1) -> exec mismatch (def matches)
-    session.add(_run("y-opus", "b-opus", _Y, "claude-opus", "d1"))
-    session.add(_run("y-deep", "b-deep", _Y, "deepseek", "d1"))
+    _run("y-opus", "b-opus", _Y, "claude-opus", "d1")
+    _run("y-deep", "b-deep", _Y, "deepseek", "d1")
     # Z: opus only -> deepseek side has no run
-    session.add(_run("z-opus", "b-opus", _Z, "claude-opus", "d1"))
+    _run("z-opus", "b-opus", _Z, "claude-opus", "d1")
     session.commit()
 
 
@@ -311,13 +320,10 @@ def test_overview_response_is_independent_of_check_report_size(
     # Insert multi-megabyte sentinel reports directly, bypassing normalization.
     big_sentinel = "OVERFLOW_" * 500_000  # ~4.5 MiB per report
     for run_id in ("w-opus", "w-deep", "x-opus", "x-deep", "y-opus", "y-deep", "z-opus"):
-        session.add(
-            AgentTaskCheckReportDB(
-                run_id=run_id,
-                value_json=[{"id": "c", "pass": True, "reasoning": big_sentinel}],
-                created_at=datetime.now(timezone.utc),
-            )
-        )
+        report = session.get(AgentTaskCheckReportDB, run_id)
+        assert report is not None
+        report.value_json = [{"id": "c", "pass": True, "reasoning": big_sentinel}]
+        session.add(report)
     session.commit()
 
     response = cmp_client.get(

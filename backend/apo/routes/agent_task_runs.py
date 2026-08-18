@@ -69,8 +69,6 @@ router = APIRouter(prefix="/v1", tags=["agent-tasks"])
 # Defer the heavy JSON columns on list/summary paths that only read scalars.
 _TASK_RUN_LIGHT = (
     defer(AgentTaskRunDB.transcript_json),
-    defer(AgentTaskRunDB.deliverables_json),
-    defer(AgentTaskRunDB.checks_json),
 )
 
 
