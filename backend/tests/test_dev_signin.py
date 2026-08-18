@@ -91,7 +91,7 @@ def test_signin_provisions_workspace_idempotently(
     assert len(task_runs) >= 3
     assert {run.pass_result for run in task_runs} == {True, False}
     assert all(
-        run.configured_model == "deepseek-chat" for run in task_runs
+        run.configured_model == "deepseek/deepseek-v4-flash-0731" for run in task_runs
     )
 
     traces = session.exec(
