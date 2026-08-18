@@ -343,14 +343,33 @@ function NumericScoreInput({
           step={step}
           value={[value]}
           onValueChange={handleSliderChange}
+          aria-label={`${config.name} score slider`}
           className="flex-1"
         />
         <span className="text-xs text-muted-foreground">{max}</span>
+        <input
+          type="number"
+          min={min}
+          max={max}
+          step={step}
+          value={Number.isFinite(value) ? value : ""}
+          onChange={(e) => {
+            const parsed = Number.parseFloat(e.target.value);
+            if (Number.isFinite(parsed)) {
+              setValue(Math.min(max, Math.max(min, parsed)));
+            }
+          }}
+          aria-label={`${config.name} score value`}
+          data-testid="trace-score-value"
+          className="h-7 w-16 rounded-md border border-border bg-muted/30 px-1.5 text-right font-mono text-xs tabular-nums text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+        />
       </div>
       <Textarea
         placeholder="Optional reasoning..."
+        aria-label="Score reasoning"
         value={comment}
         onChange={(e) => setComment(e.target.value)}
+        data-testid="trace-score-comment"
         className="min-h-12 text-xs"
       />
       <Button
@@ -359,6 +378,7 @@ function NumericScoreInput({
         className="w-full"
         disabled={isSubmitting}
         onClick={handleSubmit}
+        data-testid="trace-score-submit"
       >
         <Star className="mr-1 h-3 w-3" />
         {existingScore ? "Update score" : "Submit score"}

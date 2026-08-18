@@ -71,6 +71,10 @@ services:
       - INIT_USER_EMAIL=${INIT_USER_EMAIL:-}
       - INIT_USER_PASSWORD=${INIT_USER_PASSWORD:-}
       - INIT_USER_NAME=${INIT_USER_NAME:-}
+      # Dev sign-in (SPEC-181): one-click "Sign in as dev" button on the login
+      # page + agent-demo workspace provisioning. Operator opt-in for this
+      # localhost profile; never enable on a publicly reachable deployment.
+      - DEV_SIGNIN_ENABLED=${DEV_SIGNIN_ENABLED:-false}
       # --- Data size control (SQLite) ---
       # Age out traces/runs older than N days (0 = disabled, recommended 90).
       - APO_RETENTION_DAYS=${APO_RETENTION_DAYS:-0}

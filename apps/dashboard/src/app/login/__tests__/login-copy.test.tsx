@@ -23,7 +23,7 @@ import { LoginPage } from "../login-form";
 
 describe("login page admission copy", () => {
   it("links to first-user setup while setup is available", () => {
-    render(<LoginPage hasUsers={false} setupAvailable={true} />);
+    render(<LoginPage hasUsers={false} setupAvailable={true} devSignin={{ enabled: false, landingPath: "/" }} />);
 
     expect(screen.getByText(/set up the first admin account/i)).toBeDefined();
     expect(screen.getByRole("link", { name: /set up the first account/i })).toBeDefined();
@@ -33,7 +33,7 @@ describe("login page admission copy", () => {
   });
 
   it("says invitation-only once initialized and hides /setup", () => {
-    render(<LoginPage hasUsers={true} setupAvailable={false} />);
+    render(<LoginPage hasUsers={true} setupAvailable={false} devSignin={{ enabled: false, landingPath: "/" }} />);
 
     expect(
       screen.getByText(/accounts on this apo installation are invitation-only/i),
@@ -45,7 +45,7 @@ describe("login page admission copy", () => {
   });
 
   it("renders neither copy when the backend is unreachable", () => {
-    render(<LoginPage hasUsers={false} setupAvailable={false} />);
+    render(<LoginPage hasUsers={false} setupAvailable={false} devSignin={{ enabled: false, landingPath: "/" }} />);
 
     expect(screen.queryByText(/invitation-only/i)).toBeNull();
     expect(screen.queryByRole("link", { name: /set up the first account/i })).toBeNull();

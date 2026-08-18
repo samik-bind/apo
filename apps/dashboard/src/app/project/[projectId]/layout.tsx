@@ -40,7 +40,11 @@ export default async function ProjectLayout({
   // redirect/404 would silently fail.
   if (accessError !== null) {
     if (isUnauthorized(accessError)) {
-      redirect("/login");
+      // Remember where the visitor was heading so login can return them
+      // there (SPEC-181) instead of the generic home redirect.
+      redirect(
+        `/login?callbackUrl=${encodeURIComponent(`/project/${projectId}`)}`,
+      );
     }
     if (isNotFoundStatus(accessError)) {
       notFound();

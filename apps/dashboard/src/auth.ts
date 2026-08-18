@@ -17,6 +17,29 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       authorize: async (credentials) => {
         const backendUrl = getServerBackendBaseUrl()
 
+        // Dev sign-in (SPEC-181): the login page's "Sign in as dev" button
+        // sends this marker instead of credentials. The marker carries no
+        // authority — the backend's DEV_SIGNIN_ENABLED / profile gate is the
+        // only thing that grants a session.
+        const password = String(credentials?.password ?? "")
+        if (password === "__dev_signin__") {
+          try {
+            const res = await fetch(`${backendUrl}/auth/dev-signin`, {
+              method: "POST",
+            })
+            if (!res.ok) return null
+            const user = await res.json()
+            return {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              is_admin: user.is_admin,
+            }
+          } catch {
+            return null
+          }
+        }
+
         try {
           const res = await fetch(`${backendUrl}/auth/verify-password`, {
             method: "POST",

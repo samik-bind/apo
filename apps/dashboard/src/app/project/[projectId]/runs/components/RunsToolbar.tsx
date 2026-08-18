@@ -91,6 +91,8 @@ export function RunsToolbar({
             value={searchInput}
             onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Filter by ID, selection, environment..."
+            aria-label="Search runs"
+            data-testid="runs-search-input"
             className="h-8 border-border bg-card pl-8 text-[13px] placeholder:text-muted-foreground/50 focus-visible:ring-1"
           />
         </div>
@@ -102,7 +104,7 @@ export function RunsToolbar({
             value={urlStatus || "all"}
             onValueChange={(v) => setStatusFilter(v === "all" ? null : v)}
           >
-            <SelectTrigger id="runs-status-filter" size="sm" className="h-7 w-[110px] bg-muted/40 text-[12px]">
+            <SelectTrigger id="runs-status-filter" size="sm" data-testid="runs-status-filter" className="h-7 w-[110px] bg-muted/40 text-[12px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

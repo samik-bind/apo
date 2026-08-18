@@ -27,5 +27,32 @@ export default async function LoginPageServer() {
     // Backend unreachable — show login form anyway (graceful degradation)
   }
 
-  return <LoginPage hasUsers={hasUsers} setupAvailable={setupAvailable} />
+  // Dev sign-in (SPEC-181): availability is decided by the backend
+  // (DEV_SIGNIN_ENABLED / deployment profile), never guessed client-side.
+  let devSignin: { enabled: boolean; landingPath: string } = {
+    enabled: false,
+    landingPath: "/",
+  }
+  try {
+    const backendUrl = getServerBackendBaseUrl()
+    const res = await fetch(`${backendUrl}/auth/dev-signin/available`, {
+      cache: "no-store",
+    })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.enabled === true && typeof data.landing_path === "string") {
+        devSignin = { enabled: true, landingPath: data.landing_path }
+      }
+    }
+  } catch {
+    // Backend unreachable — no dev button
+  }
+
+  return (
+    <LoginPage
+      hasUsers={hasUsers}
+      setupAvailable={setupAvailable}
+      devSignin={devSignin}
+    />
+  )
 }

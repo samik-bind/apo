@@ -2,12 +2,34 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { listProjects } from "@/lib/projects-api";
 import { isApiError } from "@/lib/api-error";
+import { getServerBackendBaseUrl } from "@/lib/config.server";
 import { DashboardEmptyState } from "@/components/dashboard-empty-state";
 
 export const dynamic = "force-dynamic";
 
+async function devSigninEnabled(): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${getServerBackendBaseUrl()}/auth/dev-signin/available`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
 export default async function Home() {
   const session = await auth();
+
+  // Dev sign-in deployments (SPEC-181): an unauthenticated visitor goes to
+  // the login page where the one-click dev button waits, instead of the
+  // empty state that assumes human onboarding.
+  if (!session && (await devSigninEnabled())) {
+    redirect("/login");
+  }
 
   if (session) {
     let owned: { id: string }[] = [];

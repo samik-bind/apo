@@ -15,13 +15,19 @@ import { getSafeRedirectPath } from "@/lib/redirect"
 export function LoginPage({
   hasUsers,
   setupAvailable,
+  devSignin,
 }: {
   hasUsers: boolean
   setupAvailable: boolean
+  devSignin: { enabled: boolean; landingPath: string }
 }) {
   return (
     <Suspense>
-      <LoginForm hasUsers={hasUsers} setupAvailable={setupAvailable} />
+      <LoginForm
+        hasUsers={hasUsers}
+        setupAvailable={setupAvailable}
+        devSignin={devSignin}
+      />
     </Suspense>
   )
 }
@@ -100,24 +106,30 @@ function LoginCredentialsForm({
   onEmailChange,
   onPasswordChange,
   onSubmit,
+  onDevSignIn,
+  devSignInLoading,
   error,
   retryAfter,
   successMessage,
   loading,
   hasUsers,
   setupAvailable,
+  devSignin,
 }: {
   email: string
   password: string
   onEmailChange: (value: string) => void
   onPasswordChange: (value: string) => void
   onSubmit: (e: React.FormEvent) => void
+  onDevSignIn: () => void
+  devSignInLoading: boolean
   error: string | null
   retryAfter: number
   successMessage: string | null
   loading: boolean
   hasUsers: boolean
   setupAvailable: boolean
+  devSignin: { enabled: boolean; landingPath: string }
 }) {
   return (
     <AuthShell>
@@ -210,6 +222,35 @@ function LoginCredentialsForm({
           )}
         </Button>
 
+        {devSignin.enabled && (
+          <>
+            <div className="flex items-center gap-2 pt-1" aria-hidden="true">
+              <span className="h-px flex-1 bg-border" />
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                or
+              </span>
+              <span className="h-px flex-1 bg-border" />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              data-testid="login-dev-signin"
+              onClick={onDevSignIn}
+              disabled={devSignInLoading}
+              className="h-10 w-full"
+            >
+              {devSignInLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Signing in
+                </>
+              ) : (
+                "Sign in as dev"
+              )}
+            </Button>
+          </>
+        )}
+
         {/* SPEC-179: admission is invitation-only once initialized — the
             /setup link exists only while first-user setup is available. */}
         {setupAvailable ? (
@@ -239,6 +280,7 @@ interface LoginState {
   password: string
   error: string | null
   loading: boolean
+  devSignInLoading: boolean
   retryAfter: number
   showVerifyPrompt: boolean
   resending: boolean
@@ -249,6 +291,7 @@ type LoginAction =
   | { type: "SET_FIELD"; field: "email" | "password"; value: string }
   | { type: "SUBMIT_START" }
   | { type: "SUBMIT_ERROR"; error: string }
+  | { type: "DEV_SIGNIN_START" }
   | { type: "SHOW_VERIFY" }
   | { type: "RESEND_START" }
   | { type: "RESEND_SUCCESS"; info: string }
@@ -264,6 +307,7 @@ const initialLoginState: LoginState = {
   password: "",
   error: null,
   loading: false,
+  devSignInLoading: false,
   retryAfter: 0,
   showVerifyPrompt: false,
   resending: false,
@@ -284,7 +328,7 @@ function loginReducer(state: LoginState, action: LoginAction): LoginState {
         loading: true,
       }
     case "SUBMIT_ERROR":
-      return { ...state, error: action.error, loading: false }
+      return { ...state, error: action.error, loading: false, devSignInLoading: false }
     case "SHOW_VERIFY":
       return { ...state, showVerifyPrompt: true, loading: false }
     case "RESEND_START":
@@ -297,8 +341,10 @@ function loginReducer(state: LoginState, action: LoginAction): LoginState {
       return { ...state, retryAfter: action.seconds }
     case "TICK_RETRY":
       return { ...state, retryAfter: state.retryAfter <= 1 ? 0 : state.retryAfter - 1 }
+    case "DEV_SIGNIN_START":
+      return { ...state, error: null, devSignInLoading: true, loading: true }
     case "CLEAR_LOADING":
-      return { ...state, loading: false }
+      return { ...state, loading: false, devSignInLoading: false }
     case "CLEAR_RESENDING":
       return { ...state, resending: false }
     case "RESET_VERIFY":
@@ -317,16 +363,18 @@ function loginReducer(state: LoginState, action: LoginAction): LoginState {
 function LoginForm({
   hasUsers,
   setupAvailable,
+  devSignin,
 }: {
   hasUsers: boolean
   setupAvailable: boolean
+  devSignin: { enabled: boolean; landingPath: string }
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const callbackUrl = getSafeRedirectPath(searchParams.get("callbackUrl"))
 
   const [state, dispatch] = useReducer(loginReducer, initialLoginState)
-  const { email, password, error, loading, retryAfter, showVerifyPrompt, resending, resendInfo } = state
+  const { email, password, error, loading, devSignInLoading, retryAfter, showVerifyPrompt, resending, resendInfo } = state
 
   useEffect(() => {
     if (retryAfter <= 0) return
@@ -381,6 +429,37 @@ function LoginForm({
         return
       }
       router.push(result?.url ?? callbackUrl)
+    } catch {
+      dispatch({ type: "SUBMIT_ERROR", error: "Unable to connect to server" })
+    } finally {
+      dispatch({ type: "CLEAR_LOADING" })
+    }
+  }
+
+  // Deep-linked visitors return to the page they asked for; everyone else
+  // lands on the dev workspace the backend chose (agent-demo).
+  async function handleDevSignIn() {
+    dispatch({ type: "DEV_SIGNIN_START" })
+    const destination =
+      callbackUrl && callbackUrl !== "/" ? callbackUrl : devSignin.landingPath
+
+    try {
+      const result = await signIn("credentials", {
+        email: "__dev__",
+        password: "__dev_signin__",
+        redirect: false,
+        redirectTo: destination,
+      })
+      if (result?.error) {
+        dispatch({
+          type: "SUBMIT_ERROR",
+          error: "Dev sign-in failed. Please try again.",
+        })
+        return
+      }
+      // The sanitized relative destination keeps the agent on the origin it
+      // opened (localhost), instead of NextAuth's absolutized public URL.
+      router.push(destination)
     } catch {
       dispatch({ type: "SUBMIT_ERROR", error: "Unable to connect to server" })
     } finally {
@@ -445,12 +524,15 @@ function LoginForm({
       onEmailChange={(value) => dispatch({ type: "SET_FIELD", field: "email", value })}
       onPasswordChange={(value) => dispatch({ type: "SET_FIELD", field: "password", value })}
       onSubmit={handleSubmit}
+      onDevSignIn={handleDevSignIn}
+      devSignInLoading={devSignInLoading}
       error={error}
       retryAfter={retryAfter}
       successMessage={successMessage}
       loading={loading}
       hasUsers={hasUsers}
       setupAvailable={setupAvailable}
+      devSignin={devSignin}
     />
   )
 }

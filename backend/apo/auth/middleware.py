@@ -44,6 +44,10 @@ PUBLIC_PATHS: tuple[str, ...] = (
     "/auth/verify-password",
     "/auth/setup",
     "/auth/has-users",
+    # dev sign-in (SPEC-181): the DEV_SIGNIN_ENABLED / deployment-profile
+    # gate is enforced inside the handlers; the frontend button is cosmetic.
+    "/auth/dev-signin",
+    "/auth/dev-signin/available",
     "/auth/forgot-password",
     "/auth/reset-password",
     "/auth/verify-email",

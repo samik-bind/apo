@@ -65,6 +65,7 @@ export function CommentInput({
         rows={1}
         className="min-h-[32px] max-h-[120px] flex-1 resize-none rounded-md border border-border/50 bg-muted/30 px-2.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
         aria-label="Comment text"
+        data-testid="trace-comment-input"
       />
       <Button
         type="button"
@@ -73,6 +74,7 @@ export function CommentInput({
         onClick={handleSubmit}
         disabled={!canSubmit}
         aria-label="Submit comment"
+        data-testid="trace-comment-submit"
       >
         <Send className="h-3 w-3" />
       </Button>

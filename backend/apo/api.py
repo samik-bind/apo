@@ -18,6 +18,7 @@ from .services.email import init_email_service
 from .services.run_events import set_event_loop
 from .routes import (
     health,
+    dev_signin,
     ingestion,
     runs,
     admin,
@@ -182,6 +183,7 @@ def create_app() -> FastAPI:
     app.include_router(comments.router)
     app.include_router(api_keys.router)
     app.include_router(auth.router)
+    app.include_router(dev_signin.router)
     app.include_router(demo.router)
     app.include_router(projects.router)
     app.include_router(project_members.router)
