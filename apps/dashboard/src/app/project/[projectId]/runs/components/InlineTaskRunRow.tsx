@@ -111,7 +111,8 @@ export function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTask
           </span>
           <Link
             href={`/project/${projectId}/runs/task/${run.id}`}
-            aria-label="Open task run"
+            aria-label={`Open task run ${run.id}`}
+            data-testid={`task-run-link-${run.id}`}
             className="text-muted-foreground transition-opacity hover:text-foreground"
           >
             <ArrowUpRight className="h-3.5 w-3.5" />

@@ -177,6 +177,7 @@ def _ensure_task_source(session: Session, project_id: str, now: datetime) -> Non
         select(ProjectTaskSourceDB).where(ProjectTaskSourceDB.project == project_id)
     ).first()
     if existing is not None:
+        _repair_empty_inventory(session, existing)
         return
     source = ProjectTaskSourceDB(
         project=project_id,
@@ -200,6 +201,28 @@ def _ensure_task_source(session: Session, project_id: str, now: datetime) -> Non
         # A missing bundled workspace must not break sign-in; the seeded
         # runs still render and the fallback task ids keep rows coherent.
         logger.exception("Dev workspace inventory seed failed; continuing")
+        session.rollback()
+
+
+def _repair_empty_inventory(session: Session, source: ProjectTaskSourceDB) -> None:
+    """Seed inventory for an existing source whose discovery came up empty.
+
+    Mirrors the demo workspace's repair: a source created by an older code
+    path (e.g. the pre-container-path-fix seeder) may exist with zero
+    inventory rows. Re-running the seed is a no-op when the bundled task
+    workspace genuinely has nothing to discover.
+    """
+    from .project_task_inventory import list_inventory_for_project, seed_demo_inventory
+
+    try:
+        existing_rows = list_inventory_for_project(session, source.project)
+        if existing_rows:
+            return
+        _ = seed_demo_inventory(session, source)
+    except Exception:
+        logger.exception(
+            "Dev workspace inventory repair failed for %s; continuing", source.project
+        )
         session.rollback()
 
 

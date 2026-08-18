@@ -30,7 +30,6 @@ from sqlmodel import Session, select
 from ..models.db import ProjectTaskInventoryDB, ProjectTaskSourceDB
 from ..models.schemas import AgentTaskDetail, AgentTaskRunStats, AgentTaskSummary
 from .agent_task_discovery import DiscoveredAgentTask, discover_agent_tasks
-from .paths import DEMO_TASK_ROOT
 
 
 def list_inventory_for_project(
@@ -239,8 +238,14 @@ def seed_demo_inventory(
     Runs the legacy demo discovery against the bundled example-service
     workspace and writes rows without touching the sync state machine
     (the demo source is already ``ready`` by the time this is called).
+
+    Uses the env-aware ``demo_task_root()``: container images bundle the demo
+    tree at a path the source-tree-relative ``DEMO_TASK_ROOT`` constant can't
+    see, which silently seeded an empty inventory.
     """
-    discovered = discover_agent_tasks(DEMO_TASK_ROOT)
+    from .paths import demo_task_root
+
+    discovered = discover_agent_tasks(demo_task_root())
     return replace_inventory(
         session,
         project_id=source.project,

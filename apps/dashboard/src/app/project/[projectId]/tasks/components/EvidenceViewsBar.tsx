@@ -171,6 +171,8 @@ export function EvidenceViewsBar({
             value={query}
             onChange={(e) => onQueryChange(e.target.value)}
             placeholder="Filter tasks..."
+            aria-label="Filter tasks"
+            data-testid="tasks-search-input"
             className="h-8 border-border bg-card pl-8 text-[13px] placeholder:text-muted-foreground/50 focus-visible:border-border"
           />
         </div>

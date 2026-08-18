@@ -45,4 +45,33 @@ test.describe("Agent journey @agent", () => {
       timeout: 15_000,
     });
   });
+
+  test("traces and tasks controls are operable by accessible name", async ({
+    page,
+  }) => {
+    await page.goto("/login");
+    await page.getByRole("button", { name: "Sign in as dev" }).click();
+    await expect(page).toHaveURL(/\/project\/agent-demo\/tasks/, {
+      timeout: 15_000,
+    });
+
+    // Tasks filter input is named and typable.
+    const taskFilter = page.getByTestId("tasks-search-input");
+    await expect(taskFilter).toBeVisible();
+    await taskFilter.fill("demo");
+
+    // Traces page controls: named search input, refresh, columns menu.
+    await page.goto("/project/agent-demo/traces");
+    const traceSearch = page.getByRole("textbox", { name: "Search traces" });
+    await expect(traceSearch).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Refresh traces" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Toggle table columns" }),
+    ).toBeVisible();
+    await traceSearch.fill("agent-demo");
+    await traceSearch.press("Enter");
+    await expect(page).toHaveURL(/search=agent-demo/);
+  });
 });

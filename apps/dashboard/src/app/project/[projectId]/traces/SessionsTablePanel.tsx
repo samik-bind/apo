@@ -243,7 +243,14 @@ export function SessionsTablePanel({
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" size="sm" className="h-7 w-7 p-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label="Toggle table columns"
+                  data-testid="sessions-columns-menu"
+                  className="h-7 w-7 p-0"
+                >
                   <Columns3 className="h-3 w-3" />
                 </Button>
               </DropdownMenuTrigger>

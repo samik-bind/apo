@@ -215,14 +215,30 @@ function TracesToolbar({
               onChange={(e) => onSearchQueryChange(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && onSearch()}
               placeholder="Search traces..."
+              aria-label="Search traces"
+              data-testid="traces-search-input"
               className="h-7 w-48 border-border pl-7 text-xs"
             />
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={isRefreshing} className="h-7 w-7 p-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            aria-label="Refresh traces"
+            data-testid="traces-refresh"
+            className="h-7 w-7 p-0"
+          >
             <RefreshCw className={cn("h-3 w-3", isRefreshing && "animate-spin")} />
           </Button>
           <Select value={String(autoRefreshInterval)} onValueChange={(v) => onAutoRefreshChange(Number(v))}>
-            <SelectTrigger size="sm" className="h-7 w-[60px] text-[11px]">
+            <SelectTrigger
+              size="sm"
+              aria-label="Auto-refresh interval"
+              data-testid="traces-autorefresh"
+              className="h-7 w-[60px] text-[11px]"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -233,7 +249,14 @@ function TracesToolbar({
           </Select>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" size="sm" className="h-7 w-7 p-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="Toggle table columns"
+                data-testid="traces-columns-menu"
+                className="h-7 w-7 p-0"
+              >
                 <Columns3 className="h-3 w-3" />
               </Button>
             </DropdownMenuTrigger>
@@ -649,7 +672,8 @@ export function TracesTablePanel({ projectId, traces, error, pagination }: Trace
         <div className="p-6">
           <Card className="border-dashed border-border/60 bg-card/60">
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              No traces found.
+              No traces found. Recorded task runs produce a trace automatically
+              — run a task from the Tasks page, or clear the filters above.
             </CardContent>
           </Card>
         </div>

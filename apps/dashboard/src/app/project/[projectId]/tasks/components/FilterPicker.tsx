@@ -23,7 +23,11 @@ export function FilterPicker({
     <label className="flex shrink-0 items-center gap-1.5">
       <span className="text-[11px] uppercase tracking-wide text-foreground/50">{label}</span>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger size="sm" className="h-7 bg-muted/40 text-[12px]">
+        <SelectTrigger
+          size="sm"
+          aria-label={`${label} filter`}
+          className="h-7 bg-muted/40 text-[12px]"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

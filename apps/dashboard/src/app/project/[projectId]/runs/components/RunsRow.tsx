@@ -84,7 +84,10 @@ export function RunsRow({
 
   return (
     <>
-      <TableRow className="group cursor-default border-border/60 transition-colors hover:bg-muted/30">
+      <TableRow
+        data-testid={`runs-row-${batch.id}`}
+        className="group cursor-default border-border/60 transition-colors hover:bg-muted/30"
+      >
         <TableCell className="px-2">
           {batch.total_tasks > 1 ? (
             <button

@@ -205,7 +205,11 @@ export function AgentTasksClient({
       {/* Empty state */}
       {!error && tasks.length === 0 && (
         <div className="m-6 border border-dashed border-border bg-muted/10 p-10 text-center text-[13px] text-muted-foreground">
-          No agent tasks discovered. Ensure the task root directory is configured.
+          No agent tasks discovered. Configure the task source above, or run{" "}
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-[12px]">
+            apo task list
+          </code>{" "}
+          in the project to verify discovery.
         </div>
       )}
 

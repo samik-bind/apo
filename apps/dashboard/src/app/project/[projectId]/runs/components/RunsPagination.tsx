@@ -34,6 +34,7 @@ export function RunsPagination({ totalCount, page, pageSize, totalPages, onPageC
             className="h-7 gap-1 px-2 text-[12px] font-normal"
             disabled={page === 0}
             onClick={() => onPageChange(page - 1)}
+            data-testid="runs-prev-page"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
             Prev
@@ -48,6 +49,7 @@ export function RunsPagination({ totalCount, page, pageSize, totalPages, onPageC
             className="h-7 gap-1 px-2 text-[12px] font-normal"
             disabled={page >= totalPages - 1}
             onClick={() => onPageChange(page + 1)}
+            data-testid="runs-next-page"
           >
             Next
             <ChevronRight className="h-3.5 w-3.5" />
