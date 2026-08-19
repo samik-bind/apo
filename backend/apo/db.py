@@ -670,6 +670,11 @@ def _migrate_to_v26() -> None:
     with rows are skipped, so the pass is idempotent and never races
     newer data. The column itself is left intact — the drop is phase 4b,
     after every database has backfilled.
+
+    The backfill drives an ``async`` placement helper with ``asyncio.run``, so
+    this migration — and therefore ``init_db`` — must not be called from a
+    thread that is already running an event loop. Async callers hand it to a
+    worker with ``asyncio.to_thread``; see ``apo.api.lifespan``.
     """
     import logging
 
