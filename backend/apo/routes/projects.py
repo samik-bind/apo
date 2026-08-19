@@ -13,11 +13,12 @@ live filesystem scan on every request.
 
 from collections.abc import Sequence
 from typing import cast
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from sqlalchemy import desc, func
+from sqlalchemy import ColumnElement, desc, func
 from sqlmodel import Session, select
 
 from ..auth import verify_password
@@ -61,6 +62,8 @@ from ..services.project_memberships import (
     get_project_membership,
     readable_project_ids_for_request,
 )
+from ..db_helpers import _as_column
+from ..services.runtime_config import get_runtime_config
 from ..services.project_task_inventory import (
     get_inventory_row,
     list_inventory_for_project,
@@ -547,13 +550,15 @@ async def get_project_onboarding_status(
     project_id: str,
     request: Request,
     session: Session = Depends(get_session),
-) -> dict[str, int]:
-    """Bounded first-run signal for the Tasks page (SPEC-180).
+) -> dict[str, object]:
+    """Bounded first-run projection for the Tasks page (SPEC-180).
 
     Answers "has this Project published Tasks or recorded Runs" with two
-    scalar counts so the onboarding panel can appear and disappear based on
-    durable progress. Loads no Run, Trace, Check, Deliverable, or Task
-    Definition bodies.
+    scalar counts and carries the installation's validated public origin so
+    the onboarding panel can build an exact ``apo login`` command. The
+    runtime-config endpoint is installation-admin-only, so this member-scoped
+    projection is where an invited owner reads ``public_url``. Loads no Run,
+    Trace, Check, Deliverable, or Task Definition bodies.
     """
     _project, _role = _load_project_for_request(session, project_id, request)
 
@@ -562,18 +567,28 @@ async def get_project_onboarding_status(
         .select_from(ProjectTaskInventoryDB)
         .where(ProjectTaskInventoryDB.project == project_id)
     ).one()
+    _batch_run_id_col: ColumnElement[str] = _as_column(
+        cast(object, AgentTaskRunDB.batch_run_id)
+    )
+    _batch_id_col: ColumnElement[str] = _as_column(cast(object, AgentTaskBatchRunDB.id))
     recorded = session.exec(
         select(func.count())
         .select_from(AgentTaskRunDB)
-        .join(
-            AgentTaskBatchRunDB,
-            AgentTaskRunDB.batch_run_id == AgentTaskBatchRunDB.id,
-        )
+        .join(AgentTaskBatchRunDB, _batch_run_id_col == _batch_id_col)
         .where(AgentTaskBatchRunDB.project == project_id)
     ).one()
+    raw_public_url = (get_runtime_config().public_url or "").strip()
+    valid_public_url: str | None = None
+    try:
+        parsed = urlparse(raw_public_url)
+        if parsed.scheme in ("http", "https") and bool(parsed.netloc):
+            valid_public_url = f"{parsed.scheme}://{parsed.netloc}"
+    except ValueError:
+        valid_public_url = None
     return {
         "published_task_count": int(published),
         "recorded_run_count": int(recorded),
+        "public_url": valid_public_url,
     }
 
 

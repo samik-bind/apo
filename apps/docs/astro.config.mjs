@@ -25,6 +25,7 @@ export default defineConfig({
 						{ label: 'Overview', slug: 'overview' },
 						{ label: 'Why apo', slug: 'why-apo' },
 						{ label: 'Quickstart', slug: 'quickstart' },
+						{ label: 'Hosted Alpha', slug: 'hosted-alpha' },
 					],
 				},
 				{

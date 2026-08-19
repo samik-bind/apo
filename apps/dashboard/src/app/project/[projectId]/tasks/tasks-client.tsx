@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button";
 
 import { useProjectId, useIsDemo } from "@/lib/project-router";
 import type { ProjectTaskSource } from "@/lib/projects-api";
+import type { ProjectFirstRunSetup } from "@/lib/first-run";
 
 import { EvidenceViewsBar } from "./components/EvidenceViewsBar";
 import { FolderList } from "./components/FolderList";
+import { ProjectFirstRun } from "./components/ProjectFirstRun";
 import { SelectionActionBar } from "./components/SelectionActionBar";
 import { TasksToolbar } from "./components/TasksToolbar";
 import { useEvidenceViews } from "./components/use-evidence-views";
@@ -25,6 +27,7 @@ interface AgentTasksClientProps {
   error: string | null;
   taskSource: ProjectTaskSource | null;
   isDemo: boolean;
+  firstRunSetup?: ProjectFirstRunSetup | null;
 }
 
 export function AgentTasksClient({
@@ -32,6 +35,7 @@ export function AgentTasksClient({
   error,
   taskSource,
   isDemo,
+  firstRunSetup = null,
 }: AgentTasksClientProps) {
   const projectId = useProjectId();
   const clientIsDemo = useIsDemo();
@@ -120,9 +124,13 @@ export function AgentTasksClient({
   // task list visible so routine resyncs do not hide valid tasks.
   const sourceNeedsAttention =
     taskSource?.inventory_stale === true;
+  // SPEC-180: a virgin Project gets the full first-run journey instead
+  // of the one-line publish hint; it disappears on durable progress.
+  const showFirstRun = firstRunSetup !== null;
   const showSetupCard =
     !isDemoProject &&
     !error &&
+    !showFirstRun &&
     (taskSource === null || sourceNeedsAttention);
 
   return (
@@ -140,6 +148,8 @@ export function AgentTasksClient({
             </Button>
           </div>
         </div>
+      ) : showFirstRun ? (
+        <ProjectFirstRun setup={firstRunSetup} />
       ) : showSetupCard ? (
         <div className="px-6 py-10">
           <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-6 text-center">

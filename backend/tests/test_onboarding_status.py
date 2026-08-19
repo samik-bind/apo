@@ -48,29 +48,40 @@ def _add_run(session: Session, project_id: str) -> None:
         project=project_id,
         selection_type="manual",
         trigger="manual",
+        status="completed",
     )
     session.add(batch)
     session.commit()
     session.add(
-        AgentTaskRunDB(id=f"run_{uuid4().hex[:16]}", batch_run_id=batch.id, task_id="t")
+        AgentTaskRunDB(
+            id=f"run_{uuid4().hex[:16]}",
+            batch_run_id=batch.id,
+            task_id="t",
+            task_path="t",
+            status="passed",
+        )
     )
     session.commit()
 
 
 class TestOnboardingStatus:
     def test_empty_project_reports_zero_counts(
-        self, session: Session, make_authed_client: Any
+        self,
+        session: Session,
+        make_authed_client: Any,
+        monkeypatch: Any,
     ) -> None:
+        monkeypatch.setenv("APO_PUBLIC_URL", "https://public.example.com")
         user, project = _seed_project(session, "owner@example.com")
         client: TestClient = make_authed_client(user.id, session)
 
         resp = client.get(f"/v1/projects/{project.id}/onboarding-status")
 
         assert resp.status_code == 200
-        assert resp.json() == {
-            "published_task_count": 0,
-            "recorded_run_count": 0,
-        }
+        body = resp.json()
+        assert body["published_task_count"] == 0
+        assert body["recorded_run_count"] == 0
+        assert body["public_url"] == "https://public.example.com"
 
     def test_counts_reflect_inventory_and_runs(
         self, session: Session, make_authed_client: Any
@@ -142,10 +153,9 @@ class TestOnboardingStatus:
         resp = client.get(f"/v1/projects/{project.id}/onboarding-status")
 
         assert resp.status_code == 200
-        assert resp.json() == {
-            "published_task_count": 0,
-            "recorded_run_count": 0,
-        }
+        body = resp.json()
+        assert body["published_task_count"] == 0
+        assert body["recorded_run_count"] == 0
 
     def test_non_member_is_forbidden(
         self, session: Session, make_authed_client: Any

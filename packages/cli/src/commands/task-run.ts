@@ -417,6 +417,11 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
           failure_kind: artifactPhase ? "driver" : "task_runtime",
           error_message: message,
         });
+        // SPEC-180: the failure was still recorded — hand the user the
+        // exact Run identity so onboarding can continue from the evidence.
+        console.error(
+          dim(`Recorded run ${created.taskRunId} (apo runs show ${created.taskRunId})`),
+        );
       } catch (reportError) {
         const reportMessage = reportError instanceof Error ? reportError.message : String(reportError);
         console.error(red(`Warning: failed to report failure to backend: ${reportMessage}`));
@@ -456,8 +461,11 @@ function printLocalRunSummary(summary: LocalRunSummary): void {
 }
 
 function printTaskRunDetail(run: TaskRunDetail): void {
+  // SPEC-180: exact recorded identity first — onboarding copy must never
+  // rely on "latest run" lookup, so hand the user the exact follow-up command.
   console.log(bold(`Run: ${run.id}`));
   console.log(`  Task:      ${run.task_id}`);
+  console.log(`  Inspect:   ${dim(`apo runs show ${run.id}`)}`);
   if (run.batch_run_id) {
     console.log(`  Batch:     ${run.batch_run_id} ${dim("(apo batch show " + run.batch_run_id + ")")}`);
   }

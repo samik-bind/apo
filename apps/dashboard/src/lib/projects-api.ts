@@ -85,3 +85,19 @@ export const syncProjectTaskSource = (
   apiClient(`/v1/projects/${projectId}/task-source/sync`, {
     method: "POST",
   });
+
+/** Bounded first-run signal (SPEC-180): scalar progress counts + public origin. */
+export interface ProjectOnboardingStatus {
+  published_task_count: number;
+  recorded_run_count: number;
+  public_url: string | null;
+}
+
+export const getProjectOnboardingStatus = (
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ProjectOnboardingStatus> =>
+  apiClient(`/v1/projects/${projectId}/onboarding-status`, {
+    cache: "no-store",
+    signal,
+  });

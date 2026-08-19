@@ -125,6 +125,10 @@ is for the first person setting up a new server.
 
 ### Path A: Connect to an existing server (most teams)
 
+Invited to a hosted apo? Your Project's Tasks page shows the exact
+\`apo login --backend <url> --project <id>\` command to copy — see the
+[Hosted Alpha guide](${ORIGIN}/hosted-alpha.md). Everyone else:
+
 Install the CLI from npm:
 
 \`\`\`bash
@@ -492,6 +496,7 @@ Restate the final state: task name, adapter name, verdict, and next steps.
 | What apo is | ${ORIGIN}/overview.md |
 | Why apo (design reasoning) | ${ORIGIN}/why-apo.md |
 | Quickstart (human steps) | ${ORIGIN}/quickstart.md |
+| Hosted alpha (invited users) | ${ORIGIN}/hosted-alpha.md |
 | Mental model (vocabulary) | ${ORIGIN}/concepts/mental-model.md |
 | Adapters concept | ${ORIGIN}/concepts/adapters.md |
 | Adapter API reference | ${ORIGIN}/reference/adapter.md |

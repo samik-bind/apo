@@ -60,6 +60,19 @@ const nextConfig = {
         source: '/backend-proxy/:path*',
         destination: `${backendUrl}/:path*`,
       },
+      // SPEC-180: the public origin is also the CLI's backend. ``apo login
+      // --backend <public-origin>`` calls /v1/* and /auth/* directly, so those
+      // backend-owned paths must resolve on the same origin as the dashboard —
+      // the frontend itself serves neither. NextAuth's own /api/auth/* surface
+      // is untouched (the /api rewrite above already excludes it).
+      {
+        source: '/v1/:path*',
+        destination: `${backendUrl}/v1/:path*`,
+      },
+      {
+        source: '/auth/:path*',
+        destination: `${backendUrl}/auth/:path*`,
+      },
     ];
   },
   async headers() {

@@ -15,7 +15,11 @@ structured data from an invoice.
 
 ## Prerequisites
 
-- An Apo Control Plane running locally (see the [Quickstart](https://docs.test-apo.online/quickstart/)).
+- An Apo Control Plane you can reach. Either:
+  - **Self-hosted, running locally** (see the [Quickstart](https://docs.test-apo.online/quickstart/)), or
+  - **Invited to a hosted apo** — accept your invitation, then copy the exact
+    `apo login --backend <url> --project <id>` command from your Project's
+    Tasks page ([Hosted Alpha](https://docs.test-apo.online/hosted-alpha/)).
 - `OPENROUTER_API_KEY` set in this environment (the real agent calls a model).
 - `@apo-ai/cli` installed (`npm install -g @apo-ai/cli`).
 - `@apo-ai/sdk` installed in this project (`npm install @apo-ai/sdk`).
