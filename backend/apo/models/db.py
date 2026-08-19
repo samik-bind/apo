@@ -507,6 +507,12 @@ class AgentTaskRunDB(SQLModel, table=True):
     # complete total — the unpriced calls silently contributed 0. Rolled up by
     # ``NativeTraceBackend.aggregate_costs`` from per-call ``cost_provenance``.
     unpriced_call_count: int = Field(default=0)
+    # Bounded execution provenance derived from canonical OTel Generation
+    # Observations. Null means APO has no canonical generation evidence for the
+    # run (for example, a legacy trace), not that zero generations errored.
+    generation_execution_json: dict[str, object] | None = Field(
+        default=None, sa_column=Column(JSON)
+    )
     # adapter-reported Run Configuration. Typed, indexed product
     # dimensions — never backfilled from adapter name, env, or trace data.
     # Both columns nullable so legacy rows remain readable as "unknown".

@@ -21,6 +21,7 @@ type RunDetail = {
   error_message: string | null;
   total_cost: number | null;
   unpriced_call_count?: number;
+  generation_execution?: GenerationExecution | null;
   total_tokens: number | null;
   total_checks: number;
   passed_checks: number;
@@ -36,6 +37,12 @@ type RunDetail = {
   transcript_json: Record<string, unknown> | null;
   deliverables?: DeliverableSummary[];
   run_configuration?: { model: string; effort?: string | null } | null;
+};
+
+type GenerationExecution = {
+  total: number;
+  errored: number;
+  error_finish_reasons: Record<string, number>;
 };
 
 type DeliverableSummary = {
@@ -147,7 +154,7 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   if (exitStatus) {
-    return runDetail.pass_result === false ? 1 : 0;
+    return runDetail.pass_result === true ? 0 : 1;
   }
   return 0;
 }
@@ -172,15 +179,22 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
   if (run.total_checks > 0) {
     console.log(`  Checks:   ${run.passed_checks}/${run.total_checks} passed (${run.failed_checks} failed)`);
   }
+  if (run.generation_execution && run.generation_execution.errored > 0) {
+    console.log(
+      `  Generations: ${run.generation_execution.errored}/${run.generation_execution.total} errored${formatFinishReasons(run.generation_execution)}`,
+    );
+  }
 
   console.log(`  Started:  ${formatTime(run.started_at)}`);
   if (run.completed_at) {
     console.log(`  Completed: ${formatTime(run.completed_at)}`);
   }
   console.log(`  Source:   ${formatTriggerOpt(run.trigger)}`);
-  console.log(`  Cost:     ${formatCost(run.total_cost)}${formatUnpricedSuffix(run.unpriced_call_count)}`);
+  console.log(`  Cost:     ${formatCost(run.total_cost)}${formatPartialCostSuffix(run)}`);
   if (run.total_tokens != null && run.total_tokens > 0) {
-    console.log(`  Tokens:   ${run.total_tokens.toLocaleString()}`);
+    console.log(
+      `  Tokens:   ${run.total_tokens.toLocaleString()}${formatErroredGenerationSuffix(run.generation_execution)}`,
+    );
   }
   if (run.trace_run_id) {
     console.log(`  Trace:    ${run.trace_run_id} ${dim("(apo traces show " + run.trace_run_id + ")")}`);
@@ -277,11 +291,30 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
-function formatUnpricedSuffix(unpricedCallCount?: number): string {
-  if (!unpricedCallCount || unpricedCallCount <= 0) return "";
+function formatPartialCostSuffix(run: RunDetail): string {
+  const reasons: string[] = [];
+  if (run.generation_execution && run.generation_execution.errored > 0) {
+    const count = run.generation_execution.errored;
+    reasons.push(`${count} errored generation${count === 1 ? "" : "s"}`);
+  }
+  if (run.unpriced_call_count && run.unpriced_call_count > 0) {
+    const count = run.unpriced_call_count;
+    reasons.push(`${count} unpriced call${count === 1 ? "" : "s"}`);
+  }
+  return reasons.length > 0 ? dim(` (partial — ${reasons.join(", ")})`) : "";
+}
+
+function formatErroredGenerationSuffix(execution?: GenerationExecution | null): string {
+  if (!execution || execution.errored <= 0) return "";
   return dim(
-    ` (partial — ${unpricedCallCount} unpriced call${unpricedCallCount === 1 ? "" : "s"})`,
+    ` (partial — ${execution.errored} errored generation${execution.errored === 1 ? "" : "s"})`,
   );
+}
+
+function formatFinishReasons(execution: GenerationExecution): string {
+  const reasons = Object.entries(execution.error_finish_reasons)
+    .map(([reason, count]) => `${reason} ×${count}`);
+  return reasons.length > 0 ? dim(` (${reasons.join(", ")})`) : "";
 }
 
 function formatTriggerOpt(trigger: RunDetail["trigger"]): string {

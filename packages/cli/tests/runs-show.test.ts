@@ -317,6 +317,33 @@ describe("runs show command", () => {
     expect(out).not.toContain("unpriced");
   });
 
+  it("shows errored generations and marks cost and tokens as partial", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(makeRun({
+        status: "error",
+        pass_result: null,
+        total_cost: 369_100,
+        total_tokens: 12_345,
+        generation_execution: {
+          total: 22,
+          errored: 17,
+          error_finish_reasons: { error: 17 },
+        },
+      })),
+    );
+    const { logs, restore } = captureLog();
+
+    await run([FULL_ID, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("Generations:");
+    expect(out).toContain("17/22 errored");
+    expect(out).toContain("error ×17");
+    expect(out).toMatch(/Cost:.*partial/);
+    expect(out).toMatch(/Tokens:.*partial/);
+  });
+
   it("returns exit code 1 with --exit-status on failed run", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       mockResponse(makeRun({ pass_result: false })),
@@ -337,6 +364,17 @@ describe("runs show command", () => {
     restore();
 
     expect(code).toBe(0);
+  });
+
+  it("returns exit code 1 with --exit-status when a run has no verdict", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(makeRun({ status: "error", pass_result: null })),
+    );
+    const { restore } = captureLog();
+    const code = await run([FULL_ID, "--backend", "http://backend.test", "--exit-status"]);
+    restore();
+
+    expect(code).toBe(1);
   });
 
   // Issue #8: a failed run with zero checks must explain itself, not render a

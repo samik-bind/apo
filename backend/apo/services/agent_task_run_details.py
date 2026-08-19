@@ -19,7 +19,12 @@ from ..models.db import (
     AgentTaskRunDB,
     TaskDefinitionRevisionDB,
 )
-from ..models.schemas import AgentTaskRunDetail, AgentTaskRunSummary, AgentTaskRunTrigger
+from ..models.schemas import (
+    AgentTaskRunDetail,
+    AgentTaskRunSummary,
+    AgentTaskRunTrigger,
+    GenerationExecutionSummary,
+)
 from .agent_task_configuration import configuration_from_row
 from .agent_task_deliverables import derive_deliverables_json_for_runs
 from .agent_task_outcome import classify_run_outcome
@@ -90,6 +95,7 @@ def _to_summary(
         trace_error_message=run.trace_error_message,
         total_cost=run.total_cost,
         unpriced_call_count=run.unpriced_call_count,
+        generation_execution=_generation_execution_summary(run),
         total_tokens=run.total_tokens,
         total_checks=run.total_checks,
         passed_checks=run.passed_checks,
@@ -211,6 +217,7 @@ def _to_detail(
         trace_error_message=run.trace_error_message,
         total_cost=run.total_cost,
         unpriced_call_count=run.unpriced_call_count,
+        generation_execution=_generation_execution_summary(run),
         total_tokens=run.total_tokens,
         total_checks=run.total_checks,
         passed_checks=run.passed_checks,
@@ -230,3 +237,11 @@ def _to_detail(
         ),
         task_definition=task_definition,
     )
+
+
+def _generation_execution_summary(
+    run: AgentTaskRunDB,
+) -> GenerationExecutionSummary | None:
+    if run.generation_execution_json is None:
+        return None
+    return GenerationExecutionSummary.model_validate(run.generation_execution_json)

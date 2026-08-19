@@ -20,6 +20,7 @@ import { TaskRunAutoRefresh } from "@/components/agent-task-execution/task-run-a
 import { OutcomeSummary } from "@/components/run-outcome";
 import { formatTokenTotal, formatCostMicro } from "@/lib/format";
 import { getProject } from "@/lib/projects-api";
+import GenerationExecutionNotice from "@/components/generation-execution-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -123,6 +124,12 @@ export default async function TaskRunDetailPage({
   const statusLabel = taskRun.status.charAt(0).toUpperCase() + taskRun.status.slice(1);
 
   const isRunning = ["running", "pending", "queued"].includes(taskRun.status);
+  const generationErrors = taskRun.generation_execution?.errored ?? 0;
+  const verdictSuppressed =
+    taskRun.status === "error" &&
+    taskRun.pass_result === null &&
+    generationErrors > 0;
+  const costIsPartial = generationErrors > 0 || (taskRun.unpriced_call_count ?? 0) > 0;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -244,6 +251,7 @@ export default async function TaskRunDetailPage({
             }}
             unit="checks"
             running={isRunning}
+            verdictUnavailable={verdictSuppressed}
             metadata={[
               {
                 icon: Clock,
@@ -252,9 +260,9 @@ export default async function TaskRunDetailPage({
               },
               {
                 icon: DollarSign,
-                value: formatCostMicro(taskRun.total_cost),
+                value: `${formatCostMicro(taskRun.total_cost)}${costIsPartial ? " partial" : ""}`,
                 label: taskRun.total_tokens != null
-                  ? formatTokenTotal(taskRun.total_tokens)
+                  ? `${formatTokenTotal(taskRun.total_tokens)}${generationErrors > 0 ? " partial" : ""}`
                   : "cost",
               },
               ...(taskRun.adapter_name
@@ -264,8 +272,13 @@ export default async function TaskRunDetailPage({
           />
         </div>
 
+        <GenerationExecutionNotice
+          execution={taskRun.generation_execution ?? null}
+          verdictSuppressed={verdictSuppressed}
+        />
+
         {/* Error banner */}
-        {taskRun.error_message && (
+        {taskRun.error_message && generationErrors === 0 && (
           <div className="mx-6 mt-4 border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
             {taskRun.error_message.slice(0, 200)}
           </div>

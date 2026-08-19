@@ -134,4 +134,31 @@ describe("runs list command", () => {
     // A run with no configuration shows a dash.
     expect(out).toContain("·");
   });
+
+  it("surfaces generation errors instead of showing an ordinary scored run", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse([
+        makeRun({
+          status: "error",
+          pass_result: null,
+          total_cost: 369_100,
+          generation_execution: {
+            total: 22,
+            errored: 17,
+            error_finish_reasons: { error: 17 },
+          },
+        }),
+      ]),
+    );
+    const { logs, restore } = captureLog();
+
+    await run(["--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("Generations");
+    expect(out).toContain("17/22 error");
+    expect(out).toContain("partial");
+    expect(out).not.toContain("FAIL");
+  });
 });

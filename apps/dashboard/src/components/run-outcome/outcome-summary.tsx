@@ -19,6 +19,7 @@ interface OutcomeSummaryProps {
   unit: "tasks" | "checks";
   running?: boolean;
   metadata?: OutcomeMetadataItem[];
+  verdictUnavailable?: boolean;
 }
 
 function passRateTone(rate: number): string {
@@ -49,6 +50,7 @@ export function OutcomeSummary({
   unit,
   running,
   metadata,
+  verdictUnavailable = false,
 }: OutcomeSummaryProps) {
   const { passed, failed, errored, total } = counts;
   const rate = total > 0 ? Math.round((passed / total) * 100) : 0;
@@ -63,13 +65,23 @@ export function OutcomeSummary({
         <span
           className={cn(
             "font-mono text-[32px] leading-none tabular-nums tracking-tight",
-            showHero ? passRateTone(rate) : "text-muted-foreground",
+            verdictUnavailable
+              ? "text-warning"
+              : showHero
+                ? passRateTone(rate)
+                : "text-muted-foreground",
           )}
         >
-          {showHero ? `${rate}%` : "—"}
+          {verdictUnavailable ? "—" : showHero ? `${rate}%` : "—"}
         </span>
         <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-          {showHero ? "pass rate" : running ? "running…" : "pass rate"}
+          {verdictUnavailable
+            ? "no verdict"
+            : showHero
+              ? "pass rate"
+              : running
+                ? "running…"
+                : "pass rate"}
         </span>
       </div>
 

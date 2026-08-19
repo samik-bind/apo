@@ -605,6 +605,14 @@ class AgentTaskBatchRunConfigurationSummary(SQLModel):
     total_task_runs: int = 0
 
 
+class GenerationExecutionSummary(SQLModel):
+    """Bounded reliability evidence for a Task Run's model generations."""
+
+    total: int
+    errored: int
+    error_finish_reasons: dict[str, int] = Field(default_factory=dict)
+
+
 class AgentTaskRunSummary(SQLModel):
     id: str
     batch_run_id: str
@@ -628,6 +636,7 @@ class AgentTaskRunSummary(SQLModel):
     # Issue #94: calls whose model had no pricing pattern. Non-zero means
     # ``total_cost`` is a partial sum, not a complete total.
     unpriced_call_count: int = 0
+    generation_execution: GenerationExecutionSummary | None = None
     # Total tokens (prompt + completion) across all calls in the run.
     total_tokens: int | None = None
     total_checks: int = 0
@@ -661,6 +670,7 @@ class AgentTaskRunDetail(SQLModel):
     # Issue #94: calls whose model had no pricing pattern. Non-zero means
     # ``total_cost`` is a partial sum, not a complete total.
     unpriced_call_count: int = 0
+    generation_execution: GenerationExecutionSummary | None = None
     total_tokens: int | None = None
     total_checks: int = 0
     passed_checks: int = 0

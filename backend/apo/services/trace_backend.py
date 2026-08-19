@@ -15,11 +15,12 @@ task runner or the trace UI needing to know which backend is active.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from sqlmodel import Session, select
 
-from ..models.db import AgentTaskRunDB, LoggedCallDB, RunDB
+from ..models.db import AgentTaskRunDB, LoggedCallDB, OtlpSpanDB, RunDB
 from .trace_ownership import mark_failed, mark_persisted
 
 
@@ -62,7 +63,9 @@ class TraceBackend(Protocol):
         ``project`` scopes the observation set so a cross-project trace id
         collision cannot inflate another run's totals.
 
-        Sets ``task_run.total_cost`` / ``task_run.total_tokens``. No-op when
+        Sets ``task_run.total_cost`` / ``task_run.total_tokens`` and the
+        bounded Generation Execution Summary. Errored generations are excluded
+        from usage totals, which consumers must present as partial. No-op when
         the task run has no trace.
         """
         ...
@@ -125,10 +128,23 @@ class NativeTraceBackend:
                 LoggedCallDB.project == project,
             )
         ).all()
+        spans = session.exec(
+            select(OtlpSpanDB).where(
+                OtlpSpanDB.trace_id == task_run.trace_run_id,
+                OtlpSpanDB.project_id == project,
+            )
+        ).all()
+        generation_execution, errored_span_ids = _generation_execution(calls, spans)
+        task_run.generation_execution_json = generation_execution
         total_cost = 0.0
         total_tokens = 0
         unpriced_count = 0
         for call in calls:
+            # A provider error often omits the final streamed usage event and
+            # therefore projects as a plausible zero. Exclude the observation
+            # instead of treating that zero as a complete measurement.
+            if call.id in errored_span_ids:
+                continue
             # ``cost`` is the single effective total (micro-USD int);
             # fall back to ``provided_cost`` only when cost is unset.
             effective = call.cost if call.cost is not None else call.provided_cost
@@ -141,11 +157,84 @@ class NativeTraceBackend:
             if call.cost_provenance == "unpriced":
                 unpriced_count += 1
         has_any_cost = any(
-            call.cost is not None or call.provided_cost is not None for call in calls
+            call.id not in errored_span_ids
+            and (call.cost is not None or call.provided_cost is not None)
+            for call in calls
         )
         task_run.total_cost = round(total_cost, 6) if has_any_cost else None
         task_run.total_tokens = total_tokens if total_tokens > 0 else None
         task_run.unpriced_call_count = unpriced_count
+
+
+def _generation_execution(
+    calls: Sequence[LoggedCallDB], spans: Sequence[OtlpSpanDB]
+) -> tuple[dict[str, object] | None, set[str]]:
+    """Summarize canonical Generation Observations and identify error rows.
+
+    Projection rows provide APO's normalized observation type; canonical spans
+    provide the lossless OTel status and finish reasons. Calls without a
+    canonical span are legacy/unknown and are intentionally not reported as
+    healthy.
+    """
+    span_by_id = {span.span_id: span for span in spans}
+    generation_spans = [
+        span_by_id[call.id]
+        for call in calls
+        if call.observation_type == "GENERATION" and call.id in span_by_id
+    ]
+    if not generation_spans:
+        return None, set()
+
+    errored_span_ids: set[str] = set()
+    reason_counts: dict[str, int] = {}
+    for span in generation_spans:
+        finish_reasons = _finish_reasons(span.attributes or {})
+        error_finish_reasons = [
+            reason for reason in finish_reasons if reason in _ERROR_FINISH_REASONS
+        ]
+        if span.status_code != 2 and not error_finish_reasons:
+            continue
+        errored_span_ids.add(span.span_id)
+        reasons = error_finish_reasons or ["otel_error"]
+        for reason in reasons:
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+    return (
+        {
+            "total": len(generation_spans),
+            "errored": len(errored_span_ids),
+            "error_finish_reasons": reason_counts,
+        },
+        errored_span_ids,
+    )
+
+
+def _finish_reasons(attributes: dict[str, object]) -> list[str]:
+    """Read standard and common vendor finish-reason attribute shapes."""
+    for key in _FINISH_REASON_KEYS:
+        value = attributes.get(key)
+        if isinstance(value, str):
+            return [_normalize_finish_reason(value)] if value else []
+        if isinstance(value, list):
+            return [
+                normalized
+                for item in value
+                if isinstance(item, str)
+                and (normalized := _normalize_finish_reason(item))
+            ]
+    return []
+
+
+def _normalize_finish_reason(value: str) -> str:
+    return value.strip().lower().replace("-", "_").replace(" ", "_")
+
+
+_FINISH_REASON_KEYS = (
+    "gen_ai.response.finish_reasons",
+    "gen_ai.response.finish_reason",
+    "ai.response.finishReason",
+)
+_ERROR_FINISH_REASONS = frozenset({"error", "errored", "failed", "failure"})
 
 
 def _extract_task_input(transcript: object) -> str | None:

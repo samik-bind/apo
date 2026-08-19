@@ -19,6 +19,7 @@ from ..models import (
     AgentTaskBatchRunDetail,
     AgentTaskBatchRunSummary,
     AgentTaskRunConfiguration,
+    GenerationExecutionSummary,
     AgentTaskRunDB,
     AgentTaskRunTrigger,
     AgentTaskRunSummary,
@@ -119,6 +120,11 @@ def to_task_run_summary(
         trace_error_message=tr.trace_error_message,
         total_cost=tr.total_cost,
         unpriced_call_count=tr.unpriced_call_count,
+        generation_execution=(
+            GenerationExecutionSummary.model_validate(tr.generation_execution_json)
+            if tr.generation_execution_json is not None
+            else None
+        ),
         total_tokens=tr.total_tokens,
         total_checks=total_checks,
         passed_checks=passed_checks,

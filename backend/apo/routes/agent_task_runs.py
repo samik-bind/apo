@@ -27,6 +27,7 @@ from ..models import (
     AgentTaskRunTrigger,
     AgentTaskRunSummary,
     CreateAgentTaskBatchRunRequest,
+    GenerationExecutionSummary,
     LoggedCallDB,
     ReportAgentTaskRunResultRequest,
     RunDB,
@@ -180,6 +181,13 @@ def _build_task_run_detail(
         trace_error_message=task_run.trace_error_message,
         total_cost=task_run.total_cost,
         unpriced_call_count=task_run.unpriced_call_count,
+        generation_execution=(
+            GenerationExecutionSummary.model_validate(
+                task_run.generation_execution_json
+            )
+            if task_run.generation_execution_json is not None
+            else None
+        ),
         total_tokens=task_run.total_tokens,
         total_checks=task_run.total_checks,
         passed_checks=task_run.passed_checks,

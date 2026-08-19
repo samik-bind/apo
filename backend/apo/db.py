@@ -700,6 +700,23 @@ def _migrate_to_v28() -> None:
         _drop_column_if_exists(conn, "agent_task_runs", "checks_json")
 
 
+def _migrate_to_v29() -> None:
+    """Version 29 (issue #149): generation execution provenance on Task Runs.
+
+    Existing rows remain NULL because absence of canonical generation evidence
+    is unknown, not an honest zero-error measurement.
+    """
+    with engine.begin() as conn:
+        _migrate_generation_execution_schema(conn)
+
+
+def _migrate_generation_execution_schema(conn: Connection) -> None:
+    """Add the nullable issue #149 summary to an existing Task Run table."""
+    _add_column_if_missing(
+        conn, "agent_task_runs", "generation_execution_json", "JSON"
+    )
+
+
 # registered in ``_SCHEMA_MIGRATIONS``; ``_run_migrations`` applies every
 # migration newer than the database's current version, then stamps the
 # resulting version.
@@ -2064,7 +2081,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 28
+LATEST_SCHEMA_VERSION = 29
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2095,6 +2112,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     26: _migrate_to_v26,
     27: _migrate_to_v27,
     28: _migrate_to_v28,
+    29: _migrate_to_v29,
 }
 
 

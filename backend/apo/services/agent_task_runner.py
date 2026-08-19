@@ -455,6 +455,15 @@ def finalize_task_run_with_result(
         # precedence below, which only applies to passed/failed verdicts.
         task_run.status = "error"
         task_run.error_message = error_message
+    elif _generation_errors_dominate(task_run.generation_execution_json):
+        # Issue #149: the checks ran, but they evaluated an execution dominated
+        # by failed model calls. Preserve the Check Report as diagnostics while
+        # refusing to turn it into a misleading PASS/FAIL control signal.
+        task_run.pass_result = None
+        task_run.status = "error"
+        generation_execution = task_run.generation_execution_json
+        assert generation_execution is not None
+        task_run.error_message = _generation_execution_error_message(generation_execution)
     else:
         task_run.status = "passed" if task_run.pass_result else "failed"
         task_run.error_message = _resolve_run_error_message(
@@ -462,6 +471,30 @@ def finalize_task_run_with_result(
             checks=checks,
             error_message=error_message,
         )
+
+
+def _generation_errors_dominate(summary: dict[str, object] | None) -> bool:
+    if summary is None:
+        return False
+    total = summary.get("total")
+    errored = summary.get("errored")
+    return (
+        isinstance(total, int)
+        and not isinstance(total, bool)
+        and isinstance(errored, int)
+        and not isinstance(errored, bool)
+        and total > 0
+        and errored * 2 > total
+    )
+
+
+def _generation_execution_error_message(summary: dict[str, object]) -> str:
+    total = summary.get("total")
+    errored = summary.get("errored")
+    return (
+        f"{errored} of {total} generations ended in error. "
+        "No PASS/FAIL verdict was recorded; checks remain diagnostic evidence."
+    )
 
 
 def _reject_non_ready_artifacts(session: Session, task_run_id: str) -> None:
@@ -680,4 +713,3 @@ _TASK_ENV_PROVIDER_VARS = (
     "AGENT_TASK_JUDGE_MODEL",
     "AGENT_TASK_OPENROUTER_MODEL",
 )
-

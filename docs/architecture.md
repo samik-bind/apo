@@ -245,6 +245,28 @@ tiers from their stored `raw_usage`. Provided-cost and pre-migration calls are
 skipped and reported. Triggered via an admin endpoint using a kick-off + poll
 pattern (dodging the CLI's 15s HTTP timeout).
 
+### Generation Errors and Verdict Validity
+
+Canonical OTLP span status and finish-reason attributes are execution evidence,
+not ordinary check failures. At Task Run finalization, the trace backend joins
+normalized `GENERATION` calls to their canonical spans and records a bounded
+Generation Execution Summary (`total`, `errored`, and error finish-reason
+counts) on the Task Run.
+
+- OTel `ERROR` status or an error finish reason marks a Generation Observation
+  errored.
+- Errored Generation Observations do not contribute cost or tokens. Those
+  totals are presented as partial, never as complete zero-valued measurements.
+- If errored generations are a strict majority, execution—not expected
+  behavior—dominated the result. The Task Run becomes `status: error` with
+  `pass_result: null`; its Check Report remains available as diagnostic
+  evidence but is not a PASS/FAIL score.
+- A minority of generation errors represents a recovered execution. The
+  ordinary verdict remains valid, while usage totals still disclose that they
+  are partial.
+- Legacy traces with no canonical Generation Observations keep the summary
+  null. APO does not rewrite unknown historical evidence as zero errors.
+
 ### Task Run Deliverables and Artifacts
 
 Deliverable **identity and metadata** are relational; large bodies live

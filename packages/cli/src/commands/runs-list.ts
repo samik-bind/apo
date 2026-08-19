@@ -15,11 +15,17 @@ type RunSummary = {
   started_at: string;
   completed_at: string | null;
   total_cost: number | null;
+  unpriced_call_count?: number;
   total_checks: number;
   passed_checks: number;
   failed_checks: number;
   adapter_name: string;
   run_configuration?: RunConfiguration;
+  generation_execution?: {
+    total: number;
+    errored: number;
+    error_finish_reasons: Record<string, number>;
+  } | null;
 };
 
 function formatExecution(cfg: RunConfiguration | undefined): string {
@@ -89,13 +95,14 @@ export async function run(argv: string[]): Promise<number> {
     r.batch_run_id.slice(0, 8),
     r.status,
     r.pass_result === null ? "-" : r.pass_result ? "PASS" : "FAIL",
+    formatGenerationExecution(r.generation_execution),
     formatExecution(r.run_configuration),
-    formatCost(r.total_cost),
+    formatRunCost(r),
     formatTime(r.started_at),
   ]);
   console.log(
     formatTable(
-      ["Run ID", "Task", "Batch", "Status", "Result", "Execution", "Cost", "Started"],
+      ["Run ID", "Task", "Batch", "Status", "Result", "Generations", "Execution", "Cost", "Started"],
       rows,
     ),
   );
@@ -103,4 +110,19 @@ export async function run(argv: string[]): Promise<number> {
   console.log(dim(`${runs.length} run${runs.length === 1 ? "" : "s"}`));
 
   return 0;
+}
+
+function formatGenerationExecution(
+  execution: RunSummary["generation_execution"],
+): string {
+  if (!execution || execution.errored <= 0) return dim("-");
+  return `${execution.errored}/${execution.total} error`;
+}
+
+function formatRunCost(run: RunSummary): string {
+  const cost = formatCost(run.total_cost);
+  const partial =
+    (run.generation_execution?.errored ?? 0) > 0 ||
+    (run.unpriced_call_count ?? 0) > 0;
+  return partial ? `${cost} ${dim("partial")}` : cost;
 }

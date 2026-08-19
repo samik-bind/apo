@@ -119,6 +119,8 @@ export interface AgentTaskRunSummary {
   task_source_commit_sha: string | null;
   error_message: string | null;
   total_cost: number | null;
+  unpriced_call_count?: number;
+  generation_execution?: GenerationExecutionSummary | null;
   total_tokens: number | null;
   total_checks: number;
   passed_checks: number;
@@ -129,6 +131,12 @@ export interface AgentTaskRunSummary {
   error_category: string | null;
   /** adapter-reported model/effort. Absent when not reported. */
   run_configuration: AgentTaskRunConfiguration | null;
+}
+
+export interface GenerationExecutionSummary {
+  total: number;
+  errored: number;
+  error_finish_reasons: Record<string, number>;
 }
 
 export type EvaluatorType = "llm" | "code" | "regex";
