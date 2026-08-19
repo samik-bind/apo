@@ -17,14 +17,17 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from sqlmodel import Session, select
 
 from ..auth import verify_password
 from ..auth.rate_limit import LoginRateLimiter
 from ..db import get_session
 from ..models.db import (
+    AgentTaskBatchRunDB,
+    AgentTaskRunDB,
     ProjectDB,
+    ProjectTaskInventoryDB,
     ProjectTaskSourceDB,
     UserDB,
 )
@@ -537,6 +540,41 @@ async def list_project_agent_task_run_config_facets(
     """
     _project, _role = _load_project_for_request(session, project_id, request)
     return compute_run_config_facets(session, project_id)
+
+
+@router.get("/{project_id}/onboarding-status")
+async def get_project_onboarding_status(
+    project_id: str,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, int]:
+    """Bounded first-run signal for the Tasks page (SPEC-180).
+
+    Answers "has this Project published Tasks or recorded Runs" with two
+    scalar counts so the onboarding panel can appear and disappear based on
+    durable progress. Loads no Run, Trace, Check, Deliverable, or Task
+    Definition bodies.
+    """
+    _project, _role = _load_project_for_request(session, project_id, request)
+
+    published = session.exec(
+        select(func.count())
+        .select_from(ProjectTaskInventoryDB)
+        .where(ProjectTaskInventoryDB.project == project_id)
+    ).one()
+    recorded = session.exec(
+        select(func.count())
+        .select_from(AgentTaskRunDB)
+        .join(
+            AgentTaskBatchRunDB,
+            AgentTaskRunDB.batch_run_id == AgentTaskBatchRunDB.id,
+        )
+        .where(AgentTaskBatchRunDB.project == project_id)
+    ).one()
+    return {
+        "published_task_count": int(published),
+        "recorded_run_count": int(recorded),
+    }
 
 
 @router.get(
