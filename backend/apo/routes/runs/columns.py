@@ -38,6 +38,9 @@ RUN_CALL_COUNT_COL: ColumnElement[int] = as_column(cast(object, RunDB.call_count
 RUN_FLOW_NAME_COL: ColumnElement[str | None] = as_column(
     cast(object, RunDB.flow_name)
 )
+RUN_TASK_ID_COL: ColumnElement[str | None] = as_column(
+    cast(object, RunDB.task_id)
+)
 RUN_ENVIRONMENT_COL: ColumnElement[str] = as_column(cast(object, RunDB.environment))
 RUN_SESSION_ID_COL: ColumnElement[str | None] = as_column(
     cast(object, RunDB.session_id)

@@ -9,16 +9,15 @@ import TerminalOutput from '../../../components/demos/TerminalOutput.astro';
 Show a task's details — adapter, whether it has checks, and (with a backend project) its latest run. Without a backend project, it shows the local task folder's deliverables and files instead.
 
 <TerminalDemo
-  command="apo task show extract-parties"
+  command="apo task show real-agent/documents/document-qa"
   lines={[
-    { text: "" },
-    { text: "Task: extract-parties" },
-    { text: "  Adapter:     real-agent" },
+    { text: "Task: real-agent/documents/document-qa" },
+    { text: "  Adapter:     realAgentAdapter" },
     { text: "  Checks:      yes" },
-    { text: "  Path:        real-agent/extract-parties/extract-parties.eval.ts" },
-    { text: "  Folder:      real-agent/extract-parties" },
+    { text: "  Path:        real-agent/documents/document-qa" },
+    { text: "  Folder:      real-agent/documents" },
     { text: "  Latest run:", tone: "default" },
-    { text: "    - de89cab0: failed", tone: "danger" },
+    { text: "    - run_de89cab0f1e2d3a4b5c6d7e8: failed", tone: "danger" },
   ]}
 />
 
@@ -40,13 +39,13 @@ With a backend project, the task comes from the synced inventory and includes th
 
 <TerminalOutput
   lines={[
-    { text: "Task: extract-parties" },
-    { text: "  Adapter:     real-agent" },
+    { text: "Task: real-agent/documents/document-qa" },
+    { text: "  Adapter:     realAgentAdapter" },
     { text: "  Checks:      yes" },
-    { text: "  Path:        real-agent/extract-parties/extract-parties.eval.ts" },
-    { text: "  Folder:      real-agent/extract-parties" },
+    { text: "  Path:        real-agent/documents/document-qa" },
+    { text: "  Folder:      real-agent/documents" },
     { text: "  Latest run:", tone: "default" },
-    { text: "    - de89cab0: failed", tone: "danger" },
+    { text: "    - run_de89cab0f1e2d3a4b5c6d7e8: failed", tone: "danger" },
   ]}
 />
 
@@ -57,7 +56,7 @@ Without a backend project, the task is read from the local filesystem — it sho
 <TerminalOutput
   lines={[
     { text: "Task: extract-parties" },
-    { text: "  Adapter:      real-agent" },
+    { text: "  Adapter:      realAgentAdapter" },
     { text: "  Checks:       yes" },
     { text: "  Path:         extract-parties/extract-parties.eval.ts" },
     { text: "  Deliverables: parties, amounts, dates" },

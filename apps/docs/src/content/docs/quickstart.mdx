@@ -48,6 +48,8 @@ npm install -g @apo-ai/cli
     { parts: [{ text: "✓ Logged in as you@example.com", tone: "success" }] },
     { text: "  Backend:  http://localhost:8000" },
     { text: "  Project:  acme-eval (a1b2c3d4)" },
+    { text: "  Key:      apo_key_9f2c... (full)" },
+    { text: "  Saved to: ~/.apo/credentials" },
   ]}
 />
 
@@ -81,16 +83,20 @@ For a one-shot run in your local workspace:
 <TerminalDemo
   command="apo task run extract-parties"
   lines={[
-    { parts: [{ text: "Running task from ./my-tasks/extract-parties...", tone: "dim" }] },
+    { parts: [{ text: "Executor: caller (recorded in a1b2c3d4)", tone: "dim" }] },
+    { parts: [{ text: "Revision: clean worktree 9f2c7d81e4b9 from github.com/acme/agent", tone: "dim" }] },
     { text: "" },
     { parts: [{ text: "PASS", tone: "success" }, { text: " extract-parties", tone: "bold" }] },
     { parts: [{ text: "  Checks:", tone: "bold" }] },
     { parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " used-source-document" }] },
     { parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " parties-are-complete" }] },
+    { text: "" },
+    { parts: [{ text: "Run:     ", tone: "dim" }, { text: "run_7f6136238c171ace6881e25b", tone: "bold" }] },
+    { parts: [{ text: "Inspect: ", tone: "dim" }, { text: "apo runs show run_7f6136238c171ace6881e25b", tone: "dim" }] },
   ]}
 />
 
-The Task runs locally against your current source. The result, trace, and checks are recorded to the server.
+The Task runs locally against your current source. The result, trace, and checks are recorded to the server — the printed `Inspect:` command opens the full record.
 
 ## 5. Connect for dashboard runs
 

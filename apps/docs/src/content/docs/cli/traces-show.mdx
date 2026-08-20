@@ -11,23 +11,25 @@ import TerminalOutput from '../../../components/demos/TerminalOutput.astro';
 <TerminalDemo
   command="apo traces show f1a2b3c4"
   lines={[
-    { text: "" },
-    { text: "Trace: f1a2b3c4" },
+    { text: "Trace: f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6" },
     { text: "  Task:      extract-parties" },
-    { text: "  Status:    completed" },
+    { text: "  Status:    success" },
     { text: "  Duration:  0.8s" },
-    { text: "  Calls:     3" },
-    { text: "  Cost:      $0.0034" },
+    { text: "  Calls:     6" },
+    { text: "  Cost:      $0.003400" },
     { text: "  Tokens:    1,247" },
+    { text: "  Created:   7/16/2026, 9:42 AM" },
     { text: "" },
     { text: "  Calls:", tone: "default" },
-    { text: "    model-call             gemini-2.5-flash-lite    0.3s      $0.0008    412" },
+    { text: "  apo.task.run                                      0.8s      -          -", tone: "dim" },
+    { text: "    extract-parties       gpt-4o-mini    0.3s      $0.0008    412" },
     { text: "        tokens: 380 prompt + 32 completion" },
-    { text: "      read_file                                       0.1s      -          -" },
+    { text: "      read_file                                    0.1s      -          -" },
     { text: "        tool: read_file" },
     { text: "        result: {\"path\":\"contract.pdf\",\"size\":48213}" },
-    { text: "    model-call             gemini-2.5-flash-lite    0.3s      $0.0026    835" },
+    { text: "    generate-response      gpt-4o-mini    0.3s      $0.0026    835" },
     { text: "        tokens: 432 prompt + 403 completion" },
+    { text: "    adapter.collect-deliverables                    0.0s      -          -", tone: "dim" },
   ]}
 />
 
@@ -39,7 +41,7 @@ apo traces show <trace-id> [--verbose] [--errors-only]
 
 ## Description
 
-Shows a trace's call details. The argument is a **trace id** (required) or a unique prefix. A trace id is a separate field on a run — `apo runs show` prints it at the bottom of its output.
+Shows a trace's call details. The argument is a **trace id** (required, a 32-character hex string) or a unique prefix. A trace id is a separate field on a run — `apo runs show` prints it at the bottom of its output.
 
 ## Options
 
@@ -53,26 +55,30 @@ Shows a trace's call details. The argument is a **trace id** (required) or a uni
 
 <TerminalOutput
   lines={[
-    { text: "Trace: f1a2b3c4" },
+    { text: "Trace: f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6" },
     { text: "  Task:      extract-parties" },
-    { text: "  Status:    completed" },
+    { text: "  Status:    success" },
     { text: "  Duration:  0.8s" },
-    { text: "  Calls:     3" },
-    { text: "  Cost:      $0.0034" },
+    { text: "  Calls:     6" },
+    { text: "  Cost:      $0.003400" },
     { text: "  Tokens:    1,247" },
     { text: "  Created:   7/16/2026, 9:42 AM" },
     { text: "" },
     { text: "  Calls:", tone: "default" },
-    { text: "    extract-parties       gemini-2.5-flash-lite    0.3s      $0.0008    412" },
+    { text: "  apo.task.run                                      0.8s      -          -", tone: "dim" },
+    { text: "    extract-parties       gpt-4o-mini    0.3s      $0.0008    412" },
     { text: "        tokens: 380 prompt + 32 completion" },
-    { text: "     read_file            -                            0.1s      -          -" },
+    { text: "     read_file            -                        0.1s      -          -" },
     { text: "        tool: read_file" },
     { text: "        args: {\"path\":\"contract.pdf\"}" },
     { text: "        result: {\"path\":\"contract.pdf\",\"size\":48213}" },
-    { text: "    generate-response      gemini-2.5-flash-lite    0.3s      $0.0026    835" },
+    { text: "    generate-response      gpt-4o-mini    0.3s      $0.0026    835" },
     { text: "        tokens: 432 prompt + 403 completion" },
+    { text: "    adapter.collect-deliverables                    0.0s      -          -", tone: "dim" },
   ]}
 />
+
+Recorded task runs always contain the runtime's own spans (`apo.task.run`, `task.load`, `adapter.open-session`, `adapter.collect-deliverables`) around the agent's work — they carry no model, cost, or tokens. Model calls show their model, cost, and token split; tool calls show their arguments and results.
 
 With `--verbose`, each call expands to show its full input and output — the messages sent to the model, the tool results returned, the deliverables collected. With `--errors-only`, only calls that errored or warned are shown, for fast triage.
 
@@ -83,8 +89,8 @@ When a test like `t.calledTool("read_file", { input: { path: "contract.pdf" } })
 ## Example
 
 ```bash
-# Show a trace by id
-apo traces show f1a2b3c4
+# Show a trace by id (a unique prefix works too)
+apo traces show f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6
 
 # Show with full per-call detail
 apo traces show f1a2b3c4 --verbose

@@ -100,7 +100,7 @@ The task is now discoverable. Publish it to the project and run it:
 <TerminalDemo
 	command="apo task publish"
 	lines={[
-		{ parts: [{ text: "✓ Published 1 task", tone: "success" }] },
+		{ parts: [{ text: "✓ Published 1 task to acme-eval", tone: "success" }] },
 		{ text: "  digest: sha256:a1b2c3d4..." },
 	]}
 />
@@ -110,12 +110,15 @@ Then run it:
 <TerminalDemo
 	command="apo task run extract-parties"
 	lines={[
-		{ text: "Running task from ./e2e/extract-parties...", tone: "dim" },
+		{ text: "Executor: caller (recorded in a1b2c3d4)", tone: "dim" },
 		{ text: "" },
 		{ parts: [{ text: "PASS", tone: "success" }, { text: " extract-parties", tone: "bold" }] },
 		{ parts: [{ text: "  Checks:", tone: "bold" }] },
 		{ parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " used-source-document" }] },
 		{ parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " parties-are-complete" }] },
+		{ text: "" },
+		{ parts: [{ text: "Run:     ", tone: "dim" }, { text: "run_7f6136238c171ace6881e25b", tone: "bold" }] },
+		{ parts: [{ text: "Inspect: ", tone: "dim" }, { text: "apo runs show run_7f6136238c171ace6881e25b", tone: "dim" }] },
 	]}
 />
 

@@ -18,9 +18,9 @@ Every schedule picks one of:
 | **Daily** | Every day at `hour:minute` (timezone) | hour, minute |
 | **Weekly** | On `day_of_week` at `hour:minute` | + day_of_week |
 | **Monthly** | On `day_of_month` at `hour:minute` | + day_of_month |
-| **Smart** | Per-task, adapting to recent results | + min/max interval (days) |
+| **Adaptive** | Per-task, adapting to recent results | + min/max interval (days) |
 
-The first three are fixed clocks. **Smart** is different — it backs off tasks that keep passing and retests tasks that fail, using spaced repetition.
+The first three are fixed clocks. **Adaptive** is different — it backs off tasks that keep passing and retests tasks that fail, using spaced repetition.
 
 ## Subsets are a pattern you build
 
@@ -34,9 +34,9 @@ apo doesn't enforce a subset taxonomy. You compose one by creating multiple sche
 
 This is the layout to start from. Rename or regroup it once you have a reason to.
 
-## Smart scheduling
+## Adaptive scheduling
 
-Smart cadence uses the [SM-2 spaced-repetition algorithm](https://en.wikipedia.org/wiki/SuperMemo#Description_of_SM-2), **per task**. Each task in a Smart schedule tracks its own interval and ease factor independently:
+Adaptive cadence (the API value is `adaptive`) uses the [SM-2 spaced-repetition algorithm](https://en.wikipedia.org/wiki/SuperMemo#Description_of_SM-2), **per task**. Each task in an Adaptive schedule tracks its own interval and ease factor independently:
 
 - **A task that passes** backs off exponentially — its next run multiplies by its ease factor (≈2.5×). Stable tasks graduate to running rarely.
 - **A task that fails** snaps straight back to the minimum interval (default 1 day). Flaky tasks get retested soon.

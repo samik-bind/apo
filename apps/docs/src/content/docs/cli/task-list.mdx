@@ -11,11 +11,11 @@ List the tasks available to run. With a `--project` set and the backend reachabl
 <TerminalDemo
   command="apo task list"
   lines={[
-    { text: "ID               Adapter      Checks" },
-    { text: "───────────────  ───────────  ──────" },
-    { text: "extract-parties  real-agent   yes" },
-    { text: "code-review      real-agent   yes" },
-    { text: "document-qa      real-agent   yes" },
+    { text: "ID                                        Adapter         Checks" },
+    { text: "────────────────────────────────────────  ───────────────  ──────" },
+    { text: "ai-sdk-agent/data-extraction              aiSdkAdapter    yes" },
+    { text: "real-agent/documents/document-qa          realAgentAdapter  yes" },
+    { text: "real-agent/engineering/code-review        realAgentAdapter  yes" },
     { text: "" },
     { text: "3 tasks found", tone: "default" },
   ]}
@@ -31,17 +31,17 @@ apo task list
 
 <TerminalOutput
   lines={[
-    { text: "ID               Adapter      Checks" },
-    { text: "───────────────  ───────────  ──────" },
-    { text: "extract-parties  real-agent   yes" },
-    { text: "code-review      real-agent   yes" },
-    { text: "document-qa      real-agent   yes" },
+    { text: "ID                                        Adapter         Checks" },
+    { text: "────────────────────────────────────────  ───────────────  ──────" },
+    { text: "ai-sdk-agent/data-extraction              aiSdkAdapter    yes" },
+    { text: "real-agent/documents/document-qa          realAgentAdapter  yes" },
+    { text: "real-agent/engineering/code-review        realAgentAdapter  yes" },
     { text: "" },
     { text: "3 tasks found", tone: "default" },
   ]}
 />
 
-The `ID` is the task folder name — pass it to [`apo task run`](/cli/task-run/). For tasks grouped in subfolders, the id is **folder-scoped**: the name prefixed by its folder path (e.g. `chat/cost-inquiry`). `Checks` is `yes` when the task registers any `test(...)` blocks, `-` when it has none.
+The `ID` is the task folder name — pass it to [`apo task run`](/cli/task-run/). For tasks grouped in subfolders, the id is **folder-scoped**: the name prefixed by its folder path (e.g. `chat/cost-inquiry`). The `Adapter` column shows the adapter's declared `name`. `Checks` is `yes` when the task registers any `test(...)` blocks, `-` when it has none.
 
 ## See also
 

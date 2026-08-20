@@ -32,8 +32,10 @@ export async function run(argv: string[]): Promise<number> {
   if (config.projectId) params.project = config.projectId;
   const taskId = getFlagValue(flags, "task");
   if (taskId) params.task_id = taskId;
+  // /v1/runs paginates with page_size (max 100) — there is no `limit` param,
+  // so an unmapped flag would silently fetch the 40-row default page.
   const limit = getFlagValue(flags, "limit") ?? "20";
-  params.limit = limit;
+  params.page_size = limit;
 
   let response: TraceListResponse;
   try {

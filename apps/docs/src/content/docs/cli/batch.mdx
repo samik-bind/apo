@@ -9,29 +9,30 @@ import TerminalOutput from '../../../components/demos/TerminalOutput.astro';
 A batch run executes multiple tasks in one operation and reports the aggregate result. Use it for regression checks, smoke suites, or any time you need to run more than one task.
 
 <TerminalDemo
-  command="apo batch show b9c0d1e2"
+  command="apo batch show bch_7c0a"
   lines={[
-    { text: "" },
-    { text: "Batch: b9c0d1e2" },
+    { text: "Batch: bch_7c0a89f9525e6735b9cb5b1b" },
     { text: "  Status:   completed" },
     { text: "  Tasks:    3" },
     { text: "  Passed:   2" },
     { text: "  Failed:   1" },
     { text: "  Errored:  0" },
-    { text: "  Cost:     $0.0153" },
+    { text: "  Cost:     $0.015300" },
     { text: "  Created:  7/4/2026, 5:30 PM" },
     { text: "  Source:   cli · sami" },
+    { text: "  Started:  7/4/2026, 5:30 PM" },
+    { text: "  Completed: 7/4/2026, 5:31 PM" },
     { text: "" },
     { text: "  Task Runs:", tone: "default" },
-    { text: "    FAIL extract-parties (completed) [real-agent] 0.8s $0.0034", tone: "danger" },
+    { text: "    FAIL extract-parties (failed) [realAgentAdapter] 0.8s $0.0034", tone: "danger" },
     { text: "        checks: 1/2 passed", tone: "default" },
-    { text: "        trace: f1a2b3c4", tone: "default" },
-    { text: "    PASS code-review (completed) [real-agent] 2.1s $0.0091", tone: "success" },
+    { text: "        trace: f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6", tone: "default" },
+    { text: "    PASS code-review (passed) [realAgentAdapter] 2.1s $0.0091", tone: "success" },
     { text: "        checks: 3/3 passed", tone: "default" },
-    { text: "        trace: d5e6f7g8", tone: "default" },
-    { text: "    PASS document-qa (completed) [real-agent] 1.4s $0.0028", tone: "success" },
+    { text: "        trace: d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0", tone: "default" },
+    { text: "    PASS document-qa (passed) [realAgentAdapter] 1.4s $0.0028", tone: "success" },
     { text: "        checks: 2/2 passed", tone: "default" },
-    { text: "        trace: a7b8c9d0", tone: "default" },
+    { text: "        trace: a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2", tone: "default" },
   ]}
 />
 ## `apo batch show`
@@ -55,25 +56,25 @@ apo batch show <batch-id> [--watch]
 
 <TerminalOutput
   lines={[
-    { text: "Batch: b9c0d1e2" },
+    { text: "Batch: bch_7c0a89f9525e6735b9cb5b1b" },
     { text: "  Status:   completed" },
     { text: "  Tasks:    3" },
     { text: "  Passed:   2" },
     { text: "  Failed:   1" },
     { text: "  Errored:  0" },
-    { text: "  Cost:     $0.0153" },
+    { text: "  Cost:     $0.015300" },
     { text: "  Created:  7/16/2026, 9:42 AM" },
     { text: "" },
     { text: "  Task Runs:", tone: "default" },
-    { text: "    FAIL extract-parties (completed) [real-agent] 0.8s $0.0034", tone: "danger" },
+    { text: "    FAIL extract-parties (failed) [realAgentAdapter] 0.8s $0.0034", tone: "danger" },
     { text: "        checks: 1/2 passed", tone: "default" },
-    { text: "        trace: f1a2b3c4", tone: "default" },
-    { text: "    PASS code-review (completed) [real-agent] 2.1s $0.0091", tone: "success" },
+    { text: "        trace: f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6", tone: "default" },
+    { text: "    PASS code-review (passed) [realAgentAdapter] 2.1s $0.0091", tone: "success" },
     { text: "        checks: 3/3 passed", tone: "default" },
-    { text: "        trace: d5e6f7g8", tone: "default" },
-    { text: "    PASS document-qa (completed) [real-agent] 1.4s $0.0028", tone: "success" },
+    { text: "        trace: d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0", tone: "default" },
+    { text: "    PASS document-qa (passed) [realAgentAdapter] 1.4s $0.0028", tone: "success" },
     { text: "        checks: 2/2 passed", tone: "default" },
-    { text: "        trace: a7b8c9d0", tone: "default" },
+    { text: "        trace: a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2", tone: "default" },
   ]}
 />
 
@@ -93,14 +94,16 @@ apo batch list [--status <s>]
 
 <TerminalOutput
   lines={[
-    { text: "Batch ID   Tasks   Status      Passed   Cost      Duration   Created" },
-    { text: "─────────  ──────  ──────────  ───────  ────────  ────────   ─────────────────────" },
-    { text: "b9c0d1e2   3       completed   2/3      $0.0153   4.3s       7/4/2026, 5:30 PM" },
-    { text: "c1d2e3f4   5       completed   5/5      $0.0241   12.1s      7/4/2026, 4:15 PM" },
+    { text: "Batch ID                    Tasks   Status      Passed   Cost      Duration   Created" },
+    { text: "───────────────────────────  ──────  ──────────  ───────  ────────  ────────   ─────────────────────" },
+    { text: "bch_7c0a89f9525e6735b9cb5b1b  3      completed   2/3      $0.0153   4.3s       7/4/2026, 5:30 PM" },
+    { text: "bch_9e2d41a8c7f5b3e6d0a2c4f8  5      completed   5/5      $0.0241 partial 12.1s      7/4/2026, 4:15 PM" },
     { text: "" },
     { text: "2 batches", tone: "default" },
   ]}
 />
+
+A batch's `Cost` is the sum over its task runs; when any run had unpriced model calls, the total is suffixed `partial` — the same rule as [`apo runs list`](/cli/runs-list/), so an incomplete total never reads as a cheap one.
 
 ## See also
 

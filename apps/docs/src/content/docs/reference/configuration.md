@@ -49,6 +49,16 @@ credentials are read from the local environment:
 | `TASK_INSTALL_TIMEOUT_SECONDS` | `180` | Per-install timeout (min 30s). |
 | `TASK_INSTALL_CACHE_DIR` | `<TASK_SOURCE_CACHE_DIR>/installs` | Where install markers live. |
 
+### Deployment profile and public origin
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `APO_DEPLOYMENT_PROFILE` | (unset → `development`) | One of `development`, `local`, `server`. Release profiles (`local`, `server`) enable production auth behavior; unset/`development` is the only profile where dev conveniences (see `DEV_SIGNIN_ENABLED`) default on. |
+| `APO_PUBLIC_URL` | — | The origin people and agents use to reach this installation (e.g. `https://apo.example.com`). Must be a single origin without a path. The dashboard's first-run onboarding builds its copy-paste `apo login` command from it. |
+| `DEV_SIGNIN_ENABLED` | on only when profile is unset/`development` | One-click "Sign in as dev" button that provisions a seeded demo workspace (`dev@apo.local` + the `agent-demo` project). Release profiles must set `true` explicitly to enable it; any other value disables it. |
+| `APO_DEV_PROJECT_ID` | `agent-demo` | Id of the seeded dev workspace project. |
+| `APO_DEV_SEED_MODEL` | `deepseek/deepseek-v4-flash-0731` | Model label used for the seeded demo runs. |
+
 ### URLs
 
 | Variable | Default | Purpose |

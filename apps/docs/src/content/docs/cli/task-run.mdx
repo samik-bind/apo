@@ -11,15 +11,21 @@ import TerminalOutput from '../../../components/demos/TerminalOutput.astro';
 <TerminalDemo
   command="apo task run extract-parties"
   lines={[
-    { text: "Running task from ./tasks/extract-parties...", tone: "dim" },
+    { parts: [{ text: "Executor: caller (recorded in a1b2c3d4)", tone: "dim" }] },
+    { parts: [{ text: "Revision: clean worktree 9f2c7d81e4b9 from github.com/acme/agent", tone: "dim" }] },
     { text: "" },
     { parts: [{ text: "FAIL", tone: "danger" }, { text: " extract-parties", tone: "bold" }] },
     { parts: [{ text: "  Checks:", tone: "bold" }] },
     { parts: [{ text: "    " }, { text: "FAIL", tone: "danger" }, { text: " parties-are-complete" }] },
-    { text: "      ✗ parties-match-schema", tone: "danger" },
-    { text: "        − Expected: every named party captured", tone: "danger" },
-    { text: "        + Received: missing \"acme-corp\"", tone: "danger" },
+    { text: "      expected value includes acme-corp", tone: "dim" },
+    { text: "      ✗ check", tone: "danger" },
+    { text: "        extract-parties.eval.ts:31:5", tone: "dim" },
+    { text: "        − Expected: includes acme-corp", tone: "success" },
+    { text: "        + Received: globex is the buyer", tone: "danger" },
     { parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " no-duplicate-parties" }] },
+    { text: "" },
+    { parts: [{ text: "Run:     ", tone: "dim" }, { text: "run_de89cab0f1e2d3a4b5c6d7e8", tone: "bold" }] },
+    { parts: [{ text: "Inspect: ", tone: "dim" }, { text: "apo runs show run_de89cab0f1e2d3a4b5c6d7e8", tone: "dim" }] },
   ]}
 />
 
@@ -33,7 +39,7 @@ apo task run <task-id | path> [--ci] [--no-record] [--executor <caller|pool-id>]
 
 Runs a task. The argument is a **task id** (the folder name) or a filesystem path to the task folder. apo loads the task, drives the adapter through its lifecycle, collects deliverables, runs every `test(...)`, and reports the verdict.
 
-The task id is **not** a run id — a run id is what this command *outputs*. A trace id is a separate field on the run, printed at the bottom of the output.
+The task id is **not** a run id — a run id is what this command *outputs* (the `Run:` line at the bottom). A trace id is a separate field on the run, printed by [`apo runs show`](/cli/runs-show/).
 
 ### Nested task trees
 
@@ -66,20 +72,28 @@ The folder scoping is why two families can each define `task("cost-inquiry")` wi
 
 ## Output
 
-The result is the verdict and the per-check breakdown. The verdict is `PASS` (green) or `FAIL` (red) — the AND of all tests. Each check shows its result with failure reasons:
+The result is the verdict and the per-check breakdown. The verdict is `PASS` (green) or `FAIL` (red) — the AND of all tests. Each check shows its result; failing checks expand to every failing assertion with its source location and a `− Expected` / `+ Received` diff:
 
 <TerminalOutput
   lines={[
-    { text: "Running task from ./tasks/extract-parties...", tone: "dim" },
+    { parts: [{ text: "Executor: caller (recorded in a1b2c3d4)", tone: "dim" }] },
+    { parts: [{ text: "Revision: clean worktree 9f2c7d81e4b9 from github.com/acme/agent", tone: "dim" }] },
     { text: "" },
     { parts: [{ text: "PASS", tone: "success" }, { text: " extract-parties", tone: "bold" }] },
     { parts: [{ text: "  Checks:", tone: "bold" }] },
     { parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " used-source-document" }] },
     { parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " parties-are-complete" }] },
+    { text: "" },
+    { parts: [{ text: "Run:     ", tone: "dim" }, { text: "run_7f6136238c171ace6881e25b", tone: "bold" }] },
+    { parts: [{ text: "Inspect: ", tone: "dim" }, { text: "apo runs show run_7f6136238c171ace6881e25b", tone: "dim" }] },
   ]}
 />
 
-`apo task run` prints the verdict and checks directly. For the full run detail — batch, cost, tokens, trace id, timestamps — use [`apo runs show`](/cli/runs-show/); for the call tree use [`apo traces show`](/cli/traces-show/).
+On a recorded run, the trailing `Run:` / `Inspect:` lines hand you the exact run identity — use the printed command for the full record (batch, cost, tokens, trace id, timestamps) and [`apo traces show`](/cli/traces-show/) for the call tree. With `--no-record` there is no run id, so the output ends after the checks.
+
+:::caution[The printed verdict can differ from the recorded one]
+If most of the run's model generations ended in error, apo records **no verdict** — the run lands with status `error` and no PASS/FAIL — even though this command printed one from its local checks. See [Verdict validity](/concepts/tests/#verdict-validity).
+:::
 
 ## Exit codes
 

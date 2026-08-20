@@ -39,6 +39,7 @@ from .columns import (
     RUN_PRIMARY_MODEL_COL,
     RUN_PROJECT_COL,
     RUN_SESSION_ID_COL,
+    RUN_TASK_ID_COL,
     RUN_USER_ID_COL,
     RUN_METRIC_PROJECT_COL,
     RUN_METRIC_RUN_ID_COL,
@@ -71,6 +72,7 @@ class RunListFilters:
 
     project: str | None = None
     flow_names: list[str] = field(default_factory=list)
+    task_ids: list[str] = field(default_factory=list)
     environments: list[str] = field(default_factory=list)
     session_ids: list[str] = field(default_factory=list)
     user_ids: list[str] = field(default_factory=list)
@@ -158,6 +160,8 @@ def _apply_project_scope(
 def _apply_attribute_filters(statement: Any, filters: RunListFilters) -> Any:
     if filters.flow_names:
         statement = statement.where(RUN_FLOW_NAME_COL.in_(filters.flow_names))
+    if filters.task_ids:
+        statement = statement.where(RUN_TASK_ID_COL.in_(filters.task_ids))
     if filters.environments:
         statement = statement.where(RUN_ENVIRONMENT_COL.in_(filters.environments))
     if filters.session_ids:

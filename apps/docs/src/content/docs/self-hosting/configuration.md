@@ -77,6 +77,17 @@ Alpha assumes **one backend process owns the scheduler**. The in-process dispatc
 Never run two backend processes with `SCHEDULER_ENABLED=true` against the same database. The scheduler is in-process and single-owner, so two instances will both dispatch every due schedule, producing duplicate batch runs.
 :::
 
+## Upgrades and migrations
+
+The backend applies database migrations itself on startup — there is no separate migration command to run. On upgrade, pull the new images and restart; the backend boots once migrations finish.
+
+Two things to know when upgrading an older installation:
+
+- **The first boot after upgrading may take longer.** Migrations that backfill data (for example, the deliverables migration that unpacks legacy JSON blobs into rows) run to completion before the server starts serving. Keep the container's healthcheck grace period generous around upgrades.
+- **A failed migration is fatal by design.** If a backfill cannot complete, the backend refuses to start rather than stamping a half-applied schema and losing evidence. Fix the reported cause (usually a full disk or an unreachable database) and start again — nothing is marked applied until it succeeds.
+
+Any external tooling that read the legacy `agent_task_runs.deliverables_json` / `checks_json` columns directly must move to their canonical stores: the deliverables manifest endpoint ([`apo runs deliverable`](/cli/runs-deliverable/)) and the check reports API. The legacy columns were dropped in schema v28.
+
 ## Email delivery (optional)
 
 Email is **off by default** (log-only). The platform works fully without it, with no provider, credentials, or DNS setup required to get started.

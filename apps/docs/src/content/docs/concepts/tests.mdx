@@ -42,22 +42,26 @@ If every test passes, the run passes. If any test fails, the run fails. No weigh
 
 A test never throws. It records. One test can make several assertions, and you'll see each in the breakdown. A failing assertion doesn't stop the test; it keeps going and reports everything it found.
 
+That pass/fail only exists when the execution itself was sound. When it wasn't, apo records an error instead of a verdict — see [Verdict validity](#verdict-validity).
+
 ## What a failure looks like
 
 <TerminalDemo
   command="apo runs show"
   lines={[
-    { parts: [{ text: "Run: de89cab0", tone: "bold" }] },
+    { parts: [{ text: "Run: run_de89cab0f1e2d3a4b5c6d7e8", tone: "bold" }] },
     { text: "  Task:     extract-parties" },
-    { text: "  Status:   completed" },
+    { text: "  Status:   failed" },
     { parts: [{ text: "  Result:   " }, { text: "FAIL", tone: "danger" }] },
     { text: "  Checks:   1/2 passed (1 failed)" },
-    { parts: [{ text: "  Trace:    f1a3e9c0 " }, { text: "(apo traces show f1a3e9c0)", tone: "dim" }] },
+    { text: "  Started:  7/16/2026, 9:42 AM" },
+    { parts: [{ text: "  Trace:    f1a3e9c0d5e6f7a8b9c0d1e2f3a4b5c6 " }, { text: "(apo traces show f1a3e9c0…)", tone: "dim" }] },
     { text: "" },
     { parts: [{ text: "  Checks:", tone: "bold" }] },
     { parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " used-source-document" }] },
     { parts: [{ text: "    " }, { text: "FAIL", tone: "danger" }, { text: " parties-are-complete" }] },
-    { parts: [{ text: "      " }, { text: "✗", tone: "danger" }, { text: " captures-every-party" }] },
+    { parts: [{ text: "      ✗", tone: "danger" }, { text: " check" }] },
+    { parts: [{ text: "        extract-parties.eval.ts:31:5", tone: "dim" }] },
     { parts: [{ text: "        " }, { text: "− Expected: ", tone: "success" }, { text: "every named party captured" }] },
     { parts: [{ text: "        " }, { text: "+ Received: ", tone: "danger" }, { text: 'missing "acme-corp"' }] },
   ]}
@@ -68,6 +72,16 @@ A test never throws. It records. One test can make several assertions, and you'l
 :::note
 A judge's model, prompt, and response stay inspectable inside the test that used it. You can see exactly what the judge was asked and what it said, so it doesn't become an opaque "LLM score."
 :::
+
+## Verdict validity
+
+A PASS/FAIL verdict claims "the agent ran, and here is what it produced." When the model backend itself failed — rate limits, outages, bad credentials — that claim would be a lie. So apo watches the run's generations, and when **most of them ended in error**, it records **no verdict**:
+
+- The run lands with status `error` and no PASS/FAIL — the dashboard shows **no verdict**, and the CLI shows `Result: -` with a `Generations: 17/22 errored` line.
+- The tests are still computed and stored — as **diagnostic evidence**, not as a control signal. A "PASS" over a run where 17 of 22 model calls died says nothing about your prompt.
+- Cost and token totals are marked **partial**: errored generations are excluded (a failed provider call often reports no usage at all, which would otherwise project as a suspiciously cheap run), and unpriced calls are excluded from cost the same way.
+
+A minority of errored generations — the run recovered — keeps its normal PASS/FAIL verdict; the totals are still disclosed as partial. The strict rule is: silence beats a wrong signal.
 
 ## Next
 

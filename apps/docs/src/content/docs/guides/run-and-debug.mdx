@@ -12,11 +12,15 @@ import TerminalDemo from '../../../components/demos/TerminalDemo.astro';
 <TerminalDemo
 	command="apo task run extract-parties"
 	lines={[
-		{ text: "Running task from ./e2e/extract-parties...", tone: "dim" },
+		{ text: "Executor: caller (recorded in a1b2c3d4)", tone: "dim" },
+		{ text: "Revision: clean worktree 9f2c7d81e4b9 from github.com/acme/agent", tone: "dim" },
 		{ text: "" },
 		{ parts: [{ text: "FAIL", tone: "danger" }, { text: " extract-parties", tone: "bold" }] },
 		{ parts: [{ text: "  Checks:", tone: "bold" }] },
 		{ parts: [{ text: "    " }, { text: "FAIL", tone: "danger" }, { text: " parties-are-complete" }] },
+		{ text: "" },
+		{ parts: [{ text: "Run:     ", tone: "dim" }, { text: "run_de89cab0f1e2d3a4b5c6d7e8", tone: "bold" }] },
+		{ parts: [{ text: "Inspect: ", tone: "dim" }, { text: "apo runs show run_de89cab0f1e2d3a4b5c6d7e8", tone: "dim" }] },
 	]}
 />
 
@@ -27,22 +31,23 @@ The result is pass or fail, but the breakdown shows which test broke and how:
 <TerminalDemo
 	command="apo runs show"
 	lines={[
-		{ text: "" },
-		{ parts: [{ text: "Run: de89cab0", tone: "bold" }] },
+		{ text: "(latest run)", tone: "dim" },
+		{ parts: [{ text: "Run: run_de89cab0f1e2d3a4b5c6d7e8", tone: "bold" }] },
 		{ text: "  Task:     extract-parties" },
-		{ text: "  Status:   completed" },
+		{ text: "  Status:   failed" },
 		{ parts: [{ text: "  Result:   " }, { text: "FAIL", tone: "danger" }] },
 		{ text: "  Checks:   1/2 passed (1 failed)" },
-		{ text: "  Cost:     $0.0042" },
+		{ text: "  Cost:     $0.004200" },
 		{ text: "" },
 		{ parts: [{ text: "  Checks:", tone: "bold" }] },
 		{ parts: [{ text: "    " }, { text: "PASS", tone: "success" }, { text: " used-source-document" }] },
 		{ parts: [{ text: "    " }, { text: "FAIL", tone: "danger" }, { text: " parties-are-complete" }] },
-		{ parts: [{ text: "      " }, { text: "✗", tone: "danger" }, { text: " parties-match-schema" }] },
+		{ parts: [{ text: "      " }, { text: "✗", tone: "danger" }, { text: " check" }] },
+		{ parts: [{ text: "        extract-parties.eval.ts:31:5", tone: "dim" }] },
 		{ parts: [{ text: "        " }, { text: "− Expected: ", tone: "success" }, { text: "every named party captured" }] },
 		{ parts: [{ text: "        " }, { text: "+ Received: ", tone: "danger" }, { text: 'missing "acme-corp"' }] },
 		{ text: "" },
-		{ parts: [{ text: "  Trace:    " }, { text: "f1a3e9c0", tone: "bold" }, { text: "  (apo traces show f1a3e9c0)", tone: "dim" }] },
+		{ parts: [{ text: "  Trace:    " }, { text: "f1a3e9c0d5e6f7a8b9c0d1e2f3a4b5c6", tone: "bold" }, { text: "  (apo traces show f1a3e9c0…)", tone: "dim" }] },
 	]}
 />
 
@@ -53,12 +58,11 @@ Start here. The failing test tells you *what* broke: `parties-are-complete` fail
 <TerminalDemo
 	command="apo traces show f1a3e9c0"
 	lines={[
-		{ text: "" },
-		{ parts: [{ text: "Trace: f1a3e9c0", tone: "bold" }] },
+		{ parts: [{ text: "Trace: f1a3e9c0d5e6f7a8b9c0d1e2f3a4b5c6", tone: "bold" }] },
 		{ text: "  Task:      extract-parties" },
-		{ text: "  Status:    completed" },
+		{ text: "  Status:    success" },
 		{ text: "  Duration:  4.2s" },
-		{ text: "  Cost:      $0.0042" },
+		{ text: "  Cost:      $0.004200" },
 		{ text: "  Tokens:    3,841" },
 		{ text: "" },
 		{ parts: [{ text: "  Calls:", tone: "bold" }] },
@@ -89,13 +93,15 @@ The `Trace:` id in the breakdown is that run's one trace — there's never ambig
 A batch run is one execution that may produce several task runs. Batches are how selection-driven and scheduled runs work: you define a subset of tasks and run them together. A batch provides shared context (the selection, the trigger, the timing) across its task runs, but each task run still gets its own result, breakdown, and trace.
 
 <TerminalDemo
-	command="apo batch show bch_7f2a8e90"
+	command="apo batch show bch_7c0a"
 	lines={[
-		{ text: "" },
-		{ parts: [{ text: "Batch: bch_7f2a8e90", tone: "bold" }] },
-		{ text: "  Project:  my-project" },
-		{ text: "  Tasks:    3 selected" },
+		{ parts: [{ text: "Batch: bch_7c0a89f9525e6735b9cb5b1b", tone: "bold" }] },
 		{ text: "  Status:   completed" },
+		{ text: "  Tasks:    3" },
+		{ text: "  Passed:   2" },
+		{ text: "  Failed:   1" },
+		{ text: "  Errored:  0" },
+		{ text: "  Cost:     $0.015300" },
 	]}
 />
 

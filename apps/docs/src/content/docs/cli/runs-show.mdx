@@ -9,27 +9,36 @@ import TerminalOutput from '../../../components/demos/TerminalOutput.astro';
 `apo runs show` reads a run's result — the verdict, the per-test breakdown, the cost, and the failure reasons. It's what you (or a coding agent) use after [`apo task run`](/cli/task-run/) to see what happened.
 
 <TerminalDemo
-  command="apo runs show de89cab0"
+  command="apo runs show run_de89cab0"
   lines={[
-    { text: "" },
-    { text: "Run: de89cab0" },
+    { text: "Run: run_de89cab0f1e2d3a4b5c6d7e8" },
     { text: "  Task:     extract-parties" },
-    { text: "  Status:   completed" },
+    { text: "  Path:     real-agent/extract-parties" },
+    { text: "  Batch:    bch_7c0a89f9525e6735b9cb5b1b (apo batch show bch_7c0a89f9525e6735b9cb5b1b)", tone: "dim" },
+    { text: "  Adapter:  real-agent" },
+    { text: "  Model:    openai/gpt-5.1" },
+    { text: "  Effort:   high" },
+    { text: "  Status:   failed" },
     { text: "  Result:   FAIL", tone: "danger" },
     { text: "  Checks:   1/2 passed (1 failed)" },
-    { text: "  Started:  7/4/2026, 5:12:30 PM" },
-    { text: "  Cost:     $0.0034" },
+    { text: "  Started:  7/16/2026, 9:42 AM" },
+    { text: "  Completed: 7/16/2026, 9:43 AM" },
+    { text: "  Source:   cli · sami · apo task run" },
+    { text: "  Cost:     $0.003400" },
     { text: "  Tokens:   1,247" },
-    { text: "  Trace:    f1a2b3c4", tone: "default" },
+    { text: "  Trace:    f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6 (apo traces show f1a2b3c4…)", tone: "default" },
     { text: "" },
     { text: "  Checks:", tone: "default" },
     { text: "    PASS used-source-document", tone: "success" },
-    { text: "      ✓ called-read-file", tone: "success" },
-    { text: "      ✓ no-failed-actions", tone: "success" },
     { text: "    FAIL parties-are-complete", tone: "danger" },
-    { text: "      ✗ parties-match-schema", tone: "danger" },
-    { text: "        − Expected: every named party captured", tone: "danger" },
-    { text: "        + Received: missing \"acme-corp\"", tone: "danger" },
+    { text: "      expected value includes acme-corp", tone: "dim" },
+    { text: "      ✗ check", tone: "danger" },
+    { text: "        extract-parties.eval.ts:31:5", tone: "dim" },
+    { text: "        − Expected: includes acme-corp", tone: "success" },
+    { text: "        + Received: globex is the buyer", tone: "danger" },
+    { text: "" },
+    { text: "  Deliverables: parties (json, 342 bytes), amounts (json, 96 bytes)" },
+    { text: "    Read one: apo runs deliverable run_de89cab0f1e2d3a4b5c6d7e8 <name>", tone: "dim" },
   ]}
 />
 
@@ -51,36 +60,32 @@ Large per-check values — typically the deliverable re-sent inside every judged
 |---|---|---|
 | `[run-id]` | `last` | Run id, unique prefix, or `last`. With no arg, resolves the latest run. |
 | `--verbose` | off | Show passing checks too (not just failures) and LLM-judge transcripts. |
-| `--exit-status` | off | Exit non-zero if the run failed (for scripting). |
+| `--exit-status` | off | Exit `0` only when the run's verdict is PASS; exit `1` for FAIL, for a run that errored, or for a run with **no verdict**. |
 | `--task <id>` | — | When using `last`, scope to the latest run of this task. |
 
 ## Output
 
+Every field of the run record: identity (`Run`, `Task`, `Path`, `Batch`, `Adapter`), the adapter-reported configuration (`Model`, `Effort`), the outcome (`Status`, `Result`, `Checks`), timing, cost, tokens, and the trace id.
+
 <TerminalOutput
   lines={[
-    { text: "Run: de89cab0" },
-    { text: "  Task:     extract-parties" },
-    { text: "  Path:     real-agent/extract-parties/extract-parties.eval.ts" },
+    { text: "(latest run)", tone: "dim" },
+    { text: "Run: run_44102b7c9d3e5f6a7b8c9d0e1f2a3b4" },
+    { text: "  Task:     answer-from-spec" },
     { text: "  Adapter:  real-agent" },
-    { text: "  Status:   completed" },
-    { text: "  Result:   FAIL", tone: "danger" },
-    { text: "  Checks:   1/2 passed (1 failed)" },
+    { text: "  Status:   error" },
+    { text: "  Result:   -" },
+    { text: "  Checks:   2/4 passed (2 failed)" },
+    { text: "  Generations: 17/22 errored (error ×17)", tone: "danger" },
     { text: "  Started:  7/16/2026, 9:42 AM" },
-    { text: "  Source:   cli · sami · apo task run" },
-    { text: "  Cost:     $0.0034" },
-    { text: "  Tokens:   1,247" },
-    { text: "  Trace:    f1a2b3c4 (apo traces show f1a2b3c4)" },
-    { text: "" },
-    { text: "  Checks:", tone: "default" },
-    { text: "    PASS used-source-document", tone: "success" },
-    { text: "      ✓ called-read-file", tone: "success" },
-    { text: "      ✓ no-failed-actions", tone: "success" },
-    { text: "    FAIL parties-are-complete", tone: "danger" },
-    { text: "      ✗ parties-match-schema", tone: "danger" },
-    { text: "        − Expected: every named party captured", tone: "danger" },
-    { text: "        + Received: missing \"acme-corp\"", tone: "danger" },
+    { text: "  Source:   schedule" },
+    { text: "  Cost:     $0.029514 (partial — 17 errored generations, 2 unpriced calls)", tone: "default" },
+    { text: "  Tokens:   6,873 (partial — 17 errored generations)", tone: "default" },
+    { text: "  Error:     17 of 22 generations ended in error. No PASS/FAIL verdict was recorded; checks remain diagnostic evidence.", tone: "danger" },
   ]}
 />
+
+The second sample is a run with **no verdict**: most of its generations ended in error, so apo refused to turn the checks into a PASS/FAIL signal (see [Verdict validity](/concepts/tests/#verdict-validity)). The `Generations` row only appears when generations errored; `Result` shows `-` because there is no verdict to show. Cost and token totals are marked `partial` — errored generations are excluded from both, and unpriced calls are excluded from cost.
 
 With `--verbose`, passing checks are listed with their matchers, and judged checks include the judge's model, prompt, and response — so you can see exactly what the judge was asked and what it said.
 
@@ -94,8 +99,8 @@ With `--verbose`, passing checks are listed with their matchers, and judged chec
 # Show the latest run
 apo runs show
 
-# Show a specific run by id
-apo runs show de89cab0
+# Show a specific run by id (a unique prefix works too)
+apo runs show run_de89cab0f1e2d3a4b5c6d7e8
 
 # Show with passing checks and judge transcripts
 apo runs show --verbose

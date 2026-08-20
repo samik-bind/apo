@@ -15,6 +15,8 @@ import TerminalDemo from '../../../components/demos/TerminalDemo.astro';
 - **Model parameters**: temperature, model, all params actually used.
 - **The messages**: the actual system, user, assistant, and tool messages exchanged.
 
+Cost and token totals are honest about gaps: when generations ended in error or calls had no pricing entry, the affected calls are excluded and the total is marked **partial** (see [Verdict validity](/concepts/tests/#verdict-validity)).
+
 A trace is a tree built over time, not a flat log. The calls nest, and the order matters:
 
 <TraceTreeDemo />
@@ -28,20 +30,21 @@ You never have to figure out which trace goes with a run — each task run owns 
 <TerminalDemo
   command="apo traces show f1a3e9c0"
   lines={[
-    { text: "Trace: f1a3e9c0" },
+    { text: "Trace: f1a3e9c0d5e6f7a8b9c0d1e2f3a4b5c6" },
     { text: "  Task:      extract-parties" },
-    { text: "  Status:    completed" },
+    { text: "  Status:    success" },
     { text: "  Duration:  4.2s" },
     { text: "  Calls:     6" },
-    { text: "  Cost:      $0.0042" },
+    { text: "  Cost:      $0.004200" },
     { text: "  Tokens:    3,841" },
     { text: "" },
     { text: "  Calls:" },
+    { text: "  apo.task.run                                4.2s     -          -", tone: "dim" },
     { text: "    read_file                -                   0.3s     -          -" },
     { text: "        tool: read_file" },
     { text: "        args: {\"path\":\"contract.pdf\"}" },
-    { text: "    extract_entities         gpt-4o              1.1s     $0.0014   1,204" },
-    { text: "    generate_response        gpt-4o              2.4s     $0.0020   2,225" },
+    { text: "    extract_entities         gpt-4o-mini          1.1s     $0.0014   1,204" },
+    { text: "    generate_response        gpt-4o-mini          2.4s     $0.0020   2,225" },
     { text: "        tokens: 1,890 prompt + 335 completion" },
   ]}
 />

@@ -41,12 +41,12 @@ Supports the global `--json` flag.
 List every deliverable as a manifest:
 
 ```bash
-apo runs deliverable de89cab0
+apo runs deliverable run_de89cab0f1e2d3a4b5c6d7e8
 ```
 
 <TerminalOutput
   lines={[
-    { text: "Deliverables for run de89cab0:", tone: "bold" },
+    { text: "Deliverables for run run_de89cab0f1e2d3a4b5c6d7e8:", tone: "bold" },
     { text: "  memorandum  json      20,000 bytes" },
     { text: "  summary     json         342 bytes" },
     { text: "  report      artifact  18,432 bytes (invoice-report.pdf)" },
@@ -58,20 +58,20 @@ apo runs deliverable de89cab0
 Read one JSON deliverable's full content:
 
 ```bash
-apo runs deliverable de89cab0 memorandum
+apo runs deliverable run_de89cab0f1e2d3a4b5c6d7e8 memorandum
 ```
 
 Download a binary artifact to a file:
 
 ```bash
-apo runs deliverable de89cab0 report --output .
+apo runs deliverable run_de89cab0f1e2d3a4b5c6d7e8 report --output .
 # writes invoice-report.pdf in the current directory
 ```
 
 Machine-readable manifest for scripting:
 
 ```bash
-apo runs deliverable de89cab0 --json
+apo runs deliverable run_de89cab0f1e2d3a4b5c6d7e8 --json
 ```
 
 ```json

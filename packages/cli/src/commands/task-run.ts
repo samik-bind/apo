@@ -5,7 +5,7 @@ import { getBoolFlag, parseArgs, requirePositional } from "../lib/args.ts";
 import { resolveConfig, type Config } from "../lib/config.ts";
 import { apiGet, apiPost, isBackendReachable } from "../lib/api.ts";
 import { discoverTaskMeta, findTaskMetaById } from "../lib/task-meta.ts";
-import { bold, dim, formatJson, formatTime, passFail, formatTrigger, red } from "../lib/format.ts";
+import { bold, dim, formatJson, passFail, red } from "../lib/format.ts";
 import type { CheckResult } from "../lib/agent-task-types.ts";
 import { formatChecks, NO_CHECKS_REGISTERED_MESSAGE } from "../lib/checks-format.ts";
 type TaskExecutionPreference = "local" | "backend" | "auto";
@@ -35,71 +35,6 @@ type LocalRunSummary = {
   transcript?: Record<string, unknown>;
   runConfiguration?: { model: string; effort?: string };
 };
-
-type ExternalTaskRun = {
-  id: string;
-  task_id: string;
-  task_path: string;
-  status: string;
-  started_at: string | null;
-  trace_token: string;
-};
-
-type ExternalBatchDetail = {
-  id: string;
-  project: string;
-  status: string;
-  task_runs: ExternalTaskRun[];
-};
-
-type TaskRunTrigger = {
-  source: string | null;
-  actor: string | null;
-  hostname: string | null;
-  user_agent: string | null;
-  entrypoint: string | null;
-  initiated_at: string | null;
-  ci_system: string | null;
-  ci_run_id: string | null;
-  ci_run_url: string | null;
-  repository: string | null;
-  branch: string | null;
-  commit_sha: string | null;
-  pr_number: string | null;
-};
-
-type BatchDetail = {
-  id: string;
-  status: string;
-  task_runs: TaskRunSummary[];
-};
-
-type TaskRunSummary = {
-  id: string;
-  batch_run_id: string;
-  task_id: string;
-  task_path: string;
-  adapter_name: string | null;
-  status: string;
-  pass_result: boolean | null;
-  started_at: string | null;
-  completed_at: string | null;
-  trace_run_id: string | null;
-  error_message: string | null;
-  total_cost: number | null;
-  trigger: TaskRunTrigger | null;
-  run_configuration?: { model: string; effort?: string } | null;
-};
-
-type TaskRunDetail = TaskRunSummary & {
-  total_tokens?: number | null;
-  checks_json: CheckResult[] | null;
-  transcript_json: Record<string, unknown> | null;
-  deliverables_json: Record<string, unknown> | null;
-};
-
-const TASK_RUN_POLL_INTERVAL_MS = 1_000;
-const TASK_RUN_MAX_WAIT_MS = 150_000;
 
 export async function run(argv: string[]): Promise<number> {
   const { positional, flags } = parseArgs(argv);
@@ -400,6 +335,10 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
       console.log(JSON.stringify({ ...summary, deliverables: jsonDeliverables }));
     } else {
       printLocalRunSummary(summary);
+      // SPEC-180: hand over the exact recorded identity — onboarding copy
+      // must never rely on "latest run" lookup.
+      console.log(`\nRun:     ${bold(created.taskRunId)}`);
+      console.log(`Inspect: ${dim(`apo runs show ${created.taskRunId}`)}`);
     }
     exitCode = summary.pass ? 0 : 1;
   } catch (error) {
@@ -435,16 +374,6 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   return exitCode;
 }
 
-function isTerminalStatus(status: string): boolean {
-  return status === "passed" || status === "failed" || status === "error";
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolvePromise) => {
-    setTimeout(resolvePromise, ms);
-  });
-}
-
 function printLocalRunSummary(summary: LocalRunSummary): void {
   console.log("");
   console.log(`${passFail(summary.pass)} ${bold(summary.taskId)}`);
@@ -458,63 +387,6 @@ function printLocalRunSummary(summary: LocalRunSummary): void {
     // Don't leave the user staring at a bare FAIL — say what went wrong.
     console.log(`  ${NO_CHECKS_REGISTERED_MESSAGE}`);
   }
-}
-
-function printTaskRunDetail(run: TaskRunDetail): void {
-  // SPEC-180: exact recorded identity first — onboarding copy must never
-  // rely on "latest run" lookup, so hand the user the exact follow-up command.
-  console.log(bold(`Run: ${run.id}`));
-  console.log(`  Task:      ${run.task_id}`);
-  console.log(`  Inspect:   ${dim(`apo runs show ${run.id}`)}`);
-  if (run.batch_run_id) {
-    console.log(`  Batch:     ${run.batch_run_id} ${dim("(apo batch show " + run.batch_run_id + ")")}`);
-  }
-  console.log(`  Adapter:   ${run.adapter_name ?? "-"}`);
-  console.log(`  Status:    ${run.status}`);
-  console.log(
-    `  Result:    ${run.pass_result === null ? "-" : passFail(run.pass_result)}`,
-  );
-  console.log(`  Started:   ${run.started_at ? formatTime(run.started_at) : "-"}`);
-  if (run.completed_at) {
-    console.log(`  Completed: ${formatTime(run.completed_at)}`);
-  }
-  if (run.total_cost !== null) {
-    console.log(`  Cost:      $${run.total_cost.toFixed(6)}`);
-  }
-  if (run.total_tokens != null) {
-    console.log(`  Tokens:    ${run.total_tokens.toLocaleString()}`);
-  }
-  console.log(`  Source:    ${formatTriggerOpt(run.trigger)}`);
-  if (run.trace_run_id) {
-    console.log(`  Trace:     ${run.trace_run_id}`);
-  }
-  if (run.error_message) {
-    console.log(`  Error:     ${run.error_message}`);
-  }
-
-  if (run.checks_json?.length) {
-    console.log(bold("  Checks:"));
-    console.log(formatChecks(run.checks_json));
-  } else if (run.pass_result === false) {
-    console.log(`  ${NO_CHECKS_REGISTERED_MESSAGE}`);
-  }
-}
-
-function formatTriggerOpt(trigger: TaskRunTrigger | null): string {
-  if (!trigger) {
-    return "-";
-  }
-
-  return formatTrigger({
-    source: trigger.source,
-    actor: trigger.actor,
-    hostname: trigger.hostname,
-    entrypoint: trigger.entrypoint,
-    repository: trigger.repository,
-    branch: trigger.branch,
-    commit_sha: trigger.commit_sha,
-    pr_number: trigger.pr_number,
-  });
 }
 
 function loadEnvFiles(taskDir: string): void {

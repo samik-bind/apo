@@ -186,6 +186,7 @@ def list_runs(
     http_request: Request,
     project: str | None = None,
     flow_name: str | None = Query(None, description="Comma-separated flow_name list"),
+    task_id: str | None = Query(None, description="Comma-separated task id list"),
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
     page_size: int = Query(
         40, ge=1, le=100, description="Number of items per page (max 100)"
@@ -224,6 +225,7 @@ def list_runs(
             project=project,
             allowed_projects=allowed_projects,
             flow_names=_split_csv(flow_name),
+            task_ids=_split_csv(task_id),
             environments=_split_csv(environment),
             session_ids=_split_csv(session_id),
             user_ids=_split_csv(user_id),
