@@ -18,6 +18,7 @@
     "test:alpha:ui:all": "pnpm --filter dashboard exec playwright test e2e/alpha-project-setup-and-run.spec.ts e2e/alpha-schedule-lifecycle.spec.ts e2e/alpha-trace-drilldown.spec.ts",
     "test:alpha:backend": "cd backend && uv run pytest tests/test_alpha_scheduler_recovery.py tests/test_alpha_project_isolation.py tests/test_runtime_config.py tests/test_agent_task_runtime.py -q",
     "test:public-ingress": "bash tests/deployment/public-ingress-contract.sh",
+    "test:public-ingress-smoke": "bash tests/deployment/public-ingress-smoke-contract.sh",
     "test:public-docs": "bash tests/deployment/public-docs-contract.sh",
     "test:self-adoption-docs": "node apps/docs/scripts/verify-self-adoption.mjs",
     "test:external-example": "pnpm --filter @apo/example-service verify:external-example",

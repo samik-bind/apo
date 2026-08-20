@@ -8,13 +8,14 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { ProjectFirstRun } from "../ProjectFirstRun";
+import { HOSTED_DOCS_URL } from "@/lib/first-run";
 
 const setup = (overrides: Partial<Parameters<typeof ProjectFirstRun>[0]["setup"]> = {}) => ({
   publicUrl: "https://test-apo.online",
   projectId: "abc123def456",
   cliLoginCommand:
     "apo login --backend https://test-apo.online --project abc123def456",
-  docsUrl: "/docs/hosted-alpha",
+  docsUrl: "https://docs.test-apo.online/hosted-alpha/",
   exampleUrl:
     "https://github.com/samikuikka/apo/tree/main/apps/example-service/e2e/agent-task-demo",
   ...overrides,
@@ -79,6 +80,23 @@ describe("ProjectFirstRun (SPEC-180)", () => {
 
     expect(screen.getByText(/use apo in my (own )?agent/i)).toBeDefined();
     expect(screen.getByText(/maintained example/i)).toBeDefined();
+  });
+
+  it("links the own-agent path to the canonical absolute docs origin (SPEC-182)", () => {
+    render(<ProjectFirstRun setup={setup()} />);
+
+    // The docs link is an ordinary external link to the central docs host —
+    // it must not depend on the application origin.
+    const link = document.querySelector(
+      'a[href="https://docs.test-apo.online/hosted-alpha/"]',
+    );
+    expect(link).not.toBeNull();
+  });
+
+  it("ships the canonical absolute docs URL as the constant (SPEC-182)", () => {
+    // The constant must be absolute and point at the central docs host, so a
+    // dashboard on any application origin links out to the same docs.
+    expect(HOSTED_DOCS_URL).toBe("https://docs.test-apo.online/hosted-alpha/");
   });
 
   it("copy controls copy the exact command", () => {

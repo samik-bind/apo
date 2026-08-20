@@ -6,6 +6,11 @@
 #
 # The exact route matrix (OTLP, public health, diagnostic denials, frontend
 # fallback) is identical in both modes.
+#
+# SPEC-182: the ingress owns transport, not identity. Admission shells
+# (/login, /join) and CLI routes (/auth/*, /v1/*) reach the application
+# unauthenticated; Apo's session/API-key auth and Project authorization are
+# the only security boundary.
 
 {
 	servers {
@@ -21,7 +26,7 @@
 {$APO_DOCS_HOST} {
 	# Public docs host — terminal, unauthenticated, static only.
 	# Every path on this host proxies to the docs container and never
-	# reaches the backend, OTLP handler, readiness probe, or Basic Auth.
+	# reaches the backend, OTLP handler, or readiness probe.
 	handle {
 		encode zstd gzip
 		reverse_proxy docs:8080
@@ -56,26 +61,11 @@
 		reverse_proxy frontend:3000
 	}
 
-	# OG images must be public so social media crawlers can fetch them
-	# regardless of user-agent (image fetchers often use generic UAs).
-	@og_image path_regexp ^/project/.*/compare-views/.*/opengraph-image
-	handle @og_image {
-		encode zstd gzip
-		reverse_proxy frontend:3000
-	}
-
-	# Social media crawlers (Slack, Twitter, etc.) can't send Basic Auth
-	# credentials. Exempt them so link previews read OG meta tags and fetch
-	# the opengraph-image. App-level auth still protects actual data.
-	@crawlers header_regexp User-Agent (?i)(Slackbot|Twitterbot|facebookexternalhit|LinkedInBot|TelegramBot|WhatsApp|Discordbot|Googlebot|Bingbot|Bytespider|Applebot)
-	handle @crawlers {
-		encode zstd gzip
-		reverse_proxy frontend:3000
-	}
-
-	# Everything else (dashboard pages) — site-wide basic auth gate.
+	# Everything else (dashboard pages, admission shells, CLI rewrites) goes
+	# to the frontend, which enforces application authentication. There is no
+	# ingress-level Basic Auth: OG images and crawler previews work through the
+	# same path, protected by the application's bounded card API.
 	handle {
-		import /etc/caddy/auth.fragment
 		encode zstd gzip
 		reverse_proxy frontend:3000
 	}

@@ -1,12 +1,14 @@
-// Contract assertions for the public docs deployment overlay (SPEC-171 tests 7-9).
+// Contract assertions for the public docs deployment overlay (SPEC-171 tests 7-9,
+// updated by SPEC-182: the application host no longer carries an ingress Basic
+// Auth gate).
 //
 // Reads the rendered tunnel+docs Compose JSON plus the raw Caddyfile and
 // cloudflared config, and asserts:
 //   7. The docs service exists, is hardened, exposes only container port 8080,
 //      and Caddy depends on its health.
 //   8. Caddy routing is host-terminal: the docs host block precedes the app
-//      block, proxies only to docs:8080, and skips Basic Auth; the app host
-//      still reaches the auth fallback.
+//      block, proxies only to docs:8080; the app block delegates identity to
+//      Apo application auth (no Basic Auth anywhere).
 //   9. The Cloudflare Tunnel publishes both hostnames, docs first, terminal 404
 //      last.
 import { readFileSync } from "node:fs";
@@ -119,8 +121,23 @@ assert(
   "docs host block must not import the Basic Auth fragment",
 );
 assert(
-  caddyfile.slice(appBlockIdx).includes("auth.fragment"),
-  "application host block must still reach the Basic Auth fallback",
+  !docsBlock.includes("backend:8000"),
+  "docs host block must never reach the backend",
+);
+// SPEC-182: the application host block delegates identity to Apo application
+// auth — no ingress Basic Auth gate remains anywhere in the Caddyfile.
+const appBlock = caddyfile.slice(appBlockIdx);
+assert(
+  !appBlock.includes("auth.fragment"),
+  "application host block must not import the Basic Auth fragment",
+);
+assert(
+  !appBlock.includes("basic_auth"),
+  "application host block must not contain a basic_auth directive",
+);
+assert(
+  appBlock.includes("reverse_proxy frontend:3000"),
+  "application host block must still proxy the frontend",
 );
 assertEnvironment(caddy, "APO_DOCS_HOST", DOCS_HOST);
 

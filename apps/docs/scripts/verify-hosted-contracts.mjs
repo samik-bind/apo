@@ -111,8 +111,8 @@ check(
   firstRun.includes("apps/example-service/e2e/agent-task-demo"),
 );
 check(
-  "dashboard docs link must point at hosted-alpha",
-  firstRun.includes("/docs/hosted-alpha"),
+  "dashboard docs link must be the canonical absolute hosted-alpha URL",
+  firstRun.includes('"https://docs.test-apo.online/hosted-alpha/"'),
 );
 
 if (failures.length > 0) {

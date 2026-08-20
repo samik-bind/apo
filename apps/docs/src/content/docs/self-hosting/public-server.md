@@ -73,12 +73,14 @@ Expected output:
 
 ```text
 public ingress: ok
-  dashboard: https://apo.example.com/
-  API:       https://apo.example.com/backend-proxy
-  OTLP:      https://apo.example.com/api/public/otel/v1/traces
+  login:      application reachable
+  join:       application reachable
+  CLI auth:   application route reachable
+  protected:  Apo authentication enforced
+  readiness:  ready
 ```
 
-The unauthenticated OTLP probe expects `401`. That proves the public route reaches Apo while authentication remains enforced.
+The probe checks the real entry paths, not just transport: the admission shells (`/login`, `/join`) must render Apo's own UI, the CLI routes must answer with Apo's validation responses, and protected data must return an Apo `401` — never an outer `WWW-Authenticate: Basic` challenge. An infrastructure `401` with a Basic challenge is a failed entrypoint; an Apo `401` on protected data is a successful authorization boundary.
 
 ## 4. Connect users and agents
 
@@ -87,10 +89,14 @@ Use the same origin for every client, with the appropriate path:
 | Client | Configuration |
 |---|---|
 | Dashboard | `https://apo.example.com` |
-| Apo CLI | `APO_BACKEND_URL=https://apo.example.com/backend-proxy` |
+| Apo CLI | `APO_BACKEND_URL=https://apo.example.com` |
 | OTEL exporter | `APO_OTLP_ENDPOINT=https://apo.example.com/api/public/otel/v1/traces` |
 
-The CLI and OTEL exporter still require their normal API credentials. Publishing Apo does not enable anonymous access.
+The CLI and OTEL exporter still require their normal API credentials. Publishing Apo does not enable anonymous access — admission to a hosted installation is invitation-only, and every protected route requires an Apo session, API key, or task token.
+
+:::note[One origin, one authentication boundary]
+The ingress (Caddy) owns TLS and routing only. It never asks for a password of its own: browsers get Apo's login and invitation pages directly, and `apo login --backend https://apo.example.com` works without any ingress credential. Apo's application authentication — sessions, API keys, and Project authorization — is the only security boundary in front of your data.
+:::
 
 ## If HTTPS does not start
 
@@ -98,7 +104,7 @@ The CLI and OTEL exporter still require their normal API credentials. Publishing
 |---|---|
 | Caddy cannot obtain a certificate | DNS resolves to this host and TCP 80/443 are reachable from the internet. |
 | Dashboard loads but login redirects to localhost | `.env` contains the final `APO_PUBLIC_URL`, then the frontend was recreated. |
-| CLI returns a frontend 404 | Include `/backend-proxy` in `APO_BACKEND_URL`. |
+| CLI cannot connect from a sandbox | Use the public origin `https://apo.example.com` directly, not `localhost:8000`. The `/v1/*` and `/auth/*` routes the CLI calls are served on the same origin. |
 | OTEL cannot connect from a sandbox | Use the public `/api/public/otel/v1/traces` URL, not `localhost:8000`. |
 
 For database selection, scheduler ownership, and retention settings, continue to [Configuration](/self-hosting/configuration/).

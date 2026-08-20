@@ -37,7 +37,11 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-export const HOSTED_DOCS_URL = "/docs/hosted-alpha";
+// SPEC-182: the canonical hosted docs live on their own origin — a hosted
+// installation consumes the central documentation, and the link must work no
+// matter which application origin the dashboard is served from. Deliberately
+// not derived from APO_PUBLIC_URL.
+export const HOSTED_DOCS_URL = "https://docs.test-apo.online/hosted-alpha/";
 export const EXAMPLE_URL =
   "https://github.com/samikuikka/apo/tree/main/apps/example-service/e2e/agent-task-demo";
 

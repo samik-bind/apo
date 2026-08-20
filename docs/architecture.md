@@ -583,8 +583,12 @@ Both are surfaced in the dashboard under **Settings → System → Deployment To
 
 The public Server Profile adds Caddy as the only internet-facing service. Caddy
 terminates HTTPS and forwards every request to the frontend; browser API calls
-use the same-origin `/backend-proxy/*` bridge, while the canonical public OTLP
-route `/api/public/otel/v1/traces` is rewritten by Next.js to the backend.
+use the same-origin `/backend-proxy/*` bridge, the canonical public OTLP route
+`/api/public/otel/v1/traces` and the CLI's `/v1/*` + `/auth/*` routes are
+rewritten by Next.js to the backend. The ingress owns transport, not identity
+(SPEC-182): admission shells render Apo's own login/join UI, and every
+protected route is guarded by Apo's session/API-key authentication and Project
+authorization — there is no installation-wide ingress password.
 Frontend and backend diagnostic ports bind to `127.0.0.1`, and the database is
 never published publicly. Caddy is a replaceable reference ingress: an existing
 TLS proxy may forward the same public origin to the frontend without changing
@@ -607,8 +611,9 @@ project operator's tunnel deployment.
   with all capabilities dropped. It contains only the built Astro output.
 - **Host-terminal routing**: Caddy routes every request whose `Host` is the docs
   hostname to the docs container and stops. Docs-host requests can never reach
-  the backend, OTLP, readiness, or Basic Auth paths. The application hostname
-  retains its existing Basic Auth gate unchanged.
+  the backend, OTLP, or readiness paths. The application hostname delegates
+  identity entirely to Apo's application authentication (SPEC-182) — the
+  ingress carries no Basic Auth gate of its own.
 - **Agent-readable first-class**: `/start.md` and every `*.md` route are
   published and tested, not incidental Astro output. The landing-page Copy
   Prompt always names the canonical live origin.
