@@ -122,3 +122,102 @@ def test_backfill_skips_invalid_legacy_names(session: Session) -> None:
         )
     ).all()
     assert [r.name for r in rows] == ["ok"]
+
+
+def test_startup_backfills_a_v25_database(tmp_path, monkeypatch) -> None:
+    """Booting on a pre-v26 database with legacy blobs must not crash.
+
+    ``lifespan`` is ``async def``, so its thread is already running an event
+    loop. The v26 backfill drives an ``async`` placement helper with
+    ``asyncio.run``, which refuses to start a loop when one is already running
+    in the same thread — calling ``init_db`` inline crashed startup with
+    "asyncio.run() cannot be called from a running event loop" on every
+    database upgrading through v26 with legacy blobs.
+
+    Every other backfill test calls the function synchronously, so none of them
+    ever enters that state. This one drives the real startup path, so it stays
+    honest if someone later drops the ``asyncio.to_thread`` hand-off.
+    """
+    import asyncio
+    import json as _json
+
+    from sqlalchemy import text
+    from sqlmodel import SQLModel, create_engine
+
+    import apo.db as apo_db
+
+    test_engine = create_engine(f"sqlite:///{tmp_path / 'v25.db'}")
+    SQLModel.metadata.create_all(test_engine)
+
+    now = datetime.now(timezone.utc)
+    with Session(test_engine) as setup:
+        # v28 dropped the legacy column from the model; re-add it so this is a
+        # pre-v28 database upgrading through v26 — the affected case.
+        setup.execute(
+            text("ALTER TABLE agent_task_runs ADD COLUMN deliverables_json JSON")
+        )
+        setup.add(
+            AgentTaskBatchRunDB(
+                id="batch-loop", project="p1", created_at=now,
+                status="completed", total_tasks=1, task_root="/t",
+                environment="default", selection_type="task",
+            )
+        )
+        setup.flush()
+        setup.add(
+            AgentTaskRunDB(
+                id="run-loop", batch_run_id="batch-loop", task_id="run-loop",
+                task_path="/t/run-loop", status="passed", pass_result=True,
+                started_at=now, completed_at=now,
+            )
+        )
+        setup.flush()
+        setup.execute(
+            text(
+                "UPDATE agent_task_runs SET deliverables_json = :dj "
+                "WHERE id = 'run-loop'"
+            ),
+            {"dj": _json.dumps({"report": {"answer": 42}})},
+        )
+        setup.commit()
+
+    monkeypatch.setattr(apo_db, "engine", test_engine)
+    # The ladder stamps versions on the same engine; start it from v25 so v26
+    # is the next migration to apply.
+    with Session(test_engine) as stamp:
+        stamp.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS schema_migrations "
+                "(version INTEGER PRIMARY KEY)"
+            )
+        )
+        for v in range(1, 26):
+            stamp.execute(
+                text("INSERT OR IGNORE INTO schema_migrations VALUES (:v)"), {"v": v}
+            )
+        stamp.commit()
+
+    async def _boot() -> None:
+        # The startup sequence, reduced to the part under test: a running loop
+        # on this thread, then the migration ladder.
+        from apo.db import init_db
+
+        await asyncio.to_thread(init_db)
+
+    asyncio.run(_boot())
+
+    # v26 ran, so the ladder reached the head.
+    with Session(test_engine) as check_version:
+        stamped = check_version.execute(
+            text("SELECT MAX(version) FROM schema_migrations")
+        ).scalar()
+    assert stamped == apo_db.LATEST_SCHEMA_VERSION
+
+    with Session(test_engine) as check:
+        rows = check.exec(
+            select(AgentTaskDeliverableDB).where(
+                AgentTaskDeliverableDB.task_run_id == "run-loop"
+            )
+        ).all()
+    assert [r.name for r in rows] == ["report"]
+    assert rows[0].inline_value_json == {"value": {"answer": 42}}

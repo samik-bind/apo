@@ -59,7 +59,12 @@ async def lifespan(app: FastAPI):
     import asyncio
     set_event_loop(asyncio.get_event_loop())
     init_email_service()
-    init_db()
+    # Off the loop: the v26 deliverables backfill drives an async placement
+    # helper with ``asyncio.run``, which refuses to start a loop when one is
+    # already running in this thread. Calling it inline here crashed startup
+    # ("asyncio.run() cannot be called from a running event loop") on every
+    # database upgrading through v26 with legacy blobs.
+    await asyncio.to_thread(init_db)
     # retire bundled execution before any scheduler/reaper/demo
     # startup. Fence legacy state and purge Bundle objects idempotently.
     with Session(engine) as session:

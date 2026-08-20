@@ -92,9 +92,14 @@ async def nuke_database(
         if os.path.exists(db_path):
             os.remove(db_path)
 
+        import asyncio
+
         from ..db import init_db
 
-        init_db()
+        # Off the loop — ``init_db`` runs the migration ladder, and the v26
+        # backfill drives an async helper with ``asyncio.run``, which cannot
+        # start a loop inside this handler's running one.
+        await asyncio.to_thread(init_db)
 
         return {
             "status": "success",
