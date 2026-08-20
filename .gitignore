@@ -96,3 +96,7 @@ backend/data/artifacts/
 
 # Editor atomic-write temp files
 *.ts.*.ts
+
+# Spec-verification screenshots from agent sessions — evidence lives in
+# session reports, not the repo
+spec*-proof/
