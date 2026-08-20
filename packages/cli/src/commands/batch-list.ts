@@ -13,6 +13,7 @@ type BatchSummary = {
   failed_tasks: number;
   errored_tasks: number;
   total_cost: number | null;
+  unpriced_call_count?: number;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -59,13 +60,20 @@ export async function run(argv: string[]): Promise<number> {
     return 0;
   }
 
+  // Mirrors runs-list's partial-cost rule (issue #147): a batch whose runs
+  // include unpriced calls must not read as a complete total.
+  const formatBatchCost = (b: BatchSummary): string => {
+    const cost = formatCost(b.total_cost);
+    return (b.unpriced_call_count ?? 0) > 0 ? `${cost} ${dim("partial")}` : cost;
+  };
+
   const idLabels = highlightIds(batches.map((b) => b.id));
   const rows = batches.map((b, i) => [
     idLabels[i],
     String(b.total_tasks),
     b.status,
     `${b.passed_tasks}/${b.total_tasks}`,
-    formatCost(b.total_cost),
+    formatBatchCost(b),
     formatDuration(b.started_at, b.completed_at),
     formatTime(b.created_at),
   ]);

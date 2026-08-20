@@ -245,6 +245,8 @@ export interface AgentTaskBatchRunSummary {
   trace_persistence_status: TracePersistenceStatus;
   trace_error_message: string | null;
   total_cost: number | null;
+  /** non-zero means total_cost is a partial sum (issue #147). */
+  unpriced_call_count?: number;
   total_tokens: number | null;
   /** derived configuration summary (uniform/mixed/partial/unknown). */
   configuration: AgentTaskBatchRunConfigurationSummary;

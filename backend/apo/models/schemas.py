@@ -724,6 +724,9 @@ class AgentTaskBatchRunSummary(SQLModel):
     trace_persistence_status: str = "pending"
     trace_error_message: str | None = None
     total_cost: float | None = None
+    # Issue #147: sum of child runs' unpriced calls. Non-zero means
+    # ``total_cost`` is a partial sum, not a complete total.
+    unpriced_call_count: int = 0
     total_tokens: int | None = None
     created_at: datetime
     started_at: datetime | None = None
@@ -758,6 +761,9 @@ class AgentTaskBatchRunDetail(SQLModel):
     trace_persistence_status: str = "pending"
     trace_error_message: str | None = None
     total_cost: float | None = None
+    # Issue #147: sum of child runs' unpriced calls. Non-zero means
+    # ``total_cost`` is a partial sum, not a complete total.
+    unpriced_call_count: int = 0
     total_tokens: int | None = None
     created_at: datetime
     started_at: datetime | None = None

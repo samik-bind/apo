@@ -165,6 +165,7 @@ def to_batch_run_summary(
     br: AgentTaskBatchRunDB,
     total_cost: float | None = None,
     total_tokens: int | None = None,
+    unpriced_call_count: int = 0,
     configuration: AgentTaskBatchRunConfigurationSummary | None = None,
     derived_task_ids: Sequence[str] = (),
 ) -> AgentTaskBatchRunSummary:
@@ -196,6 +197,7 @@ def to_batch_run_summary(
         trace_persistence_status=br.trace_persistence_status,
         trace_error_message=br.trace_error_message,
         total_cost=total_cost,
+        unpriced_call_count=unpriced_call_count,
         total_tokens=total_tokens,
         created_at=br.created_at,
         started_at=br.started_at,
@@ -234,6 +236,7 @@ def to_batch_run_detail(
     total_cost = sum(tr.total_cost or 0 for tr in task_runs)
     total_tokens = sum(tr.total_tokens or 0 for tr in task_runs)
     total_tokens_out = total_tokens if total_tokens > 0 else None
+    unpriced_call_count = sum(tr.unpriced_call_count or 0 for tr in task_runs)
     breakdown = build_failure_breakdown(task_runs)
     execution_target = _execution_target(br.execution_target_json)
     is_source_owned = isinstance(execution_target, SourceOwnedExecutionTarget)
@@ -270,6 +273,7 @@ def to_batch_run_detail(
         trace_persistence_status=br.trace_persistence_status,
         trace_error_message=br.trace_error_message,
         total_cost=total_cost,
+        unpriced_call_count=unpriced_call_count,
         total_tokens=total_tokens_out,
         created_at=br.created_at,
         started_at=br.started_at,

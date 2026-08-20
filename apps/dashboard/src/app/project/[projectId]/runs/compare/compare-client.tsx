@@ -312,7 +312,17 @@ function BatchSlot({
             ) : null;
           })()}
           {batch.total_cost != null && batch.total_cost > 0 && (
-            <span>{formatCostMicro(batch.total_cost)}</span>
+            <span>
+              {formatCostMicro(batch.total_cost)}
+              {(batch.unpriced_call_count ?? 0) > 0 && (
+                <span
+                  className="ml-1 text-warning"
+                  title={`${batch.unpriced_call_count} call${batch.unpriced_call_count === 1 ? "" : "s"} had no pricing entry — this total is partial`}
+                >
+                  +{batch.unpriced_call_count} unpriced
+                </span>
+              )}
+            </span>
           )}
           {batch.total_tokens != null && batch.total_tokens > 0 && (
             <span className="inline-flex items-center gap-1">

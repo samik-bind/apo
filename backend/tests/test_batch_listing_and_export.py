@@ -59,6 +59,7 @@ def _task_run(
     project: str = "p",
     cost: float = 0.0,
     tokens: int = 0,
+    unpriced: int = 0,
     status: str = "success",
 ) -> AgentTaskRunDB:
     return AgentTaskRunDB(
@@ -73,6 +74,7 @@ def _task_run(
         configured_effort=effort,
         total_cost=cost,
         total_tokens=tokens,
+        unpriced_call_count=unpriced,
     )
 
 
@@ -252,6 +254,27 @@ def test_batch_list_hydrates_cost_and_tokens(session: Session):
     # cost and tokens are accumulated across child runs
     assert page.data[0].total_cost == 3.5
     assert page.data[0].total_tokens == 800
+
+
+def test_batch_list_hydrates_unpriced_call_count(session: Session):
+    # Issue #147: a partially-priced batch must be distinguishable from a
+    # fully priced one in the list, or its partial total reads as a real
+    # (implausibly cheap) cost.
+    session.add(_batch("b-priced"))
+    session.add(_task_run("tr-ok", "b-priced", cost=1.0))
+    session.add(_batch("b-partial"))
+    session.add(_task_run("tr-p1", "b-partial", cost=0.5, unpriced=3))
+    session.add(_task_run("tr-p2", "b-partial", cost=0.25, unpriced=2))
+    session.commit()
+
+    page = list_batch_run_summaries(
+        session,
+        BatchRunListFilters(),
+        BatchRunListPagination(page=0, page_size=50),
+    )
+    by_id = {b.id: b for b in page.data}
+    assert by_id["b-priced"].unpriced_call_count == 0
+    assert by_id["b-partial"].unpriced_call_count == 5
 
 
 # ---------------------------------------------------------------------------

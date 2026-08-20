@@ -261,12 +261,16 @@ def _hydrate_batch_summaries(
 
     cost_by_batch: dict[str, float] = {}
     tokens_by_batch: dict[str, int] = {}
+    unpriced_by_batch: dict[str, int] = {}
     for tr in all_task_runs:
         cost_by_batch[tr.batch_run_id] = cost_by_batch.get(tr.batch_run_id, 0.0) + (
             tr.total_cost or 0.0
         )
         tokens_by_batch[tr.batch_run_id] = tokens_by_batch.get(tr.batch_run_id, 0) + (
             tr.total_tokens or 0
+        )
+        unpriced_by_batch[tr.batch_run_id] = unpriced_by_batch.get(tr.batch_run_id, 0) + (
+            tr.unpriced_call_count or 0
         )
     configuration_by_batch = group_batch_configuration_summaries(all_task_runs)
     task_ids_by_batch = {
@@ -279,6 +283,7 @@ def _hydrate_batch_summaries(
             br,
             cost_by_batch.get(br.id),
             tokens_by_batch.get(br.id),
+            unpriced_call_count=unpriced_by_batch.get(br.id, 0),
             configuration=configuration_by_batch.get(br.id),
             derived_task_ids=task_ids_by_batch.get(br.id, ()),
         )
