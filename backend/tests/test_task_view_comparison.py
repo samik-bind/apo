@@ -8,7 +8,9 @@ task with no run on one side.
 
 # pyright: reportAny=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -32,6 +34,8 @@ _W = "evals/cmp-comparable"  # both sides, same def + same exec (same batch)
 _X = "evals/cmp-def-mismatch"  # def revisions differ
 _Y = "evals/cmp-exec-mismatch"  # exec (batch) revisions differ
 _Z = "evals/cmp-no-deepseek"  # no DeepSeek run
+_S1 = "evals/cmp-selfpair"  # issue #140: latest run is the pinned model's
+_S2 = "evals/cmp-null-model"  # legacy NULL-model run stays in unpinned cohort
 
 
 def _seed(session: Session) -> None:
@@ -63,12 +67,13 @@ def _seed(session: Session) -> None:
     )
     session.flush()
 
-    def _run(rid: str, batch: str, task: str, model: str, def_rev: str | None) -> AgentTaskRunDB:
+    def _run(rid: str, batch: str, task: str, model: str | None, def_rev: str | None, at: datetime | None = None) -> AgentTaskRunDB:
+        when = at or now
         run = AgentTaskRunDB(
             id=rid, batch_run_id=batch, task_id=task, task_path=f"/t/{task}",
             status="passed", pass_result=True, configured_model=model,
             configured_effort=None, task_definition_revision_id=def_rev,
-            started_at=now, completed_at=now,
+            started_at=when, completed_at=when,
             total_checks=1, passed_checks=1, failed_checks=0,
         )
         session.add(run)
@@ -93,6 +98,16 @@ def _seed(session: Session) -> None:
     _run("y-deep", "b-deep", _Y, "deepseek", "d1")
     # Z: opus only -> deepseek side has no run
     _run("z-opus", "b-opus", _Z, "claude-opus", "d1")
+    # S1 (issue #140 repro): the deepseek run is the LATEST overall. The
+    # unpinned side must resolve to the older opus run instead of pairing
+    # deepseek's latest run against itself.
+    _run("s1-opus", "b-opus", _S1, "claude-opus", "d1", at=now - timedelta(hours=2))
+    _run("s1-deep", "b-deep", _S1, "deepseek", "d1", at=now - timedelta(hours=1))
+    # S2: a legacy NULL-model run + a deepseek run. NULL-model rows must stay
+    # in the unpinned cohort when the member model is excluded (SQL ``!=``
+    # drops NULLs; the cohort condition is explicitly NULL-safe).
+    _run("s2-null", "b-opus", _S2, None, "d1", at=now - timedelta(hours=2))
+    _run("s2-deep", "b-deep", _S2, "deepseek", "d1", at=now - timedelta(hours=1))
     session.commit()
 
 
@@ -338,3 +353,81 @@ def test_overview_response_is_independent_of_check_report_size(
     assert big_sentinel not in serialized
     # Response should be well under 100 KiB — it carries only scalar summaries.
     assert len(serialized) < 100_000
+
+
+# ---------------------------------------------------------------------------
+# Issue #140 — superset-vs-member comparison
+# ---------------------------------------------------------------------------
+
+
+def _create_with_views(
+    cmp_client: TestClient,
+    task_ids: list[str],
+    view_a: dict[str, str | None],
+    view_b: dict[str, str | None],
+) -> dict[str, object]:
+    resp = cmp_client.post(
+        f"/v1/projects/{_PROJECT}/task-view-comparisons",
+        json={"task_ids": task_ids, "view_a": view_a, "view_b": view_b},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def test_unpinned_side_excludes_pinned_model(cmp_client: TestClient) -> None:
+    """"All models" vs a pinned model must resolve the unpinned side to the
+    other models' runs. Before the fix, side A picked the globally-latest run
+    — the pinned model's own run — and every row paired a run against itself,
+    reporting "all tasks are identical"."""
+    snap = _create_with_views(
+        cmp_client,
+        [_S1],
+        {"model": None, "effort": None},
+        {"model": "deepseek", "effort": None},
+    )
+    cell = cast(list[dict[str, object]], snap["resolved"])[0]
+    assert cell["a_run_id"] == "s1-opus"
+    assert cell["b_run_id"] == "s1-deep"
+    assert cell["a_run_id"] != cell["b_run_id"]
+
+
+def test_reverse_unpinned_side_excludes_pinned_model(cmp_client: TestClient) -> None:
+    """The reverse pairing (pinned A vs "All models" B) applies the same rule."""
+    snap = _create_with_views(
+        cmp_client,
+        [_S1],
+        {"model": "deepseek", "effort": None},
+        {"model": None, "effort": None},
+    )
+    cell = cast(list[dict[str, object]], snap["resolved"])[0]
+    assert cell["a_run_id"] == "s1-deep"
+    assert cell["b_run_id"] == "s1-opus"
+
+
+def test_null_model_runs_stay_in_unpinned_cohort(cmp_client: TestClient) -> None:
+    """Legacy runs without a configured model remain part of "everything
+    else" when the member model is excluded (SQL ``!=`` silently drops
+    NULLs; the cohort condition must not)."""
+    snap = _create_with_views(
+        cmp_client,
+        [_S2],
+        {"model": None, "effort": None},
+        {"model": "deepseek", "effort": None},
+    )
+    cell = cast(list[dict[str, object]], snap["resolved"])[0]
+    assert cell["a_run_id"] == "s2-null"
+    assert cell["b_run_id"] == "s2-deep"
+
+
+def test_both_sides_pinned_bypasses_exclusion(cmp_client: TestClient) -> None:
+    """Two pinned models compare exactly as before — the rule only exists
+    for the superset-vs-member shape."""
+    snap = _create_with_views(
+        cmp_client,
+        [_S1],
+        {"model": "claude-opus", "effort": None},
+        {"model": "deepseek", "effort": None},
+    )
+    cell = cast(list[dict[str, object]], snap["resolved"])[0]
+    assert cell["a_run_id"] == "s1-opus"
+    assert cell["b_run_id"] == "s1-deep"

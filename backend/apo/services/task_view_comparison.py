@@ -53,15 +53,23 @@ def _resolve_side(
     project_id: str,
     task_ids: list[str],
     view: TaskViewConfig,
+    exclude_model: str | None = None,
 ) -> dict[str, _ResolvedRun]:
     """Resolve the latest-completed run per task under one view.
 
     Returns ``{task_id: _ResolvedRun}``; tasks with no matching run are absent.
     Delegates cohort selection to ``runs_in_view`` (the shared seam with
     ``agent_task_stats``) and applies the per-task "latest completed, else
-    latest errored" resolution rule on top.
+    latest errored" resolution rule on top. ``exclude_model`` is the
+    superset-vs-member rule from :func:`create_comparison`.
     """
-    cohort = runs_in_view(session, project_id=project_id, task_ids=task_ids, view=view)
+    cohort = runs_in_view(
+        session,
+        project_id=project_id,
+        task_ids=task_ids,
+        view=view,
+        exclude_model=exclude_model,
+    )
 
     # cohort is already DESC by started_at, so the first run seen per task is
     # the most recent. Group preserving that order, then pick latest-completed.
@@ -120,8 +128,19 @@ def create_comparison(
     if not task_ids:
         raise ValueError("comparison selection must not be empty")
 
-    side_a = _resolve_side(session, project_id, task_ids, view_a)
-    side_b = _resolve_side(session, project_id, task_ids, view_b)
+    # Superset-vs-member rule (issue #140): "all models" (model=None) is not
+    # a cohort — it is the union that *contains* any specific model's view.
+    # Resolved naively, the unpinned side picks the globally-latest run per
+    # task, which for the pinned model's dominant runs is the *same run* the
+    # pinned side picks: every row pairs a run against itself and the
+    # comparison reports "all tasks are identical". When exactly one side
+    # pins a model, the unpinned side excludes it — comparing that model
+    # against "everything else", which is the only meaningful reading.
+    exclude_from_a = view_b.model if (view_a.model is None and view_b.model is not None) else None
+    exclude_from_b = view_a.model if (view_b.model is None and view_a.model is not None) else None
+
+    side_a = _resolve_side(session, project_id, task_ids, view_a, exclude_model=exclude_from_a)
+    side_b = _resolve_side(session, project_id, task_ids, view_b, exclude_model=exclude_from_b)
 
     resolved: list[ResolvedComparisonCell] = []
     both_run = 0

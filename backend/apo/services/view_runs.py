@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import cast
 
-from sqlalchemy import desc, select as sa_select
+from sqlalchemy import desc, or_, select as sa_select
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session
 
@@ -104,11 +104,12 @@ def runs_in_view(
     project_id: str,
     task_ids: list[str],
     view: TaskViewConfig,
+    exclude_model: str | None = None,
 ) -> list[ViewRun]:
     """Return every run in ``project_id`` matching ``view``, scoped to ``task_ids``.
 
-    The cohort is the set of runs both stats and comparison operate on. It is
-    ordered by ``started_at DESC`` so consumers can rely on the first row per
+    The cohort is the set of runs both stats and comparison operate on. It
+    is ordered by ``started_at DESC`` so consumers can rely on the first row per
     task being the most recent. Empty ``task_ids`` returns an empty list
     (matches the original guard in both consumers).
 
@@ -117,6 +118,14 @@ def runs_in_view(
     window over ``started_at`` (None = all time). Project scoping goes through
     the parent ``AgentTaskBatchRunDB`` so two projects' runs never mix even
     when they share a task id.
+
+    ``exclude_model`` removes one model from an otherwise unpinned ("any
+    model") cohort — the superset-vs-member comparison rule (issue #140):
+    comparing "all models" against one specific model must resolve the
+    unpinned side to *everything else*, or the member's latest run gets
+    paired against itself. NULL-model legacy rows are kept: SQL ``!=``
+    drops NULLs, so the condition is explicitly NULL-safe. It is ignored
+    when ``view.model`` is set (a pinned cohort has no superset problem).
     """
     if not task_ids:
         return []
@@ -127,6 +136,13 @@ def runs_in_view(
     ]
     if view.model is not None:
         conditions.append(_RUN_MODEL_COL == view.model)
+    elif exclude_model is not None:
+        conditions.append(
+            or_(
+                _RUN_MODEL_COL != exclude_model,
+                _RUN_MODEL_COL.is_(None),
+            )
+        )
     if view.effort is not None:
         conditions.append(_RUN_EFFORT_COL == view.effort)
     cutoff = since_cutoff(view.since)
