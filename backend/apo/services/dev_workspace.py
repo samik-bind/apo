@@ -367,6 +367,7 @@ def _build_checks(run_passes: bool) -> list[dict[str, object]]:
     check that fails when the run fails."""
     return [
         {
+            "id": "deliverable-matches-contract",
             "name": "deliverable-matches-contract",
             "instruction": "The final deliverable must match the task contract.",
             "pass": True,
@@ -375,6 +376,7 @@ def _build_checks(run_passes: bool) -> list[dict[str, object]]:
             "received": '{"status": "ok", "items": 3}',
         },
         {
+            "id": "used-planning-tool-first",
             "name": "used-planning-tool-first",
             "instruction": "The agent must plan before acting.",
             "pass": run_passes,

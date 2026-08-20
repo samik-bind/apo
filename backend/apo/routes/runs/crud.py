@@ -371,11 +371,20 @@ def get_run_details(
         else {"calls": {"__all__": {"messages"}}}
     )
 
-    return RunDetail(
+    response = RunDetail(
         run=Run.model_validate(run),
         metrics=[RunMetric.model_validate(m) for m in all_metrics],
         calls=calls_models,
     ).model_dump(by_alias=True, exclude=exclude)
+
+    # Same three-valued status the run LIST derives (error/warning/success
+    # from call levels) — consumers like `apo traces show` read it, and the
+    # Run schema has no stored column to carry it.
+    levels = {call.level for call in calls}
+    response["run"]["status"] = (
+        "error" if "ERROR" in levels else "warning" if "WARNING" in levels else "success"
+    )
+    return response
 
 
 class CustomMetricResult(BaseModel):

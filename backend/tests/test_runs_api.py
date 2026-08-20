@@ -128,6 +128,8 @@ def test_get_run_details(client: TestClient, session: Session):
     data = response.json()
 
     assert data["run"]["id"] == "r1"
+    # Derived status mirrors the run-list rule (no ERROR/WARNING calls here)
+    assert data["run"]["status"] == "success"
     assert len(data["calls"]) == 3
 
     calls = data["calls"]
