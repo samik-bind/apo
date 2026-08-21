@@ -1,0 +1,60 @@
+"use client";
+
+import { useState } from "react";
+import { ChevronDown, ChevronRight, FileText } from "lucide-react";
+import { ExpandableJson } from "@/components/ExpandableJson";
+import { ShikiCodeBlock } from "@/components/shiki-code-block";
+
+export function DeliverablesView({ deliverables }: { deliverables: Record<string, unknown> }) {
+  const entries = Object.entries(deliverables);
+  if (entries.length === 0) {
+    return <p className="py-4 text-center text-sm text-muted-foreground">No deliverables</p>;
+  }
+  return (
+    <div className="divide-y divide-border overflow-hidden border border-border">
+      {entries.map(([key, value]) => (
+        <DeliverableFile key={key} name={key} value={value} />
+      ))}
+    </div>
+  );
+}
+
+function DeliverableFile({ name, value }: { name: string; value: unknown }) {
+  const [expanded, setExpanded] = useState(false);
+  const isObject = typeof value === "object" && value !== null;
+  const isString = typeof value === "string";
+  const code = isObject
+    ? JSON.stringify(value, null, 2)
+    : isString
+      ? value
+      : String(value ?? "");
+  const lines = code.split("\n").length;
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/20"
+      >
+        <span className="text-muted-foreground/60">
+          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </span>
+        <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate font-mono text-sm text-foreground">{name}</span>
+        <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/50">
+          {isObject ? `${Object.keys(value).length} keys` : `${lines} line${lines !== 1 ? "s" : ""}`}
+        </span>
+      </button>
+      {expanded && (
+        <div className="border-t border-border/50 bg-background/50">
+          {isObject ? (
+            <ExpandableJson data={value} className="!rounded-none !border-0 !shadow-none" />
+          ) : (
+            <ShikiCodeBlock code={code} language="text" className="!rounded-none !border-0" />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
