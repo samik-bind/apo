@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { backendFetch } from "@/lib/backend-fetch";
+import { ApiError } from "@/lib/api-error";
+import { apiClient } from "@/lib/api-client";
 import { toast } from "sonner";
 import { AlertTriangle, Database, Settings } from "lucide-react";
 
@@ -18,14 +19,13 @@ export function SystemSection({ initialStats = null }: { initialStats?: DbStats 
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const res = await backendFetch(
-        "/backend-proxy/v1/admin/stats?admin_key=dev-admin-key-only",
+      const data = await apiClient<{ stats: DbStats | null }>(
+        "/backend-proxy/v1/admin/stats",
+        { query: { admin_key: "dev-admin-key-only" } },
       );
-      if (!res.ok) throw new Error("Failed to fetch stats");
-      const data = await res.json();
       setStats(data.stats);
-    } catch (e: any) {
-      toast.error(e.message || "Failed to fetch stats");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to fetch stats");
     } finally {
       setLoading(false);
     }
@@ -35,15 +35,14 @@ export function SystemSection({ initialStats = null }: { initialStats?: DbStats 
     if (!confirm("Are you sure you want to reset the database? This will delete ALL data.")) return;
     setLoading(true);
     try {
-      const res = await backendFetch(
-        "/backend-proxy/v1/admin/reset-db?admin_key=dev-admin-key-only",
-        { method: "POST" },
+      const data = await apiClient<{ message: string }>(
+        "/backend-proxy/v1/admin/reset-db",
+        { method: "POST", query: { admin_key: "dev-admin-key-only" } },
       );
-      if (!res.ok) throw new Error("Failed to reset database");
-      toast.success((await res.json()).message);
+      toast.success(data.message);
       fetchStats();
-    } catch (e: any) {
-      toast.error(e.message || "Failed to reset database");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to reset database");
     } finally {
       setLoading(false);
     }
@@ -57,16 +56,18 @@ export function SystemSection({ initialStats = null }: { initialStats?: DbStats 
     if (!confirm("FINAL WARNING: This will completely delete and recreate the database file. Continue?")) return;
     setLoading(true);
     try {
-      const res = await backendFetch(
-        "/backend-proxy/v1/admin/nuke-db?admin_key=dev-admin-key-only&confirm=YES_I_AM_SURE",
-        { method: "POST" },
+      const data = await apiClient<{ message: string }>(
+        "/backend-proxy/v1/admin/nuke-db",
+        {
+          method: "POST",
+          query: { admin_key: "dev-admin-key-only", confirm: "YES_I_AM_SURE" },
+        },
       );
-      if (!res.ok) throw new Error("Failed to nuke database");
-      toast.success((await res.json()).message);
+      toast.success(data.message);
       setConfirmNuke("");
       fetchStats();
-    } catch (e: any) {
-      toast.error(e.message || "Failed to nuke database");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to nuke database");
     } finally {
       setLoading(false);
     }

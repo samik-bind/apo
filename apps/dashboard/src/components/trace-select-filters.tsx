@@ -18,10 +18,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { getBrowserBackendBaseUrl } from "@/lib/config";
-import { backendFetch } from "@/lib/backend-fetch";
+import { apiClient } from "@/lib/api-client";
 
-const API_BASE = getBrowserBackendBaseUrl();
 
 interface SelectFilterProps {
   value: string | undefined;
@@ -61,14 +59,11 @@ function SelectFilter({
     const key = requestKey;
     const fetchOptions = async () => {
       try {
-        const url = project
-          ? `${API_BASE}${endpoint}?project=${encodeURIComponent(project)}`
-          : `${API_BASE}${endpoint}`;
-        const response = await backendFetch(url, {
+        const data = await apiClient<string[]>(endpoint, {
+          query: { project },
           signal: controller.signal,
           cache: "no-store",
         });
-        const data: string[] = response.ok ? await response.json() : [];
         if (!controller.signal.aborted) {
           setOptionsByKey((prev) => ({ ...prev, [key]: data }));
         }
@@ -206,12 +201,11 @@ export function TraceModelMultiSelect({
     const controller = new AbortController();
     const fetchModels = async () => {
       try {
-        const response = await backendFetch(`${API_BASE}/v1/runs/distinct-models`, {
+        const data = await apiClient<string[]>("/v1/runs/distinct-models", {
           signal: controller.signal,
           cache: "no-store",
         });
-        if (response.ok) {
-          const data = await response.json();
+        if (!controller.signal.aborted) {
           setFetchedOptions(data);
         }
       } catch {
@@ -324,12 +318,11 @@ export function TraceMetricFilter({
     const controller = new AbortController();
     const fetchMetrics = async () => {
       try {
-        const response = await backendFetch(`${API_BASE}/v1/runs/distinct-metrics`, {
+        const data = await apiClient<string[]>("/v1/runs/distinct-metrics", {
           signal: controller.signal,
           cache: "no-store",
         });
-        if (response.ok) {
-          const data = await response.json();
+        if (!controller.signal.aborted) {
           setFetchedOptions(data);
         }
       } catch {

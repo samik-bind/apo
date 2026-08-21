@@ -9,47 +9,11 @@ import AuthShell from "@/components/auth/auth-shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PasswordRules } from "@/components/auth/password-rules"
+import { validatePassword } from "@/lib/password-policy"
+import { ApiError } from "@/lib/api-error"
+import { apiClient } from "@/lib/api-client"
 import { backendFetch } from "@/lib/backend-fetch"
-
-function validatePassword(password: string) {
-  return {
-    minLength: password.length >= 8,
-    hasLetter: /[a-zA-Z]/.test(password),
-    hasNumber: /\d/.test(password),
-  }
-}
-
-const PASSWORD_RULES = [
-  { id: "min-length", label: "At least 8 characters" },
-  { id: "has-letter", label: "At least one letter" },
-  { id: "has-number", label: "At least one number" },
-] as const
-
-function PasswordRules({ password }: { password: string }) {
-  if (password.length === 0) return null
-  const checks = validatePassword(password)
-  return (
-    <ul className="space-y-1 text-xs text-muted-foreground">
-      {PASSWORD_RULES.map((rule) => {
-        const passed =
-          rule.id === "min-length"
-            ? checks.minLength
-            : rule.id === "has-letter"
-              ? checks.hasLetter
-              : checks.hasNumber
-
-        return (
-          <li
-            key={rule.id}
-            className={passed ? "text-success" : "text-muted-foreground"}
-          >
-            {passed ? "✓" : "○"} {rule.label}
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
 
 function OtpStep({
   otpCode,
@@ -452,21 +416,17 @@ export default function SetupPage() {
     dispatch({ type: "OTP_START" })
 
     try {
-      const res = await backendFetch("/auth/verify-email", {
+      await apiClient("/auth/verify-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, code: otpCode }),
+        body: { email, code: otpCode },
       })
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => null)
-        dispatch({ type: "FAILURE", message: data?.detail ?? "Invalid or expired code" })
-        return
-      }
-
       await proceedToSignIn()
-    } catch {
-      dispatch({ type: "FAILURE", message: "Unable to connect to server" })
+    } catch (err) {
+      if (err instanceof ApiError) {
+        dispatch({ type: "FAILURE", message: err.message || "Invalid or expired code" })
+      } else {
+        dispatch({ type: "FAILURE", message: "Unable to connect to server" })
+      }
     }
   }
 

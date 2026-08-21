@@ -8,21 +8,10 @@ import AuthShell from "@/components/auth/auth-shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { backendFetch } from "@/lib/backend-fetch"
-
-const PASSWORD_RULES = [
-  { id: "min-length", label: "At least 8 characters" },
-  { id: "has-letter", label: "At least one letter" },
-  { id: "has-number", label: "At least one number" },
-] as const
-
-function validatePassword(password: string) {
-  return {
-    minLength: password.length >= 8,
-    hasLetter: /[a-zA-Z]/.test(password),
-    hasNumber: /\d/.test(password),
-  }
-}
+import { PasswordRules } from "@/components/auth/password-rules"
+import { ApiError } from "@/lib/api-error"
+import { apiClient } from "@/lib/api-client"
+import { validatePassword } from "@/lib/password-policy"
 
 export default function ResetPasswordPage() {
   return (
@@ -59,21 +48,17 @@ function ResetPasswordForm() {
     setLoading(true)
 
     try {
-      const res = await backendFetch("/auth/reset-password", {
+      await apiClient("/auth/reset-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, new_password: newPassword }),
+        body: { token, new_password: newPassword },
       })
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => null)
-        setError(data?.detail ?? "Failed to reset password")
-        return
-      }
-
       router.push("/login?reset=success")
-    } catch {
-      setError("Unable to connect to server")
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message || "Failed to reset password")
+      } else {
+        setError("Unable to connect to server")
+      }
     } finally {
       setLoading(false)
     }
@@ -109,27 +94,7 @@ function ResetPasswordForm() {
             placeholder="Create a new password"
             autoFocus
           />
-          {newPassword.length > 0 && (
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              {PASSWORD_RULES.map((rule) => {
-                const passed =
-                  rule.id === "min-length"
-                    ? checks.minLength
-                    : rule.id === "has-letter"
-                      ? checks.hasLetter
-                      : checks.hasNumber
-
-                return (
-                  <li
-                    key={rule.id}
-                    className={passed ? "text-success" : "text-muted-foreground"}
-                  >
-                    {passed ? "✓" : "○"} {rule.label}
-                  </li>
-                )
-              })}
-            </ul>
-          )}
+          <PasswordRules password={newPassword} />
         </div>
 
         <div className="space-y-1.5">

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
-import { backendFetch } from "@/lib/backend-fetch";
+import { ApiError } from "@/lib/api-error";
+import { apiClient } from "@/lib/api-client";
 import { SettingsPageHeader } from "@/components/settings/page-header";
 import { User } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -96,23 +97,21 @@ export default function ProfileSettingsPage() {
     }
     dispatch({ type: "SUBMIT_START" });
     try {
-      const res = await backendFetch("/backend-proxy/auth/change-password", {
+      await apiClient("/backend-proxy/auth/change-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           current_password: currentPassword,
           new_password: newPassword,
-        }),
+        },
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        dispatch({ type: "SUBMIT_ERROR", message: data?.detail ?? "Failed to change password" });
-        return;
-      }
       dispatch({ type: "SUBMIT_SUCCESS" });
       signOutTimer.current = setTimeout(() => signOut({ callbackUrl: "/login" }), 2000);
-    } catch {
-      dispatch({ type: "SUBMIT_ERROR", message: "Unable to connect to server" });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        dispatch({ type: "SUBMIT_ERROR", message: err.message || "Failed to change password" });
+      } else {
+        dispatch({ type: "SUBMIT_ERROR", message: "Unable to connect to server" });
+      }
     }
   }
 

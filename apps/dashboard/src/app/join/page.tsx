@@ -13,6 +13,8 @@ import {
   Sparkles,
 } from "lucide-react"
 import AuthShell from "@/components/auth/auth-shell"
+import { PasswordRules } from "@/components/auth/password-rules"
+import { validatePassword } from "@/lib/password-policy"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -22,45 +24,6 @@ import {
   previewHostedAccessToken,
   type HostedAccessPreview,
 } from "@/lib/hosted-access-api"
-
-function validatePassword(password: string) {
-  return {
-    minLength: password.length >= 8,
-    hasLetter: /[a-zA-Z]/.test(password),
-    hasNumber: /\d/.test(password),
-  }
-}
-
-const PASSWORD_RULES = [
-  { id: "min-length", label: "At least 8 characters" },
-  { id: "has-letter", label: "At least one letter" },
-  { id: "has-number", label: "At least one number" },
-] as const
-
-function PasswordRules({ password }: { password: string }) {
-  if (password.length === 0) return null
-  const checks = validatePassword(password)
-  return (
-    <ul className="space-y-1 text-xs text-muted-foreground">
-      {PASSWORD_RULES.map((rule) => {
-        const passed =
-          rule.id === "min-length"
-            ? checks.minLength
-            : rule.id === "has-letter"
-              ? checks.hasLetter
-              : checks.hasNumber
-        return (
-          <li
-            key={rule.id}
-            className={passed ? "text-success" : "text-muted-foreground"}
-          >
-            {passed ? "✓" : "○"} {rule.label}
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
 
 export default function JoinPage() {
   return (

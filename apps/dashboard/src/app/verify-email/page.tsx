@@ -7,6 +7,8 @@ import AuthShell from "@/components/auth/auth-shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { ApiError } from "@/lib/api-error"
+import { apiClient } from "@/lib/api-client"
 import { backendFetch } from "@/lib/backend-fetch"
 
 export default function VerifyEmailPage() {
@@ -122,21 +124,17 @@ function VerifyEmailForm() {
     dispatch({ type: "VERIFY_START" })
 
     try {
-      const res = await backendFetch("/auth/verify-email", {
+      await apiClient("/auth/verify-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, code }),
+        body: { email, code },
       })
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => null)
-        dispatch({ type: "VERIFY_FAILED", message: data?.detail ?? "Invalid or expired code" })
-        return
-      }
-
       dispatch({ type: "VERIFIED" })
-    } catch {
-      dispatch({ type: "VERIFY_FAILED", message: "Unable to connect to server" })
+    } catch (err) {
+      if (err instanceof ApiError) {
+        dispatch({ type: "VERIFY_FAILED", message: err.message || "Invalid or expired code" })
+      } else {
+        dispatch({ type: "VERIFY_FAILED", message: "Unable to connect to server" })
+      }
     }
   }
 

@@ -7,7 +7,7 @@ import AuthShell from "@/components/auth/auth-shell"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { backendFetch } from "@/lib/backend-fetch"
+import { apiClient } from "@/lib/api-client"
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("")
@@ -19,15 +19,15 @@ export default function ForgotPasswordPage() {
     setLoading(true)
 
     try {
-      await backendFetch("/auth/forgot-password", {
+      await apiClient("/auth/forgot-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: { email },
       })
-      setSubmitted(true)
     } catch {
-      setSubmitted(true)
+      // Always show success: the endpoint must not reveal whether the
+      // email exists.
     } finally {
+      setSubmitted(true)
       setLoading(false)
     }
   }

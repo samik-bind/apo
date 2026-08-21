@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { enterDemo } from "@/lib/demo-workspace";
 import { createProject } from "@/lib/projects-api";
 import { isApiError } from "@/lib/api-error";
+import { apiClient } from "@/lib/api-client";
 
 export function DemoWorkspaceChoice() {
   const router = useRouter();
@@ -24,11 +25,7 @@ export function DemoWorkspaceChoice() {
   async function handleDemo() {
     setSeeding(true);
     try {
-      const [{ backendFetch }, { getBrowserBackendBaseUrl }] = await Promise.all([
-        import("@/lib/backend-fetch"),
-        import("@/lib/config"),
-      ]);
-      await backendFetch(`${getBrowserBackendBaseUrl()}/v1/demo/seed`, { method: "POST" });
+      await apiClient("/v1/demo/seed", { method: "POST" });
     } catch {
       // ignore — may already be seeded
     }

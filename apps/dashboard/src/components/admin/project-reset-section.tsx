@@ -4,8 +4,8 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { listProjects, type Project } from "@/lib/projects-api";
-import { backendFetch } from "@/lib/backend-fetch";
-import { getBrowserBackendBaseUrl } from "@/lib/config";
+import { ApiError } from "@/lib/api-error";
+import { apiClient } from "@/lib/api-client";
 import { Trash2, AlertTriangle } from "lucide-react";
 
 export function ProjectResetSection() {
@@ -25,16 +25,14 @@ export function ProjectResetSection() {
     if (!selected) return;
     setResetting(true);
     try {
-      const res = await backendFetch(
-        `${getBrowserBackendBaseUrl()}/v1/projects/${selected}/reset-data`,
+      const data = await apiClient<{ deleted: Record<string, unknown> }>(
+        `/v1/projects/${selected}/reset-data`,
         { method: "POST" },
       );
-      if (!res.ok) throw new Error(`Failed: ${res.status}`);
-      const data = await res.json();
       toast.success(`Reset complete: ${JSON.stringify(data.deleted)}`);
       setConfirming(false);
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : "Reset failed");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Reset failed");
     } finally {
       setResetting(false);
     }
