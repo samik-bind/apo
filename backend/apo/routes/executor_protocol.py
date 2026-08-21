@@ -47,6 +47,7 @@ from apo.services.execution_leases import (
     LeaseError,
     claim_next_attempt,
     heartbeat_attempt,
+    lease_error_to_http,
     start_attempt,
 )
 from apo.services.executor_auth import (
@@ -267,14 +268,6 @@ async def attempt_failure(
     except LeaseError as exc:
         raise lease_error_to_http(exc)
     return {"attempt_id": attempt.id, "status": attempt.status}
-
-
-def lease_error_to_http(exc: LeaseError) -> HTTPException:
-    if exc.kind in ("stale_generation", "state_mismatch"):
-        return HTTPException(status.HTTP_409_CONFLICT, detail={"kind": "lease_stale", "msg": str(exc)})
-    if exc.kind == "not_found":
-        return HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
-    return HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
 
 
 __all__ = ["PROTOCOL_VERSION", "router"]

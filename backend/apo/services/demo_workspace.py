@@ -217,7 +217,7 @@ def seed_demo_workspace(force: bool = False) -> str | None:
             ),
         )
 
-    _ensure_demo_project_exists()
+    ensure_demo_project_exists()
     with Session(engine) as session:
         if is_demo_seeded(session):
             if not force:
@@ -421,7 +421,7 @@ def reset_demo_schedules(session: Session) -> None:
     ensure_demo_schedule(session)
 
 
-def _ensure_demo_project_exists() -> None:
+def ensure_demo_project_exists() -> None:
     """Create the demo project row and task source if they don't exist.
 
     This runs at startup regardless of ``DEMO_AUTHORING_ENABLED`` so that:

@@ -12,7 +12,7 @@ from typing import cast
 
 from sqlmodel import Session, select
 
-from ..db_helpers import _ensure_utc_datetime
+from ..db_helpers import ensure_utc_datetime
 from ..ingestion_helpers import (
     _get_json_map,
     _get_optional_float,
@@ -38,9 +38,9 @@ def parse_optional_iso(dt: object) -> datetime | None:
     if dt is None:
         return None
     if isinstance(dt, datetime):
-        return _ensure_utc_datetime(dt)
+        return ensure_utc_datetime(dt)
     if isinstance(dt, str):
-        return _ensure_utc_datetime(datetime.fromisoformat(dt.replace("Z", "+00:00")))
+        return ensure_utc_datetime(datetime.fromisoformat(dt.replace("Z", "+00:00")))
     return None
 
 
@@ -151,7 +151,7 @@ async def process_call_create(body: dict[str, object], session: Session) -> None
 
     time_to_first_token_ms = None
     if completion_start_time and created_at:
-        delta = _ensure_utc_datetime(completion_start_time) - _ensure_utc_datetime(
+        delta = ensure_utc_datetime(completion_start_time) - ensure_utc_datetime(
             created_at
         )
         time_to_first_token_ms = delta.total_seconds() * 1000
@@ -171,7 +171,7 @@ async def process_call_create(body: dict[str, object], session: Session) -> None
     latency_ms = raw_latency_ms
     if raw_latency_ms is None and end_time is not None:
         latency_ms = (
-            _ensure_utc_datetime(end_time) - _ensure_utc_datetime(created_at)
+            ensure_utc_datetime(end_time) - ensure_utc_datetime(created_at)
         ).total_seconds() * 1000
 
     call = LoggedCallDB(
@@ -261,8 +261,8 @@ async def process_call_update(body: dict[str, object], session: Session) -> None
     # ``call-update`` that carries ``end_time`` but no explicit latency.
     if call.latency_ms is None and call.end_time is not None and call.created_at is not None:
         call.latency_ms = (
-            _ensure_utc_datetime(call.end_time)
-            - _ensure_utc_datetime(call.created_at)
+            ensure_utc_datetime(call.end_time)
+            - ensure_utc_datetime(call.created_at)
         ).total_seconds() * 1000
     if "prompt_tokens" in body:
         call.prompt_tokens = _get_optional_int(body, "prompt_tokens")
@@ -296,9 +296,9 @@ async def process_call_update(body: dict[str, object], session: Session) -> None
         )
     elif "completion_start_time" in body and call.created_at:
         if call.completion_start_time:
-            delta = _ensure_utc_datetime(
+            delta = ensure_utc_datetime(
                 call.completion_start_time
-            ) - _ensure_utc_datetime(call.created_at)
+            ) - ensure_utc_datetime(call.created_at)
             call.time_to_first_token_ms = delta.total_seconds() * 1000
     if "provided_model_name" in body:
         call.provided_model_name = _get_optional_str(body, "provided_model_name")

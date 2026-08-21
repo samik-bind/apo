@@ -44,7 +44,8 @@ from ..models.schemas import (
     RunConfigModelFacet,
     UpdateProjectRequest,
 )
-from ..routes.api_keys import _get_client_ip, mint_legacy_key
+from ..auth.client_ip import get_client_ip
+from ..routes.api_keys import mint_legacy_key
 from ..services.agent_task_stats import (
     RunStatFields,
     compute_run_config_facets,
@@ -62,7 +63,7 @@ from ..services.project_memberships import (
     get_project_membership,
     readable_project_ids_for_request,
 )
-from ..db_helpers import _as_column
+from ..db_helpers import as_column
 from ..services.runtime_config import get_runtime_config
 from ..services.project_task_inventory import (
     get_inventory_row,
@@ -264,7 +265,7 @@ def bootstrap_project(
 
     Rate-limited (5/min/IP) independently from the api-keys bootstrap path.
     """
-    ip = _get_client_ip(request)
+    ip = get_client_ip(request)
     if not _projects_bootstrap_rate_limiter.is_allowed(ip):
         retry_after = _projects_bootstrap_rate_limiter.get_retry_after(ip)
         raise HTTPException(
@@ -567,10 +568,10 @@ async def get_project_onboarding_status(
         .select_from(ProjectTaskInventoryDB)
         .where(ProjectTaskInventoryDB.project == project_id)
     ).one()
-    _batch_run_id_col: ColumnElement[str] = _as_column(
+    _batch_run_id_col: ColumnElement[str] = as_column(
         cast(object, AgentTaskRunDB.batch_run_id)
     )
-    _batch_id_col: ColumnElement[str] = _as_column(cast(object, AgentTaskBatchRunDB.id))
+    _batch_id_col: ColumnElement[str] = as_column(cast(object, AgentTaskBatchRunDB.id))
     recorded = session.exec(
         select(func.count())
         .select_from(AgentTaskRunDB)

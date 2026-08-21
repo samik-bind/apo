@@ -8,18 +8,30 @@ aggregation, and analytics capabilities.
 # pyright: reportAny=false, reportCallInDefaultInitializer=false, reportDeprecated=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnnecessaryComparison=false, reportUnusedCallResult=false
 
 from datetime import datetime
-from typing import Any, cast
+from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 
 from ..services.project_memberships import enforce_project_read_from_request
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, asc, text as sql_text, func, select as sa_select
-from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..db_helpers import _as_column
+from ..models.columns import (
+    LOGGED_CALL_COST_COL,
+    LOGGED_CALL_CREATED_AT_COL,
+    LOGGED_CALL_LATENCY_MS_COL,
+    LOGGED_CALL_LEVEL_COL,
+    LOGGED_CALL_MODEL_COL,
+    LOGGED_CALL_OBSERVATION_TYPE_COL,
+    LOGGED_CALL_RUN_ID_COL,
+    LOGGED_CALL_TOTAL_TOKENS_COL,
+    RUN_CREATED_AT_COL,
+    RUN_DURATION_MS_COL,
+    RUN_ID_COL,
+    RUN_METRIC_SCORE_COL,
+)
 from ..models.db import RunDB, LoggedCallDB, RunMetricDB
 from ..services.filters import (
     apply_date_range,
@@ -30,20 +42,6 @@ from ..services.filters import (
 from ..services.metrics import compute_aggregate, compute_percentile
 
 router = APIRouter(prefix="/api/v1", tags=["analytics"])
-
-
-RUN_ID_COL: ColumnElement[str] = _as_column(cast(object, RunDB.id))
-RUN_CREATED_AT_COL: ColumnElement[datetime] = _as_column(cast(object, RunDB.created_at))
-RUN_DURATION_MS_COL: ColumnElement[float | None] = _as_column(cast(object, RunDB.duration_ms))
-CALL_LATENCY_MS_COL: ColumnElement[float | None] = _as_column(cast(object, LoggedCallDB.latency_ms))
-CALL_COST_COL: ColumnElement[float | None] = _as_column(cast(object, LoggedCallDB.cost))
-CALL_CREATED_AT_COL: ColumnElement[datetime] = _as_column(cast(object, LoggedCallDB.created_at))
-CALL_TOTAL_TOKENS_COL: ColumnElement[int | None] = _as_column(cast(object, LoggedCallDB.total_tokens))
-CALL_MODEL_COL: ColumnElement[str] = _as_column(cast(object, LoggedCallDB.model))
-CALL_OBSERVATION_TYPE_COL: ColumnElement[str] = _as_column(cast(object, LoggedCallDB.observation_type))
-CALL_LEVEL_COL: ColumnElement[str] = _as_column(cast(object, LoggedCallDB.level))
-CALL_RUN_ID_COL: ColumnElement[str | None] = _as_column(cast(object, LoggedCallDB.run_id))
-RUN_METRIC_SCORE_COL: ColumnElement[float | None] = _as_column(cast(object, RunMetricDB.score))
 
 
 class TraceFilter(BaseModel):
@@ -167,7 +165,7 @@ def _apply_trace_filters(
     if f.min_cost is not None or f.max_cost is not None:
         cost_query = (
             select(LoggedCallDB.run_id)
-            .where(CALL_COST_COL.is_not(None))
+            .where(LOGGED_CALL_COST_COL.is_not(None))
             .group_by(LoggedCallDB.run_id)
         )
         having_parts: list[str] = []
@@ -189,7 +187,7 @@ def _apply_trace_filters(
 
     if f.has_errors is True:
         error_run_ids = session.exec(
-            select(LoggedCallDB.run_id).where(CALL_LEVEL_COL == "ERROR")
+            select(LoggedCallDB.run_id).where(LOGGED_CALL_LEVEL_COL == "ERROR")
         ).all()
         if error_run_ids:
             stmt = stmt.where(RUN_ID_COL.in_(error_run_ids))
@@ -216,11 +214,11 @@ def _apply_observation_filters(statement: Any, f: ObservationFilter) -> Any:
     stmt = stmt.where(LoggedCallDB.project == f.project)
 
     if f.from_timestamp or f.to_timestamp:
-        stmt = apply_date_range(stmt, CALL_CREATED_AT_COL, f.from_timestamp, f.to_timestamp)
+        stmt = apply_date_range(stmt, LOGGED_CALL_CREATED_AT_COL, f.from_timestamp, f.to_timestamp)
     if f.flow_name:
         stmt = stmt.where(LoggedCallDB.flow_name == f.flow_name)
     if f.run_id:
-        stmt = stmt.where(CALL_RUN_ID_COL == f.run_id)
+        stmt = stmt.where(LOGGED_CALL_RUN_ID_COL == f.run_id)
     if f.user_id:
         stmt = stmt.where(LoggedCallDB.user_id == f.user_id)
     if f.session_id:
@@ -228,9 +226,9 @@ def _apply_observation_filters(statement: Any, f: ObservationFilter) -> Any:
     if f.environment:
         stmt = stmt.where(LoggedCallDB.environment == f.environment)
     if f.observation_type:
-        stmt = stmt.where(CALL_OBSERVATION_TYPE_COL == f.observation_type.upper())
+        stmt = stmt.where(LOGGED_CALL_OBSERVATION_TYPE_COL == f.observation_type.upper())
     if f.model:
-        stmt = stmt.where(CALL_MODEL_COL == f.model)
+        stmt = stmt.where(LOGGED_CALL_MODEL_COL == f.model)
 
     if f.tags_any:
         stmt = apply_tag_any_filter(stmt, f.tags_any)
@@ -239,12 +237,12 @@ def _apply_observation_filters(statement: Any, f: ObservationFilter) -> Any:
         stmt = apply_tag_all_filter(stmt, f.tags_all)
 
     if f.min_cost is not None or f.max_cost is not None:
-        stmt = apply_numeric_range(stmt, CALL_COST_COL, f.min_cost, f.max_cost)
+        stmt = apply_numeric_range(stmt, LOGGED_CALL_COST_COL, f.min_cost, f.max_cost)
     if f.min_latency_ms is not None or f.max_latency_ms is not None:
-        stmt = apply_numeric_range(stmt, CALL_LATENCY_MS_COL, f.min_latency_ms, f.max_latency_ms)
+        stmt = apply_numeric_range(stmt, LOGGED_CALL_LATENCY_MS_COL, f.min_latency_ms, f.max_latency_ms)
 
     if f.has_errors is True:
-        stmt = stmt.where(CALL_LEVEL_COL == "ERROR")
+        stmt = stmt.where(LOGGED_CALL_LEVEL_COL == "ERROR")
 
     return stmt
 
@@ -262,14 +260,14 @@ def _apply_ordering(
         }
     else:
         col_map = {
-            "created_at": CALL_CREATED_AT_COL,
-            "latency_ms": CALL_LATENCY_MS_COL,
-            "cost": CALL_COST_COL,
+            "created_at": LOGGED_CALL_CREATED_AT_COL,
+            "latency_ms": LOGGED_CALL_LATENCY_MS_COL,
+            "cost": LOGGED_CALL_COST_COL,
         }
 
     col = col_map.get(order_by)
     if col is None:
-        col = RUN_CREATED_AT_COL if is_trace else CALL_CREATED_AT_COL
+        col = RUN_CREATED_AT_COL if is_trace else LOGGED_CALL_CREATED_AT_COL
 
     direction = desc if order_dir.lower() == "desc" else asc
     return statement.order_by(direction(col))
@@ -381,9 +379,9 @@ async def search_observations(
 def _build_metrics_where(query: MetricsQuery) -> list[Any]:
     conditions: list[Any] = [LoggedCallDB.project == query.project]
     if query.from_timestamp:
-        conditions.append(CALL_CREATED_AT_COL >= query.from_timestamp)
+        conditions.append(LOGGED_CALL_CREATED_AT_COL >= query.from_timestamp)
     if query.to_timestamp:
-        conditions.append(CALL_CREATED_AT_COL <= query.to_timestamp)
+        conditions.append(LOGGED_CALL_CREATED_AT_COL <= query.to_timestamp)
     if query.flow_name:
         conditions.append(LoggedCallDB.flow_name == query.flow_name)
     if query.environment:
@@ -397,8 +395,8 @@ def _get_measure_col(measure: str) -> Any:
 
 def _get_dimension_col(dimension: str) -> Any:
     if dimension == "date":
-        return func.strftime("%Y-%m-%d", CALL_CREATED_AT_COL)
-    return getattr(LoggedCallDB, dimension, CALL_MODEL_COL)
+        return func.strftime("%Y-%m-%d", LOGGED_CALL_CREATED_AT_COL)
+    return getattr(LoggedCallDB, dimension, LOGGED_CALL_MODEL_COL)
 
 
 @router.post("/metrics/query", response_model=list[MetricsQueryResult])
@@ -542,20 +540,20 @@ async def get_model_metrics(
 
     agg_rows = session.execute(
         sa_select(
-            CALL_MODEL_COL,
+            LOGGED_CALL_MODEL_COL,
             func.count(),
-            func.avg(CALL_LATENCY_MS_COL),
-            func.sum(CALL_COST_COL),
-            func.avg(CALL_COST_COL),
-            func.sum(CALL_TOTAL_TOKENS_COL),
+            func.avg(LOGGED_CALL_LATENCY_MS_COL),
+            func.sum(LOGGED_CALL_COST_COL),
+            func.avg(LOGGED_CALL_COST_COL),
+            func.sum(LOGGED_CALL_TOTAL_TOKENS_COL),
         )
         .where(*base_where)
-        .group_by(CALL_MODEL_COL)
+        .group_by(LOGGED_CALL_MODEL_COL)
     ).all()
 
     latency_rows = session.exec(
-        select(LoggedCallDB.model, CALL_LATENCY_MS_COL)
-        .where(*base_where, CALL_LATENCY_MS_COL.is_not(None))
+        select(LoggedCallDB.model, LOGGED_CALL_LATENCY_MS_COL)
+        .where(*base_where, LOGGED_CALL_LATENCY_MS_COL.is_not(None))
     ).all()
     latencies_by_model: dict[str, list[float]] = {}
     for row in latency_rows:
@@ -605,16 +603,16 @@ async def get_project_summary(
     agg_row = session.exec(
         select(
             func.count(),
-            func.sum(CALL_COST_COL),
-            func.avg(CALL_LATENCY_MS_COL),
-            func.sum(CALL_TOTAL_TOKENS_COL),
+            func.sum(LOGGED_CALL_COST_COL),
+            func.avg(LOGGED_CALL_LATENCY_MS_COL),
+            func.sum(LOGGED_CALL_TOTAL_TOKENS_COL),
         ).where(*call_where)
     ).one()
 
     latency_values = [
         float(v) for v in session.exec(
-            select(CALL_LATENCY_MS_COL).where(
-                *call_where, CALL_LATENCY_MS_COL.is_not(None)
+            select(LOGGED_CALL_LATENCY_MS_COL).where(
+                *call_where, LOGGED_CALL_LATENCY_MS_COL.is_not(None)
             )
         ).all() if v is not None
     ]

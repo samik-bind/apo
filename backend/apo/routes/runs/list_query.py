@@ -22,7 +22,7 @@ from sqlmodel import Session, func, or_, select
 from ...db_helpers import as_column
 from ...models import LoggedCallDB, RunDB, RunMetricDB, RunMetric, RunSummary
 from ...services.filters import apply_date_range, apply_numeric_range, apply_tag_filters
-from .columns import (
+from ...models.columns import (
     CALL_LIGHT,
     LOGGED_CALL_CREATED_AT_COL,
     LOGGED_CALL_LEVEL_COL,

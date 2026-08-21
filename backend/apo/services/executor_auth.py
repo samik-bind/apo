@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from sqlmodel import Session, select
 
-from apo.auth.api_key_auth import _get_salt
+from apo.auth.api_key_auth import get_salt
 from apo.db_helpers import as_column
 from apo.models.db import (
     ExecutorDB,
@@ -67,7 +67,7 @@ class EnrollmentError(ValueError):
 
 def _hash_with_salt(raw: str) -> str:
     """SHA-256 of raw:salt — identical scheme to API keys."""
-    return hashlib.sha256(f"{raw}:{_get_salt()}".encode()).hexdigest()
+    return hashlib.sha256(f"{raw}:{get_salt()}".encode()).hexdigest()
 
 
 def hash_credential(raw: str) -> str:

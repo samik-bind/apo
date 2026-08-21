@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import text as sql_text
 from sqlmodel import or_
 
-from ..db import _is_sqlite
+from ..db import is_sqlite
 
 
 _TAG_PATTERN = re.compile(r'^[a-zA-Z0-9_\-:\s\.]+$')
@@ -15,6 +15,13 @@ _TAG_PATTERN = re.compile(r'^[a-zA-Z0-9_\-:\s\.]+$')
 
 def sanitize_tags(tags: list[str]) -> list[str]:
     return [t for t in tags if _TAG_PATTERN.match(t)]
+
+
+def split_csv_param(value: str | None) -> list[str]:
+    """Split a comma-separated query param into stripped, non-empty values."""
+    if not value:
+        return []
+    return [v.strip() for v in value.split(",") if v.strip()]
 
 
 def _tag_in_array_sql(column_name: str, tag: str) -> str:
@@ -34,7 +41,7 @@ def _tag_in_array_sql(column_name: str, tag: str) -> str:
     ``tag`` is safe to interpolate because ``sanitize_tags`` restricts it to
     ``[A-Za-z0-9_\\-:.\\s]+`` (no quotes, semicolons, or backslashes).
     """
-    if _is_sqlite():
+    if is_sqlite():
         return (
             f"EXISTS (SELECT 1 FROM json_each({column_name}) "
             f"WHERE value = '{tag}')"

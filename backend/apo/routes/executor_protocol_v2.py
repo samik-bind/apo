@@ -45,6 +45,7 @@ from ..services.execution_leases import (
     CurrentAttemptLease,
     LeaseError,
     heartbeat_attempt,
+    lease_error_to_http,
     start_attempt,
 )
 from ..services.source_owned_executor import check_catalog_eligibility
@@ -527,7 +528,6 @@ async def attempt_result_v2(
         code = status.HTTP_409_CONFLICT if "non-ready" in msg or "already exists" in msg else status.HTTP_400_BAD_REQUEST
         raise HTTPException(code, detail={"kind": "deliverable_error", "msg": msg}) from exc
     except LeaseError as exc:
-        from .executor_protocol import lease_error_to_http
         raise lease_error_to_http(exc)
     except Exception as exc:
         import logging

@@ -25,14 +25,29 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import cast
 
 from sqlalchemy import desc, or_, select as sa_select
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session
 
-from ..db_helpers import _as_column
-from ..models.db import AgentTaskBatchRunDB, AgentTaskRunDB
+from ..models.columns import (
+    AGENT_TASK_BATCH_ID_COL,
+    AGENT_TASK_BATCH_PROJECT_COL,
+    AGENT_TASK_RUN_BATCH_RUN_ID_COL,
+    AGENT_TASK_RUN_COMPLETED_AT_COL,
+    AGENT_TASK_RUN_CONFIGURED_EFFORT_COL,
+    AGENT_TASK_RUN_CONFIGURED_MODEL_COL,
+    AGENT_TASK_RUN_DEFINITION_REVISION_COL,
+    AGENT_TASK_RUN_ID_COL,
+    AGENT_TASK_RUN_PASSED_CHECKS_COL,
+    AGENT_TASK_RUN_PASS_RESULT_COL,
+    AGENT_TASK_RUN_STARTED_AT_COL,
+    AGENT_TASK_RUN_STATUS_COL,
+    AGENT_TASK_RUN_TASK_ID_COL,
+    AGENT_TASK_RUN_TOTAL_CHECKS_COL,
+    AGENT_TASK_RUN_TOTAL_COST_COL,
+)
+from ..models.db import AgentTaskBatchRunDB
 from ..models.schemas import TaskViewConfig
 
 
@@ -56,28 +71,6 @@ class ViewRun:
     total_checks: int
     passed_checks: int
     task_definition_revision_id: str | None
-
-
-# Typed column handles. The explicit ``ColumnElement[T]`` (not ``[object]``)
-# lets the core ``sa_select`` overloads resolve and keeps these columns out of
-# the SQLModel ``select`` overload that only accepts full models.
-_RUN_ID_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.id))
-_RUN_TASK_ID_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.task_id))
-_RUN_STATUS_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.status))
-_RUN_STARTED_COL: ColumnElement[datetime | None] = _as_column(cast(object, AgentTaskRunDB.started_at))
-_RUN_COMPLETED_COL: ColumnElement[datetime | None] = _as_column(cast(object, AgentTaskRunDB.completed_at))
-_RUN_TOTAL_COST_COL: ColumnElement[float | None] = _as_column(cast(object, AgentTaskRunDB.total_cost))
-_RUN_PASS_RESULT_COL: ColumnElement[bool | None] = _as_column(cast(object, AgentTaskRunDB.pass_result))
-_RUN_TOTAL_CHECKS_COL: ColumnElement[int] = _as_column(cast(object, AgentTaskRunDB.total_checks))
-_RUN_PASSED_CHECKS_COL: ColumnElement[int] = _as_column(cast(object, AgentTaskRunDB.passed_checks))
-_RUN_DEF_REV_COL: ColumnElement[str | None] = _as_column(
-    cast(object, AgentTaskRunDB.task_definition_revision_id)
-)
-_RUN_MODEL_COL: ColumnElement[str | None] = _as_column(cast(object, AgentTaskRunDB.configured_model))
-_RUN_EFFORT_COL: ColumnElement[str | None] = _as_column(cast(object, AgentTaskRunDB.configured_effort))
-_RUN_BATCH_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskRunDB.batch_run_id))
-_BATCH_ID_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskBatchRunDB.id))
-_BATCH_PROJECT_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskBatchRunDB.project))
 
 
 def since_cutoff(since: str | None) -> datetime | None:
@@ -131,40 +124,40 @@ def runs_in_view(
         return []
 
     conditions: list[ColumnElement[bool]] = [
-        _RUN_TASK_ID_COL.in_(task_ids),
-        _BATCH_PROJECT_COL == project_id,
+        AGENT_TASK_RUN_TASK_ID_COL.in_(task_ids),
+        AGENT_TASK_BATCH_PROJECT_COL == project_id,
     ]
     if view.model is not None:
-        conditions.append(_RUN_MODEL_COL == view.model)
+        conditions.append(AGENT_TASK_RUN_CONFIGURED_MODEL_COL == view.model)
     elif exclude_model is not None:
         conditions.append(
             or_(
-                _RUN_MODEL_COL != exclude_model,
-                _RUN_MODEL_COL.is_(None),
+                AGENT_TASK_RUN_CONFIGURED_MODEL_COL != exclude_model,
+                AGENT_TASK_RUN_CONFIGURED_MODEL_COL.is_(None),
             )
         )
     if view.effort is not None:
-        conditions.append(_RUN_EFFORT_COL == view.effort)
+        conditions.append(AGENT_TASK_RUN_CONFIGURED_EFFORT_COL == view.effort)
     cutoff = since_cutoff(view.since)
     if cutoff is not None:
-        conditions.append(_RUN_STARTED_COL >= cutoff)
+        conditions.append(AGENT_TASK_RUN_STARTED_AT_COL >= cutoff)
 
     stmt = (
         sa_select(
-            _RUN_ID_COL,
-            _RUN_TASK_ID_COL,
-            _RUN_STATUS_COL,
-            _RUN_STARTED_COL,
-            _RUN_COMPLETED_COL,
-            _RUN_TOTAL_COST_COL,
-            _RUN_PASS_RESULT_COL,
-            _RUN_TOTAL_CHECKS_COL,
-            _RUN_PASSED_CHECKS_COL,
-            _RUN_DEF_REV_COL,
+            AGENT_TASK_RUN_ID_COL,
+            AGENT_TASK_RUN_TASK_ID_COL,
+            AGENT_TASK_RUN_STATUS_COL,
+            AGENT_TASK_RUN_STARTED_AT_COL,
+            AGENT_TASK_RUN_COMPLETED_AT_COL,
+            AGENT_TASK_RUN_TOTAL_COST_COL,
+            AGENT_TASK_RUN_PASS_RESULT_COL,
+            AGENT_TASK_RUN_TOTAL_CHECKS_COL,
+            AGENT_TASK_RUN_PASSED_CHECKS_COL,
+            AGENT_TASK_RUN_DEFINITION_REVISION_COL,
         )
-        .join(AgentTaskBatchRunDB, _RUN_BATCH_COL == _BATCH_ID_COL)
+        .join(AgentTaskBatchRunDB, AGENT_TASK_RUN_BATCH_RUN_ID_COL == AGENT_TASK_BATCH_ID_COL)
         .where(*conditions)
-        .order_by(desc(_RUN_STARTED_COL))
+        .order_by(desc(AGENT_TASK_RUN_STARTED_AT_COL))
     )
 
     runs: list[ViewRun] = []

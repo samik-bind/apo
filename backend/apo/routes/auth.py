@@ -20,8 +20,9 @@ from ..auth import (
     verify_password,
 )
 from ..auth.rate_limit import LoginRateLimiter, login_rate_limiter
+from ..auth.client_ip import get_client_ip
 from ..db import get_session
-from ..db_helpers import _as_column
+from ..db_helpers import as_column
 from ..models.db import EmailVerificationTokenDB, PasswordResetTokenDB, ProjectDB, UserDB
 from ..models.schemas import (
     AcceptInvitationCreateAccountRequest,
@@ -118,14 +119,6 @@ class VerifyEmailResponse(BaseModel):
 
 class ResendVerificationRequest(BaseModel):
     email: str
-
-
-def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    client = request.client
-    return client.host if client else "unknown"
 
 
 def _utcnow_naive() -> datetime:
@@ -251,7 +244,7 @@ def verify_password_endpoint(
     body: VerifyPasswordRequest,
     session: Session = Depends(get_session),
 ):
-    ip = _get_client_ip(request)
+    ip = get_client_ip(request)
 
     if not login_rate_limiter.is_allowed(ip):
         retry_after = login_rate_limiter.get_retry_after(ip)
@@ -328,10 +321,10 @@ def verify_email(
         select(EmailVerificationTokenDB)
         .where(
             EmailVerificationTokenDB.user_id == user.id,
-            _as_column(cast(object, EmailVerificationTokenDB.used_at)).is_(None),
+            as_column(cast(object, EmailVerificationTokenDB.used_at)).is_(None),
         )
         .order_by(
-            _as_column(cast(object, EmailVerificationTokenDB.created_at)).desc()  # pyright: ignore[reportUnknownArgumentType]
+            as_column(cast(object, EmailVerificationTokenDB.created_at)).desc()  # pyright: ignore[reportUnknownArgumentType]
         )
     ).first()
 
@@ -399,7 +392,7 @@ async def resend_verification(
     active_tokens = session.exec(
         select(EmailVerificationTokenDB).where(
             EmailVerificationTokenDB.user_id == user.id,
-            _as_column(cast(object, EmailVerificationTokenDB.used_at)).is_(None),
+            as_column(cast(object, EmailVerificationTokenDB.used_at)).is_(None),
         )
     ).all()
     for t in active_tokens:
@@ -568,7 +561,7 @@ def list_users(request: Request, session: Session = Depends(get_session)):
     _ = admin
     users = session.exec(
         select(UserDB).order_by(
-            _as_column(cast(object, UserDB.created_at))
+            as_column(cast(object, UserDB.created_at))
         )
     ).all()
     return ListUsersResponse(users=[_user_to_response(u) for u in users])

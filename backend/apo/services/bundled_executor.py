@@ -18,7 +18,7 @@ from pathlib import Path
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from apo.db_helpers import _as_column
+from apo.db_helpers import as_column
 from apo.models.db import (
     AgentTaskScheduleDB,
     ExecutorDB,
@@ -181,7 +181,7 @@ def _set_default_if_missing(
 def _ensure_writable_project_pools(session: Session) -> None:
     projects = session.exec(
         select(ProjectDB).where(
-            _as_column(ProjectDB.created_by).is_not(None)
+            as_column(ProjectDB.created_by).is_not(None)
         )
     ).all()
     for project in projects:
@@ -189,7 +189,7 @@ def _ensure_writable_project_pools(session: Session) -> None:
         schedules = session.exec(
             select(AgentTaskScheduleDB).where(
                 AgentTaskScheduleDB.project == project.id,
-                _as_column(AgentTaskScheduleDB.executor_pool_id).is_(None),
+                as_column(AgentTaskScheduleDB.executor_pool_id).is_(None),
             )
         ).all()
         for schedule in schedules:
@@ -206,8 +206,8 @@ def _active_installation_executor(session: Session) -> ExecutorDB | None:
     return session.exec(
         select(ExecutorDB).where(
             ExecutorDB.scope_kind == "installation",
-            _as_column(ExecutorDB.enabled).is_(True),
-            _as_column(ExecutorDB.revoked_at).is_(None),
+            as_column(ExecutorDB.enabled).is_(True),
+            as_column(ExecutorDB.revoked_at).is_(None),
         )
     ).first()
 

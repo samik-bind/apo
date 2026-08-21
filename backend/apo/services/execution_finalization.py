@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 
 from sqlmodel import Session, select
 
-from apo.db_helpers import _as_column
+from apo.db_helpers import as_column
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskRunDB, TaskExecutionAttemptDB
 from apo.models.schemas import AgentTaskRunConfiguration
 from apo.services.agent_task_runner import finalize_task_run_with_result, update_batch_run_status
@@ -132,8 +132,8 @@ def _check_completion_idempotency(
     """Return True if this completion is an idempotent replay (already done)."""
     existing = session.exec(
         select(TaskExecutionAttemptDB).where(
-            _as_column(TaskExecutionAttemptDB.completion_id) == completion_id,
-            _as_column(TaskExecutionAttemptDB.id) != attempt.id,
+            as_column(TaskExecutionAttemptDB.completion_id) == completion_id,
+            as_column(TaskExecutionAttemptDB.id) != attempt.id,
         )
     ).first()
     if existing is not None:
@@ -296,7 +296,7 @@ def _emit_finalization_events(
         task_runs = list(
             session.exec(
                 select(AgentTaskRunDB).where(
-                    _as_column(AgentTaskRunDB.batch_run_id) == batch.id
+                    as_column(AgentTaskRunDB.batch_run_id) == batch.id
                 )
             ).all()
         )

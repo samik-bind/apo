@@ -35,14 +35,14 @@ _PUBLIC_KEY_PREFIX = "pk-apo-"
 _SECRET_KEY_PREFIX = "sk-apo-"
 
 
-def _get_salt() -> str:
+def get_salt() -> str:
     """Return the API key salt from the environment (empty string if unset)."""
     return os.environ.get("API_KEY_SALT", "")
 
 
 def _hash_secret_key(secret_key: str) -> str:
     """Hash a secret key with the configured salt using SHA256."""
-    salt = _get_salt()
+    salt = get_salt()
     return hashlib.sha256(f"{secret_key}:{salt}".encode()).hexdigest()
 
 

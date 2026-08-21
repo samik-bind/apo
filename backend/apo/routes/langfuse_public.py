@@ -22,6 +22,7 @@ from ..auth.deps import require_api_key_scope
 from ..db import get_session
 from ..services.filters import apply_tag_all_filter
 from ..services.projection_lookup import select_call, select_run
+from ..models.columns import RUN_CREATED_AT_COL, SESSION_CREATED_AT_COL
 from ..models.db import (
     CallMetricDB,
     LoggedCallDB,
@@ -119,14 +120,6 @@ def _langfuse_read_project(
 def _trace_owner_projects(db: Session, trace_id: str) -> list[str]:
     runs = db.exec(select(RunDB).where(RunDB.id == trace_id)).all()
     return [run.project for run in runs]
-
-
-RUN_CREATED_AT_COL: ColumnElement[datetime] = cast(
-    ColumnElement[datetime], cast(object, RunDB.created_at)
-)
-SESSION_CREATED_AT_COL: ColumnElement[datetime] = cast(
-    ColumnElement[datetime], cast(object, SessionDB.created_at)
-)
 
 
 class LangfuseIngestionEvent(BaseModel):

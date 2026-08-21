@@ -11,20 +11,20 @@ parses query params and delegates; everything from the base
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import cast
 
 from pydantic import BaseModel
 from sqlalchemy import desc, func, or_
-from sqlalchemy.orm import defer
-from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, col, select
 from sqlmodel.sql.expression import SelectOfScalar
 
-from ..db_helpers import as_column
 from ..models import (
     AgentTaskBatchRunDB,
     AgentTaskBatchRunSummary,
     AgentTaskRunDB,
+)
+from ..models.columns import (
+    AGENT_TASK_BATCH_CREATED_AT_COL,
+    TASK_RUN_LIGHT,
 )
 from ..services.agent_task_projection import (
     child_task_ids,
@@ -32,15 +32,6 @@ from ..services.agent_task_projection import (
     to_batch_run_summary,
 )
 from ..services.archived_models import load_archived_models
-
-
-_BATCH_CREATED_AT_COL: ColumnElement[object] = as_column(
-    cast(object, AgentTaskBatchRunDB.created_at)
-)
-
-_TASK_RUN_LIGHT = (
-    defer(AgentTaskRunDB.transcript_json),
-)
 
 
 class EffortFacetOption(BaseModel):
@@ -117,7 +108,7 @@ def list_batch_run_summaries(
     )
 
     batches = session.exec(
-        filtered.order_by(desc(_BATCH_CREATED_AT_COL)).offset(
+        filtered.order_by(desc(AGENT_TASK_BATCH_CREATED_AT_COL)).offset(
             pagination.offset
         ).limit(pagination.page_size)
     ).all()
@@ -255,7 +246,7 @@ def _hydrate_batch_summaries(
 
     all_task_runs = list(session.exec(
         select(AgentTaskRunDB)
-        .options(*_TASK_RUN_LIGHT)
+        .options(*TASK_RUN_LIGHT)
         .where(col(AgentTaskRunDB.batch_run_id).in_(batch_ids))
     ).all())
 

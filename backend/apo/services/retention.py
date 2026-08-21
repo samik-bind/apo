@@ -35,8 +35,8 @@ from sqlmodel import Session, select
 
 from fastapi import HTTPException
 
-from ..db import DATA_DIR, SQLITE_FILE_NAME, engine, _is_sqlite
-from ..db_helpers import _as_column
+from ..db import DATA_DIR, SQLITE_FILE_NAME, engine, is_sqlite
+from ..db_helpers import as_column
 from ..models.db import AgentTaskDeliverableDB
 from .artifact_stores.registry import artifact_limits, get_store
 
@@ -51,7 +51,7 @@ MAX_DB_PAGES = int(os.environ.get("APO_MAX_DB_PAGES", "0"))
 
 
 def _table_exists(session: Session, table_name: str) -> bool:
-    if _is_sqlite():
+    if is_sqlite():
         row = session.execute(
             text("SELECT 1 FROM sqlite_master WHERE type='table' AND name=:n"),
             {"n": table_name},
@@ -179,8 +179,8 @@ async def delete_deliverable_objects_for_runs(
         return
     rows = session.exec(
         select(AgentTaskDeliverableDB).where(
-            _as_column(AgentTaskDeliverableDB.task_run_id).in_(run_ids),
-            _as_column(AgentTaskDeliverableDB.storage_key).is_not(None),
+            as_column(AgentTaskDeliverableDB.task_run_id).in_(run_ids),
+            as_column(AgentTaskDeliverableDB.storage_key).is_not(None),
         )
     ).all()
     # Group by backend so each store is resolved once; reads use the backend
@@ -214,7 +214,7 @@ async def delete_deliverable_objects_for_project(
     rows = session.exec(
         select(AgentTaskDeliverableDB).where(
             AgentTaskDeliverableDB.project == project_id,
-            _as_column(AgentTaskDeliverableDB.storage_key).is_not(None),
+            as_column(AgentTaskDeliverableDB.storage_key).is_not(None),
         )
     ).all()
     by_backend: dict[str, list[AgentTaskDeliverableDB]] = {}
@@ -332,7 +332,7 @@ def run_retention_cleanup() -> dict[str, int]:
     # VACUUM reclaims file space after deletes. It must run outside a
     # transaction (its own autocommit connection), so we use the raw
     # engine connection. SQLite-only; a no-op elsewhere.
-    if summary["total"] > 0 and _is_sqlite():
+    if summary["total"] > 0 and is_sqlite():
         with engine.connect() as conn:
             _ = conn.exec_driver_sql("VACUUM")
 
@@ -346,8 +346,8 @@ def run_retention_cleanup() -> dict[str, int]:
 
 def get_db_size_info() -> dict[str, object]:
     """Report the current DB footprint. SQLite-only stats are best-effort."""
-    info: dict[str, object] = {"dialect": "sqlite" if _is_sqlite() else "postgres"}
-    if not _is_sqlite():
+    info: dict[str, object] = {"dialect": "sqlite" if is_sqlite() else "postgres"}
+    if not is_sqlite():
         return info
 
     sqlite_path = os.path.join(DATA_DIR, SQLITE_FILE_NAME)
@@ -375,7 +375,7 @@ def apply_max_page_count() -> None:
     Called once at startup. ``max_page_count`` persists for the connection
     pool, so setting it via the maintenance connection is sufficient.
     """
-    if not _is_sqlite() or MAX_DB_PAGES <= 0:
+    if not is_sqlite() or MAX_DB_PAGES <= 0:
         return
     with engine.connect() as conn:
         _ = conn.exec_driver_sql(f"PRAGMA max_page_count={int(MAX_DB_PAGES)}")

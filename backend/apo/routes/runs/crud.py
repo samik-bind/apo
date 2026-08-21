@@ -16,7 +16,7 @@ from ...services.project_memberships import (
     enforce_project_role_from_request,
     list_readable_projects_from_request,
 )
-from ...db_helpers import _as_column, _ensure_utc_datetime
+from ...db_helpers import as_column, ensure_utc_datetime
 from ...models import (
     AgentTaskRunDB,
     RunDB,
@@ -32,8 +32,9 @@ from ...models import (
 )
 from ...metrics import calculate_and_store_aggregate_metrics
 from ...services.demo_workspace import require_project_not_demo, require_run_not_demo
+from ...services.filters import split_csv_param
 from .bulk_export import BulkExportRequest, export_runs
-from .columns import (
+from ...models.columns import (
     CALL_LIGHT,
     LOGGED_CALL_CREATED_AT_COL,
     LOGGED_CALL_STEP_INDEX_COL,
@@ -112,8 +113,8 @@ def update_run(
         run.completed_at = datetime.now(timezone.utc)
         if run.created_at:
             duration = (
-                _ensure_utc_datetime(run.completed_at)
-                - _ensure_utc_datetime(run.created_at)
+                ensure_utc_datetime(run.completed_at)
+                - ensure_utc_datetime(run.created_at)
             ).total_seconds() * 1000
             run.duration_ms = duration
 
@@ -177,10 +178,6 @@ def _caller_project_scope(request: Request, session: Session) -> list[str] | Non
     return list_readable_projects_from_request(request, session)
 
 
-def _split_csv(value: str | None) -> list[str]:
-    return [s.strip() for s in (value or "").split(",") if s.strip()]
-
-
 @router.get("", response_model=PaginatedRunSummary)
 def list_runs(
     http_request: Request,
@@ -224,12 +221,12 @@ def list_runs(
         RunListFilters(
             project=project,
             allowed_projects=allowed_projects,
-            flow_names=_split_csv(flow_name),
-            task_ids=_split_csv(task_id),
-            environments=_split_csv(environment),
-            session_ids=_split_csv(session_id),
-            user_ids=_split_csv(user_id),
-            models=_split_csv(models),
+            flow_names=split_csv_param(flow_name),
+            task_ids=split_csv_param(task_id),
+            environments=split_csv_param(environment),
+            session_ids=split_csv_param(session_id),
+            user_ids=split_csv_param(user_id),
+            models=split_csv_param(models),
             tags=tags,
             search=search,
             metric_name=metric_name,
@@ -239,7 +236,7 @@ def list_runs(
             max_duration_ms=max_duration_ms,
             created_after=created_after,
             created_before=created_before,
-            status_values=_split_csv(status),
+            status_values=split_csv_param(status),
             bookmarked=bookmarked,
         ),
         RunListPagination(
@@ -513,15 +510,15 @@ def bulk_delete_runs(
     # project's metrics/calls.
     deleted_metrics = session.exec(
         delete(RunMetricDB).where(
-            _as_column(cast(object, RunMetricDB.run_id)).in_(request.run_ids),
-            _as_column(cast(object, RunMetricDB.project)) == project,
+            as_column(cast(object, RunMetricDB.run_id)).in_(request.run_ids),
+            as_column(cast(object, RunMetricDB.project)) == project,
         )
     )
 
     deleted_calls = session.exec(
         delete(LoggedCallDB).where(
-            _as_column(cast(object, LoggedCallDB.run_id)).in_(request.run_ids),
-            _as_column(cast(object, LoggedCallDB.project)) == project,
+            as_column(cast(object, LoggedCallDB.run_id)).in_(request.run_ids),
+            as_column(cast(object, LoggedCallDB.project)) == project,
         )
     )
 

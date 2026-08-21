@@ -1,6 +1,6 @@
-# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportDeprecated=false, reportPrivateUsage=false
+# pyright: reportAny=false, reportCallInDefaultInitializer=false, reportDeprecated=false, reportPrivateUsage=false, reportExplicitAny=false
 
-from typing import cast
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -9,18 +9,17 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, col, select
 
 from ...db import get_session
-from ...db_helpers import _as_column
 from ...models import RunDB
+from ...models.columns import (
+    RUN_CALL_COUNT_COL,
+    RUN_CREATED_AT_COL,
+    RUN_DURATION_MS_COL,
+    RUN_ID_COL,
+    RUN_PROJECT_COL,
+)
 from ...services.project_memberships import enforce_project_read_from_request
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
-
-
-RUN_ID_COL: ColumnElement[str] = _as_column(cast(object, RunDB.id))
-RUN_PROJECT_COL: ColumnElement[str] = _as_column(cast(object, RunDB.project))
-RUN_CREATED_AT_COL: ColumnElement[object] = _as_column(cast(object, RunDB.created_at))
-RUN_DURATION_MS_COL: ColumnElement[object] = _as_column(cast(object, RunDB.duration_ms))
-RUN_CALL_COUNT_COL: ColumnElement[object] = _as_column(cast(object, RunDB.call_count))
 
 
 class AdjacentRuns(BaseModel):
@@ -31,7 +30,7 @@ class AdjacentRuns(BaseModel):
 VALID_NAV_SORT_FIELDS = {"created_at", "duration_ms", "call_count"}
 
 
-def _get_nav_sort_column(field: str) -> ColumnElement[object]:
+def _get_nav_sort_column(field: str) -> ColumnElement[Any]:
     if field == "duration_ms":
         return RUN_DURATION_MS_COL
     if field == "call_count":

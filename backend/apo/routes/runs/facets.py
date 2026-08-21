@@ -4,53 +4,32 @@ from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import and_, func, or_
-from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, select
 
 from ...db import get_session
-from ...db_helpers import _as_column
-from ...models import LoggedCallDB, RunDB, RunMetricDB
+from ...models import RunDB
+from ...models.columns import (
+    LOGGED_CALL_LEVEL_COL,
+    LOGGED_CALL_MODEL_COL,
+    LOGGED_CALL_RUN_ID_COL,
+    RUN_CALL_COUNT_COL,
+    RUN_ENVIRONMENT_COL,
+    RUN_ID_COL,
+    RUN_PRIMARY_MODEL_COL,
+    RUN_PROJECT_COL,
+    RUN_SESSION_ID_COL,
+    RUN_USER_ID_COL,
+    RUN_METRIC_NAME_COL,
+    RUN_METRIC_RUN_ID_COL,
+)
 from ...models.schemas import FacetBucket, RunFacets
-from ...services.filters import apply_date_range, apply_tag_filters
+from ...services.filters import apply_date_range, apply_tag_filters, split_csv_param
 from ...services.project_memberships import (
     enforce_project_read_from_request,
     list_readable_projects_from_request,
 )
 
 router = APIRouter(prefix="/v1/runs", tags=["runs"])
-
-RUN_ID_COL: ColumnElement[str] = _as_column(cast(object, RunDB.id))
-RUN_PROJECT_COL: ColumnElement[str] = _as_column(cast(object, RunDB.project))
-RUN_PRIMARY_MODEL_COL: ColumnElement[str | None] = _as_column(
-    cast(object, RunDB.primary_model)
-)
-RUN_ENVIRONMENT_COL: ColumnElement[str] = _as_column(cast(object, RunDB.environment))
-RUN_USER_ID_COL: ColumnElement[str | None] = _as_column(cast(object, RunDB.user_id))
-RUN_SESSION_ID_COL: ColumnElement[str | None] = _as_column(
-    cast(object, RunDB.session_id)
-)
-RUN_CALL_COUNT_COL: ColumnElement[int] = _as_column(
-    cast(object, RunDB.call_count)
-)
-CALL_RUN_ID_COL: ColumnElement[str | None] = _as_column(
-    cast(object, LoggedCallDB.run_id)
-)
-CALL_LEVEL_COL: ColumnElement[str | None] = _as_column(
-    cast(object, LoggedCallDB.level)
-)
-CALL_MODEL_COL: ColumnElement[str] = _as_column(cast(object, LoggedCallDB.model))
-METRIC_RUN_ID_COL: ColumnElement[str] = _as_column(
-    cast(object, RunMetricDB.run_id)
-)
-METRIC_NAME_COL: ColumnElement[str] = _as_column(
-    cast(object, RunMetricDB.metric_name)
-)
-
-
-def _split_csv(value: str | None) -> list[str]:
-    if not value:
-        return []
-    return [v.strip() for v in value.split(",") if v.strip()]
 
 
 def _build_filtered_run_ids(
@@ -76,11 +55,11 @@ def _build_filtered_run_ids(
         # of nothing sees no runs.
         stmt = stmt.where(RUN_PROJECT_COL.in_(allowed_projects))
 
-    model_list = _split_csv(models)
+    model_list = split_csv_param(models)
     if model_list:
-        call_model_ids = select(CALL_RUN_ID_COL).where(
-            CALL_RUN_ID_COL.is_not(None),
-            CALL_MODEL_COL.in_(model_list),
+        call_model_ids = select(LOGGED_CALL_RUN_ID_COL).where(
+            LOGGED_CALL_RUN_ID_COL.is_not(None),
+            LOGGED_CALL_MODEL_COL.in_(model_list),
         )
         stmt = stmt.where(
             or_(
@@ -89,53 +68,53 @@ def _build_filtered_run_ids(
             )
         )
 
-    env_list = _split_csv(environment)
+    env_list = split_csv_param(environment)
     if env_list:
         stmt = stmt.where(RUN_ENVIRONMENT_COL.in_(env_list))
 
-    user_list = _split_csv(user_id)
+    user_list = split_csv_param(user_id)
     if user_list:
         stmt = stmt.where(RUN_USER_ID_COL.in_(user_list))
 
-    session_list = _split_csv(session_id)
+    session_list = split_csv_param(session_id)
     if session_list:
         stmt = stmt.where(RUN_SESSION_ID_COL.in_(session_list))
 
     if tags:
         stmt = apply_tag_filters(stmt, tags)
     if metric_name:
-        metric_run_ids = select(METRIC_RUN_ID_COL).where(
-            METRIC_NAME_COL == metric_name
+        metric_run_ids = select(RUN_METRIC_RUN_ID_COL).where(
+            RUN_METRIC_NAME_COL == metric_name
         )
         stmt = stmt.where(RUN_ID_COL.in_(metric_run_ids))
     if created_after or created_before:
         stmt = apply_date_range(stmt, RunDB.created_at, created_after, created_before)
 
-    status_values = _split_csv(status)
+    status_values = split_csv_param(status)
     if status_values:
         conditions: list[Any] = []
         if "error" in status_values:
-            error_sub = select(CALL_RUN_ID_COL).where(
-                CALL_RUN_ID_COL.is_not(None),
-                CALL_LEVEL_COL == "ERROR",
+            error_sub = select(LOGGED_CALL_RUN_ID_COL).where(
+                LOGGED_CALL_RUN_ID_COL.is_not(None),
+                LOGGED_CALL_LEVEL_COL == "ERROR",
             )
             conditions.append(RUN_ID_COL.in_(error_sub))
         if "warning" in status_values:
-            warning_sub = select(CALL_RUN_ID_COL).where(
-                CALL_RUN_ID_COL.is_not(None),
-                CALL_LEVEL_COL == "WARNING",
+            warning_sub = select(LOGGED_CALL_RUN_ID_COL).where(
+                LOGGED_CALL_RUN_ID_COL.is_not(None),
+                LOGGED_CALL_LEVEL_COL == "WARNING",
             )
-            error_sub = select(CALL_RUN_ID_COL).where(
-                CALL_RUN_ID_COL.is_not(None),
-                CALL_LEVEL_COL == "ERROR",
+            error_sub = select(LOGGED_CALL_RUN_ID_COL).where(
+                LOGGED_CALL_RUN_ID_COL.is_not(None),
+                LOGGED_CALL_LEVEL_COL == "ERROR",
             )
             conditions.append(
                 and_(RUN_ID_COL.in_(warning_sub), RUN_ID_COL.not_in(error_sub))
             )
         if "success" in status_values:
-            issues_sub = select(CALL_RUN_ID_COL).where(
-                CALL_RUN_ID_COL.is_not(None),
-                CALL_LEVEL_COL.in_(["ERROR", "WARNING"]),
+            issues_sub = select(LOGGED_CALL_RUN_ID_COL).where(
+                LOGGED_CALL_RUN_ID_COL.is_not(None),
+                LOGGED_CALL_LEVEL_COL.in_(["ERROR", "WARNING"]),
             )
             conditions.append(
                 and_(RUN_ID_COL.not_in(issues_sub), RUN_CALL_COUNT_COL > 0)
@@ -150,10 +129,10 @@ def _compute_model_facets(session: Session, run_ids: list[str]) -> list[FacetBuc
     if not run_ids:
         return []
     stmt = (
-        select(CALL_MODEL_COL, func.count(func.distinct(CALL_RUN_ID_COL)))
-        .where(CALL_RUN_ID_COL.in_(run_ids))
-        .group_by(CALL_MODEL_COL)
-        .order_by(func.count(func.distinct(CALL_RUN_ID_COL)).desc())
+        select(LOGGED_CALL_MODEL_COL, func.count(func.distinct(LOGGED_CALL_RUN_ID_COL)))
+        .where(LOGGED_CALL_RUN_ID_COL.in_(run_ids))
+        .group_by(LOGGED_CALL_MODEL_COL)
+        .order_by(func.count(func.distinct(LOGGED_CALL_RUN_ID_COL)).desc())
     )
     rows = session.exec(stmt).all()
     return [FacetBucket(value=r[0], count=r[1]) for r in rows if r[0]]
@@ -225,10 +204,10 @@ def _compute_score_facets(session: Session, run_ids: list[str]) -> list[FacetBuc
     if not run_ids:
         return []
     stmt = (
-        select(METRIC_NAME_COL, func.count(func.distinct(METRIC_RUN_ID_COL)))
-        .where(METRIC_RUN_ID_COL.in_(run_ids))
-        .group_by(METRIC_NAME_COL)
-        .order_by(func.count(func.distinct(METRIC_RUN_ID_COL)).desc())
+        select(RUN_METRIC_NAME_COL, func.count(func.distinct(RUN_METRIC_RUN_ID_COL)))
+        .where(RUN_METRIC_RUN_ID_COL.in_(run_ids))
+        .group_by(RUN_METRIC_NAME_COL)
+        .order_by(func.count(func.distinct(RUN_METRIC_RUN_ID_COL)).desc())
     )
     rows = session.exec(stmt).all()
     return [FacetBucket(value=r[0], count=r[1]) for r in rows if r[0]]
@@ -244,17 +223,17 @@ def _compute_status_facets(session: Session, run_ids: list[str]) -> list[FacetBu
 
     error_ids = set(
         session.exec(
-            select(CALL_RUN_ID_COL).where(
-                CALL_RUN_ID_COL.in_(run_ids),
-                CALL_LEVEL_COL == "ERROR",
+            select(LOGGED_CALL_RUN_ID_COL).where(
+                LOGGED_CALL_RUN_ID_COL.in_(run_ids),
+                LOGGED_CALL_LEVEL_COL == "ERROR",
             )
         ).all()
     )
     warning_ids = set(
         session.exec(
-            select(CALL_RUN_ID_COL).where(
-                CALL_RUN_ID_COL.in_(run_ids),
-                CALL_LEVEL_COL == "WARNING",
+            select(LOGGED_CALL_RUN_ID_COL).where(
+                LOGGED_CALL_RUN_ID_COL.in_(run_ids),
+                LOGGED_CALL_LEVEL_COL == "WARNING",
             )
         ).all()
     )

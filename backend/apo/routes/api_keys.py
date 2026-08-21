@@ -20,6 +20,7 @@ from ..auth.api_key_cache import (
     cache_key_for_basic,
     cache_key_for_legacy,
 )
+from ..auth.client_ip import get_client_ip
 from ..auth.deps import require_api_key_scope
 from ..auth.rate_limit import LoginRateLimiter
 from ..db import get_session
@@ -377,13 +378,6 @@ def validate_api_key(token: str, session: Session) -> ApiKeyDB | None:
     return session.exec(statement).first()
 
 
-def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
-
-
 @router.post("/api-keys/bootstrap", response_model=ApiKeyCreateResponse)
 def bootstrap_api_key(
     body: ApiKeyBootstrapRequest,
@@ -398,7 +392,7 @@ def bootstrap_api_key(
 
     Protected by the same rate limiter as `/auth/verify-password`.
     """
-    ip = _get_client_ip(request)
+    ip = get_client_ip(request)
 
     if not _bootstrap_rate_limiter.is_allowed(ip):
         retry_after = _bootstrap_rate_limiter.get_retry_after(ip)

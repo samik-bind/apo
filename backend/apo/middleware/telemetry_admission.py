@@ -84,11 +84,11 @@ class TelemetryAdmissionMiddleware(BaseHTTPMiddleware):
 
         rejection = self._controller.consume_request(identity)
         if rejection is not None:
-            return _rate_limit_response(rejection)
+            return rate_limit_response(rejection)
 
         lease_result = self._controller.try_acquire_concurrency()
         if isinstance(lease_result, AdmissionRejection):
-            return _rate_limit_response(lease_result)
+            return rate_limit_response(lease_result)
 
         try:
             return await call_next(request)
@@ -96,7 +96,7 @@ class TelemetryAdmissionMiddleware(BaseHTTPMiddleware):
             lease_result.release()
 
 
-def _rate_limit_response(rejection: AdmissionRejection) -> JSONResponse:
+def rate_limit_response(rejection: AdmissionRejection) -> JSONResponse:
     return JSONResponse(
         status_code=429,
         content={"detail": f"Telemetry {rejection.resource} limit exceeded"},

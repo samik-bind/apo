@@ -31,7 +31,7 @@ from typing import Literal, cast
 
 from sqlmodel import Session, select
 
-from apo.db_helpers import _as_column
+from apo.db_helpers import as_column
 from apo.models.db import (
     AgentTaskBatchRunDB,
     AgentTaskDeliverableDB,
@@ -197,8 +197,8 @@ def build_deliverable_manifest(
         select(AgentTaskDeliverableDB)
         .where(AgentTaskDeliverableDB.task_run_id == task_run_id)
         .order_by(
-            _as_column(AgentTaskDeliverableDB.created_at),
-            _as_column(AgentTaskDeliverableDB.id),
+            as_column(AgentTaskDeliverableDB.created_at),
+            as_column(AgentTaskDeliverableDB.id),
         )
     ).all()
 
@@ -642,7 +642,7 @@ def _reject_run_total_overflow(
     """Reject an upload that would push the run over its total byte budget."""
     rows = session.exec(
         select(
-            _as_column(AgentTaskDeliverableDB.size_bytes),
+            as_column(AgentTaskDeliverableDB.size_bytes),
         ).where(AgentTaskDeliverableDB.task_run_id == task_run_id)
     ).all()
     # Single-column select returns scalars directly.

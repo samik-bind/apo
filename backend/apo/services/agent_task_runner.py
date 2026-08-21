@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 
 from ..auth.service_tokens import create_agent_task_trace_token
 from ..db import engine
-from ..db_helpers import _as_column
+from ..db_helpers import as_column
 from ..models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,

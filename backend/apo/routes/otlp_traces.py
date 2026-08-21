@@ -22,7 +22,7 @@ from sqlmodel import Session
 
 from ..auth.deps import require_api_key_scope
 from ..db import get_session
-from ..middleware.telemetry_admission import _rate_limit_response
+from ..middleware.telemetry_admission import rate_limit_response
 from ..models.db import ProjectDB
 from ..services.otlp_receiver import (
     OtlpDecodeError,
@@ -87,7 +87,7 @@ async def receive_otlp_traces(
     if identity is not None and controller is not None:
         byte_rejection = controller.consume_bytes(identity, len(body))
         if byte_rejection is not None:
-            return _rate_limit_response(byte_rejection)
+            return rate_limit_response(byte_rejection)
 
     # Normalize content type (strip charset suffix)
     if ";" in content_type:
@@ -145,7 +145,7 @@ async def receive_otlp_traces(
     except OtlpSizeLimitError as exc:
         return _otlp_error_response(content_type, 413, str(exc))
     except _AdmissionUnitError as exc:
-        return _rate_limit_response(exc.rejection)
+        return rate_limit_response(exc.rejection)
 
     partial = _build_partial_success(result.rejected, result.errors)
 

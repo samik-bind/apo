@@ -78,8 +78,8 @@ async def lifespan(app: FastAPI):
         await purge_legacy_bundle_objects(session)
     # ensure the demo project exists at startup so it shows
     # up in project lists and users can browse it read-only.
-    from .services.demo_workspace import _ensure_demo_project_exists  # pyright: ignore[reportPrivateUsage]
-    _ensure_demo_project_exists()
+    from .services.demo_workspace import ensure_demo_project_exists
+    ensure_demo_project_exists()
     with Session(engine) as session:
         bootstrap_initial_user(session)
     from .services.agent_task_scheduler import start_schedule_dispatcher, stop_schedule_dispatcher

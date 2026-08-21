@@ -19,7 +19,7 @@ from sqlalchemy import asc
 from sqlmodel import Session, select
 
 from ...models import LoggedCall, LoggedCallDB, Run, RunMetric, RunMetricDB, RunDB
-from .columns import (
+from ...models.columns import (
     LOGGED_CALL_CREATED_AT_COL,
     LOGGED_CALL_PROJECT_COL,
     LOGGED_CALL_RUN_ID_COL,

@@ -26,7 +26,7 @@ from pathlib import Path
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from apo.db_helpers import _as_column  # pyright: ignore[reportPrivateUsage]
+from apo.db_helpers import as_column
 
 from apo.execution.execution_bundle import (
     DEFAULT_BUNDLE_LIMITS,
@@ -418,8 +418,8 @@ async def delete_task_revision_bundles_for_batches(
         return 0
     rows = session.exec(
         select(TaskRevisionDB).where(
-            _as_column(TaskRevisionDB.batch_run_id).in_(batch_ids),
-            _as_column(TaskRevisionDB.bundle_storage_key).is_not(None),
+            as_column(TaskRevisionDB.batch_run_id).in_(batch_ids),
+            as_column(TaskRevisionDB.bundle_storage_key).is_not(None),
         )
     ).all()
     return await _delete_bundled_objects(rows, strict=True)
@@ -438,7 +438,7 @@ async def delete_task_revision_bundles_for_project(
     rows = session.exec(
         select(TaskRevisionDB).where(
             TaskRevisionDB.project == project_id,
-            _as_column(TaskRevisionDB.bundle_storage_key).is_not(None),
+            as_column(TaskRevisionDB.bundle_storage_key).is_not(None),
         )
     ).all()
     return await _delete_bundled_objects(rows, strict=True)

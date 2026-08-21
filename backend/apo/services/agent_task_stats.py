@@ -23,14 +23,18 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
 
 from sqlalchemy import select as sa_select
 from sqlmodel import Session
-from sqlalchemy.sql.elements import ColumnElement
 
-from ..db_helpers import _as_column
-from ..models.db import AgentTaskBatchRunDB, AgentTaskRunDB
+from ..models.columns import (
+    AGENT_TASK_BATCH_ID_COL,
+    AGENT_TASK_BATCH_PROJECT_COL,
+    AGENT_TASK_RUN_BATCH_RUN_ID_COL,
+    AGENT_TASK_RUN_CONFIGURED_EFFORT_COL,
+    AGENT_TASK_RUN_CONFIGURED_MODEL_COL,
+)
+from ..models.db import AgentTaskBatchRunDB
 from ..models.schemas import AgentTaskRunStats, RunConfigEffortFacet, RunConfigModelFacet, TaskViewConfig
 from .archived_models import load_archived_models
 from .view_runs import runs_in_view
@@ -145,26 +149,6 @@ def load_run_stat_fields(
     return grouped
 
 
-# Typed column handles used only by ``compute_run_config_facets`` below. The
-# cohort columns (task / status / started_at / cost / verdict counters) live
-# in ``view_runs`` now that ``load_run_stat_fields`` delegates the cohort
-# query there. The specific ``ColumnElement[T]`` parametrization (not
-# ``[object]``) is what lets the core ``sa_select`` overloads resolve.
-_BATCH_RUN_ID_COL: ColumnElement[str] = _as_column(
-    cast(object, AgentTaskRunDB.batch_run_id)
-)
-_BATCH_ID_COL: ColumnElement[str] = _as_column(cast(object, AgentTaskBatchRunDB.id))
-_BATCH_PROJECT_COL: ColumnElement[str] = _as_column(
-    cast(object, AgentTaskBatchRunDB.project)
-)
-_CONFIGURED_MODEL_COL: ColumnElement[str | None] = _as_column(
-    cast(object, AgentTaskRunDB.configured_model)
-)
-_CONFIGURED_EFFORT_COL: ColumnElement[str | None] = _as_column(
-    cast(object, AgentTaskRunDB.configured_effort)
-)
-
-
 def compute_run_config_facets(
     session: Session,
     project_id: str,
@@ -186,11 +170,11 @@ def compute_run_config_facets(
     and fully typed (``func.count()`` would otherwise surface as ``Any``).
     """
     stmt = (
-        sa_select(_CONFIGURED_MODEL_COL, _CONFIGURED_EFFORT_COL)
-        .join(AgentTaskBatchRunDB, _BATCH_RUN_ID_COL == _BATCH_ID_COL)
+        sa_select(AGENT_TASK_RUN_CONFIGURED_MODEL_COL, AGENT_TASK_RUN_CONFIGURED_EFFORT_COL)
+        .join(AgentTaskBatchRunDB, AGENT_TASK_RUN_BATCH_RUN_ID_COL == AGENT_TASK_BATCH_ID_COL)
         .where(
-            _BATCH_PROJECT_COL == project_id,
-            _CONFIGURED_MODEL_COL.is_not(None),
+            AGENT_TASK_BATCH_PROJECT_COL == project_id,
+            AGENT_TASK_RUN_CONFIGURED_MODEL_COL.is_not(None),
         )
     )
     rows = session.execute(stmt).all()

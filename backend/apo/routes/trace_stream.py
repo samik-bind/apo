@@ -6,26 +6,17 @@ live trace events: trace:created, span:created, span:updated, trace:completed.
 
 # pyright: reportCallIssue=false, reportCallInDefaultInitializer=false, reportDeprecated=false, reportUnknownMemberType=false, reportUnknownArgumentType=false
 
-from datetime import datetime
-from typing import cast
-
 from fastapi import APIRouter, Depends, Request
-from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, col, select
 
 from ..db import get_session
-from ..db_helpers import _as_column  # pyright: ignore[reportPrivateUsage]
+from ..models.columns import LOGGED_CALL_CREATED_AT_COL
 from ..models.db import LoggedCallDB, RunDB
 from ..services.project_memberships import enforce_project_role_from_request
 from ..services.sse import format_sse_event, sse_streaming_response
 from ..services.trace_broadcaster import get_trace_broadcaster
 
 router = APIRouter(prefix="/v1/traces", tags=["Trace Streaming"])
-
-
-LOGGED_CALL_CREATED_AT_COL: ColumnElement[datetime] = _as_column(
-    cast(object, LoggedCallDB.created_at)
-)
 
 
 @router.get("/{trace_id}/stream")

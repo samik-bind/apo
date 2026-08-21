@@ -18,6 +18,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlmodel import Session
 
+from ..auth.client_ip import get_client_ip
 from ..auth.rate_limit import LoginRateLimiter
 from ..db import get_session
 from ..models.schemas import (
@@ -47,16 +48,8 @@ router = APIRouter(tags=["hosted-access"])
 hosted_access_rate_limiter = LoginRateLimiter(max_attempts=30, window_seconds=60)
 
 
-def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    client = request.client
-    return client.host if client else "unknown"
-
-
 def _enforce_public_rate_limit(request: Request) -> None:
-    ip = _client_ip(request)
+    ip = get_client_ip(request)
     if not hosted_access_rate_limiter.is_allowed(ip):
         retry_after = hosted_access_rate_limiter.get_retry_after(ip)
         raise HTTPException(

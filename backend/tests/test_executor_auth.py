@@ -14,7 +14,7 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from apo.auth.api_key_auth import _get_salt
+from apo.auth.api_key_auth import get_salt
 from apo.models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
@@ -41,7 +41,7 @@ from sqlmodel import Session
 
 
 def _hash(raw: str) -> str:
-    return hashlib.sha256(f"{raw}:{_get_salt()}".encode()).hexdigest()
+    return hashlib.sha256(f"{raw}:{get_salt()}".encode()).hexdigest()
 
 
 def _seed_project(session: Session, project_id: str = "proj-auth") -> None:

@@ -21,13 +21,13 @@ DEFAULT_SQLITE_URL = f"sqlite:///{os.path.join(DATA_DIR, SQLITE_FILE_NAME)}"
 DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_SQLITE_URL)
 
 
-def _is_sqlite() -> bool:
+def is_sqlite() -> bool:
     return "sqlite" in DATABASE_URL
 
 
 def _get_engine_kwargs() -> dict[str, object]:
     kwargs: dict[str, object] = {"echo": False}
-    if _is_sqlite():
+    if is_sqlite():
         kwargs["connect_args"] = {"check_same_thread": False}
         # Sync sessions are used from async routes. A bounded QueuePool can
         # deadlock the event loop when a request burst fills the pool: the next
@@ -51,7 +51,7 @@ engine = create_engine(DATABASE_URL, **_get_engine_kwargs())
 # writes retry instead of raising SQLITE_BUSY immediately. foreign_keys
 # enforces declared FK constraints. synchronous=NORMAL is safe under WAL
 # and dramatically faster than the default FULL fsync-per-commit.
-if _is_sqlite():
+if is_sqlite():
 
     @event.listens_for(engine, "connect")
     def _set_sqlite_pragmas(dbapi_conn, _connection_record):
@@ -64,7 +64,7 @@ if _is_sqlite():
 
 
 def _get_column_names(conn, table_name: str) -> set[str]:
-    if _is_sqlite():
+    if is_sqlite():
         columns = conn.exec_driver_sql(f"PRAGMA table_info('{table_name}')").fetchall()
         return {col[1] for col in columns}
     columns = conn.exec_driver_sql(
@@ -75,7 +75,7 @@ def _get_column_names(conn, table_name: str) -> set[str]:
 
 
 def _get_table_names(conn) -> set[str]:
-    if _is_sqlite():
+    if is_sqlite():
         tables = conn.exec_driver_sql(
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()
@@ -119,7 +119,7 @@ def _drop_column_if_exists(conn, table_name: str, column_name: str) -> bool:
 
 
 def _create_index_if_not_exists(conn, index_name: str, table_name: str, columns: str) -> None:
-    if _is_sqlite():
+    if is_sqlite():
         conn.exec_driver_sql(
             f"CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}({columns});"
         )
@@ -247,13 +247,13 @@ def _migrate_to_baseline():
     databases run exactly once before being stamped at version 1.
     Works across SQLite and PostgreSQL.
     """
-    timestamp_type = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    timestamp_type = "DATETIME" if is_sqlite() else "TIMESTAMPTZ"
     auto_increment_pk = (
         "INTEGER PRIMARY KEY AUTOINCREMENT"
-        if _is_sqlite()
+        if is_sqlite()
         else "SERIAL PRIMARY KEY"
     )
-    boolean_true = "1" if _is_sqlite() else "TRUE"
+    boolean_true = "1" if is_sqlite() else "TRUE"
 
     with engine.begin() as conn:
         _add_column_if_missing(conn, "logged_calls", "version", "VARCHAR")
@@ -624,7 +624,7 @@ def _migrate_to_baseline():
         # on Postgres (fresh Postgres deploys have no legacy projects to
         # backfill, and SQLite→Postgres migration is a separate path).
         tables = _get_table_names(conn)
-        if _is_sqlite() and "project_memberships" in tables:
+        if is_sqlite() and "project_memberships" in tables:
             conn.exec_driver_sql(
                 """
                 INSERT INTO project_memberships
@@ -875,7 +875,7 @@ def _migrate_to_v8() -> None:
             "content_policy",
             "VARCHAR NOT NULL DEFAULT 'redacted'",
         )
-        if _is_sqlite():
+        if is_sqlite():
             _migrate_projection_identity_sqlite(conn)
         else:
             _migrate_projection_identity_postgres(conn)
@@ -1199,7 +1199,7 @@ def _migrate_schedule_source_owned_schema(conn: Connection) -> None:
         "active_batch_run_id",
     )
 
-    ts = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    ts = "DATETIME" if is_sqlite() else "TIMESTAMPTZ"
     conn.exec_driver_sql(
         f"""
         CREATE TABLE IF NOT EXISTS agent_task_schedule_occurrences (
@@ -1289,7 +1289,7 @@ def _make_attempt_task_revision_nullable(conn: Connection) -> None:
         if not any(row[1] == "task_revision_id" for row in cols):
             return
 
-    if _is_sqlite():
+    if is_sqlite():
         # SQLite: rebuild the table from current metadata.
         # 1. Drop indexes that reference the table so they can be recreated
         existing_indexes = conn.exec_driver_sql(
@@ -1336,7 +1336,7 @@ def _migrate_to_v19() -> None:
 
 def _migrate_task_definition_revisions(conn: Connection) -> None:
     """SPEC-169: Task Definition Revisions table + nullable FK pointers."""
-    ts = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    ts = "DATETIME" if is_sqlite() else "TIMESTAMPTZ"
     conn.exec_driver_sql(
         f"""
         CREATE TABLE IF NOT EXISTS task_definition_revisions (
@@ -1410,7 +1410,7 @@ def _migrate_to_v24() -> None:
     views. New tables are created by ``SQLModel.metadata.create_all`` on fresh
     DBs, so this only brings existing DBs up. Idempotent.
     """
-    ts = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    ts = "DATETIME" if is_sqlite() else "TIMESTAMPTZ"
     with engine.begin() as conn:
         conn.exec_driver_sql(
             f"""
@@ -1453,7 +1453,7 @@ def _migrate_archived_model_schema(conn: Connection) -> None:
     its filter dropdowns. Presence is the state, so there is no flag column to
     backfill and nothing to migrate from. Idempotent.
     """
-    ts = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    ts = "DATETIME" if is_sqlite() else "TIMESTAMPTZ"
     conn.exec_driver_sql(
         f"""
         CREATE TABLE IF NOT EXISTS archived_model (
@@ -1512,8 +1512,8 @@ def _migrate_check_report_schema(conn: Connection) -> None:
     )
 
     if "agent_task_check_reports" not in _get_table_names(conn):
-        id_type = "TEXT" if _is_sqlite() else "VARCHAR"
-        timestamp_type = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+        id_type = "TEXT" if is_sqlite() else "VARCHAR"
+        timestamp_type = "DATETIME" if is_sqlite() else "TIMESTAMPTZ"
         conn.exec_driver_sql(
             f"""
             CREATE TABLE agent_task_check_reports (
@@ -1614,7 +1614,7 @@ def _migrate_execution_schema(conn: Connection) -> None:
     extensions to existing tables. No backfill, no external I/O, idempotent.
     Historical Runs receive no synthetic Attempts.
     """
-    ts = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    ts = "DATETIME" if is_sqlite() else "TIMESTAMPTZ"
 
     # ── executor_pools ────────────────────────────────────────────────────
     conn.exec_driver_sql(
@@ -1781,7 +1781,7 @@ def _migrate_task_revision_schema(conn: Connection) -> None:
 
     Historical Batches simply have no Revision row; nothing is rewritten.
     """
-    timestamp_type = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    timestamp_type = "DATETIME" if is_sqlite() else "TIMESTAMPTZ"
     conn.exec_driver_sql(
         f"""
         CREATE TABLE IF NOT EXISTS task_revisions (
@@ -1842,7 +1842,7 @@ def _migrate_deliverable_schema(conn: Connection) -> None:
     Legacy ``transcript_json`` / ``deliverables_json`` columns on
     ``agent_task_runs`` are intentionally left untouched.
     """
-    if _is_sqlite():
+    if is_sqlite():
         conn.exec_driver_sql(
             """
             CREATE TABLE IF NOT EXISTS agent_task_deliverables (
@@ -2000,7 +2000,7 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
     scope before creating the unique index, keeping the most recent value.
     """
     reference_table = "runs" if table_name == "run_metrics" else "logged_calls"
-    if _is_sqlite():
+    if is_sqlite():
         conn.exec_driver_sql(
             f'ALTER TABLE "{table_name}" ADD COLUMN project VARCHAR NOT NULL DEFAULT \'default\''
         )
@@ -2048,7 +2048,7 @@ def _migrate_to_v25() -> None:
     SQLite and PostgreSQL databases up, including the partial unique
     index that keeps one active row per normalized email.
     """
-    ts = "DATETIME" if _is_sqlite() else "TIMESTAMPTZ"
+    ts = "DATETIME" if is_sqlite() else "TIMESTAMPTZ"
     with engine.begin() as conn:
         conn.exec_driver_sql(
             f"""

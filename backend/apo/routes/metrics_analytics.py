@@ -1,33 +1,28 @@
 # pyright: reportAny=false, reportCallInDefaultInitializer=false, reportDeprecated=false, reportPrivateUsage=false, reportUnusedCallResult=false
 
 from datetime import datetime, timedelta
-from typing import cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import func
-from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import SQLModel, Session
 
 from ..db import get_session
-from ..db_helpers import _as_column
-from ..models import RunMetricDB, RunDB
+from ..models import RunDB
+from ..models.columns import (
+    RUN_ID_COL,
+    RUN_METRIC_CREATED_AT_COL,
+    RUN_METRIC_ID_COL,
+    RUN_METRIC_NAME_COL,
+    RUN_METRIC_PROJECT_COL,
+    RUN_METRIC_RUN_ID_COL,
+    RUN_METRIC_SCORE_COL,
+    RUN_METRIC_SOURCE_COL,
+    RUN_PROJECT_COL,
+)
 from ..services.project_memberships import enforce_project_read_from_request
 
 
 router = APIRouter(prefix="/v1/metrics-analytics", tags=["metrics-analytics"])
-
-
-RUN_ID_COL: ColumnElement[str] = _as_column(cast(object, RunDB.id))
-RUN_PROJECT_COL: ColumnElement[str] = _as_column(cast(object, RunDB.project))
-RUN_METRIC_ID_COL: ColumnElement[int] = _as_column(cast(object, RunMetricDB.id))
-RUN_METRIC_RUN_ID_COL: ColumnElement[str] = _as_column(cast(object, RunMetricDB.run_id))
-RUN_METRIC_PROJECT_COL: ColumnElement[str] = _as_column(cast(object, RunMetricDB.project))
-RUN_METRIC_NAME_COL: ColumnElement[str] = _as_column(cast(object, RunMetricDB.metric_name))
-RUN_METRIC_SCORE_COL: ColumnElement[float] = _as_column(cast(object, RunMetricDB.score))
-RUN_METRIC_SOURCE_COL: ColumnElement[str] = _as_column(cast(object, RunMetricDB.source))
-RUN_METRIC_CREATED_AT_COL: ColumnElement[datetime] = _as_column(
-    cast(object, RunMetricDB.created_at)
-)
 
 
 class MetricTrendPoint(SQLModel):

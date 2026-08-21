@@ -23,11 +23,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from fastapi import HTTPException, status
 from sqlalchemy import func, update
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
-from apo.db_helpers import _as_column
+from apo.db_helpers import as_column
 from apo.models.db import (
     AgentTaskBatchRunDB,
     AgentTaskRunDB,
@@ -60,6 +61,19 @@ class LeaseError(Exception):
     def __init__(self, kind: str, message: str) -> None:
         super().__init__(f"[{kind}] {message}")
         self.kind = kind
+
+
+def lease_error_to_http(exc: LeaseError) -> HTTPException:
+    """Map a lease failure onto the executor-protocol HTTP contract.
+
+    Both protocol versions (v1 and v2 routes) raise this mapping so error
+    semantics cannot drift between them.
+    """
+    if exc.kind in ("stale_generation", "state_mismatch"):
+        return HTTPException(status.HTTP_409_CONFLICT, detail={"kind": "lease_stale", "msg": str(exc)})
+    if exc.kind == "not_found":
+        return HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
+    return HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
 
 
 @dataclass(frozen=True)
@@ -103,8 +117,8 @@ def _active_count(session: Session, executor: ExecutorDB) -> int:
     """Leased+running attempts held by this executor (drives capacity)."""
     rows = session.exec(
         select(TaskExecutionAttemptDB).where(
-            _as_column(TaskExecutionAttemptDB.executor_id) == executor.id,
-            _as_column(TaskExecutionAttemptDB.status).in_([LEASED, RUNNING]),
+            as_column(TaskExecutionAttemptDB.executor_id) == executor.id,
+            as_column(TaskExecutionAttemptDB.status).in_([LEASED, RUNNING]),
         )
     ).all()
     return len(rows)
@@ -122,7 +136,7 @@ def _lock_executor_for_claim(
     """
     return session.exec(
         select(ExecutorDB)
-        .where(_as_column(ExecutorDB.id) == executor_id)
+        .where(as_column(ExecutorDB.id) == executor_id)
         .with_for_update()
     ).one_or_none()
 
@@ -131,8 +145,8 @@ def _sequential_blocker(session: Session, attempt: TaskExecutionAttemptDB) -> bo
     """True if a lower sequence_index attempt in the same Batch is non-terminal."""
     blockers = session.exec(
         select(TaskExecutionAttemptDB).where(
-            _as_column(TaskExecutionAttemptDB.batch_run_id) == attempt.batch_run_id,
-            _as_column(TaskExecutionAttemptDB.sequence_index) < attempt.sequence_index,
+            as_column(TaskExecutionAttemptDB.batch_run_id) == attempt.batch_run_id,
+            as_column(TaskExecutionAttemptDB.sequence_index) < attempt.sequence_index,
         )
     ).all()
     return any(b.status in NONTERMINAL_STATUSES for b in blockers)
@@ -164,18 +178,18 @@ def claim_next_attempt(
 
     # Pool scope: a pool-scoped executor claims only its own pool's attempts.
     scope_filter = (
-        _as_column(TaskExecutionAttemptDB.target_kind) == "pool",
-        _as_column(TaskExecutionAttemptDB.status) == QUEUED,
+        as_column(TaskExecutionAttemptDB.target_kind) == "pool",
+        as_column(TaskExecutionAttemptDB.status) == QUEUED,
     )
     if executor.scope_kind == "pool":
         if executor.executor_pool_id is None:
             return None
-        scope_filter = (*scope_filter, _as_column(TaskExecutionAttemptDB.executor_pool_id) == executor.executor_pool_id)
+        scope_filter = (*scope_filter, as_column(TaskExecutionAttemptDB.executor_pool_id) == executor.executor_pool_id)
     elif executor.scope_kind != "installation":
         return None
 
     candidates = session.exec(
-        select(TaskExecutionAttemptDB).where(*scope_filter).order_by(_as_column(TaskExecutionAttemptDB.queued_at))
+        select(TaskExecutionAttemptDB).where(*scope_filter).order_by(as_column(TaskExecutionAttemptDB.queued_at))
     ).all()
 
     if _active_count(session, executor) >= executor.max_concurrency:
@@ -208,15 +222,15 @@ def claim_next_attempt(
             .select_from(active_attempt)
             .where(
                 active_attempt.executor_id == executor.id,
-                _as_column(active_attempt.status).in_([LEASED, RUNNING]),
+                as_column(active_attempt.status).in_([LEASED, RUNNING]),
             )
             .scalar_subquery()
         )
         result = session.exec(
             update(TaskExecutionAttemptDB)
             .where(
-                _as_column(TaskExecutionAttemptDB.id) == attempt.id,
-                _as_column(TaskExecutionAttemptDB.status) == QUEUED,
+                as_column(TaskExecutionAttemptDB.id) == attempt.id,
+                as_column(TaskExecutionAttemptDB.status) == QUEUED,
                 active_count < executor.max_concurrency,
             )
             .values(
@@ -288,7 +302,7 @@ def claim_next_source_owned_attempt(
             TaskExecutionAttemptDB.executor_pool_id == executor.executor_pool_id,
             TaskExecutionAttemptDB.target_user_id == executor.enrolled_by_user_id,
         )
-        .order_by(_as_column(TaskExecutionAttemptDB.queued_at))
+        .order_by(as_column(TaskExecutionAttemptDB.queued_at))
     ).all()
 
     for attempt in candidates:
@@ -309,15 +323,15 @@ def claim_next_source_owned_attempt(
             .select_from(active_attempt)
             .where(
                 active_attempt.executor_id == executor.id,
-                _as_column(active_attempt.status).in_([LEASED, RUNNING]),
+                as_column(active_attempt.status).in_([LEASED, RUNNING]),
             )
             .scalar_subquery()
         )
         result = session.exec(
             update(TaskExecutionAttemptDB)
             .where(
-                _as_column(TaskExecutionAttemptDB.id) == attempt.id,
-                _as_column(TaskExecutionAttemptDB.status) == QUEUED,
+                as_column(TaskExecutionAttemptDB.id) == attempt.id,
+                as_column(TaskExecutionAttemptDB.status) == QUEUED,
                 active_count < executor.max_concurrency,
             )
             .values(
@@ -477,8 +491,8 @@ def recover_expired_attempts(session: Session, *, now: datetime) -> RecoveryCoun
 
     expired_leases = session.exec(
         select(TaskExecutionAttemptDB).where(
-            _as_column(TaskExecutionAttemptDB.status).in_([LEASED, RUNNING]),
-            _as_column(TaskExecutionAttemptDB.lease_expires_at) <= now,
+            as_column(TaskExecutionAttemptDB.status).in_([LEASED, RUNNING]),
+            as_column(TaskExecutionAttemptDB.lease_expires_at) <= now,
         )
     ).all()
     for attempt in expired_leases:
@@ -508,8 +522,8 @@ def recover_expired_attempts(session: Session, *, now: datetime) -> RecoveryCoun
 
     expired_queued = session.exec(
         select(TaskExecutionAttemptDB).where(
-            _as_column(TaskExecutionAttemptDB.status) == QUEUED,
-            _as_column(TaskExecutionAttemptDB.queue_expires_at) <= now,
+            as_column(TaskExecutionAttemptDB.status) == QUEUED,
+            as_column(TaskExecutionAttemptDB.queue_expires_at) <= now,
         )
     ).all()
     for attempt in expired_queued:
@@ -596,7 +610,7 @@ def _finalize_logical_run(
         task_runs = list(
             session.exec(
                 select(AgentTaskRunDB).where(
-                    _as_column(AgentTaskRunDB.batch_run_id) == batch.id
+                    as_column(AgentTaskRunDB.batch_run_id) == batch.id
                 )
             ).all()
         )
@@ -658,7 +672,7 @@ def _attempt_started_for_batch(session: Session, batch_run_id: str) -> bool:
     row = session.exec(
         select(TaskExecutionAttemptDB.id).where(
             TaskExecutionAttemptDB.batch_run_id == batch_run_id,
-            _as_column(TaskExecutionAttemptDB.started_at).is_not(None),
+            as_column(TaskExecutionAttemptDB.started_at).is_not(None),
         ).limit(1)
     ).first()
     return row is not None
