@@ -3,6 +3,7 @@ import { resolveConfig } from "../lib/config.ts";
 import { bold, dim, formatCost, formatJson, formatTime, red } from "../lib/format.ts";
 import { apiGet } from "../lib/api.ts";
 import { findByPrefix } from "../lib/prefix.ts";
+import { reportCommandError } from "../lib/command-error.ts";
 
 type TraceCall = {
   id: string;
@@ -61,12 +62,9 @@ export async function run(argv: string[]): Promise<number> {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("404")) {
         console.error(`Trace not found: ${traceId}`);
-      } else if (message.startsWith("Backend error") || message.includes("matches multiple")) {
-        console.error(message);
-      } else {
-        console.error(`Cannot connect to backend at ${config.backendUrl}`);
+        return 2;
       }
-      return 2;
+      return reportCommandError(error, config.backendUrl);
     }
   }
 

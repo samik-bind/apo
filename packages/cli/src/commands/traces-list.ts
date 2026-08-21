@@ -3,6 +3,7 @@ import { resolveConfig } from "../lib/config.ts";
 import { dim, formatJson, formatTable, formatTime } from "../lib/format.ts";
 import { apiGet } from "../lib/api.ts";
 import { highlightIds } from "../lib/prefix.ts";
+import { reportCommandError } from "../lib/command-error.ts";
 
 type TraceSummary = {
   id: string;
@@ -46,14 +47,7 @@ export async function run(argv: string[]): Promise<number> {
       config,
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.startsWith("Backend error") || message.includes("timed out") || message.includes("Cannot connect")) {
-      console.error(message);
-    } else {
-      console.error(`Cannot connect to backend at ${config.backendUrl}`);
-      console.error(dim(message));
-    }
-    return 2;
+    return reportCommandError(error, config.backendUrl);
   }
 
   const traces = response.data ?? [];

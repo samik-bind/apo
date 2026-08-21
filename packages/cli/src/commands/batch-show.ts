@@ -1,8 +1,9 @@
 import { parseArgs, requirePositional } from "../lib/args.ts";
 import { resolveConfig } from "../lib/config.ts";
 import { bold, dim, formatCost, formatDuration, formatJson, formatTime, passFail } from "../lib/format.ts";
-import { apiGet, AuthError } from "../lib/api.ts";
+import { apiGet } from "../lib/api.ts";
 import { findByPrefix } from "../lib/prefix.ts";
+import { reportCommandError } from "../lib/command-error.ts";
 
 type TaskRunSummary = {
   id: string;
@@ -62,13 +63,9 @@ export async function run(argv: string[]): Promise<number> {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("404")) {
         console.error(`Batch run not found: ${batchIdPrefix}`);
-      } else if (error instanceof AuthError || message.startsWith("Backend error") || message.includes("matches multiple")) {
-        console.error(message);
-      } else {
-        console.error(`Cannot connect to backend at ${config.backendUrl}`);
-        console.error(dim(message));
+        return 2;
       }
-      return 2;
+      return reportCommandError(error, config.backendUrl);
     }
   }
 
@@ -82,14 +79,7 @@ export async function run(argv: string[]): Promise<number> {
         config,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (error instanceof AuthError || message.startsWith("Backend error")) {
-        console.error(message);
-      } else {
-        console.error(`Cannot connect to backend at ${config.backendUrl}`);
-        console.error(dim(message));
-      }
-      return 2;
+      return reportCommandError(error, config.backendUrl);
     }
 
     if (config.json) {

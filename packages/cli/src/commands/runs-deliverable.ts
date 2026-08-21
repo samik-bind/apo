@@ -13,19 +13,9 @@ import { parseArgs, getFlagValue } from "../lib/args.ts";
 import { resolveConfig } from "../lib/config.ts";
 import { bold, dim, formatJson } from "../lib/format.ts";
 import { apiGet, apiStream } from "../lib/api.ts";
+import type { DeliverableSummary } from "../lib/agent-task-types.ts";
 import { resolveRunId } from "../lib/runs-resolve.ts";
-
-type DeliverableSummary = {
-  id: string;
-  name: string;
-  kind: "json" | "artifact";
-  status: "pending" | "ready" | "failed";
-  media_type: string;
-  display_filename: string | null;
-  size_bytes: number;
-  sha256: string;
-  download_url: string | null;
-};
+import { reportCommandError } from "../lib/command-error.ts";
 
 type Manifest = {
   task_run_id: string;
@@ -56,9 +46,7 @@ export async function run(argv: string[]): Promise<number> {
       console.error(`No runs found${scope}.`);
       return 2;
     }
-    console.error(`Cannot connect to backend at ${config.backendUrl}`);
-    console.error(dim(message));
-    return 2;
+    return reportCommandError(error, config.backendUrl);
   }
 
   let manifest: Manifest;

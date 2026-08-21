@@ -4,6 +4,7 @@ import { dim, formatCost, formatJson, formatTable, formatTime } from "../lib/for
 import { formatDuration } from "../lib/format.ts";
 import { apiGet } from "../lib/api.ts";
 import { highlightIds } from "../lib/prefix.ts";
+import { reportCommandError } from "../lib/command-error.ts";
 
 type BatchSummary = {
   id: string;
@@ -40,14 +41,7 @@ export async function run(argv: string[]): Promise<number> {
     );
     batches = Array.isArray(payload) ? payload : payload.data;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.startsWith("Backend error")) {
-      console.error(message);
-    } else {
-      console.error(`Cannot connect to backend at ${config.backendUrl}`);
-      console.error(dim(message));
-    }
-    return 2;
+    return reportCommandError(error, config.backendUrl);
   }
 
   if (config.json) {

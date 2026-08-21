@@ -2,10 +2,11 @@ import { parseArgs, getFlagValue } from "../lib/args.ts";
 import { resolveConfig } from "../lib/config.ts";
 import { bold, dim, formatCost, formatJson, formatTime, passFail } from "../lib/format.ts";
 import { apiGet } from "../lib/api.ts";
-import type { CheckResult } from "../lib/agent-task-types.ts";
+import type { CheckResult, DeliverableSummary } from "../lib/agent-task-types.ts";
 import { formatChecks, NO_CHECKS_REGISTERED_MESSAGE } from "../lib/checks-format.ts";
 import { conciseChecks, conciseDeliverables } from "../lib/runs-truncate.ts";
 import { resolveRunIdByPrefix, resolveLatestRunId } from "../lib/runs-resolve.ts";
+import { reportCommandError } from "../lib/command-error.ts";
 
 type RunDetail = {
   id: string;
@@ -45,18 +46,6 @@ type GenerationExecution = {
   error_finish_reasons: Record<string, number>;
 };
 
-type DeliverableSummary = {
-  id: string;
-  name: string;
-  kind: "json" | "artifact";
-  status: "pending" | "ready" | "failed";
-  media_type: string;
-  display_filename: string | null;
-  size_bytes: number;
-  sha256: string;
-  download_url: string | null;
-};
-
 export async function run(argv: string[]): Promise<number> {
   const { positional, flags } = parseArgs(argv);
   const config = resolveConfig(flags);
@@ -85,9 +74,7 @@ export async function run(argv: string[]): Promise<number> {
         console.error(`No runs found${scope}. Run 'apo task run <task-id>' to create one.`);
         return 2;
       }
-      console.error(`Cannot connect to backend at ${config.backendUrl}`);
-      console.error(dim(message));
-      return 2;
+      return reportCommandError(error, config.backendUrl);
     }
   } else {
     resolvedRunId = input;

@@ -209,3 +209,15 @@ export type GithubConnection = {
   scopes_granted: string | null;
   connected_at: string | null;
 };
+
+export type DeliverableSummary = {
+  id: string;
+  name: string;
+  kind: "json" | "artifact";
+  status: "pending" | "ready" | "failed";
+  media_type: string;
+  display_filename: string | null;
+  size_bytes: number;
+  sha256: string;
+  download_url: string | null;
+};

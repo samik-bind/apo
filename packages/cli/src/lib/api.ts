@@ -16,8 +16,7 @@ export class AuthError extends Error {
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 function authHeaders(config?: Config): Record<string, string> {
-  const apiKey =
-    config?.apiKey ?? process.env.APO_API_KEY ?? process.env.APO_API_KEY;
+  const apiKey = config?.apiKey ?? process.env.APO_API_KEY;
   return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 }
 
@@ -27,36 +26,56 @@ function timeoutSignal(ms: number): AbortSignal {
   return controller.signal;
 }
 
-export async function apiGet<T>(
+type RequestOptions = {
+  params?: Record<string, string | string[]>;
+  body?: unknown;
+  config?: Config;
+};
+
+/**
+ * Single JSON request path shared by every method wrapper: URL + query
+ * building, auth headers, timeout, and the uniform error contract
+ * (AuthError on 401, "Backend error <status>" on other HTTP failures,
+ * "Cannot connect" on network failure).
+ */
+async function apiRequest<T>(
+  method: "GET" | "POST" | "PUT" | "PATCH",
   baseUrl: string,
   path: string,
-  params?: Record<string, string | string[]>,
-  config?: Config,
+  options: RequestOptions = {},
 ): Promise<T> {
-  const url = resolveApiUrl(baseUrl, path)
-  if (params) {
-    for (const [key, value] of Object.entries(params)) {
-      const values = Array.isArray(value) ? value : [value]
+  const url = resolveApiUrl(baseUrl, path);
+  if (options.params) {
+    for (const [key, value] of Object.entries(options.params)) {
+      const values = Array.isArray(value) ? value : [value];
       for (const v of values) {
         if (v !== undefined && v !== "") {
-          url.searchParams.append(key, v)
+          url.searchParams.append(key, v);
         }
       }
     }
   }
 
+  const hasBody = method !== "GET";
   let response: Response;
   try {
     response = await fetch(url.toString(), {
-      headers: authHeaders(config),
+      method,
+      headers: hasBody
+        ? { "Content-Type": "application/json", ...authHeaders(options.config) }
+        : authHeaders(options.config),
+      body: hasBody ? JSON.stringify(options.body) : undefined,
       signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
     });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`Request timed out after ${DEFAULT_TIMEOUT_MS / 1000}s — is the backend running at ${baseUrl}?`);
+      throw new Error(
+        `Request timed out after ${DEFAULT_TIMEOUT_MS / 1000}s — is the backend running at ${baseUrl}?`,
+      );
     }
     throw new Error(`Cannot connect to backend at ${baseUrl}`);
   }
+
   if (response.status === 401) {
     throw new AuthError(authRequiredMessage());
   }
@@ -68,103 +87,40 @@ export async function apiGet<T>(
   return (await response.json()) as T;
 }
 
-export async function apiPost<T>(
+export function apiGet<T>(
   baseUrl: string,
   path: string,
-  body: unknown,
+  params?: Record<string, string | string[]>,
   config?: Config,
 ): Promise<T> {
-  const url = resolveApiUrl(baseUrl, path);
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders(config) },
-      body: JSON.stringify(body),
-      signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`Request timed out after ${DEFAULT_TIMEOUT_MS / 1000}s — is the backend running at ${baseUrl}?`);
-    }
-    throw new Error(`Cannot connect to backend at ${baseUrl}`);
-  }
-
-  if (response.status === 401) {
-    throw new AuthError(authRequiredMessage());
-  }
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Backend error ${response.status}: ${text}`);
-  }
-
-  return (await response.json()) as T;
+  return apiRequest<T>("GET", baseUrl, path, { params, config });
 }
 
-export async function apiPut<T>(
+export function apiPost<T>(
   baseUrl: string,
   path: string,
   body: unknown,
   config?: Config,
 ): Promise<T> {
-  const url = resolveApiUrl(baseUrl, path);
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", ...authHeaders(config) },
-      body: JSON.stringify(body),
-      signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`Request timed out after ${DEFAULT_TIMEOUT_MS / 1000}s — is the backend running at ${baseUrl}?`);
-    }
-    throw new Error(`Cannot connect to backend at ${baseUrl}`);
-  }
-
-  if (response.status === 401) {
-    throw new AuthError(authRequiredMessage());
-  }
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Backend error ${response.status}: ${text}`);
-  }
-
-  return (await response.json()) as T;
+  return apiRequest<T>("POST", baseUrl, path, { body, config });
 }
 
-export async function apiPatch<T>(
+export function apiPut<T>(
   baseUrl: string,
   path: string,
   body: unknown,
   config?: Config,
 ): Promise<T> {
-  const url = resolveApiUrl(baseUrl, path);
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", ...authHeaders(config) },
-      body: JSON.stringify(body),
-      signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`Request timed out after ${DEFAULT_TIMEOUT_MS / 1000}s — is the backend running at ${baseUrl}?`);
-    }
-    throw new Error(`Cannot connect to backend at ${baseUrl}`);
-  }
+  return apiRequest<T>("PUT", baseUrl, path, { body, config });
+}
 
-  if (response.status === 401) {
-    throw new AuthError(authRequiredMessage());
-  }
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Backend error ${response.status}: ${text}`);
-  }
-
-  return (await response.json()) as T;
+export function apiPatch<T>(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  config?: Config,
+): Promise<T> {
+  return apiRequest<T>("PATCH", baseUrl, path, { body, config });
 }
 
 export async function isBackendReachable(baseUrl: string): Promise<boolean> {

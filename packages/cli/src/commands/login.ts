@@ -3,6 +3,7 @@ import { stdin, stdout } from "node:process";
 import { hostname } from "node:os";
 import { isAbsolute, resolve } from "path";
 import { parseArgs, getBoolFlag, getFlagValue } from "../lib/args.ts";
+import { type BootstrapResponse } from "../lib/api-types.ts";
 import { dim, green, red } from "../lib/format.ts";
 import { apiPost, AuthError, isBackendReachable } from "../lib/api.ts";
 import { pickOption } from "../lib/picker.ts";
@@ -11,17 +12,6 @@ import {
   readCredentials,
   writeCredentials,
 } from "../lib/credentials.ts";
-
-type BootstrapResponse = {
-  id: string;
-  name: string;
-  prefix: string;
-  project: string;
-  created_by: string;
-  scope: string;
-  created_at: string;
-  key: string;
-};
 
 type VerifyPasswordProject = {
   id: string;

@@ -5,18 +5,8 @@ import { getFlagValue, parseArgs } from "../lib/args.ts";
 import { apiPost, AuthError } from "../lib/api.ts";
 import { resolveConfig } from "../lib/config.ts";
 import { writeCredentials } from "../lib/credentials.ts";
+import { type BootstrapResponse } from "../lib/api-types.ts";
 import { bold, dim, formatJson, green, red } from "../lib/format.ts";
-
-type BootstrapResponse = {
-  id: string;
-  name: string;
-  prefix: string;
-  project: string;
-  created_by: string;
-  scope: string;
-  created_at: string;
-  key: string;
-};
 
 export async function run(argv: string[]): Promise<number> {
   const { flags, positional } = parseArgs(argv);
