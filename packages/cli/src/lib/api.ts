@@ -64,7 +64,7 @@ async function apiRequest<T>(
       headers: hasBody
         ? { "Content-Type": "application/json", ...authHeaders(options.config) }
         : authHeaders(options.config),
-      body: hasBody ? JSON.stringify(options.body) : undefined,
+      ...(hasBody ? { body: JSON.stringify(options.body) } : {}),
       signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
     });
   } catch (error) {
