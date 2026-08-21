@@ -87,6 +87,26 @@ export interface CallerFailureBody {
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 20_000;
 
+/**
+ * Per-request bound for one beat. Below the interval so an unanswered beat is
+ * abandoned in time for its replacement to go out, and floored so a short
+ * test interval still allows a real round-trip. The lease is ~4.5 intervals
+ * wide, which leaves room for several bounded attempts before it is at risk.
+ */
+export function heartbeatTimeoutMs(intervalMs: number): number {
+  return Math.max(1_000, Math.floor(intervalMs * 0.9));
+}
+
+/**
+ * `409` from /heartbeat means the attempt is no longer ours — the reaper has
+ * declared it `lost`, or another generation holds the lease. Retrying cannot
+ * recover it and no result can be submitted against it, so this is stale-lease
+ * news rather than a flaky beat.
+ */
+function isLeaseLostStatus(status: number | undefined): boolean {
+  return status === 409;
+}
+
 export async function createCallerRun(input: CreateCallerRunInput): Promise<CreatedCallerRun> {
   const url = `${input.backendUrl.replace(/\/$/, "")}/v1/agent-task-batch-runs/caller`;
   const resp = await fetch(url, {
@@ -149,17 +169,29 @@ export async function startCallerAttempt(backendUrl: string, lease: CallerLease)
   if (!resp.ok) throw new Error(`/start failed: ${resp.status} ${await safeText(resp)}`);
 }
 
+/** A non-ok /heartbeat, carrying the status so callers can tell terminal from flaky. */
+export class HeartbeatHttpError extends Error {
+  readonly status: number;
+  constructor(status: number, detail: string) {
+    super(`heartbeat failed: ${status} ${detail}`);
+    this.name = "HeartbeatHttpError";
+    this.status = status;
+  }
+}
+
 export async function heartbeatCallerAttempt(
   backendUrl: string,
   lease: CallerLease,
   phase: string,
+  timeoutMs: number = heartbeatTimeoutMs(DEFAULT_HEARTBEAT_INTERVAL_MS),
 ): Promise<{ cancelRequested: boolean }> {
   const resp = await fetch(attemptUrl(backendUrl, lease, "heartbeat"), {
     method: "POST",
     headers: attemptHeaders(lease),
     body: JSON.stringify({ phase }),
+    signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!resp.ok) throw new Error(`heartbeat failed: ${resp.status} ${await safeText(resp)}`);
+  if (!resp.ok) throw new HeartbeatHttpError(resp.status, await safeText(resp));
   const body = (await resp.json()) as { cancel_requested?: boolean };
   return { cancelRequested: body.cancel_requested === true };
 }
@@ -203,16 +235,29 @@ export async function submitCallerFailure(
  */
 const HEARTBEAT_WORKER_SRC = `
 const { parentPort, workerData } = require('node:worker_threads');
-const { url, headers, body, intervalMs } = workerData;
+const { url, headers, body, intervalMs, timeoutMs } = workerData;
 let inFlight = false;
 
 async function tick() {
+  // One beat at a time — but a beat that never returns must not become the
+  // permanent state of the stream, so every request is bounded below the
+  // interval. Without the bound this guard is a latch: the lease lapses while
+  // the interval keeps firing into a request that will never settle.
   if (inFlight) return;
   inFlight = true;
   try {
-    const resp = await fetch(url, { method: 'POST', headers, body });
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers,
+      body,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
     if (!resp.ok) {
-      parentPort.postMessage({ type: 'error', message: 'heartbeat failed: ' + resp.status });
+      parentPort.postMessage({
+        type: 'error',
+        status: resp.status,
+        message: 'heartbeat failed: ' + resp.status,
+      });
     } else {
       parentPort.postMessage({ type: 'response', body: await resp.json().catch(() => null) });
     }
@@ -229,7 +274,7 @@ setInterval(() => void tick(), intervalMs);
 
 type HeartbeatWorkerMessage =
   | { type: "response"; body: { cancel_requested?: boolean } | null }
-  | { type: "error"; message: string };
+  | { type: "error"; status?: number; message: string };
 
 /**
  * Background heartbeat lifecycle. Calls /heartbeat every `intervalMs` with the
@@ -246,6 +291,7 @@ export class CallerHeartbeat {
   private timer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
   private consecutiveFailures = 0;
+  private leaseLost = false;
   private readonly backendUrl: string;
   private readonly lease: CallerLease;
   private readonly onStale: () => void;
@@ -272,11 +318,16 @@ export class CallerHeartbeat {
           headers: attemptHeaders(this.lease),
           body: JSON.stringify({ phase }),
           intervalMs: this.intervalMs,
+          timeoutMs: heartbeatTimeoutMs(this.intervalMs),
         },
       });
       this.worker.on("message", (msg: HeartbeatWorkerMessage) => {
         if (this.stopped) return;
         if (msg.type === "error") {
+          if (isLeaseLostStatus(msg.status)) {
+            this.noteLeaseLost();
+            return;
+          }
           this.noteFailure(msg.message);
           return;
         }
@@ -302,10 +353,19 @@ export class CallerHeartbeat {
     const tick = async (): Promise<void> => {
       if (this.stopped) return;
       try {
-        const { cancelRequested } = await heartbeatCallerAttempt(this.backendUrl, this.lease, phase);
+        const { cancelRequested } = await heartbeatCallerAttempt(
+          this.backendUrl,
+          this.lease,
+          phase,
+          heartbeatTimeoutMs(this.intervalMs),
+        );
         this.consecutiveFailures = 0;
         if (cancelRequested) this.onStale();
       } catch (err) {
+        if (err instanceof HeartbeatHttpError && isLeaseLostStatus(err.status)) {
+          this.noteLeaseLost();
+          return;
+        }
         this.noteFailure(err instanceof Error ? err.message : String(err));
       }
     };
@@ -323,6 +383,20 @@ export class CallerHeartbeat {
     console.error(
       `Warning: heartbeat failed (${this.consecutiveFailures} in a row): ${message}`,
     );
+  }
+
+  /**
+   * The lease is gone. Say so once, in terms that name the consequence — a run
+   * that keeps working here cannot submit anything — and hand control to the
+   * caller through the same channel a cancellation uses.
+   */
+  private noteLeaseLost(): void {
+    if (this.leaseLost) return;
+    this.leaseLost = true;
+    console.error(
+      "Warning: lease lost (backend returned 409 for the heartbeat) — this attempt can no longer be finalized",
+    );
+    this.onStale();
   }
 
   /** Update the reported phase for subsequent heartbeats. */
