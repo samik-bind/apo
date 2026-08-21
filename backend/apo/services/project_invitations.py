@@ -1,9 +1,12 @@
 """Project invitation service.
 
 Owns every state transition for ``ProjectInvitationDB`` rows so routes
-stay thin. Token material is generated and hashed here — the raw token
-never leaves this module except to be returned once to the caller (for
-delivery / copy-link) or compared as a hash during preview/accept.
+stay thin. Token mechanics — generation, hashing, expiry, accept URLs,
+and best-effort email delivery with a ``link_only`` fallback — live in
+``invitation_tokens`` and are shared with the hosted-access flow; the
+raw token never leaves these modules except to be returned once to the
+caller (for delivery / copy-link) or compared as a hash during
+preview/accept.
 
 Authorization (who may invite / revoke / resend) is delegated to the
 project membership service via ``require_project_role``. This service
@@ -18,19 +21,15 @@ receives a copyable ``invite_url``.
 
 from __future__ import annotations
 
-import hashlib
-import logging
 import os
-import secrets
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 from typing import Final, cast
 
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from ..auth import hash_password, validate_frontend_url, validate_password_strength
-from ..db_helpers import _as_column
+from ..auth import hash_password, validate_password_strength
+from ..db_helpers import as_column
 from ..models.db import (
     ProjectDB,
     ProjectInvitationDB,
@@ -43,15 +42,25 @@ from ..models.schemas import (
     InvitationTokenPreviewResponse,
     ProjectInvitationSummary,
 )
-from .email import EmailSendError, get_email_service
 from .email_templates import render_invitation_email
+from .invitation_tokens import (
+    build_invite_url,
+    expiry_from_now,
+    generate_token,
+    hash_token,
+    is_active,
+    is_expired,
+    normalize_email,
+    reconcile_delivery_method,
+    rotate_token,
+    send_invitation_email,
+    utcnow,
+)
 from .project_memberships import (
     DEMO_PROJECT_ID,
     create_owner_membership,
     get_project_membership,
 )
-
-logger = logging.getLogger(__name__)
 
 # Env-tunable invitation lifetime. 7 days matches the spec default and
 # is long enough for a slow invitee without leaving tokens dangling.
@@ -63,52 +72,7 @@ PROJECT_INVITATION_TTL_HOURS: Final[int] = int(
 # because only owners may invite owners.
 _INVITATION_ROLES: Final[frozenset[str]] = frozenset({"owner", "admin", "member"})
 
-
-# ---------------------------------------------------------------------------
-# Small pure helpers
-# ---------------------------------------------------------------------------
-
-
-def normalize_email(email: str) -> str:
-    """Lowercase + strip an email for persistence and comparison."""
-    return email.strip().lower()
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _hash_token(raw_token: str) -> str:
-    """SHA-256 hex digest of the raw invitation token."""
-    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-
-
-def _generate_token() -> tuple[str, str]:
-    """Return ``(raw_token, token_hash)``. Raw token is returned once."""
-    raw = secrets.token_urlsafe(32)
-    return raw, _hash_token(raw)
-
-
-def _expiry_from_now() -> datetime:
-    return _utcnow() + timedelta(hours=PROJECT_INVITATION_TTL_HOURS)
-
-
-def _build_invite_url(raw_token: str) -> str:
-    base = validate_frontend_url(
-        os.environ.get("FRONTEND_URL", "http://localhost:3000")
-    )
-    return f"{base}/accept-invitation?token={raw_token}"
-
-
-def _is_active(invitation: ProjectInvitationDB) -> bool:
-    return invitation.accepted_at is None and invitation.revoked_at is None
-
-
-def _is_expired(invitation: ProjectInvitationDB) -> bool:
-    expires_at = invitation.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    return expires_at < _utcnow()
+_ACCEPT_PATH = "/accept-invitation"
 
 
 # ---------------------------------------------------------------------------
@@ -134,8 +98,8 @@ def find_active_invitation(
     statement = select(ProjectInvitationDB).where(
         ProjectInvitationDB.project_id == project_id,
         ProjectInvitationDB.email == normalized,
-        _as_column(cast(object, ProjectInvitationDB.accepted_at)).is_(None),
-        _as_column(cast(object, ProjectInvitationDB.revoked_at)).is_(None),
+        as_column(cast(object, ProjectInvitationDB.accepted_at)).is_(None),
+        as_column(cast(object, ProjectInvitationDB.revoked_at)).is_(None),
     )
     return session.exec(statement).first()
 
@@ -144,7 +108,7 @@ def find_by_raw_token(
     session: Session, raw_token: str
 ) -> ProjectInvitationDB | None:
     """Look up an invitation by hashing the raw token."""
-    token_hash = _hash_token(raw_token)
+    token_hash = hash_token(raw_token)
     statement = select(ProjectInvitationDB).where(
         ProjectInvitationDB.token_hash == token_hash
     )
@@ -194,39 +158,27 @@ async def _try_send_email(
     invitation: ProjectInvitationDB,
     raw_token: str,
 ) -> bool:
-    """Attempt email delivery. Returns ``True`` if actually sent.
-
-    The demo/log-only transport and any raised ``EmailSendError`` both
-    resolve to ``False`` so the caller can fall back to ``link_only``.
-    """
-    service = get_email_service()
-    if not service.is_configured:
-        return False
-
+    """Attempt project-invitation delivery. Returns ``True`` if actually sent."""
     inviter = session.get(UserDB, invitation.invited_by_user_id)
     project = session.get(ProjectDB, invitation.project_id)
     inviter_name = (inviter.name if inviter and inviter.name else None) or "Someone"
     project_name = project.name if project else "a project"
-    invite_url = _build_invite_url(raw_token)
 
-    html_body, text_body = render_invitation_email(
-        invite_url=invite_url,
-        inviter_name=inviter_name,
-        workspace_name=project_name,
+    def render(invite_url: str) -> tuple[str, str]:
+        return render_invitation_email(
+            invite_url=invite_url,
+            inviter_name=inviter_name,
+            workspace_name=project_name,
+        )
+
+    return await send_invitation_email(
+        to_email=invitation.email,
+        subject=f"You're invited to join {project_name}",
+        invite_url=build_invite_url(raw_token, _ACCEPT_PATH),
+        render=render,
+        invitation_id=invitation.id,
+        log_label="Invitation",
     )
-    try:
-        await service.send(
-            to=invitation.email,
-            subject=f"You're invited to join {project_name}",
-            html=html_body,
-            text=text_body,
-        )
-        return True
-    except EmailSendError:
-        logger.warning(
-            "Invitation email delivery failed for invitation %s", invitation.id
-        )
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -287,9 +239,9 @@ async def create_or_refresh_invitation(
                 detail="That user is already a member of this project",
             )
 
-    raw_token, token_hash = _generate_token()
-    invite_url = _build_invite_url(raw_token)
-    expires_at = _expiry_from_now()
+    raw_token, token_hash = generate_token()
+    invite_url = build_invite_url(raw_token, _ACCEPT_PATH)
+    expires_at = expiry_from_now(PROJECT_INVITATION_TTL_HOURS)
 
     existing = find_active_invitation(session, project_id, normalized)
     if existing is not None:
@@ -297,7 +249,7 @@ async def create_or_refresh_invitation(
         existing.role = role
         existing.invited_by_user_id = invited_by_user_id
         existing.expires_at = expires_at
-        existing.updated_at = _utcnow()
+        existing.updated_at = utcnow()
         session.add(existing)
         session.commit()
         session.refresh(existing)
@@ -309,7 +261,7 @@ async def create_or_refresh_invitation(
             role=role,
             invited_by_user_id=invited_by_user_id,
             token_hash=token_hash,
-            invite_url_path=f"/accept-invitation?token={raw_token}",
+            invite_url_path=f"{_ACCEPT_PATH}?token={raw_token}",
             delivery_method="email",
             expires_at=expires_at,
         )
@@ -318,12 +270,7 @@ async def create_or_refresh_invitation(
         session.refresh(invitation)
 
     delivered = await _try_send_email(session, invitation, raw_token)
-    delivery_method = "email" if delivered else "link_only"
-    if invitation.delivery_method != delivery_method:
-        invitation.delivery_method = delivery_method
-        session.add(invitation)
-        session.commit()
-        session.refresh(invitation)
+    await reconcile_delivery_method(session, invitation, delivered)
 
     summary = to_summary(session, invitation)
     return CreateProjectInvitationResponse(
@@ -349,27 +296,20 @@ async def resend_invitation(
     invitation = get_invitation(session, invitation_id)
     if invitation is None or invitation.project_id != project_id:
         raise HTTPException(status_code=404, detail="Invitation not found")
-    if not _is_active(invitation):
+    if not is_active(invitation):
         raise HTTPException(
             status_code=409, detail="Invitation is no longer active"
         )
 
-    raw_token, token_hash = _generate_token()
-    invite_url = _build_invite_url(raw_token)
-    invitation.token_hash = token_hash
-    invitation.expires_at = _expiry_from_now()
-    invitation.updated_at = _utcnow()
-    session.add(invitation)
-    session.commit()
-    session.refresh(invitation)
+    raw_token, invite_url = rotate_token(
+        session,
+        invitation,
+        ttl_hours=PROJECT_INVITATION_TTL_HOURS,
+        accept_path=_ACCEPT_PATH,
+    )
 
     delivered = await _try_send_email(session, invitation, raw_token)
-    delivery_method = "email" if delivered else "link_only"
-    if invitation.delivery_method != delivery_method:
-        invitation.delivery_method = delivery_method
-        session.add(invitation)
-        session.commit()
-        session.refresh(invitation)
+    await reconcile_delivery_method(session, invitation, delivered)
 
     summary = to_summary(session, invitation)
     return CreateProjectInvitationResponse(
@@ -408,8 +348,8 @@ def revoke_invitation(
         )
 
     if invitation.revoked_at is None:
-        invitation.revoked_at = _utcnow()
-        invitation.updated_at = _utcnow()
+        invitation.revoked_at = utcnow()
+        invitation.updated_at = utcnow()
         session.add(invitation)
         session.commit()
 
@@ -422,11 +362,11 @@ def list_pending_invitations(
         select(ProjectInvitationDB)
         .where(
             ProjectInvitationDB.project_id == project_id,
-            _as_column(cast(object, ProjectInvitationDB.accepted_at)).is_(None),
-            _as_column(cast(object, ProjectInvitationDB.revoked_at)).is_(None),
+            as_column(cast(object, ProjectInvitationDB.accepted_at)).is_(None),
+            as_column(cast(object, ProjectInvitationDB.revoked_at)).is_(None),
         )
         .order_by(
-            _as_column(cast(object, ProjectInvitationDB.created_at)).desc()
+            as_column(cast(object, ProjectInvitationDB.created_at)).desc()
         )
     )
     rows = list(session.exec(statement).all())
@@ -472,7 +412,7 @@ def _resolve_token(
         return _ResolvedToken(invitation=invitation, project=project, reason="revoked")
     if invitation.accepted_at is not None:
         return _ResolvedToken(invitation=invitation, project=project, reason="accepted")
-    if _is_expired(invitation):
+    if is_expired(invitation):
         return _ResolvedToken(invitation=invitation, project=project, reason="expired")
     return _ResolvedToken(invitation=invitation, project=project, reason=None)
 
@@ -560,7 +500,7 @@ def accept_invitation_create_account(
         password_hash=hash_password(password),
         is_admin=False,
         is_active=True,
-        email_verified_at=_utcnow(),
+        email_verified_at=utcnow(),
     )
     session.add(user)
     session.commit()
@@ -648,7 +588,7 @@ def _create_membership_row(
     user_id: str,
     role: str,
 ) -> ProjectMembershipDB:
-    now = _utcnow()
+    now = utcnow()
     membership = ProjectMembershipDB(
         project_id=project_id,
         user_id=user_id,
@@ -665,9 +605,9 @@ def _create_membership_row(
 def _mark_accepted(
     session: Session, invitation: ProjectInvitationDB, accepting_user_id: str
 ) -> None:
-    invitation.accepted_at = _utcnow()
+    invitation.accepted_at = utcnow()
     invitation.accepted_by_user_id = accepting_user_id
-    invitation.updated_at = _utcnow()
+    invitation.updated_at = utcnow()
     session.add(invitation)
     session.commit()
 
@@ -680,6 +620,7 @@ __all__ = [
     "find_active_invitation",
     "find_by_raw_token",
     "get_invitation",
+    "hash_token",
     "list_pending_invitations",
     "normalize_email",
     "preview_invitation_token",

@@ -5,9 +5,11 @@ routes stay thin. Admission is installation-level: issuing an invitation
 creates no User, Project, or membership; acceptance materializes exactly
 one invitee-owned Project in a single transaction.
 
-Token material follows ``project_invitations.py`` — the raw token is
-generated and hashed here, returned exactly once to the caller (for
-delivery / copy-link), and compared only as a SHA-256 hash afterwards.
+Token mechanics — generation, hashing, expiry, accept URLs, and
+best-effort email delivery with a ``link_only`` fallback — live in
+``invitation_tokens`` and are shared with the project-invitation flow;
+the raw token is returned exactly once to the caller (for delivery /
+copy-link) and compared only as a SHA-256 hash afterwards.
 
 Acceptance owns one transaction: user (when new), Project, owner
 membership, and invitation consumption are staged with ``flush`` only
@@ -24,19 +26,15 @@ membership.
 
 from __future__ import annotations
 
-import hashlib
-import logging
 import os
-import secrets
-from datetime import datetime, timedelta, timezone
 from typing import Final, cast
 from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
-from ..auth import hash_password, validate_frontend_url, validate_password_strength
-from ..db_helpers import _as_column
+from ..auth import hash_password, validate_password_strength
+from ..db_helpers import as_column
 from ..models.db import (
     HostedAccessInvitationDB,
     ProjectDB,
@@ -49,11 +47,20 @@ from ..models.schemas import (
     HostedAccessInvitationPreview,
     HostedAccessInvitationSummary,
 )
-from .email import EmailSendError, get_email_service
 from .email_templates import render_hosted_access_email
-from .project_invitations import normalize_email
-
-logger = logging.getLogger(__name__)
+from .invitation_tokens import (
+    build_invite_url,
+    expiry_from_now,
+    generate_token,
+    hash_token,
+    is_active,
+    is_expired,
+    normalize_email,
+    reconcile_delivery_method,
+    rotate_token,
+    send_invitation_email,
+    utcnow,
+)
 
 # Env-tunable admission lifetime, defaulting to 7 days like Project
 # Invitations. Long enough for a slow invitee without dangling tokens.
@@ -63,47 +70,7 @@ HOSTED_ACCESS_INVITATION_TTL_HOURS: Final[int] = int(
 
 _PROJECT_NAME_MAX_LENGTH: Final[int] = 100
 
-
-# ---------------------------------------------------------------------------
-# Small pure helpers
-# ---------------------------------------------------------------------------
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _hash_token(raw_token: str) -> str:
-    """SHA-256 hex digest of the raw admission token."""
-    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
-
-
-def _generate_token() -> tuple[str, str]:
-    """Return ``(raw_token, token_hash)``. Raw token is returned once."""
-    raw = secrets.token_urlsafe(32)
-    return raw, _hash_token(raw)
-
-
-def _expiry_from_now() -> datetime:
-    return _utcnow() + timedelta(hours=HOSTED_ACCESS_INVITATION_TTL_HOURS)
-
-
-def _build_invite_url(raw_token: str) -> str:
-    base = validate_frontend_url(
-        os.environ.get("FRONTEND_URL", "http://localhost:3000")
-    )
-    return f"{base}/join?token={raw_token}"
-
-
-def _is_active(invitation: HostedAccessInvitationDB) -> bool:
-    return invitation.accepted_at is None and invitation.revoked_at is None
-
-
-def _is_expired(invitation: HostedAccessInvitationDB) -> bool:
-    expires_at = invitation.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    return expires_at < _utcnow()
+_ACCEPT_PATH = "/join"
 
 
 def _validate_project_name(project_name: str) -> str:
@@ -144,8 +111,8 @@ def find_active_hosted_access_invitation(
     normalized = normalize_email(email)
     statement = select(HostedAccessInvitationDB).where(
         HostedAccessInvitationDB.email == normalized,
-        _as_column(cast(object, HostedAccessInvitationDB.accepted_at)).is_(None),
-        _as_column(cast(object, HostedAccessInvitationDB.revoked_at)).is_(None),
+        as_column(cast(object, HostedAccessInvitationDB.accepted_at)).is_(None),
+        as_column(cast(object, HostedAccessInvitationDB.revoked_at)).is_(None),
     )
     return session.exec(statement).first()
 
@@ -153,7 +120,7 @@ def find_active_hosted_access_invitation(
 def _find_by_raw_token(
     session: Session, raw_token: str
 ) -> HostedAccessInvitationDB | None:
-    token_hash = _hash_token(raw_token)
+    token_hash = hash_token(raw_token)
     statement = select(HostedAccessInvitationDB).where(
         HostedAccessInvitationDB.token_hash == token_hash
     )
@@ -188,36 +155,23 @@ def _to_summary(invitation: HostedAccessInvitationDB) -> HostedAccessInvitationS
 async def _try_send_email(
     session: Session, invitation: HostedAccessInvitationDB, raw_token: str
 ) -> bool:
-    """Attempt email delivery. Returns ``True`` if actually sent.
-
-    An unconfigured/log-only transport and any raised ``EmailSendError``
-    both resolve to ``False`` so the caller can fall back to
-    ``link_only`` delivery.
-    """
-    service = get_email_service()
-    if not service.is_configured:
-        return False
-
+    """Attempt admission-invitation delivery. Returns ``True`` if actually sent."""
     inviter = session.get(UserDB, invitation.invited_by_user_id)
     inviter_name = (inviter.name if inviter and inviter.name else None) or "An apo administrator"
-    invite_url = _build_invite_url(raw_token)
 
-    html_body, text_body = render_hosted_access_email(
-        invite_url=invite_url, inviter_name=inviter_name
+    def render(invite_url: str) -> tuple[str, str]:
+        return render_hosted_access_email(
+            invite_url=invite_url, inviter_name=inviter_name
+        )
+
+    return await send_invitation_email(
+        to_email=invitation.email,
+        subject="You're invited to apo",
+        invite_url=build_invite_url(raw_token, _ACCEPT_PATH),
+        render=render,
+        invitation_id=invitation.id,
+        log_label="Hosted access",
     )
-    try:
-        await service.send(
-            to=invitation.email,
-            subject="You're invited to apo",
-            html=html_body,
-            text=text_body,
-        )
-        return True
-    except EmailSendError:
-        logger.warning(
-            "Hosted access email delivery failed for invitation %s", invitation.id
-        )
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -244,16 +198,16 @@ async def create_or_refresh_hosted_access_invitation(
             status_code=422, detail="A valid email address is required"
         )
 
-    raw_token, token_hash = _generate_token()
-    invite_url = _build_invite_url(raw_token)
-    expires_at = _expiry_from_now()
+    raw_token, token_hash = generate_token()
+    invite_url = build_invite_url(raw_token, _ACCEPT_PATH)
+    expires_at = expiry_from_now(HOSTED_ACCESS_INVITATION_TTL_HOURS)
 
     existing = find_active_hosted_access_invitation(session, normalized)
     if existing is not None:
         existing.token_hash = token_hash
         existing.invited_by_user_id = invited_by_user_id
         existing.expires_at = expires_at
-        existing.updated_at = _utcnow()
+        existing.updated_at = utcnow()
         session.add(existing)
         session.commit()
         session.refresh(existing)
@@ -271,12 +225,7 @@ async def create_or_refresh_hosted_access_invitation(
         session.refresh(invitation)
 
     delivered = await _try_send_email(session, invitation, raw_token)
-    delivery_method = "email" if delivered else "link_only"
-    if invitation.delivery_method != delivery_method:
-        invitation.delivery_method = delivery_method
-        session.add(invitation)
-        session.commit()
-        session.refresh(invitation)
+    await reconcile_delivery_method(session, invitation, delivered)
 
     return CreateHostedAccessInvitationResponse(
         invitation=_to_summary(invitation),
@@ -294,27 +243,20 @@ async def resend_hosted_access_invitation(
     invitation = get_hosted_access_invitation(session, invitation_id)
     if invitation is None:
         raise HTTPException(status_code=404, detail="Invitation not found")
-    if not _is_active(invitation):
+    if not is_active(invitation):
         raise HTTPException(
             status_code=409, detail="Invitation is no longer active"
         )
 
-    raw_token, token_hash = _generate_token()
-    invite_url = _build_invite_url(raw_token)
-    invitation.token_hash = token_hash
-    invitation.expires_at = _expiry_from_now()
-    invitation.updated_at = _utcnow()
-    session.add(invitation)
-    session.commit()
-    session.refresh(invitation)
+    raw_token, invite_url = rotate_token(
+        session,
+        invitation,
+        ttl_hours=HOSTED_ACCESS_INVITATION_TTL_HOURS,
+        accept_path=_ACCEPT_PATH,
+    )
 
     delivered = await _try_send_email(session, invitation, raw_token)
-    delivery_method = "email" if delivered else "link_only"
-    if invitation.delivery_method != delivery_method:
-        invitation.delivery_method = delivery_method
-        session.add(invitation)
-        session.commit()
-        session.refresh(invitation)
+    await reconcile_delivery_method(session, invitation, delivered)
 
     return CreateHostedAccessInvitationResponse(
         invitation=_to_summary(invitation),
@@ -333,8 +275,8 @@ def revoke_hosted_access_invitation(
     if invitation is None:
         raise HTTPException(status_code=404, detail="Invitation not found")
     if invitation.revoked_at is None:
-        invitation.revoked_at = _utcnow()
-        invitation.updated_at = _utcnow()
+        invitation.revoked_at = utcnow()
+        invitation.updated_at = utcnow()
         session.add(invitation)
         session.commit()
 
@@ -348,7 +290,7 @@ def list_hosted_access_invitations(
     audited; acceptance state is part of the summary.
     """
     statement = select(HostedAccessInvitationDB).order_by(
-        _as_column(cast(object, HostedAccessInvitationDB.created_at)).desc()
+        as_column(cast(object, HostedAccessInvitationDB.created_at)).desc()
     )
     rows = list(session.exec(statement).all())
     return [_to_summary(row) for row in rows]
@@ -380,7 +322,7 @@ def _require_acceptable(
         raise HTTPException(status_code=409, detail="Invitation has been revoked")
     if invitation.accepted_at is not None:
         raise HTTPException(status_code=409, detail="Invitation has already been accepted")
-    if _is_expired(invitation):
+    if is_expired(invitation):
         raise HTTPException(status_code=404, detail="Invitation is invalid or has expired")
     return invitation
 
@@ -397,7 +339,7 @@ def preview_hosted_access_invitation(
         return HostedAccessInvitationPreview(valid=False, reason="revoked")
     if invitation.accepted_at is not None:
         return HostedAccessInvitationPreview(valid=False, reason="accepted")
-    if _is_expired(invitation):
+    if is_expired(invitation):
         return HostedAccessInvitationPreview(valid=False, reason="expired")
 
     existing_user = session.exec(
@@ -429,7 +371,7 @@ def _stage_new_user(
         password_hash=hash_password(password),
         is_admin=False,
         is_active=True,
-        email_verified_at=_utcnow(),
+        email_verified_at=utcnow(),
     )
     session.add(user)
     session.flush()
@@ -453,7 +395,7 @@ def _stage_owner_membership(
 ) -> ProjectMembershipDB:
     """Stage the invitee's ``owner`` membership — the only membership
     acceptance ever creates (the issuer receives none)."""
-    now = _utcnow()
+    now = utcnow()
     membership = ProjectMembershipDB(
         project_id=project_id,
         user_id=user_id,
@@ -474,10 +416,10 @@ def _stage_accepted(
     project_id: str,
 ) -> None:
     """Stage invitation consumption in the same transaction."""
-    invitation.accepted_at = _utcnow()
+    invitation.accepted_at = utcnow()
     invitation.accepted_by_user_id = user_id
     invitation.accepted_project_id = project_id
-    invitation.updated_at = _utcnow()
+    invitation.updated_at = utcnow()
     session.add(invitation)
     session.flush()
 
