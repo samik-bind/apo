@@ -428,7 +428,10 @@ function LoginForm({
         dispatch({ type: "SUBMIT_ERROR", error: "Sign-in failed. Please try again." })
         return
       }
-      router.push(result?.url ?? callbackUrl)
+      // The sanitized relative destination keeps the user on the origin they
+      // opened (localhost, tunnel domain), instead of NextAuth's absolutized
+      // public URL.
+      router.push(callbackUrl)
     } catch {
       dispatch({ type: "SUBMIT_ERROR", error: "Unable to connect to server" })
     } finally {
