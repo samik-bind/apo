@@ -15,6 +15,9 @@ type CommandEntry = {
   help: string;
   args?: [string, string][];
   options?: [string, string][];
+  /** Flags the command accepts that are too minor for the Options table
+   *  (rendered as one compact line instead of one row each). */
+  extraFlags?: string[];
   examples?: string[];
   note?: string;
 };
@@ -40,6 +43,11 @@ const commands: Record<string, CommandEntry> = {
     handler: loadCommand("logout"),
     help: "Clear saved credentials (sign out)",
     note: "Deletes ~/.apo/credentials. No backend connection needed.",
+  },
+  status: {
+    handler: loadCommand("status"),
+    help: "Show effective configuration (login, backend, project, task root)",
+    note: "Prints exactly what commands will use, resolved from flags > environment > ~/.apo/credentials > defaults. No backend auth needed.",
   },
   "project list": {
     handler: loadCommand("project-list"),
@@ -88,38 +96,6 @@ const commands: Record<string, CommandEntry> = {
     ],
     note: "Uses backend (with --project) or scans --dir locally.",
   },
-  "task publish": {
-    handler: loadCommand("task-publish"),
-    help: "Publish task metadata to the Apo Task Catalog",
-    options: [
-      ["--dir <path>", "Task root directory (default: from config)"],
-      ["--project <id>", "Project to publish to (default: active project)"],
-      ["--dry-run", "Print the publication document without sending"],
-      ["--allow-empty", "Required to publish zero tasks (clears catalog)"],
-      ["--json", "Machine-readable output"],
-    ],
-    examples: [
-      "apo task publish",
-      "apo task publish --dry-run --json",
-      "apo task publish --dir ./tasks --project acme",
-    ],
-    note: "Scans local tasks and publishes bounded metadata only — no source files, prompts, or credentials leave your machine.",
-  },
-  "connect": {
-    handler: loadCommand("connect"),
-    help: "Connect as a persistent source-owned executor",
-    options: [
-      ["--dir <path>", "Task root directory (default: from config)"],
-      ["--project <id>", "Project to connect to (default: active project)"],
-      ["--name <name>", "Display name for this machine"],
-      ["--concurrency <n>", "Max parallel tasks (default: 4)"],
-    ],
-    examples: [
-      "apo connect",
-      "apo connect --project acme --concurrency 8",
-    ],
-    note: "Runs in the foreground. Discovers tasks locally, publishes nothing, and executes only assignments matching your published Task Catalog. Source files and credentials never leave your machine.",
-  },
   "task show": {
     handler: loadCommand("task-show"),
     help: "Show task details",
@@ -139,19 +115,53 @@ const commands: Record<string, CommandEntry> = {
     ],
     options: [
       ["--ci", "CI mode: records CI metadata, uses strict exit codes"],
-      ["--executor <caller|pool-id>", "Target executor: 'caller' (this machine) or an exact Pool id"],
-      ["--no-record", "Run on this machine WITHOUT recording (explicit unrecorded; conflicts with a Pool target)"],
-      ["--local", "(compat) alias for --executor caller; deprecated"],
-      ["--remote", "(compat) force a Bundled Pool; deprecated — errors if none is configured"],
+      ["--no-record", "Run on this machine WITHOUT recording (skips the backend entirely)"],
+      ["--local", "(compat) accepted no-op — runs are always local now"],
+      ["--executor <caller>", "(compat) accepted no-op; any other target is an error"],
+    ],
+    extraFlags: [
+      "ci-actor", "ci-hostname", "ci-system", "ci-run-id", "ci-run-url",
+      "repo", "branch", "sha", "pr",
     ],
     examples: [
       "apo task run meeting-summary",
       "apo task run ./tasks/my-task",
-      "apo task run meeting-summary --executor caller",
       "apo task run meeting-summary --no-record",
-      "apo task run bind-e2e --local",
+      "apo task run bind-e2e --ci",
     ],
-    note: "Target precedence: --executor > --local/--remote > task execution > project default_executor > legacy default_execution > caller. Reachability never changes placement (a configured recording either succeeds or exits 2). --no-record conflicts with a Pool target. Exit codes: 0=pass, 1=fail, 2=error.",
+    note: "Always executes on this machine (caller execution). Records the run when backend + project + credential are configured; a configured recording that cannot reach the backend exits 2 — use --no-record to skip recording. Exit codes: 0=pass, 1=fail, 2=error.",
+  },
+  "task publish": {
+    handler: loadCommand("task-publish"),
+    help: "Publish task metadata to the Apo Task Catalog",
+    options: [
+      ["--dir <path>", "Task root directory (default: from config)"],
+      ["--project <id>", "Project to publish to (default: active project)"],
+      ["--dry-run", "Print the publication document without sending"],
+      ["--allow-empty", "Required to publish zero tasks (clears catalog)"],
+      ["--json", "Machine-readable output"],
+    ],
+    examples: [
+      "apo task publish",
+      "apo task publish --dry-run --json",
+      "apo task publish --dir ./tasks --project acme",
+    ],
+    note: "Scans local tasks and publishes bounded metadata only — no source files, prompts, or credentials leave your machine.",
+  },
+  connect: {
+    handler: loadCommand("connect"),
+    help: "Connect as a persistent source-owned executor",
+    options: [
+      ["--dir <path>", "Task root directory (default: from config)"],
+      ["--project <id>", "Project to connect to (default: active project)"],
+      ["--name <name>", "Display name for this machine"],
+      ["--concurrency <n>", "Max parallel tasks (default: 4)"],
+    ],
+    examples: [
+      "apo connect",
+      "apo connect --project acme --concurrency 8",
+    ],
+    note: "Runs in the foreground. Discovers tasks locally, publishes nothing, and executes only assignments matching your published Task Catalog. Source files and credentials never leave your machine.",
   },
   "runs list": {
     handler: loadCommand("runs-list"),
@@ -187,7 +197,7 @@ const commands: Record<string, CommandEntry> = {
       "apo runs show last --task meeting-summary",
       "apo runs show de89cab --verbose --exit-status",
     ],
-    note: "Accepts run-id prefixes. Requires backend auth. Large per-check values (typically the deliverable re-sent per criterion) are shown as a one-line manifest; read full content with `apo runs deliverable <run-id> [name]` (fetches a deliverable once, not per check).",
+    note: "Accepts run-id prefixes. Requires backend auth. Supports --json. Large per-check values (typically the deliverable re-sent per criterion) are shown as a one-line manifest; read full content with `apo runs deliverable <run-id> [name]` (fetches a deliverable once, not per check).",
   },
   "runs deliverable": {
     handler: loadCommand("runs-deliverable"),
@@ -234,7 +244,7 @@ const commands: Record<string, CommandEntry> = {
       "apo traces show abc123",
       "apo traces show abc123 --errors-only",
     ],
-    note: "Accepts trace-id prefixes. Requires backend auth.",
+    note: "Accepts trace-id prefixes. Requires backend auth. Supports --json.",
   },
   "traces import langfuse": {
     handler: loadCommand("traces-import-langfuse"),
@@ -257,7 +267,7 @@ const commands: Record<string, CommandEntry> = {
       "apo traces import langfuse <id> --wait 120",
       "apo traces import langfuse <run-trace-id> --trace-id <run-trace-id>",
     ],
-    note: "Credentials are environment-only: LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY (required) and LANGFUSE_HOST (optional, defaults to https://cloud.langfuse.com). Keys never leave the CLI process. --wait polls until the trace looks fully ingested, not just until the first span appears — this prevents importing partial traces where Langfuse hasn't finished async ingestion (issue #39). Two gates: the observation count must hold for --settle seconds of wall-clock, and the fetched set must have no dangling parent links (several spans sharing a parent that isn't in the set means that parent hasn't been ingested). A count plateau alone is not enough — a tracer that flushes in batches plateaus mid-ingest. If the deadline expires while the trace still looks partial, it is imported best-effort with a warning naming the reason; re-running is safe and idempotent (deterministic span ids, no duplicates). Exit codes: 0 = imported and visible; 75 = source trace not yet available / empty (retryable); 2 = config / Langfuse hard read error / conversion / OTLP partial rejection / projection visibility failure. Use --trace-id to merge imported spans into an existing run trace when apo's traceparent was propagated into the agent runtime, and --parent-span-id to name the span they hang under — without it the dangling-parent gate can't run in merge mode (a dangling link is then indistinguishable from the span being merged under). Native OTEL remains the preferred path when the agent can reach apo directly.",
+    note: "Credentials are environment-only: LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY (required) and LANGFUSE_HOST (optional). Keys never leave the CLI process. Re-running is safe and idempotent. Exit codes: 0 = imported and visible; 75 = source trace not ready (retryable); 2 = hard error. See the docs page for --wait/--settle ingestion gating and merge mode (--trace-id, --parent-span-id).",
   },
   "batch list": {
     handler: loadCommand("batch-list"),
@@ -283,7 +293,7 @@ const commands: Record<string, CommandEntry> = {
       "apo batch show abc123",
       "apo batch show abc123 --watch",
     ],
-    note: "Accepts batch-id prefixes. Requires backend auth.",
+    note: "Accepts batch-id prefixes. Requires backend auth. Supports --json.",
   },
   reprice: {
     handler: loadCommand("reprice"),
@@ -313,6 +323,26 @@ function loadCommand(name: string): CommandHandler {
   };
 }
 
+/** Flags every command accepts. */
+const GLOBAL_FLAGS = new Set([
+  "help", "h", "version", "v", "json",
+  "dir", "backend", "project", "actor", "api-key",
+]);
+
+function validFlagNames(entry: CommandEntry): Set<string> {
+  const names = new Set(GLOBAL_FLAGS);
+  for (const [flag] of entry.options ?? []) {
+    const name = flag.split(/\s+/)[0];
+    if (name.startsWith("--")) {
+      names.add(name.slice(2));
+    }
+  }
+  for (const name of entry.extraFlags ?? []) {
+    names.add(name);
+  }
+  return names;
+}
+
 export async function main(argv: string[]): Promise<number> {
   const { positional, flags } = parseArgs(argv);
 
@@ -336,12 +366,32 @@ export async function main(argv: string[]): Promise<number> {
     if (positional.length > 0) {
       console.error(`Unknown command: ${positional.join(" ")}`);
       console.error("");
+      printHelp();
+      return 2;
+    }
+    for (const key of Object.keys(flags)) {
+      if (!GLOBAL_FLAGS.has(key)) {
+        console.error(`Unknown option: --${key}`);
+        console.error("Run 'apo --help' for the full list.");
+        return 2;
+      }
     }
     printHelp();
-    return positional.length > 0 ? 2 : 0;
+    return 0;
   }
 
   const command = commands[matched.key];
+
+  // Reject mistyped flags loudly: a silently-dropped --projct or --statu
+  // filter is confidently-wrong output, not an error an agent can see.
+  const accepted = validFlagNames(command);
+  for (const key of Object.keys(flags)) {
+    if (!accepted.has(key)) {
+      console.error(`Unknown option: --${key} (apo ${matched.key})`);
+      console.error(`Run 'apo ${matched.key} --help' for the valid options.`);
+      return 2;
+    }
+  }
 
   const commandArgs = positional.slice(matched.keyParts.length);
   for (const [key, value] of Object.entries(flags)) {
@@ -403,6 +453,11 @@ function printCommandHelp(key: string, entry: CommandEntry): void {
     for (const [flag, desc] of entry.options) {
       console.log(`  ${pad(flag, w)} ${desc}`);
     }
+    console.log("");
+  }
+
+  if (entry.extraFlags?.length) {
+    console.log(dim(`Also accepted: ${entry.extraFlags.map((f) => `--${f}`).join(", ")}`));
     console.log("");
   }
 

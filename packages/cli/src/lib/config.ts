@@ -10,19 +10,6 @@ export type Config = {
   apiKey: string | undefined;
   json: boolean;
   ci: boolean;
-  /**
-   * Project-level default for `apo task run` execution
-   *. Populated from `StoredCredentials.default_execution`.
-   * Lower priority than a task's own `execution` declaration; overrideable
-   * per-invocation by `--local` / `--remote`.
-   */
-  // default_execution retired
-  /**
-   * preferred executor — `"caller"` or a Pool ID. Populated from
-   * `StoredCredentials.default_executor`; takes precedence over the legacy
-   * `defaultExecution` field.
-   */
-  defaultExecutor: "caller" | string | undefined;
   _rawFlags: Record<string, string | boolean>;
 };
 
@@ -57,10 +44,8 @@ export function resolveConfig(
       getFlagValue(flags, "api-key"),
       "APO_API_KEY",
     ) ?? stored?.api_key,
-    json: flags.json === true,
+    json: flags.json === true || flags.json === "true",
     ci: flags.ci === true || process.env.CI === "true",
-    // default_execution retired — ignored
-    defaultExecutor: stored?.default_executor,
     _rawFlags: flags,
   };
 }

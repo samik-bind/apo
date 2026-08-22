@@ -19,6 +19,10 @@ RUN npm install -g pnpm@11.3.0 && pnpm install --frozen-lockfile
 
 COPY apps/docs/ ./apps/docs/
 COPY contracts/ ./contracts/
+# verify-hosted-contracts.mjs reads these two files from outside apps/docs
+# to keep hosted copy truthful against the example and the dashboard.
+COPY apps/example-service/e2e/agent-task-demo/START-HERE.md ./apps/example-service/e2e/agent-task-demo/START-HERE.md
+COPY apps/dashboard/src/lib/first-run.ts ./apps/dashboard/src/lib/first-run.ts
 
 WORKDIR /app/apps/docs
 RUN pnpm build

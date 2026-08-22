@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { main } from "../src/main.ts";
+import * as credentials from "../src/lib/credentials.ts";
 import { stripAnsi } from "../src/lib/format.ts";
 
 async function runCapture(argv: string[]): Promise<{ output: string; code: number }> {
@@ -181,5 +182,57 @@ describe("per-command help", () => {
   it("lists traces import langfuse in the global command list", async () => {
     const { output } = await runCapture(["--help"]);
     expect(output).toContain("traces import langfuse");
+  });
+});
+
+describe("unknown flag rejection", () => {
+  it("returns 2 for an unknown flag on a matched command", async () => {
+    const errors: string[] = [];
+    const origErr = console.error;
+    console.error = (msg: string) => { errors.push(msg); };
+
+    const code = await main(["runs", "list", "--bogus-flag"]);
+
+    console.error = origErr;
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toContain("Unknown option: --bogus-flag");
+    expect(errors.join("\n")).toContain("apo runs list --help");
+  });
+
+  it("returns 2 for an unknown global flag with no command", async () => {
+    const errors: string[] = [];
+    const origErr = console.error;
+    console.error = (msg: string) => { errors.push(msg); };
+
+    const code = await main(["--bogus-flag"]);
+
+    console.error = origErr;
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toContain("Unknown option: --bogus-flag");
+  });
+
+  it("still prints help exit 0 for a known global flag with no command", async () => {
+    const { output, code } = await runCapture(["--json"]);
+    expect(code).toBe(0);
+    expect(output).toContain("Commands");
+  });
+
+  it("passes --flag=value through validation to the handler", async () => {
+    // --limit=2 must be accepted (a real runs list flag) and reach the
+    // handler; the mocked fetch rejects so runs list exits 2 on reachability
+    // — proving dispatch happened instead of silent flag-dropping.
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"));
+    const spy = vi.spyOn(credentials, "readCredentials").mockReturnValue(null);
+    const errors: string[] = [];
+    const origErr = console.error;
+    console.error = (msg: string) => { errors.push(msg); };
+
+    const code = await main(["runs", "list", "--limit=2"]);
+
+    console.error = origErr;
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toContain("Cannot connect to backend");
+    spy.mockRestore();
+    vi.restoreAllMocks();
   });
 });

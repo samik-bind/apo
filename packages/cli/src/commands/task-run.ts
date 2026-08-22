@@ -8,12 +8,6 @@ import { discoverTaskMeta, findTaskMetaById } from "../lib/task-meta.ts";
 import { bold, dim, formatJson, passFail, red } from "../lib/format.ts";
 import type { CheckResult } from "../lib/agent-task-types.ts";
 import { formatChecks, NO_CHECKS_REGISTERED_MESSAGE } from "../lib/checks-format.ts";
-type TaskExecutionPreference = "local" | "backend" | "auto";
-import {
-  resolveExecutionMode,
-  type ExecutionReason,
-} from "../lib/execution-mode.ts";
-import { resolveExecutionTarget } from "../lib/execution-target.ts";
 import { walkWorkspaceForRevision } from "../lib/task-revision.ts";
 import { prepareTaskDefinition } from "../lib/task-definition.ts";
 import { readGitProvenance, buildCallerIdentity } from "../lib/git-provenance.ts";
@@ -45,6 +39,21 @@ export async function run(argv: string[]): Promise<number> {
   const flagRemote = getBoolFlag(flags, "remote");
   const executorFlag = typeof flags["executor"] === "string" ? flags["executor"] : undefined;
   const noRecord = getBoolFlag(flags, "no-record");
+
+  // Execution-target compat. task run always executes on this machine (caller
+  // execution); --remote and pool targets no longer exist, so they fail
+  // loudly instead of silently running somewhere the caller didn't ask for.
+  if (flagRemote) {
+    console.error(red("error: --remote is not supported — task run always executes on this machine (caller execution)"));
+    return 2;
+  }
+  if (executorFlag && executorFlag !== "caller") {
+    console.error(red(`error: --executor only accepts 'caller' — '${executorFlag}' is not a valid target (task run always executes on this machine)`));
+    return 2;
+  }
+  if (flagLocal || executorFlag === "caller") {
+    console.error(dim("note: --local/--executor caller is a no-op; runs always execute on this machine"));
+  }
 
   // Resolve the task's filesystem path + its declared execution preference.
   // We read `execution` statically (no module load) so we don't re-register

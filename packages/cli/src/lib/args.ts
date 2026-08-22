@@ -37,9 +37,16 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
 
     if (arg.startsWith("--")) {
-      const key = arg.slice(2);
-      const next = argv[i + 1];
-      if (next && !next.startsWith("--")) {
+      const eq = arg.indexOf("=");
+      const key = eq >= 0 ? arg.slice(2, eq) : arg.slice(2);
+      const inlineValue = eq >= 0 ? arg.slice(eq + 1) : undefined;
+      const next = inlineValue === undefined ? argv[i + 1] : undefined;
+
+      if (inlineValue !== undefined) {
+        flags[key] = inlineValue;
+        (multiFlags[key] ??= []).push(inlineValue);
+        i += 1;
+      } else if (next && !next.startsWith("--")) {
         flags[key] = next;
         (multiFlags[key] ??= []).push(next);
         i += 2;

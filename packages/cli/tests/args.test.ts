@@ -137,3 +137,34 @@ describe("getBoolFlag", () => {
     expect(getBoolFlag({}, "json")).toBe(false);
   });
 });
+
+describe("parseArgs --flag=value syntax", () => {
+  it("parses --flag=value as a string value", () => {
+    const result = parseArgs(["--limit=5"]);
+    expect(result.flags.limit).toBe("5");
+    expect(result.flags.limit).not.toBe(true);
+  });
+
+  it("records --flag=value in multiFlags", () => {
+    const result = parseArgs(["--model=gpt-a", "--model=gpt-b"]);
+    expect(result.multiFlags.model).toEqual(["gpt-a", "gpt-b"]);
+  });
+
+  it("keeps = inside the value (splits on first = only)", () => {
+    const result = parseArgs(["--api-key=sk=a=b"]);
+    expect(result.flags["api-key"]).toBe("sk=a=b");
+  });
+
+  it("mixes --flag=value with space-separated and boolean forms", () => {
+    const result = parseArgs(["run", "--status=failed", "--limit", "3", "--json"]);
+    expect(result.positional).toEqual(["run"]);
+    expect(result.flags.status).toBe("failed");
+    expect(result.flags.limit).toBe("3");
+    expect(result.flags.json).toBe(true);
+  });
+
+  it("empty inline value is an empty string, not boolean", () => {
+    const result = parseArgs(["--actor="]);
+    expect(result.flags.actor).toBe("");
+  });
+});

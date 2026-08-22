@@ -306,3 +306,42 @@ describe("task run --executor caller dispatch", () => {
     expect(failureBody?.failure_kind).not.toBe("task_process");
   });
 });
+
+describe("task run execution-target compat flags", () => {
+  it("exits 2 for --remote with a clear caller-only error", async () => {
+    const errors: string[] = [];
+    const origErr = console.error;
+    console.error = (msg: string) => { errors.push(msg); };
+
+    const code = await run(["some-task", "--remote"]);
+
+    console.error = origErr;
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toContain("--remote is not supported");
+  });
+
+  it("exits 2 for a pool --executor target", async () => {
+    const errors: string[] = [];
+    const origErr = console.error;
+    console.error = (msg: string) => { errors.push(msg); };
+
+    const code = await run(["some-task", "--executor", "pool-7"]);
+
+    console.error = origErr;
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toContain("--executor only accepts 'caller'");
+    expect(errors.join("\n")).toContain("pool-7");
+  });
+
+  it("exits 2 for a pool target given with --executor=value syntax", async () => {
+    const errors: string[] = [];
+    const origErr = console.error;
+    console.error = (msg: string) => { errors.push(msg); };
+
+    const code = await run(["some-task", "--executor=pool-9"]);
+
+    console.error = origErr;
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toContain("pool-9");
+  });
+});
