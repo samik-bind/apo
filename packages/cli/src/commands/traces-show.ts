@@ -161,8 +161,11 @@ function printTraceDetail(trace: TraceDetail, calls: TraceCall[], verbose: boole
 
   console.log("");
   console.log(bold("  Calls:"));
+  // Model names are never truncated: size the column to the longest model
+  // actually present so the full identifier stays greppable.
+  const modelWidth = Math.max(...calls.map((c) => (c.model ?? "-").length), 1);
   for (const call of calls) {
-    printCall(call, verbose);
+    printCall(call, verbose, modelWidth);
   }
 }
 
@@ -172,11 +175,11 @@ function levelIndicator(level: string): string {
   return " ";
 }
 
-function printCall(call: TraceCall, verbose: boolean): void {
+function printCall(call: TraceCall, verbose: boolean, modelWidth: number): void {
   const indent = call.parent_call_id ? "    " : "  ";
   const li = levelIndicator(call.level);
   const step = (call.step_name ?? call.observation_type ?? "-").padEnd(24);
-  const model = (call.model ?? "-").slice(0, 22).padEnd(22);
+  const model = (call.model ?? "-").padEnd(modelWidth);
   const latency = call.latency_ms != null ? `${(call.latency_ms / 1000).toFixed(1)}s`.padStart(6) : "     -";
   const cost = formatCost(call.cost).padStart(10);
   const tokens = call.total_tokens != null ? call.total_tokens.toLocaleString().padStart(8) : "       -";

@@ -1,3 +1,4 @@
+import { existsSync } from "fs";
 import { parseArgs, requirePositional } from "../lib/args.ts";
 import { apiGet, isBackendReachable } from "../lib/api.ts";
 import type { AgentTaskDetail } from "../lib/agent-task-types.ts";
@@ -10,17 +11,28 @@ export async function run(argv: string[]): Promise<number> {
   const config = resolveConfig(flags);
   const taskId = requirePositional(positional, 0, "task-id");
 
-  const task = config.projectId && await isBackendReachable(config.backendUrl)
-    ? await apiGet<AgentTaskDetail>(
-      config.backendUrl,
-      `/v1/projects/${encodeURIComponent(config.projectId)}/agent-tasks/${encodeURIComponent(taskId)}`,
-      undefined,
-      config,
-    )
+  // Same resolution rule as `task list`: an explicit task root (--dir or
+  // APO_TASK_ROOT) means "look here", matching how `task run` resolves.
+  const explicitDir =
+    typeof config._rawFlags["dir"] === "string" || !!process.env.APO_TASK_ROOT;
+  const useBackend =
+    !explicitDir && !!config.projectId && await isBackendReachable(config.backendUrl);
+
+  if (!useBackend && !existsSync(config.taskRoot)) {
+    console.error(`Task root not found: ${config.taskRoot}`);
+    console.error("Set --dir <path> or APO_TASK_ROOT, or re-run `apo login` from your task repository.");
+    return 2;
+  }
+
+  const task = useBackend
+    ? await fetchCatalogTask(config, taskId)
     : findTaskMetaById(config.taskRoot, taskId);
 
   if (!task) {
-    console.error(`Task not found: ${taskId}`);
+    const universe = useBackend
+      ? `the backend catalog (project ${config.projectId})`
+      : config.taskRoot;
+    console.error(`Task not found in ${universe}: ${taskId}`);
     return 2;
   }
 
@@ -31,6 +43,7 @@ export async function run(argv: string[]): Promise<number> {
 
   console.log(bold(`Task: ${task.id}`));
   if (isRemoteTask(task)) {
+    console.log(`  Name:        ${task.display_name}`);
     console.log(`  Adapter:     ${task.adapter_name}`);
     console.log(`  Checks:      ${task.has_checks ? "yes" : "no"}`);
     console.log(`  Path:        ${task.task_path}`);
@@ -38,9 +51,13 @@ export async function run(argv: string[]): Promise<number> {
     if (task.tags.length > 0) {
       console.log(`  Tags:        ${task.tags.join(", ")}`);
     }
+    if (task.run_stats && task.run_stats.total_runs > 0) {
+      const stats = task.run_stats;
+      const avg = stats.avg_duration_ms != null ? ` · avg ${(stats.avg_duration_ms / 1000).toFixed(1)}s` : "";
+      console.log(`  Runs:        ${stats.total_runs} total · ${stats.passed_runs} passed · ${stats.failed_runs} failed · ${stats.errored_runs} errored (${Math.round(stats.pass_rate * 100)}% pass)${avg}`);
+    }
     if (task.latest_run) {
-      console.log(dim("  Latest run:"));
-      console.log(dim(`    - ${task.latest_run.id}: ${task.latest_run.status}`));
+      console.log(dim(`  Latest run:  ${task.latest_run.id} — ${task.latest_run.status}`));
     }
   } else {
     console.log(`  Adapter:     ${task.adapter}`);
@@ -64,4 +81,24 @@ export async function run(argv: string[]): Promise<number> {
 
 function isRemoteTask(task: TaskMeta | AgentTaskDetail): task is AgentTaskDetail {
   return "adapter_name" in task;
+}
+
+async function fetchCatalogTask(
+  config: ReturnType<typeof resolveConfig>,
+  taskId: string,
+): Promise<AgentTaskDetail | null> {
+  try {
+    return await apiGet<AgentTaskDetail>(
+      config.backendUrl,
+      `/v1/projects/${encodeURIComponent(config.projectId!)}/agent-tasks/${encodeURIComponent(taskId)}`,
+      undefined,
+      config,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("404")) {
+      return null;
+    }
+    throw error;
+  }
 }
