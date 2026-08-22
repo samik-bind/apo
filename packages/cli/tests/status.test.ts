@@ -16,6 +16,7 @@ describe("status command", () => {
   });
 
   it("prints login, backend reachability, project, and task root", async () => {
+    vi.spyOn(credentials, "listRememberedLogins").mockReturnValue([]);
     vi.spyOn(credentials, "readCredentials").mockReturnValue({
       backend_url: "http://backend.test",
       api_key: "sk-test",
@@ -37,6 +38,7 @@ describe("status command", () => {
   });
 
   it("flags an unreachable backend and a missing task root", async () => {
+    vi.spyOn(credentials, "listRememberedLogins").mockReturnValue([]);
     vi.spyOn(credentials, "readCredentials").mockReturnValue({
       backend_url: "http://down.test",
       api_key: "sk-test",

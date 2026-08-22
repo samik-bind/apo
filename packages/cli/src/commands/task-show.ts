@@ -1,5 +1,5 @@
 import { existsSync } from "fs";
-import { parseArgs, requirePositional } from "../lib/args.ts";
+import { parseArgs, getBoolFlag, requirePositional } from "../lib/args.ts";
 import { apiGet, isBackendReachable } from "../lib/api.ts";
 import type { AgentTaskDetail } from "../lib/agent-task-types.ts";
 import { resolveConfig } from "../lib/config.ts";
@@ -11,25 +11,39 @@ export async function run(argv: string[]): Promise<number> {
   const config = resolveConfig(flags);
   const taskId = requirePositional(positional, 0, "task-id");
 
-  // Same resolution rule as `task list`: an explicit task root (--dir or
-  // APO_TASK_ROOT) means "look here", matching how `task run` resolves.
+  // Same universe rule as `task list`: the task root your login captured is
+  // the default; the backend catalog is the explicit --catalog view (or the
+  // fallback when no local task root exists).
   const explicitDir =
     typeof config._rawFlags["dir"] === "string" || !!process.env.APO_TASK_ROOT;
-  const useBackend =
-    !explicitDir && !!config.projectId && await isBackendReachable(config.backendUrl);
+  const catalogFlag = getBoolFlag(flags, "catalog");
+  const rootExists = existsSync(config.taskRoot);
 
-  if (!useBackend && !existsSync(config.taskRoot)) {
+  let useCatalog: boolean;
+  if (catalogFlag) {
+    if (!config.projectId) {
+      console.error("--catalog requires a project (run: apo project use).");
+      return 2;
+    }
+    useCatalog = true;
+  } else if (explicitDir || rootExists) {
+    useCatalog = false;
+  } else {
+    useCatalog = !!config.projectId && await isBackendReachable(config.backendUrl);
+  }
+
+  if (!useCatalog && !rootExists) {
     console.error(`Task root not found: ${config.taskRoot}`);
     console.error("Set --dir <path> or APO_TASK_ROOT, or re-run `apo login` from your task repository.");
     return 2;
   }
 
-  const task = useBackend
+  const task = useCatalog
     ? await fetchCatalogTask(config, taskId)
     : findTaskMetaById(config.taskRoot, taskId);
 
   if (!task) {
-    const universe = useBackend
+    const universe = useCatalog
       ? `the backend catalog (project ${config.projectId})`
       : config.taskRoot;
     console.error(`Task not found in ${universe}: ${taskId}`);

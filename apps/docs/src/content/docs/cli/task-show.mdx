@@ -6,7 +6,7 @@ description: "Show a task's details — adapter, checks, deliverables, and lates
 import TerminalDemo from '../../../components/demos/TerminalDemo.astro';
 import TerminalOutput from '../../../components/demos/TerminalOutput.astro';
 
-Show a task's details — adapter, checks, and how it has been performing. With a backend project, the task comes from the synced catalog and includes its display name, tags, run stats (total · passed · failed · errored · pass rate · avg duration), and the latest run. An explicit `--dir` (or `APO_TASK_ROOT`) shows the local task folder's deliverables and files instead — the same source rule as [`apo task list`](/cli/task-list/).
+Show a task's details — adapter, checks, and how it has been performing. With a backend project, the task comes from the synced catalog and includes its display name, tags, run stats (total · passed · failed · errored · pass rate · avg duration), and the latest run. Comes from the task root your login captured — the same universe as [`apo task list`](/cli/task-list/) and [`apo task run`](/cli/task-run/). `--catalog` looks it up in the backend's published inventory instead; an explicit `--dir` scans a specific directory.
 
 <TerminalDemo
   command="apo task show real-agent/documents/document-qa"

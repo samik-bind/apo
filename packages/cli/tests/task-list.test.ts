@@ -72,7 +72,79 @@ describe("task list", () => {
     }
   });
 
-  it("defaults to the backend catalog and names the project as the source", async () => {
+  it("defaults to the local task root when it exists, even with a project set", async () => {
+    // The universe fix: list and run resolve from the same task root by
+    // default — the catalog is the explicit --catalog view.
+    const testDir = mkdtempSync(join(tmpdir(), "apo-task-list-"));
+    writeTask(testDir);
+    try {
+      vi.spyOn(credentials, "readCredentials").mockReturnValue({
+        backend_url: "http://backend.test",
+        api_key: "sk-test",
+        project: "proj-x",
+        task_root: testDir,
+      });
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("must not fetch"));
+      const { logs, restore } = captureLog();
+
+      const code = await run([]);
+
+      restore();
+      const out = stripAnsi(logs.join("\n"));
+      expect(code).toBe(0);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(out).toContain(`scanned ${testDir}`);
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it("--catalog lists the published inventory even when a task root exists", async () => {
+    const testDir = mkdtempSync(join(tmpdir(), "apo-task-list-"));
+    writeTask(testDir);
+    try {
+      vi.spyOn(credentials, "readCredentials").mockReturnValue({
+        backend_url: "http://backend.test",
+        api_key: "sk-test",
+        project: "proj-x",
+        task_root: testDir,
+      });
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = String(input);
+        if (url.includes("/v1/projects/proj-x/agent-tasks")) {
+          return new Response(
+            JSON.stringify([{ id: "catalog/task-a", adapter_name: "demoAdapter", has_checks: true }]),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response("ok", { status: 200 });
+      });
+      const { logs, restore } = captureLog();
+
+      const code = await run(["--catalog"]);
+
+      restore();
+      const out = stripAnsi(logs.join("\n"));
+      expect(code).toBe(0);
+      expect(out).toContain("catalog/task-a");
+      expect(out).toContain("backend catalog (project proj-x)");
+    } finally {
+      rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it("--catalog without a project exits 2 with a hint", async () => {
+    vi.spyOn(credentials, "readCredentials").mockReturnValue(null);
+    const { errors, restore } = captureError();
+
+    const code = await run(["--catalog"]);
+
+    restore();
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toContain("--catalog requires a project");
+  });
+
+  it("falls back to the backend catalog when no local task root exists", async () => {
     vi.spyOn(credentials, "readCredentials").mockReturnValue({
       backend_url: "http://backend.test",
       api_key: "sk-test",

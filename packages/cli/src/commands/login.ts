@@ -9,8 +9,11 @@ import { apiPost, AuthError, isBackendReachable } from "../lib/api.ts";
 import { pickOption } from "../lib/picker.ts";
 import { resolveProject } from "../lib/projects.ts";
 import {
+  backendKey,
   readCredentials,
+  readRememberedLogin,
   writeCredentials,
+  writeRememberedLogin,
 } from "../lib/credentials.ts";
 
 type VerifyPasswordProject = {
@@ -92,12 +95,36 @@ export async function run(argv: string[]): Promise<number> {
 
   const existing = readCredentials();
 
+  // `apo login` is the switch: the backend you log in against is the backend
+  // every command uses. Resolve the target backend FIRST, so a remembered
+  // login for it can be restored without a password.
+  const defaultBackend = "http://localhost:8000";
+  const backendUrlFlag = getFlagValue(flags, "backend") ?? process.env.APO_BACKEND_URL;
+  const emailFlag = getFlagValue(flags, "email");
+  const passwordFlag = getFlagValue(flags, "password");
+
+  let backendUrl = backendUrlFlag ?? existing?.backend_url ?? defaultBackend;
+
+  if (!backendUrlFlag) {
+    if (!(await isBackendReachable(backendUrl))) {
+      console.error(red(`Cannot reach backend at ${backendUrl}`));
+      const rl = createInterface({ input: stdin, output: stdout });
+      backendUrl = await prompt(rl, "Backend URL", defaultBackend);
+      rl.close();
+      if (!(await isBackendReachable(backendUrl))) {
+        console.error(red(`Still cannot reach ${backendUrl}. Aborting.`));
+        return 2;
+      }
+    }
+  }
+
   // Verify the saved key actually works against the CURRENT backend before
   // claiming success. The credentials file existing is not enough: switching
   // backends (e.g. `pnpm dev` <-> docker) leaves a key that's valid for one
   // database but rejected (401) by another, which used to deadlock the CLI
   // ("already logged in" yet every command failed).
-  if (existing?.email && existing?.api_key && !force) {
+  if (existing?.email && existing?.api_key && !force
+    && backendKey(existing.backend_url) === backendKey(backendUrl)) {
     const status = await checkSavedKey(existing.backend_url, existing.api_key);
     if (status === "valid") {
       console.log(green(`\u2713 Already logged in as ${existing.email}.`));
@@ -117,24 +144,26 @@ export async function run(argv: string[]): Promise<number> {
     }
   }
 
-  const defaultBackend = "http://localhost:8000";
-
-  const backendUrlFlag = getFlagValue(flags, "backend");
-  const emailFlag = getFlagValue(flags, "email");
-  const passwordFlag = getFlagValue(flags, "password");
-
-  let backendUrl = backendUrlFlag ?? existing?.backend_url ?? defaultBackend;
-
-  if (!backendUrlFlag) {
-    if (!(await isBackendReachable(backendUrl))) {
-      console.error(red(`Cannot reach backend at ${backendUrl}`));
-      const rl = createInterface({ input: stdin, output: stdout });
-      backendUrl = await prompt(rl, "Backend URL", defaultBackend);
-      rl.close();
-      if (!(await isBackendReachable(backendUrl))) {
-        console.error(red(`Still cannot reach ${backendUrl}. Aborting.`));
+  // A remembered login for the target backend switches without a password.
+  if (!force) {
+    const remembered = readRememberedLogin(backendUrl);
+    if (remembered) {
+      const status = await checkSavedKey(backendUrl, remembered.api_key);
+      if (status === "valid") {
+        const path = writeCredentials(remembered);
+        console.log(green(`\u2713 Switched to ${remembered.email} on ${backendUrl}`));
+        console.log(dim(`  Project:    ${remembered.project ?? "(none)"}`));
+        console.log(dim(`  Task root:  ${remembered.task_root ?? "./e2e"}`));
+        console.log(dim(`  Active credentials: ${path}`));
+        return 0;
+      }
+      if (status === "unknown") {
+        // Never switch blindly: an unreachable backend may be a typo'd URL.
+        console.error(red(`Cannot reach ${backendUrl} to verify the remembered login.`));
         return 2;
       }
+      console.log(dim(`Remembered login for ${remembered.email} was rejected by ${backendUrl}. Re-authenticating…`));
+      // fall through to the normal email + password flow
     }
   }
 
@@ -264,28 +293,38 @@ export async function run(argv: string[]): Promise<number> {
     return 2;
   }
 
+  // Each login captures its own task root. Never inherit a root recorded
+  // against a DIFFERENT backend — that's how `task list` and `task run`
+  // ended up in different universes.
   const taskRootFlag = getFlagValue(flags, "dir");
-  let taskRoot = taskRootFlag ?? existing?.task_root ?? "./e2e";
+  const inheritableRoot =
+    existing && backendKey(existing.backend_url) === backendKey(backendUrl)
+      ? existing.task_root
+      : undefined;
+  let taskRoot = taskRootFlag ?? inheritableRoot ?? "./e2e";
   if (!isAbsolute(taskRoot)) {
     taskRoot = resolve(taskRoot);
   }
 
-  const path = writeCredentials({
+  const creds = {
     backend_url: backendUrl,
     api_key: result.key,
     email,
     task_root: taskRoot,
     project: chosenProject.id,
-  });
+  };
+  const path = writeCredentials(creds);
+  writeRememberedLogin(creds);
 
   console.log(green(`\u2713 Logged in as ${email}`));
   console.log(`  Backend:  ${backendUrl}`);
   console.log(`  Project:  ${chosenProject.name} (${chosenProject.id})`);
+  console.log(`  Tasks:    ${taskRoot}`);
   console.log(`  Key:      ${result.prefix}${dim("...")} (${result.scope})`);
   console.log(`  Saved to: ${path}`);
 
-  if (existing) {
-    console.log(dim("\nPrevious credentials overwritten."));
+  if (existing && backendKey(existing.backend_url) !== backendKey(backendUrl)) {
+    console.log(dim(`\nPrevious login (${existing.backend_url}) is remembered — switch back with: apo login --backend ${existing.backend_url}`));
   }
 
   return 0;

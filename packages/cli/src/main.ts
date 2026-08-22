@@ -37,7 +37,7 @@ const commands: Record<string, CommandEntry> = {
       "apo login --force",
       "apo login --email me@corp.com --project my-proj",
     ],
-    note: "First-time setup — no prior credentials needed. Saves key to ~/.apo/credentials.",
+    note: "Sets the context every command uses: backend, project, task root. Logins are remembered per backend — switch back any time with apo login --backend <url>, no password needed.",
   },
   logout: {
     handler: loadCommand("logout"),
@@ -89,12 +89,16 @@ const commands: Record<string, CommandEntry> = {
   },
   "task list": {
     handler: loadCommand("task-list"),
-    help: "List discovered tasks",
+    help: "List runnable tasks (from the task root your login captured)",
+    options: [
+      ["--catalog", "List the backend's published inventory instead of the local task root"],
+    ],
     examples: [
       "apo task list",
+      "apo task list --catalog",
       "apo task list --json",
     ],
-    note: "Defaults to the backend catalog when a project is set; an explicit --dir (or APO_TASK_ROOT) scans locally instead. The last line names the source.",
+    note: "Same universe as task run: the task root your login captured. Falls back to the published catalog only when no local task root exists. The last line names the source.",
   },
   "task show": {
     handler: loadCommand("task-show"),
@@ -102,10 +106,14 @@ const commands: Record<string, CommandEntry> = {
     args: [
       ["<task-id>", "Task identifier"],
     ],
+    options: [
+      ["--catalog", "Look the task up in the backend's published inventory"],
+    ],
     examples: [
       "apo task show meeting-summary",
+      "apo task show meeting-summary --catalog",
     ],
-    note: "Uses backend (with --project) or local discovery. Supports --json.",
+    note: "Same universe as task run (the task root your login captured); --catalog reads the published inventory. Supports --json.",
   },
   "task run": {
     handler: loadCommand("task-run"),
