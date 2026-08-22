@@ -20,6 +20,7 @@
     "test:public-ingress": "bash tests/deployment/public-ingress-contract.sh",
     "test:public-ingress-smoke": "bash tests/deployment/public-ingress-smoke-contract.sh",
     "test:public-docs": "bash tests/deployment/public-docs-contract.sh",
+    "test:hosted-alpha-journey": "bash tests/deployment/hosted-alpha-live-smoke-contract.sh && HOSTED_ALPHA_JOURNEY_BASE_URL=${HOSTED_ALPHA_JOURNEY_BASE_URL:-http://localhost:8080} pnpm --filter dashboard exec playwright test e2e/hosted-alpha-adopter-journey.spec.ts --project=chromium",
     "test:self-adoption-docs": "node apps/docs/scripts/verify-self-adoption.mjs",
     "test:external-example": "pnpm --filter @apo/example-service verify:external-example",
     "test:tunnel-trial-validation": "bash tests/deployment/tunnel-trial-validation-contract.sh"
