@@ -113,11 +113,13 @@ describe("per-command help", () => {
     expect(output).toContain("0=pass");
   });
 
-  it("lists --local and --remote as symmetric dispatch overrides on task run --help", async () => {
+  it("documents --local and --executor caller as compat no-ops on task run --help", async () => {
     const { output, code } = await runCapture(["task", "run", "--help"]);
     expect(code).toBe(0);
     expect(output).toContain("--local");
-    expect(output).toContain("--remote");
+    expect(output).toContain("--executor <caller>");
+    // --remote no longer exists as a flag and must not appear in help.
+    expect(output).not.toContain("--remote");
   });
 
   it("documents the implicit-local precedence in the task run note", async () => {

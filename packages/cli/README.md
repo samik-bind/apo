@@ -22,6 +22,7 @@ Requires Node.js ≥ 20.
 ```bash
 apo --help            # list commands
 apo login             # authenticate with your Apo server
+apo status            # show effective backend, project, and task root
 apo task list         # list published tasks
 apo task run <name>   # run a task locally
 apo connect           # connect as a persistent executor

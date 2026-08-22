@@ -1,9 +1,8 @@
 import { existsSync, readFileSync } from "fs";
-import { hostname } from "os";
 import { resolve } from "path";
 import { getBoolFlag, parseArgs, requirePositional } from "../lib/args.ts";
 import { resolveConfig, type Config } from "../lib/config.ts";
-import { apiGet, apiPost, isBackendReachable } from "../lib/api.ts";
+import { isBackendReachable } from "../lib/api.ts";
 import { discoverTaskMeta, findTaskMetaById } from "../lib/task-meta.ts";
 import { bold, dim, formatJson, passFail, red } from "../lib/format.ts";
 import type { CheckResult } from "../lib/agent-task-types.ts";

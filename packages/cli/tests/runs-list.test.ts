@@ -162,3 +162,25 @@ describe("runs list command", () => {
     expect(out).not.toContain("FAIL");
   });
 });
+
+describe("runs list --limit", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("applies --limit to --json output, not just the table", async () => {
+    // Regression: the JSON branch returned before the client-side limit
+    // slice, so --limit was silently ignored in machine-readable mode.
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      mockResponse([makeRun(), makeRun({ id: "run-2" }), makeRun({ id: "run-3" })]),
+    );
+    const { logs, restore } = captureLog();
+
+    const code = await run(["--backend", "http://backend.test", "--limit", "2", "--json"]);
+
+    restore();
+    expect(code).toBe(0);
+    const parsed = JSON.parse(logs.join("\n")) as unknown[];
+    expect(parsed).toHaveLength(2);
+  });
+});

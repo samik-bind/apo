@@ -108,8 +108,13 @@ describe("resolveConfig", () => {
     expect(config.json).toBe(true);
   });
 
-  it("json flag as string does not enable json", () => {
+  it("json flag as the string 'true' enables json (--json=true syntax)", () => {
     const config = resolveConfig({ json: "true" });
+    expect(config.json).toBe(true);
+  });
+
+  it("json flag as any other string does not enable json", () => {
+    const config = resolveConfig({ json: "yes" });
     expect(config.json).toBe(false);
   });
 

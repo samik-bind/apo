@@ -94,7 +94,7 @@ const commands: Record<string, CommandEntry> = {
       "apo task list",
       "apo task list --json",
     ],
-    note: "Uses backend (with --project) or scans --dir locally.",
+    note: "Defaults to the backend catalog when a project is set; an explicit --dir (or APO_TASK_ROOT) scans locally instead. The last line names the source.",
   },
   "task show": {
     handler: loadCommand("task-show"),

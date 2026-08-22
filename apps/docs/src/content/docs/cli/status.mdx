@@ -1,0 +1,44 @@
+---
+title: "apo status"
+description: "Print the effective configuration — login, backend, project, task root — resolved exactly as commands resolve it."
+---
+
+import TerminalDemo from '../../../components/demos/TerminalDemo.astro';
+
+`apo status` answers "what will my commands actually talk to?" After [`apo login`](/cli/auth/), the effective backend and task root live in `~/.apo/credentials` — invisible until something behaves unexpectedly. This command surfaces them, checks that the backend answers, and warns when the task root doesn't exist.
+
+<TerminalDemo
+  command="apo status"
+  lines={[
+    { text: "apo status" },
+    { text: "  Login:      dev@acme.com" },
+    { text: "  Backend:    http://localhost:8000 ✓ reachable" },
+    { text: "  Project:    e06c87103f95" },
+    { text: "  Task root:  /repo/e2e/tasks" },
+    { text: "" },
+    { parts: [{ text: "Credentials: /home/dev/.apo/credentials", tone: "dim" }] },
+    { parts: [{ text: "Task resolution: task run reads the task root; task list defaults to the backend catalog when a project is set (task list --dir scans locally).", tone: "dim" }] },
+  ]}
+/>
+
+## Synopsis
+
+```bash
+apo status
+```
+
+No options beyond the globals. Resolution order matches every other command: flag > environment variable > `~/.apo/credentials` > default.
+
+## When to run it
+
+- **After `apo login` from a new machine or clone** — confirm the stored task root points where your tasks actually live; a stale root is the usual cause of `Task root not found` or `task run` resolving different tasks than `task list` shows.
+- **When runs land in the wrong project** — the printed Project is the one every command will record against.
+- **When the backend "disappears"** — the reachability marker distinguishes a wrong `--backend` from a down server.
+
+The task-root line prints a warning when the directory doesn't exist — that state means `apo task run` has nothing to resolve against.
+
+## See also
+
+- [`apo login`](/cli/auth/) — writes the credentials this command reads.
+- [`apo task list`](/cli/task-list/) — the command whose source line (`backend catalog` vs `scanned <path>`) this explains.
+- [CLI overview](/cli/) — the full command surface.

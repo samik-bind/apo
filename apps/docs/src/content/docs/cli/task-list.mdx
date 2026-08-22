@@ -6,7 +6,9 @@ description: "List discovered tasks — from the backend or the local filesystem
 import TerminalDemo from '../../../components/demos/TerminalDemo.astro';
 import TerminalOutput from '../../../components/demos/TerminalOutput.astro';
 
-List the tasks available to run. With a `--project` set and the backend reachable, lists the backend's synced task inventory. Without one, scans the local `--dir` for `.eval.ts` files.
+List the tasks available to run, and say **where it listed them from** — the last line always names the source: the backend catalog (when a project is set and no explicit task root is given) or a local scan of `--dir`.
+
+With a project set and the backend reachable, `apo task list` reads the backend's synced task inventory. Pass `--dir <path>` (or set `APO_TASK_ROOT`) and it scans that directory for `.eval.ts` files instead — the same root [`apo task run`](/cli/task-run/) resolves tasks against. If the task root doesn't exist, the command exits `2` instead of silently reporting an empty list.
 
 <TerminalDemo
   command="apo task list"
@@ -17,14 +19,14 @@ List the tasks available to run. With a `--project` set and the backend reachabl
     { text: "real-agent/documents/document-qa          realAgentAdapter  yes" },
     { text: "real-agent/engineering/code-review        realAgentAdapter  yes" },
     { text: "" },
-    { text: "3 tasks found", tone: "default" },
+    { text: "3 tasks found — backend catalog (project a1b2c3d4)", tone: "default" },
   ]}
 />
 
 ## Synopsis
 
 ```bash
-apo task list
+apo task list [--dir <path>] [--project <id>]
 ```
 
 ## Output
@@ -37,11 +39,15 @@ apo task list
     { text: "real-agent/documents/document-qa          realAgentAdapter  yes" },
     { text: "real-agent/engineering/code-review        realAgentAdapter  yes" },
     { text: "" },
-    { text: "3 tasks found", tone: "default" },
+    { text: "3 tasks found — scanned /repo/e2e/tasks", tone: "default" },
   ]}
 />
 
 The `ID` is the task folder name — pass it to [`apo task run`](/cli/task-run/). For tasks grouped in subfolders, the id is **folder-scoped**: the name prefixed by its folder path (e.g. `chat/cost-inquiry`). The `Adapter` column shows the adapter's declared `name`. `Checks` is `yes` when the task registers any `test(...)` blocks, `-` when it has none.
+
+:::tip[Not sure which universe you're in?]
+`apo status` prints the effective backend, project, and task root. The trailing source line on every `task list` output is the quick answer: `backend catalog (project …)` or `scanned <path>`.
+:::
 
 ## See also
 

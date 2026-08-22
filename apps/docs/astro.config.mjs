@@ -93,6 +93,7 @@ export default defineConfig({
 				items: [
 					{ label: 'Overview', slug: 'cli' },
 					{ label: 'login / logout', slug: 'cli/auth' },
+					{ label: 'status', slug: 'cli/status' },
 					{ label: 'project', slug: 'cli/project' },
 					{
 						label: 'task',

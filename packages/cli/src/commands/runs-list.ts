@@ -65,16 +65,18 @@ export async function run(argv: string[]): Promise<number> {
     return reportCommandError(error, config.backendUrl);
   }
 
-  if (config.json) {
-    console.log(formatJson(runs));
-    return 0;
-  }
-
+  // The backend ignores the limit query param on this endpoint, so enforce
+  // it client-side — for JSON output too, not just the table.
   if (limit) {
     const n = parseInt(limit, 10);
     if (!Number.isNaN(n) && n > 0) {
       runs = runs.slice(0, n);
     }
+  }
+
+  if (config.json) {
+    console.log(formatJson(runs));
+    return 0;
   }
 
   if (runs.length === 0) {

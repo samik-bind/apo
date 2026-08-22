@@ -25,7 +25,7 @@ The core loop: run a task, read its verdict, open its trace when something fails
 | Command | Purpose |
 |---|---|
 | [`apo task run`](/cli/task-run/) | Run a task. The load-bearing command. |
-| [`apo task list`](/cli/task-list/) | List discovered tasks. |
+| [`apo task list`](/cli/task-list/) | List discovered tasks, naming the source (backend catalog or local `--dir`). |
 | [`apo task show`](/cli/task-show/) | Show a task's details. |
 | [`apo runs list`](/cli/runs-list/) | List past runs. Filter by task, status, limit. |
 | [`apo runs show`](/cli/runs-show/) | Show a run's verdict, checks, and failures. |
@@ -59,6 +59,7 @@ Manage which project you're operating against and where its tasks come from.
 |---|---|
 | [`apo login`](/cli/auth/) | Authenticate and save a project-scoped API key. |
 | [`apo logout`](/cli/auth/) | Clear saved credentials. |
+| [`apo status`](/cli/status/) | Print the effective configuration: login, backend, project, task root. |
 
 ## Operator
 
@@ -70,7 +71,7 @@ These apply to every command:
 
 | Option | Env var | Purpose |
 |---|---|---|
-| `--dir <path>` | `APO_TASK_ROOT` | Task root directory (default `./e2e`). |
+| `--dir <path>` | `APO_TASK_ROOT` | Task root directory (default `./e2e`; after `apo login`, the task root stored in credentials). Run [`apo status`](/cli/status/) to see the effective value. |
 | `--backend <url>` | `APO_BACKEND_URL` | Backend URL. |
 | `--project <id>` | `APO_PROJECT_ID` | Project id. |
 | `--actor <name>` | `APO_ACTOR` | Actor name for runs. |
