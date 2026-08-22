@@ -230,5 +230,5 @@ function extractArrayField(content: string, field: string): string[] {
  * executing the user's module (which would re-register checks). Strips `//`
  * line comments first so a documented example doesn't get mistaken for a
  * real declaration. `"auto"` and unknown values collapse to `undefined`
- * (== "no preference"), matching the semantics of `resolveExecutionMode`.
+ * (== "no preference").
  */
