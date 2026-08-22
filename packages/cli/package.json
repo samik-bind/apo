@@ -1,6 +1,6 @@
 {
   "name": "@apo-ai/cli",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "Command-line interface for the Apo agent testing and observability platform",
   "type": "module",
   "bin": {
