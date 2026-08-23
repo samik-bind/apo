@@ -82,7 +82,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.type-tests.json",
     "build": "tsup",
-    "prepare": "pnpm run build",
+    "prepare": "test ! -f tsup.config.ts || pnpm run build",
     "build:watch": "tsup --watch",
     "build:agent-task-runtime": "node scripts/build-agent-task-runtime.mjs",
     "prepack": "pnpm run build",
