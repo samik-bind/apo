@@ -1,9 +1,9 @@
-# Hosted Alpha First-Adopter Rehearsal (SPEC-183)
+# Hosted Alpha Agent-Adopter Rehearsal (SPEC-183)
 
-One operator, one invitee, one observer role — deliberately the same founder
-wearing three hats. The question this runbook answers: **can a person who did
-not build Apo reach a useful, inspectable Task Run using only the invitation,
-the product UI, the public docs, and the published packages?**
+Three isolated agent roles exercise the real hosted boundary. The question
+this runbook answers: **can an agent without private repository context reach a
+useful, inspectable Task Run using only the invitation, product UI, public
+docs, and published packages?**
 
 Everything below runs against the existing hosted installation
 (`https://test-apo.online`). No second server, no synthetic users, no company
@@ -13,21 +13,24 @@ data.
 
 | Label | Who | Allowed |
 |---|---|---|
-| `[operator]` | You, with the installation admin account | Issue/revoke invitations, prepare the deployment, record evidence |
-| `[invitee]` | You, in a clean browser and an external workspace | **Only** the invitation link, product UI, public docs, public npm packages, public example repo |
-| `[observer]` | You, taking notes | Record friction. Do not coach the invitee flow until the scene is blocked or complete |
+| `[operator-agent]` | Agent using the installation admin account | Issue/revoke one rehearsal invitation and prepare bounded evidence |
+| `[adopter-agent]` | Agent in a clean browser context and external workspace | **Only** the invitation link, product UI, public docs, public npm packages, and public example repo |
+| `[reviewer-agent]` | Independent evidence-audit pass | Reject private shortcuts, verify claims, and record blockers |
 
-The rule: during `[invitee]` steps there is no SSH, no database, no monorepo,
+The rule: during `[adopter-agent]` steps there is no SSH, no database, no monorepo,
 no copied API keys, no admin credentials, no internal URLs. If the invitee is
-stuck, the observer records the confusion as friction — that is a finding, not
-a reason to break character. File it; do not explain around it.
+stuck, the reviewer records the dependency as friction — that is a finding,
+not a reason to smuggle in maintainer knowledge. File it; do not explain around
+it.
+
+This rehearsal does not consume maintainer time and does not claim to prove
+human usability. Real invited users provide that evidence later.
 
 ## Prerequisites
 
 - The hosted deployment is current and healthy (Section 2 preflight).
-- A **clean browser profile** that has never visited the installation
-  (fresh Chrome/Firefox profile, not merely a private window of your daily
-  browser — the point is zero cookies, zero password manager, zero history).
+- A **clean browser context** that has never visited the installation — zero
+  cookies, password-manager state, or history.
 - A **workspace directory outside the Apo monorepo**, e.g. `~/adopter-rehearsal/`.
 - A model-provider credential available **only in the invitee shell**
   (whatever the Task needs — the hosted server never holds provider keys).
@@ -42,7 +45,7 @@ a reason to break character. File it; do not explain around it.
 - PASS **and** evaluated FAIL both count as a recorded outcome. An execution
   error does not — it means retry after diagnosing.
 
-## 2. `[operator]` Read-only public preflight
+## 2. `[operator-agent]` Read-only public preflight
 
 From any machine outside the deployment:
 
@@ -64,28 +67,29 @@ hosted alpha preflight: ok
 If this fails, stop and fix the deployment first — the rehearsal tests the
 product, not the outage.
 
-## 3. `[operator]` Issue the invitation
+## 3. `[operator-agent]` Issue the invitation
 
 1. Sign in to `https://test-apo.online` with the installation admin account.
 2. Open **Settings → Hosted access**.
-3. Invite the rehearsal email (a secondary identity you control, e.g.
-   `founder-invitee@…`). Delivery is out-of-band: copy the **one-time
+3. Invite an isolated rehearsal email (for example,
+   `agent-adopter@…`). Delivery is out-of-band: copy the **one-time
    invitation link** the UI offers.
 4. Sign out. From here on you are not the admin.
 
-## 4. `[observer]` Start the clock
+## 4. `[reviewer-agent]` Start the evidence record
 
-Note the start time. From the moment the invitation link is opened until the
-first recorded Run is opened in the dashboard, record:
+From the moment the invitation link is opened until the first recorded Run is
+opened in the dashboard, record:
 
-- every place the invitee hesitated or backtracked;
-- every time the invitee had to consult something that was not the invitation,
+- every failed or repeated action;
+- every time the adopter agent consulted something that was not the invitation,
   the UI, the public docs, or CLI output;
-- anything the invitee typed that the product could have pre-filled.
+- anything the adopter agent supplied that the product could have pre-filled.
 
-## 5. `[invitee]` Accept the invitation
+## 5. `[adopter-agent]` Accept the invitation
 
-Requirements recap: clean browser, no idea how Apo is built.
+Requirements recap: clean browser context, no private knowledge of how Apo is
+built.
 
 1. Open the invitation link. You should see **Create your apo Project** with
    your email locked in.
@@ -95,7 +99,7 @@ Requirements recap: clean browser, no idea how Apo is built.
 4. Copy the exact login command shown (it already contains the origin and
    your Project id). Do not retype it.
 
-## 6. `[invitee]` First recorded Run from the external workspace
+## 6. `[adopter-agent]` First recorded Run from the external workspace
 
 ```bash
 mkdir -p ~/adopter-rehearsal && cd ~/adopter-rehearsal
@@ -122,7 +126,7 @@ The run command prints the exact Run identity — keep it. Open the dashboard's
 **Runs** page and open that exact Run. A terminal PASS or FAIL completes this
 scene; an execution error does not (diagnose, retry).
 
-## 7. `[invitee]` Understand a failure from evidence alone
+## 7. `[adopter-agent]` Understand a failure from evidence alone
 
 Make one run fail honestly: change the Task implementation (not its tests or
 fixtures) so an evaluation fails, run again, and in the run detail use
@@ -144,13 +148,13 @@ safe action is clear — no SSH, no database, no maintainer knowledge:
 | Missing provider key | Unset the provider credential in a fresh shell, run the Task | Execution error that names the missing credential, run recorded as error — never mislabeled PASS/FAIL |
 | Pre-evaluation failure | Break the Task code so it errors before checks run | Error state with the run's own evidence; onboarding guidance stays visible |
 
-## 9. `[invitee]` Isolation scene
+## 9. `[adopter-agent]` Isolation scene
 
 From the invitee session, attempt to reach the company Project: guess its URL
 under `/project/<id>/…` or list `/v1/projects` with the invitee's CLI key.
 Expected: not found / 403. The invitee's world contains exactly one Project.
 
-## 10. `[invitee]` Comparison scene
+## 10. `[adopter-agent]` Comparison scene
 
 Requires two model views over the same Tasks (e.g. runs recorded from two
 different models, including at least one Task where both pass). Select the
@@ -163,7 +167,7 @@ Tasks, compare the two explicit model views, then:
 - switch the time range to **All time**, reload, and confirm the selection
   persists.
 
-## 11. `[observer]` Debrief and the result record
+## 11. `[reviewer-agent]` Audit and record the result
 
 Append a dated entry under `## Log` in
 `specs/183-hosted-alpha-first-adopter-rehearsal.md` using exactly this shape —
@@ -191,18 +195,18 @@ Every friction point becomes either a filed issue (with the observed scene and
 expected behavior) or an explicit decision to ignore it. Nothing is silently
 absorbed into this runbook.
 
-## 12. `[operator]` Cleanup
+## 12. `[operator-agent]` Cleanup
 
 - Revoke any unused invitations via **Settings → Hosted access**.
 - The rehearsal User/Project: retain, clearly labeled (e.g. Project named
-  "Founder rehearsal 2026-08-22"), or delete through supported product
+  "Agent-adopter rehearsal 2026-08-23"), or delete through supported product
   operations only. If supported deletion does not exist, retaining is the
   correct outcome — never edit the database to clean up.
 - Company data is never touched by cleanup.
 - Remove the external workspace directory from the invitee machine
   (`~/adopter-rehearsal/`), including any CLI credentials inside it.
 
-## The automated layer (run before or alongside the human scene)
+## The deterministic layer
 
 - `pnpm test:hosted-alpha-journey` — fixture-backed live-smoke contract plus
   the fresh-browser invitation journey against a dedicated production-shaped
