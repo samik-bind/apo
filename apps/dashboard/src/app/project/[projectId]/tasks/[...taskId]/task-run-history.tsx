@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { GitCompare, Play, X } from "lucide-react";
 import { type AgentTaskRunSummary } from "@/lib/agent-task-api";
 import { Button } from "@/components/ui/button";
+import { Table, TableBody } from "@/components/ui/table";
 import { TaskRunListHeader, TaskRunRow } from "@/components/task-run-list";
 
 import { useProjectId } from "@/lib/project-router";
@@ -61,20 +62,21 @@ export function TaskRunHistory({ runs }: TaskRunHistoryProps) {
         </Button>
       </div>
 
-      <TaskRunListHeader withCompare />
-
-      <div className="divide-y divide-border">
-        {runs.map((run) => (
-          <TaskRunRow
-            key={run.id}
-            run={run}
-            projectId={projectId}
-            compareSelected={compareIdSet.has(run.id)}
-            compareDisabled={compareIds.length >= 2 && !compareIdSet.has(run.id)}
-            onToggleCompare={() => toggleCompare(run.id)}
-          />
-        ))}
-      </div>
+      <Table density="compact" className="min-w-[1024px]">
+        <TaskRunListHeader withCompare />
+        <TableBody>
+          {runs.map((run) => (
+            <TaskRunRow
+              key={run.id}
+              run={run}
+              projectId={projectId}
+              compareSelected={compareIdSet.has(run.id)}
+              compareDisabled={compareIds.length >= 2 && !compareIdSet.has(run.id)}
+              onToggleCompare={() => toggleCompare(run.id)}
+            />
+          ))}
+        </TableBody>
+      </Table>
 
       {/* Compare bar — appears when one or two runs are selected. Compares the
           two parent batch runs (same-batch pairs are disabled: a batch vs

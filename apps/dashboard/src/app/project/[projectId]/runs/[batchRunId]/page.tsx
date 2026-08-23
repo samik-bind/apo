@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { formatCostMicro } from "@/lib/format";
 import { formatBatchExecution } from "@/lib/run-configuration";
 import { TriggerInline } from "@/components/trigger-badge";
+import { Table, TableBody } from "@/components/ui/table";
 import { TaskRunListHeader, TaskRunRow } from "@/components/task-run-list";
 import { BatchRunAutoRefresh } from "@/components/agent-task-execution/batch-run-auto-refresh";
 import { OutcomeSummary, FailuresByType, conclusionStyle } from "@/components/run-outcome";
@@ -204,14 +205,14 @@ export default async function BatchRunDetailPage({
             No task runs were recorded for this batch run.
           </div>
         ) : (
-          <>
+          <Table density="compact" className="min-w-[1024px]">
             <TaskRunListHeader />
-            <div className="divide-y divide-border">
+            <TableBody>
               {batchRun.task_runs.map((taskRun) => (
                 <TaskRunRow key={taskRun.id} run={taskRun} projectId={projectId} />
               ))}
-            </div>
-          </>
+            </TableBody>
+          </Table>
         )}
       </div>
     </div>
