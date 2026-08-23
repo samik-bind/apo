@@ -118,7 +118,7 @@ export function ProjectSwitcher({ currentProjectId }: { currentProjectId: string
       <button
         type="button"
         onClick={() => dispatch({ type: "OPEN_TOGGLE" })}
-        className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm font-semibold text-foreground transition-colors hover:bg-muted/40"
+        className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm font-semibold text-foreground transition-colors hover:bg-muted/40"
       >
         <span className="truncate text-foreground">{current?.name ?? currentProjectId}</span>
         <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />

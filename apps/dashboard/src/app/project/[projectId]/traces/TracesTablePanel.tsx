@@ -190,8 +190,8 @@ function TracesToolbar({
 }) {
   return (
     <div className="shrink-0 border-b border-border bg-background px-4 py-3">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex shrink-0 items-center gap-3">
           <div className="flex items-center gap-2">
             <Waypoints className="h-4 w-4 text-primary" />
             <h1 className="text-sm font-semibold">Traces</h1>
@@ -207,8 +207,8 @@ function TracesToolbar({
             Starred
           </Button>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
+        <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
+          <div className="relative w-full sm:w-48">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground/60" />
             <Input
               value={searchQuery}
@@ -217,7 +217,7 @@ function TracesToolbar({
               placeholder="Search traces..."
               aria-label="Search traces"
               data-testid="traces-search-input"
-              className="h-7 w-48 border-border pl-7 text-xs"
+              className="h-7 w-full border-border pl-7 text-xs"
             />
           </div>
           <Button

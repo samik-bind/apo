@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Menu } from "lucide-react";
 import {
   INSTANCE_ITEMS,
   PERSONAL_ITEMS,
@@ -12,14 +13,83 @@ import {
   settingsHref,
   type SettingsNavItem,
 } from "@/app/settings/nav-config";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 export function SettingsSidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const isAdmin = session?.user?.is_admin === true;
+  const isMobile = useIsMobile();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const groups = [
+    { label: "Personal", items: PERSONAL_ITEMS },
+    { label: "Project", items: PROJECT_ITEMS },
+    ...(isAdmin ? [{ label: "Instance", items: INSTANCE_ITEMS }] : []),
+  ];
+  const activeLabel = groups
+    .flatMap((g) => g.items)
+    .find(
+      (item) =>
+        pathname === settingsHref(item) ||
+        pathname.startsWith(settingsHref(item) + "/"),
+    )?.label;
+
+  if (isMobile) {
+    return (
+      <>
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
+          <button
+            type="button"
+            onClick={() => setMenuOpen(true)}
+            aria-label="Open settings menu"
+            className="flex size-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <Menu className="size-4" />
+          </button>
+          <span className="text-sm font-semibold">Settings</span>
+          {activeLabel && (
+            <span className="truncate text-xs text-muted-foreground">
+              {activeLabel}
+            </span>
+          )}
+        </div>
+        <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+          <SheetContent
+            side="left"
+            className="w-4/5 max-w-xs p-0 sm:max-w-xs"
+          >
+            <SheetHeader className="border-b border-border">
+              <SheetTitle className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                Settings
+              </SheetTitle>
+            </SheetHeader>
+            <nav className="flex-1 overflow-y-auto px-3 py-4">
+              {groups.map((group, i) => (
+                <div key={group.label} className={cn(i > 0 && "mt-6")}>
+                  <SidebarGroup
+                    label={group.label}
+                    items={group.items}
+                    pathname={pathname}
+                    onNavigate={() => setMenuOpen(false)}
+                  />
+                </div>
+              ))}
+            </nav>
+          </SheetContent>
+        </Sheet>
+      </>
+    );
+  }
 
   return (
-    <aside className="flex h-full w-56 shrink-0 flex-col border-r border-border bg-background">
+    <aside className="hidden h-full w-56 shrink-0 flex-col border-r border-border bg-background md:flex">
       <div className="flex h-14 items-center gap-2 border-b border-border px-4">
         <Link
           href="/"
@@ -59,12 +129,12 @@ function SidebarGroup({
   label,
   items,
   pathname,
-  badge,
+  onNavigate,
 }: {
   label: string;
   items: SettingsNavItem[];
   pathname: string;
-  badge?: React.ReactNode;
+  onNavigate?: () => void;
 }) {
   return (
     <div>
@@ -72,7 +142,6 @@ function SidebarGroup({
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
           {label}
         </p>
-        {badge}
       </div>
       <ul className="space-y-0.5">
         {items.map((item) => {
@@ -83,6 +152,7 @@ function SidebarGroup({
             <li key={href}>
               <Link
                 href={href}
+                onClick={onNavigate}
                 className={cn(
                   "flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] transition-colors",
                   isActive

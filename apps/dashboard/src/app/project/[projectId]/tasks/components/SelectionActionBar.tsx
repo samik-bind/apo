@@ -30,8 +30,8 @@ export function SelectionActionBar({
   onCompare: (bModel: string | null) => void;
 }) {
   return (
-    <div className="sticky bottom-4 z-20 mx-auto mb-4 w-fit">
-      <div className="flex items-center gap-3 border border-border bg-card px-3 py-2 shadow-2xl shadow-black/60">
+    <div className="sticky bottom-4 z-20 mx-auto mb-4 w-fit max-w-[calc(100%-1rem)]">
+      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 border border-border bg-card px-3 py-2 shadow-2xl shadow-black/60">
         <div className="flex items-center gap-2 text-[12px]">
           <span className="grid h-5 min-w-5 place-items-center bg-white px-1 font-mono text-[11px] font-semibold text-black">
             {selectedCount}

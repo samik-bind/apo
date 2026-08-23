@@ -130,11 +130,11 @@ export function TaskFileBrowser({
   }
 
   return (
-    <div className="flex max-h-[600px] min-h-[400px] rounded-lg border border-border bg-card overflow-hidden">
-      <div className="w-[280px] shrink-0 border-r border-border/60 overflow-hidden">
+    <div className="flex max-h-[600px] min-h-[400px] flex-col rounded-lg border border-border bg-card overflow-hidden md:flex-row">
+      <div className="max-h-44 shrink-0 overflow-y-auto border-b border-border/60 md:max-h-none md:w-[280px] md:border-b-0 md:border-r">
         <TaskFileList files={state.files} selectedPath={state.selectedPath} onSelect={handleSelect} />
       </div>
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="min-h-0 flex-1 overflow-hidden flex flex-col">
         <TaskFileViewer file={state.fileContent} error={state.viewerError} />
       </div>
     </div>

@@ -108,13 +108,13 @@ export function AgentTaskSchedulesClient({
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-3 gap-2 mb-6 sm:gap-3">
         {[
           { label: "Total", value: stats.total, icon: <Calendar size={14} className="text-muted-foreground" /> },
           { label: "Active", value: stats.enabled, icon: <CheckCircle2 size={14} className="text-success" /> },
           { label: "Paused", value: stats.disabled, icon: <XCircle size={14} className="text-muted-foreground" /> },
         ].map((stat) => (
-          <div key={stat.label} className="border border-border/60 bg-card/75 px-4 py-3 flex items-center gap-3">
+          <div key={stat.label} className="flex items-center gap-2 border border-border/60 bg-card/75 px-2.5 py-3 sm:gap-3 sm:px-4">
             {stat.icon}
             <div>
               <div className="text-[18px] font-semibold font-mono">{stat.value}</div>

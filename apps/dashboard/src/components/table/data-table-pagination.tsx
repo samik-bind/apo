@@ -100,7 +100,7 @@ export function DataTablePagination<TData>({
   }, [handlePageSizeChange]);
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 px-2 min-w-max">
+    <div className="flex flex-wrap items-center justify-between gap-2 px-2">
       <div className="flex-1 text-sm text-muted-foreground">
         {table.getFilteredSelectedRowModel().rows.length > 0 && (
           <span>

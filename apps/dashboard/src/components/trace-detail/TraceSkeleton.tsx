@@ -1,7 +1,7 @@
 export default function TraceSkeleton() {
   return (
     <div className="flex h-full">
-      <div className="w-[380px] border-r p-4 space-y-3">
+      <div className="w-full max-w-[380px] border-r p-4 space-y-3">
         <div className="h-6 w-32 bg-muted animate-pulse rounded" />
         <div className="h-8 w-full bg-muted animate-pulse rounded" />
         {Array.from({ length: 8 }).map((_, i) => (

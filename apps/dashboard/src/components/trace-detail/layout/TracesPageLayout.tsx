@@ -5,12 +5,19 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { TraceFilterControls, type TraceFilterOptions } from "@/components/trace-filter-controls";
 import { TraceActiveFilters } from "@/components/trace-active-filters";
 import { useFilters } from "@/hooks/use-filters";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useRouter } from "next/navigation";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import { Suspense, type ReactNode, useCallback, useSyncExternalStore } from "react";
+import { ListFilter, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Suspense, useState, type ReactNode, useCallback, useSyncExternalStore } from "react";
 
 export interface TracesPageLayoutProps {
   children: ReactNode;
@@ -75,6 +82,8 @@ function TracesPageLayoutInner({ children, filterOptions }: TracesPageLayoutProp
   const [filters, actions] = useFilters();
   const router = useRouter();
   const filtersVisible = useFiltersVisible();
+  const isMobile = useIsMobile();
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const toggleFilters = useCallback(() => {
     writeStoredFiltersVisible(!filtersVisible);
@@ -101,6 +110,48 @@ function TracesPageLayoutInner({ children, filterOptions }: TracesPageLayoutProp
       actions.removeFilter(key);
     }
   };
+
+  // Mobile: the resizable filter rail is unusable below ~768px — filters
+  // live in a bottom-corner-triggered sheet instead, table gets full width.
+  if (isMobile) {
+    return (
+      <div className="relative h-full w-full overflow-auto">
+        <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen(true)}
+            className="absolute bottom-4 right-4 z-10 flex h-8 items-center gap-1.5 border border-border bg-card px-3 text-xs font-medium text-foreground shadow-lg transition-colors hover:bg-accent"
+            aria-label="Show filters"
+            title="Show filters"
+          >
+            <ListFilter className="h-3.5 w-3.5" />
+            Filters
+          </button>
+          <SheetContent side="left" className="w-4/5 max-w-xs overflow-y-auto p-0 sm:max-w-xs">
+            <SheetHeader className="border-b border-border">
+              <SheetTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Filters
+              </SheetTitle>
+            </SheetHeader>
+            <div className="space-y-4 p-4">
+              <TraceFilterControls
+                filters={filters}
+                actions={actions}
+                availableEnvironments={["default", "dev", "staging", "production"]}
+                filterOptions={filterOptions}
+              />
+              <TraceActiveFilters
+                filters={filters}
+                onRemoveFilter={handleRemoveFilter}
+                onClearAll={actions.clearAllFilters}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+        {children}
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-full w-full">

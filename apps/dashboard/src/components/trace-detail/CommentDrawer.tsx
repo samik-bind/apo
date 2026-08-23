@@ -124,7 +124,7 @@ export function CommentDrawer({
           )}
         </Button>
       </SheetTrigger>
-      <SheetContent side="right" className="w-[380px] p-0 flex flex-col">
+      <SheetContent side="right" className="w-full p-0 flex flex-col sm:w-[380px]">
         <SheetHeader className="shrink-0 border-b px-4 py-3">
           <SheetTitle className="text-sm">
             Comments

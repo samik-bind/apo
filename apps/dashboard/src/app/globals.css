@@ -158,7 +158,7 @@
   body {
     @apply bg-background text-foreground;
     margin: 0;
-    height: 100vh;
+    height: 100svh;
     overflow: hidden;
   }
 

@@ -212,7 +212,7 @@ export function TaskRunDetailBody({
 
   return (
     <>
-      <div className="flex items-center gap-1 border-t border-border px-4">
+      <div className="flex items-center gap-1 overflow-x-auto border-t border-border px-4">
         {tabs.map((tabItem) => {
           const isTrace = tabItem.id === "trace";
           const isActive = !isTrace && tab === tabItem.id;
@@ -234,7 +234,7 @@ export function TaskRunDetailBody({
               key={tabItem.id}
               onClick={() => setTabParam(tabItem.id as Tab)}
               className={cn(
-                "relative inline-flex h-9 items-center gap-1.5 px-3 text-[13px] font-medium transition-colors",
+                "relative inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap px-3 text-[13px] font-medium transition-colors",
                 isActive ? "text-foreground" : "text-muted-foreground hover:text-foreground",
               )}
             >

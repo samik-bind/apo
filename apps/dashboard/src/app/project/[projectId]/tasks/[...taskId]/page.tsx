@@ -90,9 +90,9 @@ export default async function TaskDetailPage({
         >
           &larr; Tasks
         </Link>
-        <div className="mt-1 flex items-center gap-3">
-          <FolderOpen className="h-4 w-4 text-primary" />
-          <h1 className="text-[20px] font-semibold tracking-tight">{task.display_name}</h1>
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-3">
+          <FolderOpen className="h-4 w-4 shrink-0 text-primary" />
+          <h1 className="min-w-0 truncate text-[20px] font-semibold tracking-tight">{task.display_name}</h1>
           <Badge variant="outline" className="text-[10px]">{task.adapter_name}</Badge>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">

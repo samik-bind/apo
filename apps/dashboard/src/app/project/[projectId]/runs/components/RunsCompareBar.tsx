@@ -22,16 +22,16 @@ interface RunsCompareBarProps {
  */
 export function RunsCompareBar({ compareIds, compareBatches, overlap, projectId, onClearCompare }: RunsCompareBarProps) {
   return (
-    <div className="sticky bottom-4 z-20 mx-auto mb-4 w-fit">
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 shadow-2xl shadow-black/60">
-        <GitCompare className="h-4 w-4 text-muted-foreground" />
+    <div className="sticky bottom-4 z-20 mx-auto mb-4 w-fit max-w-[calc(100%-1rem)]">
+      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2 border border-border bg-card px-3 py-2 shadow-2xl shadow-black/60">
+        <GitCompare className="h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="flex items-center gap-2 text-[12px]">
           {compareIds.map((id, i) => {
             const batch = compareBatches[i];
             return (
               <span key={id} className="flex items-center gap-1.5">
                 {i > 0 && <span className="text-muted-foreground/40">vs</span>}
-                <span className="rounded bg-foreground/10 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+                <span className="max-w-[140px] truncate rounded bg-foreground/10 px-1.5 py-0.5 font-mono text-[11px] text-foreground">
                   {batch ? getBatchName(batch) : id.slice(0, 8)}
                 </span>
               </span>

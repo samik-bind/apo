@@ -94,8 +94,8 @@ export function MembersTable({
   onRevoke: (invitation: ProjectInvitationSummary) => void
 }) {
   return (
-    <div className="border border-border">
-      <table className="w-full text-xs">
+    <div className="relative overflow-x-auto border border-border">
+      <table className="w-full min-w-[420px] text-xs">
         <thead>
           <tr className="border-b border-border bg-muted/20 text-left text-muted-foreground">
             <th className="px-3 py-2 font-medium">Member</th>

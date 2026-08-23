@@ -29,7 +29,7 @@ export function TasksToolbar({
 }) {
   return (
     <div className="border-b border-border bg-muted/10">
-      <div className="flex items-center justify-end gap-2 px-6 py-3">
+      <div className="flex flex-wrap items-center justify-end gap-2 px-6 py-3">
         {taskSource && !isDemoProject && (
           <>
             <Button

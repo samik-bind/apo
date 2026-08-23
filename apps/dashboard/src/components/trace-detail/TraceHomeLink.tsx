@@ -51,7 +51,7 @@ export function TraceHomeLink({
         href={href}
         onClick={onClick}
         className={cn(
-          "relative inline-flex h-9 items-center gap-1.5 px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground",
+          "relative inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground",
           className,
         )}
       >

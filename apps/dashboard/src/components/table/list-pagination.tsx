@@ -27,7 +27,7 @@ export function ListPagination({
   const showingTo = Math.min((page + 1) * pageSize, totalCount);
 
   return (
-    <div className="flex shrink-0 items-center justify-between border-t border-border px-6 py-3 text-[12px] text-muted-foreground">
+    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border px-6 py-3 text-[12px] text-muted-foreground">
       <span>
         {totalCount > 0 && (
           <>Showing <span className="font-mono text-foreground">{showingFrom}{"\u2013"}{showingTo}</span> of </>
