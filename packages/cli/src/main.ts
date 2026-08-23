@@ -525,19 +525,33 @@ function printHelp(): void {
   console.log("  APO_API_KEY        API key for backend auth");
 }
 
+// Flush piped stdout/stderr before the forced exit (#155): writes to a pipe
+// are asynchronous on Linux, so process.exit can truncate the final lines —
+// including the SPEC-180 Run:/Inspect: handover after a FAIL verdict. An
+// empty write's callback fires once previously queued writes have drained.
+async function flushAndExit(code: number): Promise<never> {
+  await new Promise<void>((resolve) =>
+    process.stdout.write("", () => resolve()),
+  );
+  await new Promise<void>((resolve) =>
+    process.stderr.write("", () => resolve()),
+  );
+  process.exit(code);
+}
+
 // Only run when invoked directly as the entry point (not when imported, e.g.
 // by tests). Without this guard the side-effect below would fire on import.
 if (isDirectInvocation(import.meta.url, process.argv[1])) {
   main(process.argv.slice(2))
     .then((code) => {
-      // Force exit: Node's global fetch (undici) keeps its connection pool
-      // alive, which would otherwise hold the event loop open and hang the CLI
-      // after any network command.
-      process.exit(code);
+      // Force exit (after flushing): Node's global fetch (undici) keeps its
+      // connection pool alive, which would otherwise hold the event loop
+      // open and hang the CLI after any network command.
+      flushAndExit(code);
     })
     .catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
       console.error(message);
-      process.exit(2);
+      flushAndExit(2);
     });
 }
