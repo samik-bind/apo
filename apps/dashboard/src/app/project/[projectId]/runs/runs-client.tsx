@@ -21,7 +21,7 @@ import { useProjectId } from "@/lib/project-router";
 import { useClientNow } from "@/hooks/use-client-now";
 import { RunsModelFilter, type ModelOption } from "./runs-model-filter";
 import { RunsCompareBar } from "./components/RunsCompareBar";
-import { RunsPagination } from "./components/RunsPagination";
+import { ListPagination } from "@/components/table";
 import { RunsRow } from "./components/RunsRow";
 import { RunsToolbar } from "./components/RunsToolbar";
 import { COL, computeOverlap } from "./components/runs-utils";
@@ -230,11 +230,12 @@ export function RunsClient({
         )}
       </div>
 
-      <RunsPagination
+      <ListPagination
         totalCount={totalCount}
         page={page}
         pageSize={pageSize}
         totalPages={totalPages}
+        itemName="runs"
         onPageChange={handlePageChange}
       />
 

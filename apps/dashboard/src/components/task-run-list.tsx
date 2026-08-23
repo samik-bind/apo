@@ -18,16 +18,17 @@ import {
 } from "./task-run-list.utils";
 
 // Column widths shared by the header and every row (table-fixed layout —
-// the task-run column absorbs the remaining width). The table scrolls
-// horizontally inside its container when the viewport is narrower, the
-// same behavior as the traces and runs tables.
+// the task-run column absorbs the remaining width). Batch and Execution
+// only exist as columns from xl up; below that the five visible columns
+// fit without a scrollbar (the traces and runs tables hide columns the
+// same way).
 const COL = {
   trigger: 170,
   batch: 90,
   execution: 170,
-  judges: 110,
-  duration: 110,
-  started: 140,
+  judges: 100,
+  duration: 105,
+  started: 130,
 } as const;
 
 function TaskRunPassBar({ value, muted }: { value: number; muted?: boolean }) {
@@ -165,12 +166,12 @@ export function TaskRunRow({
         <TriggerBadge trigger={run.trigger} />
       </TableCell>
 
-      <TableCell className="font-mono text-[12px] text-muted-foreground" style={{ width: COL.batch }}>
+      <TableCell className="hidden font-mono text-[12px] text-muted-foreground xl:table-cell" style={{ width: COL.batch }}>
         {run.batch_run_id.slice(0, 8)}
       </TableCell>
 
       {/* Execution — model · effort. Full qualified name on hover. */}
-      <TableCell className="max-w-[190px]" style={{ width: COL.execution }}>
+      <TableCell className="hidden max-w-[190px] xl:table-cell" style={{ width: COL.execution }}>
         <span
           className="block truncate font-mono text-[12px] tabular-nums text-muted-foreground"
           title={formatRunExecutionFull(run.run_configuration)}
@@ -233,8 +234,8 @@ export function TaskRunListHeader({ withCompare = false }: { withCompare?: boole
       <TableRow className="border-border hover:bg-transparent">
         <TableHead className="pl-6">Task run</TableHead>
         <TableHead style={{ width: COL.trigger }}>Trigger</TableHead>
-        <TableHead style={{ width: COL.batch }}>Batch</TableHead>
-        <TableHead style={{ width: COL.execution }}>Execution</TableHead>
+        <TableHead className="hidden xl:table-cell" style={{ width: COL.batch }}>Batch</TableHead>
+        <TableHead className="hidden xl:table-cell" style={{ width: COL.execution }}>Execution</TableHead>
         <TableHead className="text-right" style={{ width: COL.judges }}>Judges</TableHead>
         <TableHead className="text-right" style={{ width: COL.duration }}>Duration · Cost · Tokens</TableHead>
         <TableHead className="pr-6 text-right" style={{ width: COL.started }}>

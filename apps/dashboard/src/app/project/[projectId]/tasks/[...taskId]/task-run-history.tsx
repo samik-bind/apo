@@ -6,9 +6,13 @@ import { GitCompare, Play, X } from "lucide-react";
 import { type AgentTaskRunSummary } from "@/lib/agent-task-api";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody } from "@/components/ui/table";
+import { ListPagination } from "@/components/table";
 import { TaskRunListHeader, TaskRunRow } from "@/components/task-run-list";
 
 import { useProjectId } from "@/lib/project-router";
+
+const PAGE_SIZE = 20;
+
 interface TaskRunHistoryProps {
   runs: AgentTaskRunSummary[];
 }
@@ -16,6 +20,12 @@ interface TaskRunHistoryProps {
 export function TaskRunHistory({ runs }: TaskRunHistoryProps) {
   const projectId = useProjectId();
   const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [page, setPage] = useState(0);
+
+  const totalPages = Math.ceil(runs.length / PAGE_SIZE);
+  // A refresh can shrink the list (run deleted) — clamp into range.
+  const safePage = Math.min(page, Math.max(0, totalPages - 1));
+  const visibleRuns = runs.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   // Map selected run ids → their parent batch ids. Compare is only meaningful
   // across two DIFFERENT batches (comparing a batch to itself is nonsensical).
@@ -50,10 +60,7 @@ export function TaskRunHistory({ runs }: TaskRunHistoryProps) {
 
   return (
     <div className="flex flex-col">
-      <div className="flex items-center justify-between border-b border-border px-6 py-3">
-        <span className="text-[13px] text-muted-foreground">
-          <span className="font-medium text-foreground">{runs.length}</span> task runs
-        </span>
+      <div className="flex items-center justify-end border-b border-border px-6 py-3">
         <Button type="button" asChild size="sm" className="h-7 gap-1.5 text-[12px] font-medium">
           <Link href={`/project/${projectId}/tasks`}>
             <Play className="h-3 w-3 fill-current" />
@@ -62,10 +69,10 @@ export function TaskRunHistory({ runs }: TaskRunHistoryProps) {
         </Button>
       </div>
 
-      <Table density="compact" className="min-w-[1024px]">
+      <Table density="compact" className="min-w-[560px]">
         <TaskRunListHeader withCompare />
         <TableBody>
-          {runs.map((run) => (
+          {visibleRuns.map((run) => (
             <TaskRunRow
               key={run.id}
               run={run}
@@ -77,6 +84,15 @@ export function TaskRunHistory({ runs }: TaskRunHistoryProps) {
           ))}
         </TableBody>
       </Table>
+
+      <ListPagination
+        totalCount={runs.length}
+        page={safePage}
+        pageSize={PAGE_SIZE}
+        totalPages={totalPages}
+        itemName="task runs"
+        onPageChange={setPage}
+      />
 
       {/* Compare bar — appears when one or two runs are selected. Compares the
           two parent batch runs (same-batch pairs are disabled: a batch vs

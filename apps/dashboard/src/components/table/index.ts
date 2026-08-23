@@ -7,4 +7,5 @@ export { TableActionMenu } from "./table-action-menu";
 export { TableActionDialog } from "./table-action-dialog";
 export { TableToolbar } from "./table-toolbar";
 export { DataTablePagination } from "./data-table-pagination";
+export { ListPagination } from "./list-pagination";
 export type { TableAction, TableActionMenuProps, TableActionDialogProps } from "./types";
