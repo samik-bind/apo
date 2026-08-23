@@ -455,6 +455,9 @@ def finalize_task_run_with_result(
         # precedence below, which only applies to passed/failed verdicts.
         task_run.status = "error"
         task_run.error_message = error_message
+        # #154: no judge produced a verdict, so none may be stored — an
+        # error run must not render as FAIL.
+        task_run.pass_result = None
     elif _generation_errors_dominate(task_run.generation_execution_json):
         # Issue #149: the checks ran, but they evaluated an execution dominated
         # by failed model calls. Preserve the Check Report as diagnostics while

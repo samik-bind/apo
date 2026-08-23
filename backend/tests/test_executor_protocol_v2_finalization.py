@@ -188,6 +188,12 @@ def test_v2_failure_finalizes_attempt(isolated_engine):
             assert att is not None
             assert att.status == "failed"
             assert att.failure_kind == "task_runtime"
+            # #154: an execution error produced no verdict — the task run
+            # must not render as FAIL.
+            run = s.get(AgentTaskRunDB, att.task_run_id)
+            assert run is not None
+            assert run.status == "error"
+            assert run.pass_result is None
     finally:
         app.dependency_overrides.clear()
 
