@@ -228,7 +228,7 @@ export function TaskRunRow({
   );
 }
 
-export function TaskRunListHeader({ withCompare = false }: { withCompare?: boolean }) {
+export function TaskRunListHeader() {
   return (
     <TableHeader>
       <TableRow className="border-border hover:bg-transparent">
@@ -237,10 +237,8 @@ export function TaskRunListHeader({ withCompare = false }: { withCompare?: boole
         <TableHead className="hidden xl:table-cell" style={{ width: COL.batch }}>Batch</TableHead>
         <TableHead className="hidden xl:table-cell" style={{ width: COL.execution }}>Execution</TableHead>
         <TableHead className="text-right" style={{ width: COL.judges }}>Judges</TableHead>
-        <TableHead className="text-right" style={{ width: COL.duration }}>Duration · Cost · Tokens</TableHead>
-        <TableHead className="pr-6 text-right" style={{ width: COL.started }}>
-          {withCompare ? "Started · Compare" : "Started"}
-        </TableHead>
+        <TableHead className="text-right" style={{ width: COL.duration }}>Duration</TableHead>
+        <TableHead className="pr-6 text-right" style={{ width: COL.started }}>Started</TableHead>
       </TableRow>
     </TableHeader>
   );

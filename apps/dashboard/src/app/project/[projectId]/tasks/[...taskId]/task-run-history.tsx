@@ -70,7 +70,7 @@ export function TaskRunHistory({ runs }: TaskRunHistoryProps) {
       </div>
 
       <Table density="compact" className="min-w-[560px]">
-        <TaskRunListHeader withCompare />
+        <TaskRunListHeader />
         <TableBody>
           {visibleRuns.map((run) => (
             <TaskRunRow
