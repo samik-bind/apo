@@ -22,7 +22,32 @@ structured data from an invoice.
     Tasks page ([Hosted Alpha](https://docs.test-apo.online/hosted-alpha/)).
 - `OPENROUTER_API_KEY` set in this environment (the real agent calls a model).
 - `@apo-ai/cli` installed (`npm install -g @apo-ai/cli`).
-- `@apo-ai/sdk` installed in this project (`npm install @apo-ai/sdk`).
+- pnpm (`npm install -g pnpm`) — this example lives inside apo's pnpm
+  workspace, so its dependencies (including `@apo-ai/sdk`, which builds
+  automatically during install) come from a workspace install, not from
+  `npm install` in this directory.
+
+## Set up the workspace
+
+From a clone of the public repository:
+
+```bash
+git clone --depth 1 https://github.com/samikuikka/apo
+cd apo
+pnpm install --filter @apo/example-service...
+# ✓ resolves the workspace, builds packages/sdk/dist (prepare script)
+```
+
+Then work from this directory:
+
+```bash
+cd apps/example-service/e2e/agent-task-demo
+```
+
+Use Node 22 or 24 (LTS). On Node 25 the demo site's `sharp` dependency has
+no prebuilt binary yet and its failed build aborts the install — task
+execution itself never needs it, so staying on LTS is the supported path
+until sharp catches up.
 
 ## Run it
 
