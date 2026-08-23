@@ -17,6 +17,7 @@ from .auth import validate_password_strength
 from .services.installation_initialization import (
     InstallationAlreadyInitializedError,
     claim_initial_user,
+    ensure_initial_user_is_instance_admin,
     get_installation_setup_status,
 )
 
@@ -38,6 +39,13 @@ def bootstrap_initial_user(session: Session) -> None:
 
     if not status.setup_available:
         logger.info("Installation already initialized, skipping bootstrap")
+        # #152 repair: installs initialized before /auth/setup granted the
+        # admin role may have no installation admin at all. Restore it from
+        # the durable initial-user record.
+        if ensure_initial_user_is_instance_admin(session):
+            logger.info(
+                "Promoted the recorded initial user to installation admin (#152 repair)"
+            )
         return
 
     email = os.environ.get("INIT_USER_EMAIL", "").strip()

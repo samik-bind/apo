@@ -12,6 +12,7 @@ from apo.auth import (
     verify_password,
 )
 from apo.models.db import UserDB
+from apo.services.installation_initialization import get_installation_setup_status
 
 
 class TestValidatePasswordStrength:
@@ -99,10 +100,13 @@ class TestSetup:
         assert user is not None
         assert user.email == "admin@test.com"
         assert user.name == "Admin"
-        # the first user is no longer auto-admin. Product
-        # authorization comes from project memberships.
-        assert user.is_admin is False
+        # #152: the browser-setup user is the installation admin — without
+        # one, Settings -> Hosted access is unreachable. Product
+        # authorization still comes from project memberships.
+        assert user.is_admin is True
         assert verify_password("SecurePass123", user.password_hash)
+        # the atomic claim initialized the installation: setup is closed.
+        assert get_installation_setup_status(session).setup_available is False
 
     def test_weak_password_rejected(self, client: TestClient) -> None:
         resp = client.post(
@@ -126,7 +130,12 @@ class TestSetup:
         )
         assert resp.status_code == 422
 
-    def test_second_setup_creates_non_admin_user(self, client: TestClient, session: Session) -> None:
+    def test_second_setup_rejected_after_initialization(
+        self, client: TestClient, session: Session
+    ) -> None:
+        # #152: /auth/setup is first-installation only. Once claimed,
+        # admission is invite-only (SPEC-179) — an open setup route would
+        # let anyone create an account without an invitation.
         client.post(
             "/auth/setup",
             json={"email": "admin@test.com", "password": "SecurePass123", "name": "Admin"},
@@ -135,19 +144,11 @@ class TestSetup:
             "/auth/setup",
             json={"email": "other@test.com", "password": "SecurePass456", "name": "Other"},
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 409
+        assert "already been initialized" in resp.json()["detail"]
 
-        admin = session.exec(
-            select(UserDB).where(UserDB.email == "admin@test.com")
-        ).first()
-        other = session.exec(
-            select(UserDB).where(UserDB.email == "other@test.com")
-        ).first()
-        assert admin is not None
-        assert other is not None
-        # neither user is auto-admin.
-        assert admin.is_admin is False
-        assert other.is_admin is False
+        users = session.exec(select(UserDB)).all()
+        assert len(users) == 1, "no second user may be created through setup"
 
     def test_duplicate_email_rejected(self, client: TestClient) -> None:
         client.post(
@@ -159,7 +160,9 @@ class TestSetup:
             json={"email": "admin@test.com", "password": "SecurePass456", "name": "Admin Again"},
         )
         assert resp.status_code == 409
-        assert "already exists" in resp.json()["detail"].lower()
+        # The first setup claimed the installation, so the initialization
+        # guard rejects any second call — duplicate email included.
+        assert "already been initialized" in resp.json()["detail"]
 
 
 class TestVerifyPassword:

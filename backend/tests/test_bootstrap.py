@@ -1,6 +1,7 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnusedParameter=false
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import patch
 
@@ -226,3 +227,56 @@ class TestBootstrapErrorHandling:
             or "Failed to create bootstrap user" in r.message
             for r in caplog.records
         )
+
+
+class TestInitialUserAdminRepair:
+    """#152: installs initialized before the admin invariant existed get
+    their recorded initial user promoted on startup."""
+
+    def test_promotes_recorded_initial_user(self, session: Session, clear_env: None) -> None:
+        # An initialized installation whose first user lost the role: the
+        # pre-fix /auth/setup created users with is_admin=False.
+        first = UserDB(email="founder@test.com", password_hash="x", is_admin=False)
+        session.add(first)
+        session.commit()
+        from apo.models.db import InstallationStateDB
+        from apo.services.installation_initialization import INSTALLATION_STATE_ID
+
+        state = InstallationStateDB(
+            id=INSTALLATION_STATE_ID,
+            initialized_at=datetime.now(timezone.utc),
+            initial_user_id=first.id,
+        )
+        session.add(state)
+        session.commit()
+
+        bootstrap_initial_user(session)
+
+        refreshed = session.get(UserDB, first.id)
+        assert refreshed is not None
+        assert refreshed.is_admin is True
+
+    def test_no_promotion_when_admin_exists(self, session: Session, clear_env: None) -> None:
+        first = UserDB(email="founder@test.com", password_hash="x", is_admin=True)
+        session.add(first)
+        session.commit()
+        from apo.models.db import InstallationStateDB
+        from apo.services.installation_initialization import INSTALLATION_STATE_ID
+
+        state = InstallationStateDB(
+            id=INSTALLATION_STATE_ID,
+            initialized_at=datetime.now(timezone.utc),
+            initial_user_id=first.id,
+        )
+        session.add(state)
+        session.commit()
+
+        bootstrap_initial_user(session)
+
+        refreshed = session.get(UserDB, first.id)
+        assert refreshed is not None
+        assert refreshed.is_admin is True
+        others = session.exec(
+            select(UserDB).where(UserDB.email != "founder@test.com")
+        ).all()
+        assert others == []

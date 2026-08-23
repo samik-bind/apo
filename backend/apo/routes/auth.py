@@ -34,6 +34,11 @@ from ..models.schemas import (
     UserResponse,
 )
 from ..services.demo_workspace import DEMO_PROJECT_ID
+from ..services.installation_initialization import (
+    InstallationAlreadyInitializedError,
+    claim_initial_user,
+    get_installation_setup_status,
+)
 from ..services.project_invitations import (
     accept_invitation_create_account,
     accept_invitation_existing_account,
@@ -192,8 +197,6 @@ def _user_to_response(user: UserDB) -> UserResponse:
 def has_users(session: Session = Depends(get_session)) -> dict[str, bool]:
     # use the shared installation-initialization service so
     # setup_available reflects the durable singleton, not just user count.
-    from ..services.installation_initialization import get_installation_setup_status
-
     status = get_installation_setup_status(session)
     return {"has_users": status.has_users, "setup_available": status.setup_available}
 
@@ -203,6 +206,15 @@ async def setup(body: SetupRequest, session: Session = Depends(get_session)) -> 
     error = validate_password_strength(body.password)
     if error:
         raise HTTPException(status_code=422, detail=error)
+
+    # First-installation only (SPEC-182). Once the installation is claimed,
+    # admission is invite-only through Hosted Access Invitations (SPEC-179)
+    # — an open /auth/setup would bypass that boundary entirely (#152).
+    status = get_installation_setup_status(session)
+    if not status.setup_available:
+        raise HTTPException(
+            status_code=409, detail="Installation has already been initialized"
+        )
 
     existing_user = session.exec(
         select(UserDB).where(UserDB.email == body.email)
@@ -214,26 +226,32 @@ async def setup(body: SetupRequest, session: Session = Depends(get_session)) -> 
 
     verification_required = _is_email_verification_required()
 
-    # the first user is no longer automatically a product
-    # super-admin. Project authorization comes from project
-    # memberships (owner on created projects). ``UserDB.is_admin`` is
-    # reserved for instance-maintenance flows guarded by
-    # ``ADMIN_API_KEY`` and the bootstrap user (INIT_USER).
-    user = UserDB(
-        email=body.email,
-        name=body.name,
-        password_hash=hash_password(body.password),
-        is_admin=False,
-        is_active=True,
-        email_verified_at=None if verification_required else _utcnow_naive(),
-    )
-    session.add(user)
-    session.commit()
-    session.refresh(user)
+    # The browser-setup user IS the installation admin (#152): without one,
+    # Settings -> Hosted access and the invitation API are unreachable.
+    # Product authorization stays membership-based; ``is_admin`` only gates
+    # instance-maintenance flows. The claim is the same atomic singleton
+    # INIT_USER bootstrap uses, so the two first-user paths cannot both win.
+    try:
+        user = claim_initial_user(
+            session,
+            email=body.email,
+            name=body.name,
+            password=body.password,
+            is_instance_admin=True,
+        )
+    except InstallationAlreadyInitializedError as exc:
+        raise HTTPException(
+            status_code=409, detail="Installation has already been initialized"
+        ) from exc
 
     if verification_required:
         await _create_and_send_otp(user, session)
-        return {"status": "verification_required", "email": body.email}
+        return {"status": "verification_required", "email": user.email}
+
+    if user.email_verified_at is None:
+        user.email_verified_at = _utcnow_naive()
+        session.add(user)
+        session.commit()
 
     return {"status": "ok", "id": user.id}
 

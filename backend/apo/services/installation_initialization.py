@@ -136,3 +136,30 @@ def claim_initial_user(
     session.commit()
     session.refresh(user)
     return user
+
+
+def ensure_initial_user_is_instance_admin(session: Session) -> bool:
+    """Repair (#152) for installs initialized without an installation admin.
+
+    The durable singleton records who initialized the installation, and the
+    invariant (enforced by ``claim_initial_user`` and the fixed
+    ``/auth/setup``) is that this user is the instance admin — otherwise
+    Settings -> Hosted access and the invitation API are unreachable. An
+    install whose first user was created before that invariant existed (the
+    old ``/auth/setup`` wrote ``is_admin=False``) can have nobody with the
+    role at all; restore it from the record.
+
+    Returns True when a promotion was written. The initial user keeps the
+    role permanently: there is no supported way to run an installation with
+    zero admins, and this user is the durable designated one.
+    """
+    state = _ensure_singleton(session)
+    if state.initialized_at is None or state.initial_user_id is None:
+        return False
+    user = session.get(UserDB, state.initial_user_id)
+    if user is None or user.is_admin:
+        return False
+    user.is_admin = True
+    session.add(user)
+    session.commit()
+    return True
