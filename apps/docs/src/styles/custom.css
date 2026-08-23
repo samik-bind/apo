@@ -7,9 +7,12 @@
  */
 
 /* ---------------------------------------------------------------------------
- * Dark-only: kill Starlight's light theme by making the "light" :root use the
- * same dark values. The dashboard hardcodes `color-scheme: dark` on <html> and
- * ships no light variant; docs do the same.
+ * Dark-only: Starlight's ThemeProvider still sets data-theme on <html> from
+ * localStorage before paint (and a visitor may have "light" stored from an
+ * earlier visit), so the "light" :root is forced to the same dark values.
+ * The theme picker itself is removed at the component level — Header.astro
+ * and MobileMenuFooter.astro drop ThemeSelect. The dashboard hardcodes
+ * `color-scheme: dark` on <html> and ships no light variant; docs match.
  * ------------------------------------------------------------------------- */
 :root,
 :root[data-theme='light'],
@@ -207,10 +210,6 @@ main p {
 /* ---------------------------------------------------------------------------
  * Header / nav tweaks — tighter, monochrome, no default blue hover.
  * ------------------------------------------------------------------------- */
-header [data-theme] {
-  /* hide the light/dark theme toggle — docs are dark-only, like the app */
-  display: none !important;
-}
 
 /* Brand lockup is symbol-only, like the app (dashboard BrandMark ships no
    wordmark). Keep the logo, drop the visible "apo" text — it's redundant next

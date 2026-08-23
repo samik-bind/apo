@@ -171,6 +171,9 @@ export default defineConfig({
 				// collapse toggle — parent labels are plain headings, children
 				// always show. Matches flue's sidebar. See SidebarSublist.astro.
 				SidebarSublist: './src/components/SidebarSublist.astro',
+				// Drops the light/dark ThemeSelect from the mobile menu footer —
+				// docs are dark-only (design.md). See MobileMenuFooter.astro.
+				MobileMenuFooter: './src/components/MobileMenuFooter.astro',
 			},
 		}),
 		astroMermaid(),
