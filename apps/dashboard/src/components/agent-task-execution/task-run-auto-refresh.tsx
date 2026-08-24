@@ -30,6 +30,9 @@ export function TaskRunAutoRefresh({
     project,
     enabled: isRunning,
     onEvent: handleEvent,
+    // A drop is a window this run's terminal event may have fallen into —
+    // it is never replayed, so re-fetch the page state on reconnect.
+    onReconnect: () => router.refresh(),
   });
 
   return null;

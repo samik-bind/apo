@@ -15,6 +15,13 @@ interface UseRunEventsOptions {
   project?: string;
   enabled: boolean;
   onEvent: (event: RunEvent) => void;
+  /**
+   * Called when the stream comes back after a drop. Events published while
+   * disconnected are gone for good — the backend replays running state on
+   * connect, but never terminal states — so consumers must treat a reconnect
+   * as "anything may have happened" and re-fetch (router.refresh()).
+   */
+  onReconnect?: () => void;
 }
 
 const EVENT_TYPES = [
@@ -30,6 +37,7 @@ export function useRunEvents({
   project,
   enabled,
   onEvent,
+  onReconnect,
 }: UseRunEventsOptions) {
   const resolvedProject = project ?? getProjectId();
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -43,10 +51,16 @@ export function useRunEvents({
   // visibilitychange listener resumes it instead of hammering a backgrounded
   // page's backend.
   const reconnectOnVisibleRef = useRef(false);
+  // True from the moment a connection drops until the next successful open,
+  // so that open can be reported as a reconnect (a gap events may have
+  // fallen into) rather than a first connect.
+  const droppedRef = useRef(false);
   const onEventRef = useRef(onEvent);
+  const onReconnectRef = useRef(onReconnect);
   // Written via useEffect (not in the render body) so render stays pure.
   useEffect(() => {
     onEventRef.current = onEvent;
+    onReconnectRef.current = onReconnect;
   });
 
   const connect = useCallback(() => {
@@ -62,11 +76,16 @@ export function useRunEvents({
 
     es.onopen = () => {
       attemptsRef.current = 0;
+      if (droppedRef.current) {
+        droppedRef.current = false;
+        onReconnectRef.current?.();
+      }
     };
 
     es.onerror = () => {
       es.close();
       eventSourceRef.current = null;
+      droppedRef.current = true;
       if (!enabled) return;
       attemptsRef.current += 1;
       if (attemptsRef.current > MAX_RECONNECT_ATTEMPTS) return;
@@ -114,8 +133,18 @@ export function useRunEvents({
     connect();
 
     const handleVisibilityChange = () => {
-      if (!document.hidden && reconnectOnVisibleRef.current) {
+      if (document.hidden) return;
+      // Revive a dead stream whenever the tab becomes visible again — both
+      // the deferred-reconnect case and the gave-up-after-max-attempts case
+      // (a long-hidden or slept tab exhausts the backoff budget; the user
+      // coming back is the signal to try again from a clean slate).
+      if (reconnectOnVisibleRef.current || eventSourceRef.current === null) {
         reconnectOnVisibleRef.current = false;
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = null;
+        }
+        attemptsRef.current = 0;
         connect();
       }
     };

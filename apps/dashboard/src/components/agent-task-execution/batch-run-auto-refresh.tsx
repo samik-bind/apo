@@ -36,6 +36,14 @@ export function BatchRunAutoRefresh({
     };
   }, []);
 
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimerRef.current) return;
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      router.refresh();
+    }, REFRESH_COALESCE_MS);
+  }, [router]);
+
   // useCallback with complete deps so the SSE hook receives a stable,
   // never-stale handler identity (it also keeps the latest one in a ref).
   const handleEvent = useCallback(
@@ -54,20 +62,19 @@ export function BatchRunAutoRefresh({
         event.event_type === "task_run.error" ||
         event.event_type === "task_run.trace_claimed"
       ) {
-        if (refreshTimerRef.current) return;
-        refreshTimerRef.current = setTimeout(() => {
-          refreshTimerRef.current = null;
-          router.refresh();
-        }, REFRESH_COALESCE_MS);
+        scheduleRefresh();
       }
     },
-    [batchRunId, router],
+    [batchRunId, scheduleRefresh],
   );
 
   useRunEvents({
     project,
     enabled: isRunning,
     onEvent: handleEvent,
+    // A drop is a window this batch's terminal events may have fallen into —
+    // they are never replayed, so re-fetch the page state on reconnect.
+    onReconnect: scheduleRefresh,
   });
 
   return null;
