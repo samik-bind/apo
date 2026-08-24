@@ -19,6 +19,7 @@ from apo.services.pricing.compute import compute_cost
 from apo.services.pricing.loader import DEFAULTS_PATH, load_default_prices
 
 NOW = datetime(2026, 7, 22, tzinfo=timezone.utc)
+POST_GPT56_PROMO = datetime(2026, 8, 24, tzinfo=timezone.utc)
 
 
 @pytest.fixture
@@ -464,19 +465,106 @@ class TestCacheWriteIsPricedForEveryProvider:
         ordinary input because nearly the entire prompt is a cache write.
         Assert both published rates so a stale input row cannot make an
         equality-based test pass accidentally.
+
+        Rates re-measured 2026-08-24: the 2026-08-10 figures were an OpenRouter
+        50% promotion; current list is 2x (terra $2.00 input / $2.50 write,
+        luna $0.20 / $0.25), confirmed by a cold call metering $2.5001/1M writes.
         """
         load_default_prices(session)
-        expected_micro_usd = {
-            "gpt-5.6-luna": {"input": 100_000, "cache_write_5m": 125_000},
-            "gpt-5.6-terra": {"input": 1_000_000, "cache_write_5m": 1_250_000},
+        expected_rate_micro_usd = {
+            "gpt-5.6-luna": {"input": 200_000, "cache_write_5m": 250_000},
+            "gpt-5.6-terra": {"input": 2_000_000, "cache_write_5m": 2_500_000},
         }
-        for name, expected in expected_micro_usd.items():
-            for usage_key, expected_cost in expected.items():
+        for name, expected in expected_rate_micro_usd.items():
+            for usage_key, expected_rate in expected.items():
                 cost = compute_cost(
-                    session, name, {usage_key: 1_000_000}, "__global__", NOW
+                    session,
+                    name,
+                    {usage_key: 100_000},
+                    "__global__",
+                    POST_GPT56_PROMO,
                 )
                 assert cost is not None, name
-                assert cost.total == expected_cost, f"{name} {usage_key}"
+                assert cost.total == expected_rate // 10, f"{name} {usage_key}"
+
+    def test_gpt56_uses_published_large_context_rates(self, session: Session) -> None:
+        """OpenRouter applies its override starting at 272k prompt tokens."""
+        load_default_prices(session)
+        expected_breakdowns = {
+            "gpt-5.6-luna": {
+                "input": 108_800,
+                "cache_read": 40_000,
+                "cache_write_5m": 500_000,
+                "output": 1_800_000,
+            },
+            "gpt-5.6-terra": {
+                "input": 1_088_000,
+                "cache_read": 400_000,
+                "cache_write_5m": 5_000_000,
+                "output": 18_000_000,
+            },
+        }
+        for name, expected_breakdown in expected_breakdowns.items():
+            below_threshold = compute_cost(
+                session,
+                name,
+                {"input": 271_999},
+                "__global__",
+                POST_GPT56_PROMO,
+            )
+            at_threshold = compute_cost(
+                session,
+                name,
+                {"input": 272_000},
+                "__global__",
+                POST_GPT56_PROMO,
+            )
+            priced_dimensions = compute_cost(
+                session,
+                name,
+                {
+                    "input": 272_000,
+                    "cache_read": 1_000_000,
+                    "cache_write_5m": 1_000_000,
+                    "output": 1_000_000,
+                },
+                "__global__",
+                POST_GPT56_PROMO,
+            )
+
+            assert below_threshold is not None
+            assert below_threshold.tier_name == "default"
+            assert at_threshold is not None
+            assert at_threshold.tier_name == "large-context"
+            assert priced_dimensions is not None
+            assert priced_dimensions.tier_name == "large-context"
+            assert priced_dimensions.breakdown == expected_breakdown
+
+    def test_gpt56_preserves_promotional_pricing_era(self, session: Session) -> None:
+        """Repricing keeps calls before the corroborated cutoff at promo rates."""
+        load_default_prices(session)
+        promo_time = datetime(2026, 8, 17, 23, 59, 59, tzinfo=timezone.utc)
+        expected_input_costs = {
+            "gpt-5.6-luna": (10_000, 20_000),
+            "gpt-5.6-terra": (100_000, 200_000),
+        }
+
+        for name, (promo_cost, current_cost) in expected_input_costs.items():
+            before_cutoff = compute_cost(
+                session, name, {"input": 100_000}, "__global__", promo_time
+            )
+            at_cutoff = compute_cost(
+                session,
+                name,
+                {"input": 100_000},
+                "__global__",
+                datetime(2026, 8, 18, tzinfo=timezone.utc),
+            )
+
+            assert before_cutoff is not None
+            assert before_cutoff.total == promo_cost
+            assert at_cutoff is not None
+            assert at_cutoff.total == current_cost
 
     def test_cache_heavy_worker_costs_more_than_output_alone(self, session: Session) -> None:
         """The shape this bug hid: a fan-out worker whose usage is almost
@@ -488,7 +576,7 @@ class TestCacheWriteIsPricedForEveryProvider:
             "gpt-5.6-luna",
             {"input": 3, "output": 149, "cache_write_5m": 12_495},
             "__global__",
-            NOW,
+            POST_GPT56_PROMO,
         )
         assert cost is not None
         assert cost.breakdown.get("cache_write_5m", 0) > 0, (

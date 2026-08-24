@@ -429,12 +429,13 @@
       "_doc": "cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero."
     },
     {
-      "_doc": "Issue #101: was arriving unpriced. OpenRouter rates verified 2026-08-10: ordinary input is $1.00/1M and cache writes are $1.25/1M. Two cold calls independently confirmed the write rate: 15017 cache_write_tokens billed $0.01877425 ($1.2502/1M) and 30020 billed $0.037528 ($1.2501/1M). compute_cost strips the openai/ slug before matching. Re-measure before relying on these promotional rates.",
+      "_doc": "Issue #101 promotional era. OpenRouter rates verified 2026-08-10 during a 50% promotion: $1.00/1M input, $6.00/1M output, $0.10 cache read, $1.25 cache write. The era ends at the earliest corroborated post-promotion operational change on 2026-08-18, when the proxy operator corrected the same rates.",
       "match_pattern": "(?i)^gpt-5\\.6-terra$",
       "provider": "openai",
       "display_name": "GPT-5.6 Terra",
       "start_date": null,
-      "updated_at": "2026-08-10T00:00:00Z",
+      "end_date": "2026-08-18T00:00:00Z",
+      "updated_at": "2026-08-24T00:00:00Z",
       "last_reviewed": "2026-08",
       "pricing_tiers": [
         {
@@ -452,12 +453,57 @@
       ]
     },
     {
-      "_doc": "Issue #101: was arriving unpriced. OpenRouter rates verified 2026-08-10: ordinary input is $0.10/1M and cache writes are $0.125/1M. compute_cost strips the openai/ slug before matching. Re-measure before relying on these promotional rates.",
+      "_doc": "Issue #101 post-promotion era; re-measured 2026-08-24. Current OpenRouter list is $2.00/1M input, $12.00/1M output, $0.20 cache read, $2.50 cache write (still 1.25x input). At 272k prompt tokens, the published override is $4.00 input, $18.00 output, $0.40 cache read, $5.00 cache write. Independently confirmed against a DPA'd proxy routing gpt-5.6 direct to OpenAI: a cold call with 32988 cache_write_tokens metered $0.082524 ($2.5001/1M). compute_cost strips the openai/ slug before matching.",
+      "match_pattern": "(?i)^gpt-5\\.6-terra$",
+      "provider": "openai",
+      "display_name": "GPT-5.6 Terra",
+      "start_date": "2026-08-18T00:00:00Z",
+      "updated_at": "2026-08-24T00:00:00Z",
+      "last_reviewed": "2026-08",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 2.0,
+            "cache_read": 0.2,
+            "cache_write_5m": 2.5,
+            "output": 12.0
+          }
+        },
+        {
+          "name": "large-context",
+          "is_default": false,
+          "priority": 1,
+          "conditions": [
+            {
+              "keys": [
+                "input",
+                "cache_read"
+              ],
+              "operator": "gte",
+              "threshold": 272000
+            }
+          ],
+          "prices": {
+            "input": 4.0,
+            "cache_read": 0.4,
+            "cache_write_5m": 5.0,
+            "output": 18.0
+          }
+        }
+      ]
+    },
+    {
+      "_doc": "Issue #101 promotional era. OpenRouter rates verified 2026-08-10 during a 50% promotion: $0.10/1M input, $0.60/1M output, $0.01 cache read, $0.125 cache write. The era ends at the earliest corroborated post-promotion operational change on 2026-08-18, when the proxy operator corrected the same rates.",
       "match_pattern": "(?i)^gpt-5\\.6-luna$",
       "provider": "openai",
       "display_name": "GPT-5.6 Luna",
       "start_date": null,
-      "updated_at": "2026-08-10T00:00:00Z",
+      "end_date": "2026-08-18T00:00:00Z",
+      "updated_at": "2026-08-24T00:00:00Z",
       "last_reviewed": "2026-08",
       "pricing_tiers": [
         {
@@ -470,6 +516,50 @@
             "cache_read": 0.01,
             "cache_write_5m": 0.125,
             "output": 0.6
+          }
+        }
+      ]
+    },
+    {
+      "_doc": "Issue #101 post-promotion era; re-measured 2026-08-24. Current OpenRouter list is $0.20/1M input, $1.20/1M output, $0.02 cache read, $0.25 cache write (still 1.25x input). At 272k prompt tokens, the published override is $0.40 input, $1.80 output, $0.04 cache read, $0.50 cache write. compute_cost strips the openai/ slug before matching.",
+      "match_pattern": "(?i)^gpt-5\\.6-luna$",
+      "provider": "openai",
+      "display_name": "GPT-5.6 Luna",
+      "start_date": "2026-08-18T00:00:00Z",
+      "updated_at": "2026-08-24T00:00:00Z",
+      "last_reviewed": "2026-08",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 0.2,
+            "cache_read": 0.02,
+            "cache_write_5m": 0.25,
+            "output": 1.2
+          }
+        },
+        {
+          "name": "large-context",
+          "is_default": false,
+          "priority": 1,
+          "conditions": [
+            {
+              "keys": [
+                "input",
+                "cache_read"
+              ],
+              "operator": "gte",
+              "threshold": 272000
+            }
+          ],
+          "prices": {
+            "input": 0.4,
+            "cache_read": 0.04,
+            "cache_write_5m": 0.5,
+            "output": 1.8
           }
         }
       ]
