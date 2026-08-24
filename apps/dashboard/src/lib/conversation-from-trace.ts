@@ -9,9 +9,18 @@
  * The trace is the real source of truth. Each GENERATION call's `input.messages`
  * is the full prompt the LLM received — for agentic loops that includes every
  * accumulated prior turn (system, user, assistant, tool-call, tool-result). The
- * last generation therefore saw the most context, so its input plus its own
+ * last such generation therefore saw the most context, so its input plus its own
  * output reply is the complete conversation. No cross-call deduplication of
  * accumulated history is needed.
+ *
+ * "Last such generation" is load-bearing: the chronologically last generation in
+ * a trace is not necessarily a chat completion. A task harness traces its own
+ * scaffolding into the same trace — a simulated-user turn, a
+ * conversation-finished check, an LLM judge — and those spans carry
+ * `{systemPrompt, userPrompt}` / `{response}` payloads instead of a `messages`
+ * array. Reading only the final generation would find no messages there and
+ * fall through to the raw-call fallback below, discarding a complete
+ * conversation that a preceding generation holds in full.
  *
  * Messages are already normalized to OpenAI shape by the backend
  * (`normalize_genai_message` in `otel_normalization/_shared.py`).
@@ -64,14 +73,20 @@ export function deriveConversationFromTrace(
     .sort(compareCallOrder);
   if (generations.length === 0) return EMPTY;
 
-  // Primary path: the last generation's accumulated messages array (SDK-native
-  // traces where the backend normalizes gen_ai.*.messages to OpenAI shape).
-  const last = generations[generations.length - 1];
-  const inputMessages = readMessages(last.input);
-  const outputMessages = readMessages(last.output);
-  const combined = [...inputMessages, ...outputMessages];
-  if (combined.length > 0) {
-    return { messages: dedupe(combined) };
+  // Primary path: the last chat generation's accumulated messages array
+  // (SDK-native traces where the backend normalizes gen_ai.*.messages to
+  // OpenAI shape). Generations that carry no messages array are skipped rather
+  // than ending the search — see the module comment.
+  const chat = generations.filter(
+    (call) =>
+      readMessages(call.input).length > 0 || readMessages(call.output).length > 0,
+  );
+  const last = chat[chat.length - 1];
+  if (last) {
+    const combined = [...readMessages(last.input), ...readMessages(last.output)];
+    if (combined.length > 0) {
+      return { messages: dedupe(combined) };
+    }
   }
 
   // Fallback (issue #47): imported traces carry provider-native content blocks,
@@ -118,7 +133,7 @@ function reconstructFromRawCalls(calls: LoggedCall[]): ChatMessage[] {
               type: "function",
               function: {
                 name: call.tool_name,
-                arguments: JSON.stringify(call.tool_parameters ?? {}),
+                arguments: toolArguments(call),
               },
             },
           ],
@@ -126,11 +141,34 @@ function reconstructFromRawCalls(calls: LoggedCall[]): ChatMessage[] {
       }
       const resultText = extractText(call.tool_result ?? call.output);
       if (resultText) {
-        messages.push({ role: "tool", content: resultText });
+        // Name the result after the tool that produced it — without it the
+        // transcript renders an anonymous "tool-result" row that the reader
+        // cannot tie back to a call.
+        messages.push({
+          role: "tool",
+          content: resultText,
+          ...(call.tool_name ? { name: call.tool_name } : {}),
+        });
       }
     }
   }
   return dedupe(messages);
+}
+
+/**
+ * The arguments a TOOL call was invoked with, as a JSON string.
+ *
+ * `tool_parameters` is only populated when the emitter set
+ * `gen_ai.tool.call.arguments` / `ai.toolCall.args`. Emitters that record the
+ * arguments as the span's input instead leave it null, so fall back to `input` —
+ * the mirror of how the result side falls back from `tool_result` to `output`.
+ * Without the fallback every tool call renders as an empty `{}` box.
+ */
+function toolArguments(call: LoggedCall): string {
+  const args = call.tool_parameters ?? call.input;
+  if (args == null) return "";
+  if (typeof args === "string") return args;
+  return JSON.stringify(args);
 }
 
 /**
@@ -170,6 +208,15 @@ function extractText(value: unknown): string {
         .join("\n")
         .trim();
     }
+    // MCP tool-result envelope: {content: [{type:"text", text:"…"}], details: {…}}.
+    // Serializing the envelope renders the payload as escaped JSON-in-JSON; the
+    // blocks carry the readable text.
+    if (Array.isArray(obj.content)) {
+      const text = extractText(obj.content);
+      if (text) return text;
+    }
+    // A single-field text envelope, e.g. {text: "…"} from a file-read tool.
+    if (typeof obj.text === "string" && obj.text.trim()) return obj.text.trim();
     // Generic dict → compact JSON so content is never silently dropped.
     const json = JSON.stringify(value, null, 2);
     return json === "{}" ? "" : json;
