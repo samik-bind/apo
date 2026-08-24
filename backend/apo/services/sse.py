@@ -13,6 +13,7 @@ this module owns it once.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Callable
@@ -28,6 +29,18 @@ SSE_HEADERS = {
     "Connection": "keep-alive",
     "X-Accel-Buffering": "no",
 }
+
+# How long a stream may stay silent before a comment frame is written.
+# Intermediaries (Cloudflare's proxy, tunnels, LBs) close connections that
+# send no bytes for ~100 seconds, which silently kills every quiet SSE
+# stream mid-run — a task run emits nothing between its started and
+# completed events, so without keepalives the browser's EventSource is
+# dead by the time the terminal event fires. Kept well under the lowest
+# common idle timeout.
+KEEPALIVE_INTERVAL_SECONDS = 25.0
+
+# SSE comment frame: ignored by EventSource, but keeps bytes flowing.
+KEEPALIVE_FRAME = ": keepalive\n\n"
 
 
 def format_sse_event(
@@ -58,28 +71,76 @@ def sse_streaming_response(
     initial_events: list[str],
     *,
     log_label: str = "SSE",
+    keepalive_interval: float = KEEPALIVE_INTERVAL_SECONDS,
 ) -> StreamingResponse:
     """Build the standard SSE StreamingResponse.
 
     Yields ``initial_events`` first, then streams live events from
     ``subscribe()`` (a zero-arg factory returning an async iterator of
-    pre-formatted SSE strings). Checks for client disconnect between each
-    yield. Uses the shared SSE headers and ``text/event-stream`` media type.
+    pre-formatted SSE strings). While the subscription is quiet, writes a
+    comment frame every ``keepalive_interval`` seconds so idle-timeout
+    intermediaries don't drop the connection. Checks for client disconnect
+    between each yield. Uses the shared SSE headers and
+    ``text/event-stream`` media type.
     """
     initial = list(initial_events)
 
     async def event_stream() -> AsyncIterator[str]:
+        iterator = subscribe().__aiter__()
+        # The pending __anext__ is awaited with a timeout via asyncio.wait
+        # (which never cancels on timeout) rather than asyncio.wait_for
+        # (which would cancel the generator frame and tear down the
+        # subscription on the first quiet interval).
+        next_event: asyncio.Task[str] | None = None
         try:
             for evt in initial:
                 if await request.is_disconnected():
                     return
                 yield evt
-            async for event in subscribe():
+            while True:
+                if next_event is None:
+                    next_event = asyncio.ensure_future(iterator.__anext__())
+                done, _ = await asyncio.wait(
+                    {next_event}, timeout=keepalive_interval
+                )
+                if not done:
+                    if await request.is_disconnected():
+                        break
+                    yield KEEPALIVE_FRAME
+                    continue
+                try:
+                    event = next_event.result()
+                except StopAsyncIteration:
+                    next_event = None
+                    break
+                next_event = None
                 if await request.is_disconnected():
                     break
                 yield event
         except Exception:
             _logger.debug("%s stream closed", log_label, exc_info=True)
+        finally:
+            if next_event is not None:
+                if not next_event.done():
+                    _ = next_event.cancel()
+                try:
+                    await next_event
+                except (asyncio.CancelledError, StopAsyncIteration):
+                    pass
+                except Exception:
+                    _logger.debug(
+                        "%s pending subscription closed with an error",
+                        log_label,
+                        exc_info=True,
+                    )
+            aclose = getattr(iterator, "aclose", None)
+            if aclose is not None:
+                try:
+                    await aclose()
+                except Exception:
+                    _logger.debug(
+                        "%s subscription close failed", log_label, exc_info=True
+                    )
 
     return StreamingResponse(
         event_stream(),

@@ -14,10 +14,8 @@ def _setup_admin_authed(
 ) -> tuple[TestClient, str]:
     """Create admin user via the public setup endpoint and return an authed client.
 
-    the first signup is no longer auto-admin. These tests
-    cover the instance-maintenance ``/auth/users`` endpoints, which
-    still require ``UserDB.is_admin``. We flip the flag directly in the
-    DB to exercise that path.
+    The first browser-setup user claims installation administration. Product
+    authorization remains independent and comes from project membership.
     """
     resp = client.post(
         "/auth/setup",
@@ -26,10 +24,7 @@ def _setup_admin_authed(
     assert resp.status_code == 200
     admin_user = session.exec(select(UserDB)).first()
     assert admin_user is not None
-    admin_user.is_admin = True
-    session.add(admin_user)
-    session.commit()
-    session.refresh(admin_user)
+    assert admin_user.is_admin is True
     return make_authed_client(admin_user.id, session), admin_user.id
 
 

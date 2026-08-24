@@ -59,6 +59,15 @@ export function ScheduleListAutoRefresh({
       if (!scheduleIds) return;
       for (const id of scheduleIds) onRefresh(id);
     },
+    // A drop is a window a pending batch's terminal event may have fallen
+    // into — it is never replayed, so re-fetch every pending schedule.
+    onReconnect: () => {
+      const ids = new Set<string>();
+      for (const set of byBatchRunId.values()) {
+        for (const id of set) ids.add(id);
+      }
+      for (const id of ids) onRefresh(id);
+    },
   });
 
   return null;
