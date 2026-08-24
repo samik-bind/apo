@@ -79,7 +79,7 @@ def _run(
     bid: str,
     *,
     task_id: str = "t1",
-    status: str = "success",
+    status: str = "passed",
     pass_result: bool | None = None,
     project: str = _PROJECT,
     model: str = "claude-sonnet",
@@ -148,7 +148,7 @@ def test_summary_loader_excludes_heavy_evidence(session: Session) -> None:
     assert len(summaries) == 1
     s = summaries[0]
     assert s.id == "r1"
-    assert s.status == "success"
+    assert s.status == "passed"
     assert s.task_id == "t1"
 
 
@@ -282,11 +282,11 @@ async def test_overview_returns_every_frozen_run_as_summaries(
 
     _batch(session, "ba")
     _batch(session, "bb")
-    _run(session, "ra-pass", "ba", task_id="t-pass", status="success", pass_result=True, model="claude-sonnet")
-    _run(session, "rb-pass", "bb", task_id="t-pass", status="success", pass_result=True, model="gpt-4o")
+    _run(session, "ra-pass", "ba", task_id="t-pass", status="passed", pass_result=True, model="claude-sonnet")
+    _run(session, "rb-pass", "bb", task_id="t-pass", status="passed", pass_result=True, model="gpt-4o")
     _run(session, "ra-fail", "ba", task_id="t-fail", status="failed", pass_result=False, model="claude-sonnet")
     _run(session, "rb-fail", "bb", task_id="t-fail", status="failed", pass_result=False, model="gpt-4o")
-    _run(session, "ra-diff", "ba", task_id="t-diff", status="success", pass_result=True, model="claude-sonnet")
+    _run(session, "ra-diff", "ba", task_id="t-diff", status="passed", pass_result=True, model="claude-sonnet")
     _run(session, "rb-diff", "bb", task_id="t-diff", status="failed", pass_result=False, model="gpt-4o")
     _run(session, "ra-err", "ba", task_id="t-err", status="error", model="claude-sonnet")
     _run(session, "rb-err", "bb", task_id="t-err", status="error", model="gpt-4o")

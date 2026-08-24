@@ -715,6 +715,48 @@ def _migrate_to_v29() -> None:
         _migrate_generation_execution_schema(conn)
 
 
+def _migrate_to_v30() -> None:
+    """Version 30: normalize drifted Task Run and trace-persistence statuses.
+
+    The dev-workspace seeder wrote the *batch-level* status ``completed`` onto
+    Task Run rows (``status`` and ``trace_persistence_status``); the canonical
+    run lifecycle is pending/running/passed/failed/error and trace persistence
+    is pending/persisted/failed. Drifted rows always carry ``pass_result``, so
+    the run status maps by the recorded verdict.
+    """
+    with engine.begin() as conn:
+        _normalize_run_and_trace_statuses(conn)
+
+
+def _normalize_run_and_trace_statuses(conn: Connection) -> None:
+    """Idempotently rewrite non-canonical run/trace statuses to canonical values.
+
+    Rows already holding canonical values match no WHERE clause, so a re-run
+    is a no-op.
+    """
+    conn.exec_driver_sql(
+        """
+        UPDATE agent_task_runs
+        SET status = CASE WHEN pass_result THEN 'passed' ELSE 'failed' END
+        WHERE status NOT IN ('pending', 'running', 'passed', 'failed', 'error')
+        """
+    )
+    conn.exec_driver_sql(
+        """
+        UPDATE agent_task_runs
+        SET trace_persistence_status = 'persisted'
+        WHERE trace_persistence_status NOT IN ('pending', 'persisted', 'failed')
+        """
+    )
+    conn.exec_driver_sql(
+        """
+        UPDATE agent_task_batch_runs
+        SET trace_persistence_status = 'persisted'
+        WHERE trace_persistence_status NOT IN ('pending', 'persisted', 'failed')
+        """
+    )
+
+
 def _migrate_generation_execution_schema(conn: Connection) -> None:
     """Add the nullable issue #149 summary to an existing Task Run table."""
     _add_column_if_missing(
@@ -2086,7 +2128,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 29
+LATEST_SCHEMA_VERSION = 30
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2118,6 +2160,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     27: _migrate_to_v27,
     28: _migrate_to_v28,
     29: _migrate_to_v29,
+    30: _migrate_to_v30,
 }
 
 

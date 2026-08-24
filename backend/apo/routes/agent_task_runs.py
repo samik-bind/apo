@@ -33,6 +33,10 @@ from ..models import (
     RunDB,
 )
 from ..models.db import ProjectMembershipDB
+from ..models.schemas import (
+    as_task_run_status,
+    as_trace_persistence_status,
+)
 from ..services.agent_task_configuration import configuration_from_row
 from ..services.agent_task_batch_listing import (
     BatchRunListFilters,
@@ -170,14 +174,16 @@ def _build_task_run_detail(
         task_id=task_run.task_id,
         task_path=task_run.task_path,
         adapter_name=task_run.adapter_name,
-        status=task_run.status,
+        status=as_task_run_status(task_run.status),
         pass_result=task_run.pass_result,
         started_at=task_run.started_at,
         completed_at=task_run.completed_at,
         trace_run_id=task_run.trace_run_id,
         task_source_commit_sha=task_run.task_source_commit_sha,
         error_message=task_run.error_message,
-        trace_persistence_status=task_run.trace_persistence_status,
+        trace_persistence_status=as_trace_persistence_status(
+            task_run.trace_persistence_status
+        ),
         trace_error_message=task_run.trace_error_message,
         total_cost=task_run.total_cost,
         unpriced_call_count=task_run.unpriced_call_count,

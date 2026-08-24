@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ArrowUpRight, Clock } from "lucide-react";
 
 import { type AgentTaskRunSummary } from "@/lib/agent-task-api";
-import { TASK_RUN_STATUS, type TaskRunStatus } from "@/components/task-run-list.utils";
+import { taskRunStatusConfig } from "@/components/task-run-list.utils";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { formatCostMicro, formatTokenTotal } from "@/lib/format";
@@ -14,8 +14,8 @@ import { formatDuration, formatRelative } from "./runs-utils";
 
 /** A single task run nested under its parent batch run row. */
 export function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTaskRunSummary; projectId: string; clientNow: number | null }) {
-  const status = run.status in TASK_RUN_STATUS ? (run.status as TaskRunStatus) : "pending";
-  const statusConfig = TASK_RUN_STATUS[status];
+  const status = run.status;
+  const statusConfig = taskRunStatusConfig(status);
   const isDone = status === "passed" || status === "failed";
   const isInactive = status === "pending" || status === "error";
   const passRate = run.total_checks > 0 ? Math.round((run.passed_checks / run.total_checks) * 100) : 0;

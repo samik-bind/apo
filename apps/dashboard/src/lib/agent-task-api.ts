@@ -103,13 +103,23 @@ export interface AgentTaskBatchRunConfigurationSummary {
   total_task_runs: number;
 }
 
+/**
+ * Canonical Task Run lifecycle, mirrored from the backend's
+ * `TaskRunStatus` (models/schemas.py). "completed" is a *batch* status.
+ * The union stays open (`string & {}`) so an unknown backend value remains
+ * representable — the UI renders those with a raw-label fallback instead
+ * of guessing, and this union documents + autocompletes the known set.
+ */
+export type AgentTaskRunStatus = "passed" | "failed" | "running" | "error" | "pending";
+export type WireStatus = AgentTaskRunStatus | (string & {});
+
 export interface AgentTaskRunSummary {
   id: string;
   batch_run_id: string;
   task_id: string;
   task_path: string;
   adapter_name: string | null;
-  status: string;
+  status: WireStatus;
   pass_result: boolean | null;
   started_at: string | null;
   completed_at: string | null;

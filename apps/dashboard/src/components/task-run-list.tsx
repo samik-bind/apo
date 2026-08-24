@@ -11,10 +11,9 @@ import { cn } from "@/lib/utils";
 import { formatCostMicro, formatTokenTotal } from "@/lib/format";
 import { formatRunExecution, formatRunExecutionFull } from "@/lib/run-configuration";
 import {
-  TASK_RUN_STATUS,
-  type TaskRunStatus,
   formatTaskRunDuration,
   formatTaskRunRelativeTime,
+  taskRunStatusConfig,
 } from "./task-run-list.utils";
 
 // Column widths shared by the header and every row (table-fixed layout —
@@ -112,8 +111,8 @@ export function TaskRunRow({
   onToggleCompare?: () => void;
 }) {
   const router = useRouter();
-  const status = (run.status in TASK_RUN_STATUS ? run.status : "pending") as TaskRunStatus;
-  const statusConfig = TASK_RUN_STATUS[status];
+  const status = run.status;
+  const statusConfig = taskRunStatusConfig(status);
   const isDone = status === "passed" || status === "failed";
   const passRate = run.total_checks > 0 ? Math.round((run.passed_checks / run.total_checks) * 100) : 0;
   const href = `/project/${projectId}/runs/task/${run.id}`;

@@ -24,6 +24,10 @@ from ..models import (
     AgentTaskRunTrigger,
     AgentTaskRunSummary,
 )
+from ..models.schemas import (
+    as_task_run_status,
+    as_trace_persistence_status,
+)
 from ..models.db import TaskExecutionAttemptDB
 from ..models.execution import (
     AttemptStatus,
@@ -108,7 +112,7 @@ def to_task_run_summary(
         task_id=tr.task_id,
         task_path=tr.task_path,
         adapter_name=tr.adapter_name,
-        status=tr.status,
+        status=as_task_run_status(tr.status),
         pass_result=tr.pass_result,
         started_at=tr.started_at,
         completed_at=tr.completed_at,
@@ -116,7 +120,9 @@ def to_task_run_summary(
         primary_model=primary_model,
         task_source_commit_sha=tr.task_source_commit_sha,
         error_message=tr.error_message,
-        trace_persistence_status=tr.trace_persistence_status,
+        trace_persistence_status=as_trace_persistence_status(
+            tr.trace_persistence_status
+        ),
         trace_error_message=tr.trace_error_message,
         total_cost=tr.total_cost,
         unpriced_call_count=tr.unpriced_call_count,
@@ -194,7 +200,9 @@ def to_batch_run_summary(
         errored_tasks=br.errored_tasks,
         total_checks=br.total_checks,
         passed_checks=br.passed_checks,
-        trace_persistence_status=br.trace_persistence_status,
+        trace_persistence_status=as_trace_persistence_status(
+            br.trace_persistence_status
+        ),
         trace_error_message=br.trace_error_message,
         total_cost=total_cost,
         unpriced_call_count=unpriced_call_count,
@@ -270,7 +278,9 @@ def to_batch_run_detail(
         cancelled_tasks=br.cancelled_tasks,
         total_checks=br.total_checks,
         passed_checks=br.passed_checks,
-        trace_persistence_status=br.trace_persistence_status,
+        trace_persistence_status=as_trace_persistence_status(
+            br.trace_persistence_status
+        ),
         trace_error_message=br.trace_error_message,
         total_cost=total_cost,
         unpriced_call_count=unpriced_call_count,

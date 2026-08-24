@@ -75,6 +75,11 @@ const STATUS_DOT: Record<string, { dot: string; text: string }> = {
   pending: { dot: "bg-muted-foreground/40", text: "text-muted-foreground" },
 };
 
+// Unknown statuses get a neutral dot — the raw status string is the label.
+// Never borrow pending's styling as a fallback: an unknown value is not
+// "pending", and masking it hides backend drift.
+const UNKNOWN_STATUS_DOT = { dot: "bg-muted-foreground/40", text: "text-muted-foreground" };
+
 export default async function TaskRunDetailPage({
   params,
 }: {
@@ -120,7 +125,7 @@ export default async function TaskRunDetailPage({
 
   const checks = taskRun.checks_json ?? [];
   const checksPassed = checks.filter((c) => c.pass === true).length;
-  const statusConf = STATUS_DOT[taskRun.status] ?? STATUS_DOT.pending;
+  const statusConf = STATUS_DOT[taskRun.status] ?? UNKNOWN_STATUS_DOT;
   const statusLabel = taskRun.status.charAt(0).toUpperCase() + taskRun.status.slice(1);
 
   const isRunning = ["running", "pending", "queued"].includes(taskRun.status);

@@ -1,7 +1,7 @@
 # pyright: reportUnannotatedClassAttribute=false
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, cast, get_args
 
 from sqlalchemy import Column
 from pydantic import Field as PDField
@@ -613,13 +613,51 @@ class GenerationExecutionSummary(SQLModel):
     error_finish_reasons: dict[str, int] = Field(default_factory=dict)
 
 
+# Canonical Task Run lifecycle: pending -> running -> passed/failed, or
+# error when execution itself failed. "completed" is a *batch* status and
+# must never appear on a run — the dashboard renders any status outside
+# this set with a raw-label fallback instead of guessing.
+TaskRunStatus = Literal["pending", "running", "passed", "failed", "error"]
+
+# Trace persistence outcome for runs and batches (trace_ownership.py).
+TracePersistenceStatus = Literal["pending", "persisted", "failed"]
+
+TASK_RUN_STATUSES: frozenset[str] = frozenset(get_args(TaskRunStatus))
+TRACE_PERSISTENCE_STATUSES: frozenset[str] = frozenset(
+    get_args(TracePersistenceStatus)
+)
+
+
+def as_task_run_status(status: str) -> TaskRunStatus:
+    """Narrow a persisted status to the canonical run lifecycle.
+
+    Raises ValueError on drift so a bad value fails loudly at the projection
+    boundary instead of silently shipping to clients (where the dashboard
+    used to mask it as "pending").
+    """
+    if status not in TASK_RUN_STATUSES:
+        raise ValueError(
+            f"non-canonical task run status {status!r}; expected one of {sorted(TASK_RUN_STATUSES)}"
+        )
+    return cast("TaskRunStatus", status)
+
+
+def as_trace_persistence_status(status: str) -> TracePersistenceStatus:
+    """Narrow a persisted trace persistence status; raises ValueError on drift."""
+    if status not in TRACE_PERSISTENCE_STATUSES:
+        raise ValueError(
+            f"non-canonical trace persistence status {status!r}; expected one of {sorted(TRACE_PERSISTENCE_STATUSES)}"
+        )
+    return cast("TracePersistenceStatus", status)
+
+
 class AgentTaskRunSummary(SQLModel):
     id: str
     batch_run_id: str
     task_id: str
     task_path: str
     adapter_name: str | None = None
-    status: str
+    status: TaskRunStatus
     pass_result: bool | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
@@ -630,7 +668,7 @@ class AgentTaskRunSummary(SQLModel):
     primary_model: str | None = None
     task_source_commit_sha: str | None = None
     error_message: str | None = None
-    trace_persistence_status: str = "pending"
+    trace_persistence_status: TracePersistenceStatus = "pending"
     trace_error_message: str | None = None
     total_cost: float | None = None
     # Issue #94: calls whose model had no pricing pattern. Non-zero means
@@ -656,7 +694,7 @@ class AgentTaskRunDetail(SQLModel):
     task_id: str
     task_path: str
     adapter_name: str | None = None
-    status: str
+    status: TaskRunStatus
     pass_result: bool | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
@@ -664,7 +702,7 @@ class AgentTaskRunDetail(SQLModel):
     primary_model: str | None = None
     task_source_commit_sha: str | None = None
     error_message: str | None = None
-    trace_persistence_status: str = "pending"
+    trace_persistence_status: TracePersistenceStatus = "pending"
     trace_error_message: str | None = None
     total_cost: float | None = None
     # Issue #94: calls whose model had no pricing pattern. Non-zero means
@@ -721,7 +759,7 @@ class AgentTaskBatchRunSummary(SQLModel):
     errored_tasks: int = 0
     total_checks: int = 0
     passed_checks: int = 0
-    trace_persistence_status: str = "pending"
+    trace_persistence_status: TracePersistenceStatus = "pending"
     trace_error_message: str | None = None
     total_cost: float | None = None
     # Issue #147: sum of child runs' unpriced calls. Non-zero means
@@ -758,7 +796,7 @@ class AgentTaskBatchRunDetail(SQLModel):
     cancelled_tasks: int = 0
     total_checks: int = 0
     passed_checks: int = 0
-    trace_persistence_status: str = "pending"
+    trace_persistence_status: TracePersistenceStatus = "pending"
     trace_error_message: str | None = None
     total_cost: float | None = None
     # Issue #147: sum of child runs' unpriced calls. Non-zero means

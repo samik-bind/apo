@@ -24,6 +24,8 @@ from ..models.schemas import (
     AgentTaskRunSummary,
     AgentTaskRunTrigger,
     GenerationExecutionSummary,
+    as_task_run_status,
+    as_trace_persistence_status,
 )
 from .agent_task_configuration import configuration_from_row
 from .agent_task_deliverables import derive_deliverables_json_for_runs
@@ -84,14 +86,16 @@ def _to_summary(
         task_id=run.task_id,
         task_path=run.task_path,
         adapter_name=run.adapter_name,
-        status=run.status,
+        status=as_task_run_status(run.status),
         pass_result=run.pass_result,
         started_at=run.started_at,
         completed_at=run.completed_at,
         trace_run_id=run.trace_run_id,
         task_source_commit_sha=run.task_source_commit_sha,
         error_message=run.error_message,
-        trace_persistence_status=run.trace_persistence_status,
+        trace_persistence_status=as_trace_persistence_status(
+            run.trace_persistence_status
+        ),
         trace_error_message=run.trace_error_message,
         total_cost=run.total_cost,
         unpriced_call_count=run.unpriced_call_count,
@@ -206,14 +210,16 @@ def _to_detail(
         task_id=run.task_id,
         task_path=run.task_path,
         adapter_name=run.adapter_name,
-        status=run.status,
+        status=as_task_run_status(run.status),
         pass_result=run.pass_result,
         started_at=run.started_at,
         completed_at=run.completed_at,
         trace_run_id=run.trace_run_id,
         task_source_commit_sha=run.task_source_commit_sha,
         error_message=run.error_message,
-        trace_persistence_status=run.trace_persistence_status,
+        trace_persistence_status=as_trace_persistence_status(
+            run.trace_persistence_status
+        ),
         trace_error_message=run.trace_error_message,
         total_cost=run.total_cost,
         unpriced_call_count=run.unpriced_call_count,

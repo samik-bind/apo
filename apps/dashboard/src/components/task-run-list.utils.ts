@@ -1,16 +1,26 @@
 import {
   AlertTriangle,
   CheckCircle2,
+  CircleHelp,
   Clock,
   Loader2,
   XCircle,
 } from "lucide-react";
 
-export type TaskRunStatus = "passed" | "failed" | "running" | "error" | "pending";
+import type { AgentTaskRunStatus, WireStatus } from "@/lib/agent-task-api";
+
+export type TaskRunStatus = AgentTaskRunStatus;
+
+export interface TaskRunStatusConfig {
+  label: string;
+  dot: string;
+  text: string;
+  Icon: React.ComponentType<{ className?: string }>;
+}
 
 export const TASK_RUN_STATUS: Record<
   TaskRunStatus,
-  { label: string; dot: string; text: string; Icon: React.ComponentType<{ className?: string }> }
+  TaskRunStatusConfig
 > = {
   passed: { label: "Passed", dot: "bg-success", text: "text-success", Icon: CheckCircle2 },
   failed: { label: "Failed", dot: "bg-destructive", text: "text-destructive", Icon: XCircle },
@@ -18,6 +28,20 @@ export const TASK_RUN_STATUS: Record<
   error: { label: "Error", dot: "bg-warning", text: "text-warning", Icon: AlertTriangle },
   pending: { label: "Pending", dot: "bg-white/30", text: "text-white/50", Icon: Clock },
 };
+
+// Unknown backend statuses render with their raw string as the label. Never
+// collapse them to "pending": a drifted status once made a 3-day-old finished
+// run show as "Pending" with no hint anything was wrong.
+const UNKNOWN_STATUS_CONFIG = {
+  dot: "bg-muted-foreground/40",
+  text: "text-muted-foreground",
+  Icon: CircleHelp,
+};
+
+export function taskRunStatusConfig(status: WireStatus): TaskRunStatusConfig {
+  const known = TASK_RUN_STATUS[status as TaskRunStatus];
+  return known ?? { label: status || "unknown", ...UNKNOWN_STATUS_CONFIG };
+}
 
 export function formatTaskRunDuration(start: string | null, end: string | null) {
   if (!start || !end) return "\u2014";
