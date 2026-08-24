@@ -212,7 +212,7 @@ export function TaskRunDetailBody({
 
   return (
     <>
-      <div className="flex items-center gap-1 overflow-x-auto border-t border-border px-4">
+      <div className="flex items-center gap-1 overflow-x-auto overflow-y-hidden border-t border-border px-4">
         {tabs.map((tabItem) => {
           const isTrace = tabItem.id === "trace";
           const isActive = !isTrace && tab === tabItem.id;
@@ -250,7 +250,7 @@ export function TaskRunDetailBody({
                   {tabItem.count}
                 </span>
               )}
-              {isActive && <span className="absolute inset-x-2 -bottom-px h-px bg-foreground" />}
+              {isActive && <span className="absolute inset-x-2 bottom-0 h-px bg-foreground" />}
             </button>
           );
         })}
