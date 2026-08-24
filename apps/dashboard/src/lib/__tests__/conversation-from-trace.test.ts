@@ -107,6 +107,35 @@ describe("deriveConversationFromTrace", () => {
         result.messages.some((m) => m.content.includes("simulating a user")),
       ).toBe(false);
     });
+
+    it("keeps adjacent tool results with different call identities", () => {
+      const trace = makeTrace([
+        makeCall({
+          input: {
+            messages: [
+              {
+                role: "tool",
+                content: '{"ok":true}',
+                name: "firstTool",
+                tool_call_id: "call-1",
+              },
+              {
+                role: "tool",
+                content: '{"ok":true}',
+                name: "secondTool",
+                tool_call_id: "call-2",
+              },
+            ],
+          },
+        }),
+      ]);
+
+      const result = deriveConversationFromTrace(trace);
+      expect(result.messages.map((message) => message.name)).toEqual([
+        "firstTool",
+        "secondTool",
+      ]);
+    });
   });
 
   describe("imported traces with provider content blocks (issue #47)", () => {
@@ -209,6 +238,25 @@ describe("deriveConversationFromTrace", () => {
       const result = deriveConversationFromTrace(trace);
       const call = result.messages.find((m) => m.tool_calls?.length);
       expect(call?.tool_calls?.[0]?.function?.name).toBe("docxGetTemplatePrimitives");
+      expect(call?.tool_calls?.[0]?.function?.arguments).toBe(
+        '{"templateId":"NAE1Bolh"}',
+      );
+    });
+
+    it("reads arguments from the span input when tool_parameters is empty", () => {
+      const trace = makeTrace([
+        toolCall({
+          id: "tool-1",
+          step_index: 0,
+          tool_parameters: {},
+          input: { templateId: "NAE1Bolh" },
+          output: { content: [{ type: "text", text: '{"rules":[]}' }] },
+        }),
+        rawGeneration(),
+      ]);
+
+      const result = deriveConversationFromTrace(trace);
+      const call = result.messages.find((message) => message.tool_calls?.length);
       expect(call?.tool_calls?.[0]?.function?.arguments).toBe(
         '{"templateId":"NAE1Bolh"}',
       );

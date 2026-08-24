@@ -155,7 +155,8 @@ def _carry_openai_tool_fields(message: dict[str, Any], result: dict[str, Any]) -
         for call in tool_calls:
             if not isinstance(call, dict):
                 continue
-            fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+            raw_function = call.get("function")
+            fn: dict[str, Any] = raw_function if isinstance(raw_function, dict) else {}
             name = fn.get("name") or call.get("name")
             if not isinstance(name, str) or not name:
                 continue

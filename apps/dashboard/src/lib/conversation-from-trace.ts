@@ -40,6 +40,7 @@ import { getSemanticType } from "@/components/trace-detail/trace-utils";
 export interface ChatMessage {
   role: string;
   content: string;
+  tool_call_id?: string;
   tool_calls?: Array<{
     id?: string;
     type?: string;
@@ -165,7 +166,9 @@ function reconstructFromRawCalls(calls: LoggedCall[]): ChatMessage[] {
  * Without the fallback every tool call renders as an empty `{}` box.
  */
 function toolArguments(call: LoggedCall): string {
-  const args = call.tool_parameters ?? call.input;
+  const explicit = call.tool_parameters;
+  const args =
+    explicit && Object.keys(explicit).length > 0 ? explicit : call.input;
   if (args == null) return "";
   if (typeof args === "string") return args;
   return JSON.stringify(args);
@@ -289,6 +292,8 @@ function dedupe(messages: ChatMessage[]): ChatMessage[] {
       prev &&
       prev.role === msg.role &&
       prev.content === msg.content &&
+      prev.name === msg.name &&
+      prev.tool_call_id === msg.tool_call_id &&
       sameToolCalls(prev.tool_calls, msg.tool_calls)
     ) {
       continue;
@@ -313,6 +318,7 @@ function sameToolCalls(
   if (!a || !b) return false;
   return a.length === b.length && a.every(
     (call, i) =>
+      call.id === b[i]?.id &&
       call.function?.name === b[i]?.function?.name &&
       call.function?.arguments === b[i]?.function?.arguments,
   );
