@@ -419,6 +419,60 @@ class TestInputOutputContent:
         })
         assert msg["tool_calls"][0]["function"] == {"name": "read_file", "arguments": '{"p":"x"}'}
 
+    def test_normalize_openai_shape_tool_calls_survive(self):
+        """An assistant turn whose calls live in a top-level ``tool_calls``
+        array keeps them. OpenAI-compatible payloads put them there rather than
+        as content parts, and dropping them left the dashboard's conversation
+        view with anonymous, argument-less tool rows."""
+        from apo.services.otel_normalization._shared import normalize_genai_message
+
+        msg = normalize_genai_message({
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {"id": "c1", "type": "function",
+                 "function": {"name": "docxGetTemplatePrimitives",
+                              "arguments": '{"templateId":"NAE1Bolh"}'}},
+            ],
+        })
+        assert msg["content"] == ""
+        assert msg["tool_calls"] == [
+            {"id": "c1", "type": "function",
+             "function": {"name": "docxGetTemplatePrimitives",
+                          "arguments": '{"templateId":"NAE1Bolh"}'}},
+        ]
+
+    def test_normalize_openai_tool_calls_alongside_string_content(self):
+        """Prose plus tool calls: the string-content shortcut still carries the
+        calls, and dict arguments are serialized."""
+        from apo.services.otel_normalization._shared import normalize_genai_message
+
+        msg = normalize_genai_message({
+            "role": "assistant",
+            "content": "Let me check the template.",
+            "tool_calls": [
+                {"id": "c1", "function": {"name": "read", "arguments": {"path": "/a.md"}}},
+            ],
+        })
+        assert msg["content"] == "Let me check the template."
+        assert msg["tool_calls"][0]["function"] == {
+            "name": "read", "arguments": '{"path": "/a.md"}',
+        }
+
+    def test_normalize_tool_message_keeps_call_identity(self):
+        """A tool result keeps the ids that tie it back to its call."""
+        from apo.services.otel_normalization._shared import normalize_genai_message
+
+        msg = normalize_genai_message({
+            "role": "tool",
+            "tool_call_id": "c1",
+            "name": "docxGetTemplatePrimitives",
+            "content": '{"rules":[]}',
+        })
+        assert msg["content"] == '{"rules":[]}'
+        assert msg["tool_call_id"] == "c1"
+        assert msg["name"] == "docxGetTemplatePrimitives"
+
     def test_mapping_metadata_recorded(self):
         span = _make_span(attributes={"gen_ai.request.model": "gpt-4o"})
         result = normalize_span(span)

@@ -139,6 +139,47 @@ def _is_tool_only_message(message: dict[str, Any]) -> bool:
 # ── message normalization ─────────────────────────────────────────────────
 
 
+def _carry_openai_tool_fields(message: dict[str, Any], result: dict[str, Any]) -> None:
+    """Copy OpenAI-shape tool fields that aren't expressed as content parts.
+
+    An OpenAI-compatible payload puts an assistant turn's calls in a top-level
+    ``tool_calls`` array (with ``content`` null or a plain string), and names the
+    call a tool result answers via ``tool_call_id`` / ``name``. The parts loop
+    below only ever sees typed content blocks, so without this the output shape
+    was already-OpenAI messages stripped of exactly the tool data the dashboard's
+    conversation view needs — every call rendered anonymous and argument-less.
+    """
+    tool_calls = message.get("tool_calls")
+    if isinstance(tool_calls, list) and tool_calls and "tool_calls" not in result:
+        carried: list[dict[str, Any]] = []
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                continue
+            raw_function = call.get("function")
+            fn: dict[str, Any] = raw_function if isinstance(raw_function, dict) else {}
+            name = fn.get("name") or call.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            raw_args = fn.get("arguments", call.get("arguments", ""))
+            if isinstance(raw_args, str):
+                args_str = raw_args
+            elif isinstance(raw_args, (dict, list)):
+                args_str = json.dumps(raw_args)
+            else:
+                args_str = "" if raw_args is None else str(raw_args)
+            carried.append({
+                "id": call.get("id", ""),
+                "type": "function",
+                "function": {"name": name, "arguments": args_str},
+            })
+        if carried:
+            result["tool_calls"] = carried
+    for key in ("tool_call_id", "name"):
+        value = message.get(key)
+        if isinstance(value, str) and value:
+            result.setdefault(key, value)
+
+
 def normalize_genai_message(message: dict[str, Any]) -> dict[str, Any]:
     """Convert OTel GenAI message format to OpenAI shape for the dashboard."""
     result: dict[str, Any] = {"role": message.get("role", "unknown")}
@@ -158,6 +199,7 @@ def normalize_genai_message(message: dict[str, Any]) -> dict[str, Any]:
     # Simple string content — no parts to parse.
     if isinstance(raw_content, str) and not isinstance(parts, list):
         result["content"] = raw_content
+        _carry_openai_tool_fields(message, result)
         return result
 
     if isinstance(parts, list):
@@ -227,6 +269,7 @@ def normalize_genai_message(message: dict[str, Any]) -> dict[str, Any]:
         result["tool_calls"] = tool_calls
     if multimodal:
         result["content_parts"] = multimodal
+    _carry_openai_tool_fields(message, result)
 
     return result
 

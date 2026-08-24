@@ -58,6 +58,84 @@ describe("deriveConversationFromTrace", () => {
         "assistant:It's 4.",
       ]);
     });
+
+    it("skips trailing harness generations that carry no messages array", () => {
+      // A task harness traces its own scaffolding into the same trace: a
+      // simulated-user turn and a "is the conversation finished?" check, both
+      // after the agent's last chat completion. Reading only the final
+      // generation found no messages there and fell back to reconstructing a
+      // far poorer transcript from raw call I/O.
+      const trace = makeTrace([
+        makeCall({
+          id: "gen-agent",
+          step_name: "gen_ai.chat",
+          created_at: "2026-07-27T10:00:00Z",
+          input: {
+            messages: [
+              { role: "user", content: "Add a rule to the Payment Schedule." },
+              { role: "tool", content: '{"results":[{"status":"applied"}]}' },
+            ],
+          },
+          output: { messages: [{ role: "assistant", content: "Added the rule." }] },
+        }),
+        makeCall({
+          id: "gen-sim-user",
+          step_name: "sim-user",
+          model: "google/gemini-3.1-flash",
+          created_at: "2026-07-27T10:00:10Z",
+          input: { systemPrompt: "You are simulating a user…", model: "x" },
+          output: { response: "Confirmed." },
+        }),
+        makeCall({
+          id: "gen-finished-check",
+          step_name: "finished-check",
+          model: "google/gemini-3.6-flash",
+          created_at: "2026-07-27T10:00:20Z",
+          input: { systemPrompt: "You're evaluating a conversation…", model: "x" },
+          output: { isFinished: false },
+        }),
+      ]);
+
+      const result = deriveConversationFromTrace(trace);
+      expect(result.messages.map((m) => `${m.role}:${m.content}`)).toEqual([
+        "user:Add a rule to the Payment Schedule.",
+        'tool:{"results":[{"status":"applied"}]}',
+        "assistant:Added the rule.",
+      ]);
+      // The harness's own prompts are not conversation turns.
+      expect(
+        result.messages.some((m) => m.content.includes("simulating a user")),
+      ).toBe(false);
+    });
+
+    it("keeps adjacent tool results with different call identities", () => {
+      const trace = makeTrace([
+        makeCall({
+          input: {
+            messages: [
+              {
+                role: "tool",
+                content: '{"ok":true}',
+                name: "firstTool",
+                tool_call_id: "call-1",
+              },
+              {
+                role: "tool",
+                content: '{"ok":true}',
+                name: "secondTool",
+                tool_call_id: "call-2",
+              },
+            ],
+          },
+        }),
+      ]);
+
+      const result = deriveConversationFromTrace(trace);
+      expect(result.messages.map((message) => message.name)).toEqual([
+        "firstTool",
+        "secondTool",
+      ]);
+    });
   });
 
   describe("imported traces with provider content blocks (issue #47)", () => {
@@ -119,6 +197,121 @@ describe("deriveConversationFromTrace", () => {
       const result = deriveConversationFromTrace(trace);
       const assistant = result.messages.find((m) => m.role === "assistant");
       expect(assistant?.content).toContain("three plans");
+    });
+  });
+
+  describe("tool spans in the reconstruction fallback", () => {
+    const toolCall = (overrides: Partial<LoggedCall>) =>
+      makeCall({
+        model: "",
+        observation_type: "TOOL",
+        step_name: "gen_ai.execute_tool docxGetTemplatePrimitives",
+        tool_name: "docxGetTemplatePrimitives",
+        ...overrides,
+      });
+
+    // A generation whose payload carries no messages array, so the primary
+    // path finds nothing and the raw-call reconstruction runs.
+    const rawGeneration = () =>
+      makeCall({
+        id: "gen-1",
+        step_index: 1,
+        input: "Add a rule.",
+        output: [{ type: "text", text: "Added the rule." }],
+      });
+
+    it("reads arguments from the span input when tool_parameters is unset", () => {
+      // tool_parameters is only populated from gen_ai.tool.call.arguments /
+      // ai.toolCall.args. Emitters that record the arguments as the span's
+      // input leave it null, and the tool call then rendered as an empty {}.
+      const trace = makeTrace([
+        toolCall({
+          id: "tool-1",
+          step_index: 0,
+          tool_parameters: null,
+          input: { templateId: "NAE1Bolh" },
+          output: { content: [{ type: "text", text: '{"rules":[]}' }] },
+        }),
+        rawGeneration(),
+      ]);
+
+      const result = deriveConversationFromTrace(trace);
+      const call = result.messages.find((m) => m.tool_calls?.length);
+      expect(call?.tool_calls?.[0]?.function?.name).toBe("docxGetTemplatePrimitives");
+      expect(call?.tool_calls?.[0]?.function?.arguments).toBe(
+        '{"templateId":"NAE1Bolh"}',
+      );
+    });
+
+    it("reads arguments from the span input when tool_parameters is empty", () => {
+      const trace = makeTrace([
+        toolCall({
+          id: "tool-1",
+          step_index: 0,
+          tool_parameters: {},
+          input: { templateId: "NAE1Bolh" },
+          output: { content: [{ type: "text", text: '{"rules":[]}' }] },
+        }),
+        rawGeneration(),
+      ]);
+
+      const result = deriveConversationFromTrace(trace);
+      const call = result.messages.find((message) => message.tool_calls?.length);
+      expect(call?.tool_calls?.[0]?.function?.arguments).toBe(
+        '{"templateId":"NAE1Bolh"}',
+      );
+    });
+
+    it("names the tool result after the tool that produced it", () => {
+      const trace = makeTrace([
+        toolCall({
+          id: "tool-1",
+          step_index: 0,
+          input: { templateId: "NAE1Bolh" },
+          output: { content: [{ type: "text", text: '{"rules":[]}' }] },
+        }),
+        rawGeneration(),
+      ]);
+
+      const result = deriveConversationFromTrace(trace);
+      const toolResult = result.messages.find((m) => m.role === "tool");
+      expect(toolResult?.name).toBe("docxGetTemplatePrimitives");
+    });
+
+    it("unwraps the MCP {content:[…]} result envelope instead of serializing it", () => {
+      const trace = makeTrace([
+        toolCall({
+          id: "tool-1",
+          step_index: 0,
+          input: { templateId: "NAE1Bolh" },
+          output: {
+            content: [{ type: "text", text: '{"rules":[{"ruleText":"Net 45 max"}]}' }],
+            details: { rules: [{ ruleText: "Net 45 max" }] },
+          },
+        }),
+        rawGeneration(),
+      ]);
+
+      const result = deriveConversationFromTrace(trace);
+      const toolResult = result.messages.find((m) => m.role === "tool");
+      expect(toolResult?.content).toBe('{"rules":[{"ruleText":"Net 45 max"}]}');
+    });
+
+    it("unwraps a {text: …} result envelope", () => {
+      const trace = makeTrace([
+        toolCall({
+          id: "tool-1",
+          step_index: 0,
+          tool_name: "read",
+          input: { path: "/SKILL.md" },
+          output: { text: "# Skill\nBody." },
+        }),
+        rawGeneration(),
+      ]);
+
+      const result = deriveConversationFromTrace(trace);
+      const toolResult = result.messages.find((m) => m.role === "tool");
+      expect(toolResult?.content).toBe("# Skill\nBody.");
     });
   });
 
