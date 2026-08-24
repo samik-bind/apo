@@ -464,11 +464,15 @@ class TestCacheWriteIsPricedForEveryProvider:
         ordinary input because nearly the entire prompt is a cache write.
         Assert both published rates so a stale input row cannot make an
         equality-based test pass accidentally.
+
+        Rates re-measured 2026-08-24: the 2026-08-10 figures were an OpenRouter
+        50% promotion; current list is 2x (terra $2.00 input / $2.50 write,
+        luna $0.20 / $0.25), confirmed by a cold call metering $2.5001/1M writes.
         """
         load_default_prices(session)
         expected_micro_usd = {
-            "gpt-5.6-luna": {"input": 100_000, "cache_write_5m": 125_000},
-            "gpt-5.6-terra": {"input": 1_000_000, "cache_write_5m": 1_250_000},
+            "gpt-5.6-luna": {"input": 200_000, "cache_write_5m": 250_000},
+            "gpt-5.6-terra": {"input": 2_000_000, "cache_write_5m": 2_500_000},
         }
         for name, expected in expected_micro_usd.items():
             for usage_key, expected_cost in expected.items():
