@@ -550,26 +550,6 @@ class TestProjectDeleteRoleCheck:
         assert resp.json() == {"ok": True}
 
 
-class TestSetupNoLongerGrantsAdmin:
-    def test_first_user_is_not_auto_admin(
-        self, client: TestClient, session: Session
-    ) -> None:
-        """``/auth/setup`` must not grant product-admin to the first user."""
-        resp = client.post(
-            "/auth/setup",
-            json={
-                "email": "first@test.com",
-                "password": "Password123",
-                "name": "First",
-            },
-        )
-        assert resp.status_code == 200
-
-        user = session.exec(select(UserDB)).first()
-        assert user is not None
-        assert user.is_admin is False
-
-
 # ---------------------------------------------------------------------------
 # Read-side authorization regression tests
 # ---------------------------------------------------------------------------

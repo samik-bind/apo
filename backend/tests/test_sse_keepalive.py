@@ -12,9 +12,12 @@ would cancel the subscribe generator on the first quiet interval).
 """
 
 import asyncio
+from collections.abc import AsyncGenerator
+from typing import cast
 
 from fastapi import Request
 
+from apo.services.broadcaster import Broadcaster
 from apo.services.sse import KEEPALIVE_FRAME, sse_streaming_response
 
 INITIAL_FRAME = "event: initial\ndata: {}\n\n"
@@ -99,5 +102,28 @@ def test_events_still_flow_after_quiet_interval():
         assert events == ["event: one\n\n", "event: two\n\n"]
         keepalives_before_first_event = received.index("event: one\n\n")
         assert keepalives_before_first_event >= 1
+
+    asyncio.run(run())
+
+
+def test_disconnect_waits_for_subscription_cleanup():
+    """Closing a quiet stream removes its pending broadcaster listener."""
+
+    async def run():
+        broadcaster: Broadcaster[str] = Broadcaster()
+        response = sse_streaming_response(
+            _request(),
+            lambda: broadcaster.subscribe("project"),
+            [],
+            keepalive_interval=0.01,
+        )
+
+        stream = cast(AsyncGenerator[str, None], response.body_iterator)
+        assert await anext(stream) == KEEPALIVE_FRAME
+        assert await broadcaster.get_listener_count("project") == 1
+
+        await stream.aclose()
+
+        assert await broadcaster.get_listener_count("project") == 0
 
     asyncio.run(run())

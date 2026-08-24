@@ -121,7 +121,18 @@ def sse_streaming_response(
             _logger.debug("%s stream closed", log_label, exc_info=True)
         finally:
             if next_event is not None:
-                _ = next_event.cancel()
+                if not next_event.done():
+                    _ = next_event.cancel()
+                try:
+                    await next_event
+                except (asyncio.CancelledError, StopAsyncIteration):
+                    pass
+                except Exception:
+                    _logger.debug(
+                        "%s pending subscription closed with an error",
+                        log_label,
+                        exc_info=True,
+                    )
             aclose = getattr(iterator, "aclose", None)
             if aclose is not None:
                 try:
