@@ -22,6 +22,8 @@ import type { TraceSummary, TraceSessionSummary } from "@/lib/traces-api";
 import { useUrlParam } from "@/hooks/use-url-state";
 import { TracesTablePanel } from "./TracesTablePanel";
 import { SessionsTablePanel } from "./SessionsTablePanel";
+// PROTOTYPE — throwaway mobile-UX spike; delete with its gate when decided.
+import { TracesMobilePrototype, type PrototypeVariant } from "./prototype-mobile";
 
 interface PaginationData {
   totalCount: number;
@@ -32,6 +34,7 @@ interface PaginationData {
 
 interface TracesPageClientProps {
   projectId: string;
+  prototypeVariant?: PrototypeVariant;
   traces: TraceSummary[];
   error?: string | null;
   pagination?: PaginationData;
@@ -77,6 +80,7 @@ function TraceSelectionUrlSync() {
 
 export function TracesPageClient({
   projectId,
+  prototypeVariant,
   traces,
   error,
   pagination,
@@ -91,9 +95,21 @@ export function TracesPageClient({
         <TraceSelectionUrlSync />
       </Suspense>
       <div className="relative h-full w-full">
-        {/* Suspense: TracesPageLayout reads the filter state from the URL via
+        {prototypeVariant ? (
+          // PROTOTYPE branch — mobile-UX spike, delete when decided.
+          <Suspense fallback={null}>
+            <TracesMobilePrototype
+              variant={prototypeVariant}
+              projectId={projectId}
+              traces={traces}
+              error={error}
+              filterOptions={filterOptions}
+            />
+          </Suspense>
+        ) : (
+        /* Suspense: TracesPageLayout reads the filter state from the URL via
             useFilters (useSearchParams), which needs a boundary above it. The
-            table panels keep their own inner boundaries. */}
+            table panels keep their own inner boundaries. */
         <Suspense fallback={null}>
           <TracesPageLayout filterOptions={filterOptions}>
             {view === "sessions" && sessions ? (
@@ -121,6 +137,7 @@ export function TracesPageClient({
             )}
           </TracesPageLayout>
         </Suspense>
+        )}
 
         {/* Suspense: TracePanel renders TraceWorkspace, which reads ?q via
             useSearchParams. */}
