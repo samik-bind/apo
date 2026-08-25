@@ -11,6 +11,7 @@ import {
   DollarSign,
   Layers3,
   ListChecks,
+  PenLine,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { taskDetailHref } from "@/lib/task-routes";
@@ -143,6 +144,12 @@ export default async function TaskRunDetailPage({
     taskRun.pass_result === null &&
     generationErrors > 0;
   const costIsPartial = generationErrors > 0 || (taskRun.unpriced_call_count ?? 0) > 0;
+  // SPEC-185: corrections apply to terminal verdict-bearing runs with
+  // recorded checks. Running/error/no-verdict runs render read-only.
+  const correctable =
+    (taskRun.status === "passed" || taskRun.status === "failed") &&
+    taskRun.pass_result !== null &&
+    checks.length > 0;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -281,6 +288,9 @@ export default async function TaskRunDetailPage({
               ...(taskRun.adapter_name
                 ? [{ value: taskRun.adapter_name, label: "adapter" }]
                 : []),
+              ...((taskRun.corrected_tests ?? 0) > 0
+                ? [{ icon: PenLine, value: `${taskRun.corrected_tests} corrected`, label: "tests" }]
+                : []),
             ]}
           />
         </div>
@@ -323,6 +333,7 @@ export default async function TaskRunDetailPage({
             sourceType={sourceType}
             taskDefinition={taskRun.task_definition ?? null}
             taskRunId={taskRun.id}
+            correctable={correctable}
           />
         </Suspense>
       </div>

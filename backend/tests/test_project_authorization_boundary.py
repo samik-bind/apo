@@ -1315,6 +1315,23 @@ _ROUTE_MODULE_AUDIT: dict[str, tuple[str, list[tuple[str, str]]]] = {
         "project",
         [("tests/test_project_authorization_boundary.py", "test_run_judgments_are_opaque_cross_project")],
     ),
+    "agent_task_test_result_corrections": (
+        "project",
+        [
+            (
+                "tests/test_test_result_correction_routes.py",
+                "test_cross_project_caller_gets_opaque_404",
+            ),
+            (
+                "tests/test_test_result_correction_routes.py",
+                "test_ingest_key_rejected",
+            ),
+            (
+                "tests/test_test_result_correction_routes.py",
+                "test_service_token_rejected",
+            ),
+        ],
+    ),
     "agent_task_runs": (
         "project",
         [

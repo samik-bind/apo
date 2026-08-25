@@ -13,6 +13,7 @@ import { buildAssertionParam, parseOwnAssertionId } from "@/lib/assertion-select
 import { cn } from "@/lib/utils";
 import { AssertionDrawer } from "./assertion-drawer";
 import { JudgeStrip } from "./judge-strip";
+import { TestResultCorrectionDialog } from "./test-result-correction-dialog";
 
 // CodeMirror is heavy — load it only when a code check is expanded.
 const CodeViewer = dynamic(
@@ -24,16 +25,23 @@ export function ExpandableCheckItem({
   item,
   index,
   checksSource,
+  correctable = false,
+  taskRunId,
 }: {
   item: CheckResult;
   index: number;
   checksSource?: TaskFileContentResponse | null;
+  /** SPEC-185: terminal + verdict-bearing + evidence present. */
+  correctable?: boolean;
+  taskRunId?: string;
 }) {
   const passed = item.pass === true;
   const id = String(item.id ?? `Check ${index + 1}`);
+  const corrected = item.correction != null && item.recorded_pass !== undefined;
   // Which checks are expanded is bulk, ephemeral state — keep it local rather
   // than bloating the URL. (The focused assertion drawer is the URL-synced bit.)
   const [expanded, setExpanded] = useState(false);
+  const [correctionOpen, setCorrectionOpen] = useState(false);
   const reasoning = typeof item.reasoning === "string" ? item.reasoning : "";
   const judgeAssertion = item.assertions?.find((a) => a.judge);
   const judgeMeta = judgeAssertion?.judge ?? item.judge;
@@ -153,6 +161,11 @@ export function ExpandableCheckItem({
                 {reasoning.split("\n")[0]}
               </span>
             )}
+            {corrected && (
+              <span className="shrink-0 border border-warning/40 bg-warning/10 px-1.5 py-px text-[10px] font-medium text-warning">
+                Corrected
+              </span>
+            )}
           </div>
         </div>
         <span
@@ -166,6 +179,39 @@ export function ExpandableCheckItem({
       {expanded && (
         <div className="border-t border-border px-4 pb-4 pt-3">
           <div className="max-w-[860px] space-y-3">
+            {corrected && item.correction && item.recorded_pass !== undefined && (
+              <div className="border border-warning/30 bg-warning/5 px-3 py-2 text-[12px] leading-relaxed">
+                <span className="text-warning">Corrected</span> — recorded{" "}
+                <span className={item.recorded_pass ? "text-success" : "text-destructive"}>
+                  {item.recorded_pass ? "PASS" : "FAIL"}
+                </span>
+                , effective{" "}
+                <span className={passed ? "text-success" : "text-destructive"}>
+                  {passed ? "PASS" : "FAIL"}
+                </span>
+                {" "}· by{" "}
+                {item.correction.corrected_by_label ??
+                  item.correction.corrected_by_user_id ??
+                  "unknown"}
+                {" "}via {item.correction.corrected_via.replace("_", " ")} ·{" "}
+                {new Date(item.correction.created_at).toLocaleString()}
+                <div className="mt-1 text-foreground/80">{item.correction.reason}</div>
+                <div className="mt-1 text-muted-foreground">
+                  Recorded evidence below is unchanged.
+                </div>
+              </div>
+            )}
+            {correctable && taskRunId && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCorrectionOpen(true)}
+                  className="inline-flex h-7 items-center gap-1.5 border border-border px-2.5 text-xs text-foreground transition-colors hover:bg-muted/40"
+                >
+                  {corrected ? "Change correction" : "Review result"}
+                </button>
+              </div>
+            )}
             {checkBlock ? (
               <>
                 <div className="overflow-hidden border border-border">
@@ -212,6 +258,15 @@ export function ExpandableCheckItem({
             )}
           </div>
         </div>
+      )}
+
+      {correctable && taskRunId && (
+        <TestResultCorrectionDialog
+          open={correctionOpen}
+          onOpenChange={setCorrectionOpen}
+          taskRunId={taskRunId}
+          check={item}
+        />
       )}
     </div>
   );

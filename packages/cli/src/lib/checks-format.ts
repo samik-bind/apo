@@ -3,7 +3,7 @@ import type {
   CheckLocation,
   CheckResult,
 } from "./agent-task-types.ts";
-import { dim, green, passFail, red } from "./format.ts";
+import { dim, green, passFail, red, yellow } from "./format.ts";
 import { RECEIVED_PREVIEW_CHARS, previewString } from "./runs-truncate.ts";
 
 /**
@@ -90,7 +90,22 @@ function groupChecks(checks: CheckResult[]): CheckSegment[] {
 
 function formatCheck(check: CheckResult, verbose: boolean): string {
   const lines: string[] = [];
-  lines.push(`    ${passFail(check.pass)} ${check.id}`);
+  // SPEC-185: corrected tests carry their effective verdict with the
+  // recorded one and the correction provenance one line below.
+  if (check.correction && check.recorded_pass !== undefined) {
+    lines.push(
+      `    ${passFail(check.pass)} ${check.id} ${yellow("(corrected)")}`,
+    );
+    const recorded = check.recorded_pass ? "PASS" : "FAIL";
+    const who = check.correction.corrected_by_label ?? check.correction.corrected_by_user_id ?? "unknown";
+    lines.push(
+      dim(
+        `      recorded ${recorded} · corrected by ${who}: ${check.correction.reason}`,
+      ),
+    );
+  } else {
+    lines.push(`    ${passFail(check.pass)} ${check.id}`);
+  }
 
   // Always show reasoning for failures; for passes only when verbose.
   if (check.reasoning && (!check.pass || verbose)) {

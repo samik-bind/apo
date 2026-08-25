@@ -135,6 +135,8 @@ export interface AgentTaskRunSummary {
   total_checks: number;
   passed_checks: number;
   failed_checks: number;
+  /** SPEC-185: tests whose effective result differs from the recorded one. */
+  corrected_tests?: number;
   trigger: AgentTaskRunTrigger | null;
   trace_persistence_status: TracePersistenceStatus;
   trace_error_message: string | null;
@@ -207,6 +209,40 @@ export interface CheckResult {
   group_id?: string;
   /** display name of the enclosing describe() group. */
   group_name?: string;
+  /**
+   * SPEC-185: present only on corrected tests. `pass` is the effective
+   * verdict; `recorded_pass` is what evaluation emitted; `correction`
+   * carries the human decision's provenance. Uncorrected and legacy
+   * results keep today's shape.
+   */
+  recorded_pass?: boolean;
+  correction?: TestResultCorrection;
+}
+
+/** SPEC-185: the active human correction on one test result. */
+export interface TestResultCorrection {
+  id: string;
+  action: "set_pass" | "set_fail" | "clear";
+  pass_result: boolean;
+  reason: string;
+  corrected_by_user_id: string | null;
+  corrected_by_label: string | null;
+  corrected_via: "session" | "api_key" | "open_dev";
+  created_at: string;
+}
+
+/** SPEC-185: response of POST …/test-result-corrections. */
+export interface CorrectedTestResult {
+  test_id: string;
+  recorded_pass: boolean;
+  effective_pass: boolean;
+  correction: TestResultCorrection | null;
+  run_status: "passed" | "failed";
+  run_pass_result: boolean;
+  total_tests: number;
+  passed_tests: number;
+  failed_tests: number;
+  corrected_tests: number;
 }
 
 export interface TaskDefinitionFileSummary {
@@ -733,3 +769,17 @@ export const cancelAgentTaskBatchRun = (
     `/v1/agent-task-batch-runs/${encodeURIComponent(batchRunId)}/cancel`,
     { method: "POST", body: {} },
   );
+
+/** SPEC-185: correct one recorded top-level test result on a Run.
+ * `action` sets the effective PASS/FAIL or clears back to the recorded
+ * result. Evidence is never rewritten; the response carries the effective
+ * Test + Run projection. */
+export function correctTestResult(
+  taskRunId: string,
+  body: { test_id: string; action: "set_pass" | "set_fail" | "clear"; reason?: string },
+): Promise<CorrectedTestResult> {
+  return apiClient(
+    `/v1/agent-task-runs/${encodeURIComponent(taskRunId)}/test-result-corrections`,
+    { method: "POST", body },
+  );
+}

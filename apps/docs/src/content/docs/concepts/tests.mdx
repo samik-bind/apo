@@ -100,9 +100,29 @@ Judging the same run several times (`--samples`) turns "this test failed" into "
 Before changing your task's judge model, re-judge a handful of historical runs under the new one. If the scores move, your baseline moved — and you'll know it was the judge, not the agents.
 :::
 
+## Manual corrections
+
+Sometimes the eval is wrong, not the agent. A judge reads a rubric's parenthetical as a requirement; a matcher misses a legitimate paraphrase. When you can *demonstrate* a test result is wrong against the recorded evidence, correct it:
+
+```bash
+apo runs correct run_de89cab "report-is-complete" --pass \
+  --reason "Retention is present in the KPI table; judge missed it"
+```
+
+Three terms keep this honest:
+
+- The **recorded result** is what evaluation emitted — immutable, with its assertions, reasoning, and judge evidence.
+- A **correction** is an append-only human decision (who, when, why) that sets one test's **effective** result to PASS/FAIL, or restores the recorded one.
+- The **effective result** — latest active correction, else the recorded result — is what run verdicts, batch rollups, lists, stats, new comparisons, and `runs show --exit-status` all use.
+
+A correction is not a re-judge: a re-judge produces a new *machine* judgment; a correction records a *human* one about existing evidence. Both leave the original verdict inspectable — `apo runs judgments` still lists the original machine counts verbatim.
+
+Correcting history does not fix the future. After correcting, repair the test itself (a better instruction, a `similarity` matcher where wording varies) so the next run doesn't need the correction.
+
 ## Next
 
 - [Tasks](/concepts/tasks/), where `test(...)` sits in the `.eval.ts` file.
 - [Adapters](/concepts/adapters/), where `deliverables` comes from.
 - [`apo runs rejudge`](/cli/runs-rejudge/) — replay a run's tests against its stored deliverables.
+- [`apo runs correct`](/cli/runs-correct/) — record a human correction on a recorded test result.
 - [Run and debug](/guides/run-and-debug/), the workflow from a failing test to the trace.

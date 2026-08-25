@@ -416,6 +416,17 @@ class ResolvedComparisonCell(SQLModel):
     a_status: str | None  # passed | failed | error | None (not run)
     b_status: str | None
     state: Literal["aligned", "different_definition", "not_run"]
+    # SPEC-185: frozen effective verdict/count scalars at snapshot creation.
+    # Nullable so pre-correction snapshot JSON stays readable; hydrated from
+    # the run's effective projection when the comparison is created.
+    a_pass_result: bool | None = None
+    a_total_checks: int | None = None
+    a_passed_checks: int | None = None
+    a_corrected_tests: int | None = None
+    b_pass_result: bool | None = None
+    b_total_checks: int | None = None
+    b_passed_checks: int | None = None
+    b_corrected_tests: int | None = None
 
 
 class TaskViewComparisonSnapshot(SQLModel):
@@ -686,6 +697,8 @@ class AgentTaskRunSummary(SQLModel):
     # the adapter does not report configuration. Distinct from the trace's
     # observed ``primary_model``.
     run_configuration: AgentTaskRunConfiguration | None = None
+    # SPEC-185: Tests whose effective result differs from the recorded one.
+    corrected_tests: int = 0
 
 
 class AgentTaskRunDetail(SQLModel):
@@ -728,9 +741,10 @@ class AgentTaskRunDetail(SQLModel):
     # SPEC-169: Task Definition summary for CodeMirror source display.
     task_definition: dict[str, object] | None = None
     # Issue #159: number of recorded rejudge judgments. The original verdict
-    # above is always the canonical one; this only signals "this run was
-    # re-judged" to readers.
+    # is synthesized on read and not counted.
     judgments_count: int = 0
+    # SPEC-185: Tests whose effective result differs from the recorded one.
+    corrected_tests: int = 0
 
 
 class CreateAgentTaskJudgmentRequest(SQLModel):
@@ -786,6 +800,41 @@ class TaskViewComparisonOverview(SQLModel):
 
     snapshot: TaskViewComparisonSnapshot
     runs: list[AgentTaskRunSummary] = Field(default_factory=list)
+
+
+# ── SPEC-185: manual test result corrections ──────────────────────────────
+
+CorrectionAction = Literal["set_pass", "set_fail", "clear"]
+
+
+class CorrectTestResultRequest(SQLModel):
+    test_id: str
+    action: CorrectionAction
+    reason: str | None = None
+
+
+class ActiveTestResultCorrection(SQLModel):
+    id: str
+    action: CorrectionAction
+    pass_result: bool
+    reason: str
+    corrected_by_user_id: str | None
+    corrected_by_label: str | None
+    corrected_via: Literal["session", "api_key", "open_dev"]
+    created_at: datetime
+
+
+class CorrectedTestResult(SQLModel):
+    test_id: str
+    recorded_pass: bool
+    effective_pass: bool
+    correction: ActiveTestResultCorrection | None
+    run_status: TaskRunStatus
+    run_pass_result: bool
+    total_tests: int
+    passed_tests: int
+    failed_tests: int
+    corrected_tests: int
 
 
 class TaskComparisonEvidence(SQLModel):

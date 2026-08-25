@@ -355,6 +355,27 @@ describe("runs show command", () => {
     expect(code).toBe(1);
   });
 
+  it("shows the corrected-test count in the Checks header", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(
+        makeRun({
+          status: "passed",
+          pass_result: true,
+          passed_checks: 3,
+          total_checks: 3,
+          failed_checks: 0,
+          corrected_tests: 1,
+        }),
+      ),
+    );
+    const { logs, restore } = captureLog();
+    await run([FULL_ID, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toMatch(/Checks:\s+3\/3 passed \(0 failed\) · 1 corrected/);
+  });
+
   it("returns exit code 0 with --exit-status on passing run", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       mockResponse(makeRun({ pass_result: true, status: "passed" })),

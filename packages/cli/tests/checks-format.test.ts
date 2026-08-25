@@ -28,6 +28,41 @@ describe("formatChecks", () => {
     });
   });
 
+  describe("corrected checks (SPEC-185)", () => {
+    it("marks corrected tests and shows recorded result + provenance", () => {
+      const checks: CheckResult[] = [
+        {
+          id: "report-is-complete",
+          pass: true,
+          reasoning: "judge missed the table",
+          recorded_pass: false,
+          correction: {
+            id: "cor_1",
+            action: "set_pass",
+            pass_result: true,
+            reason: "Retention is present in the KPI table",
+            corrected_by_user_id: "u1",
+            corrected_by_label: "u1@test.com",
+            corrected_via: "api_key",
+            created_at: "2026-08-25T12:00:00Z",
+          },
+        },
+      ];
+      const out = stripAnsi(formatChecks(checks));
+
+      expect(out).toContain("PASS report-is-complete (corrected)");
+      expect(out).toContain("recorded FAIL");
+      expect(out).toContain("corrected by u1@test.com: Retention is present in the KPI table");
+    });
+
+    it("leaves uncorrected checks in today's shape", () => {
+      const checks: CheckResult[] = [{ id: "plain", pass: true, reasoning: "ok" }];
+      const out = stripAnsi(formatChecks(checks));
+      expect(out).toContain("PASS plain");
+      expect(out).not.toContain("corrected");
+    });
+  });
+
   describe("failing checks with assertions", () => {
     it("renders expected/received diff for failing assertions", () => {
       const checks: CheckResult[] = [

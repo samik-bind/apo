@@ -37,6 +37,7 @@ from ..models.columns import (
     AGENT_TASK_RUN_COMPLETED_AT_COL,
     AGENT_TASK_RUN_CONFIGURED_EFFORT_COL,
     AGENT_TASK_RUN_CONFIGURED_MODEL_COL,
+    AGENT_TASK_RUN_CORRECTED_TESTS_COL,
     AGENT_TASK_RUN_DEFINITION_REVISION_COL,
     AGENT_TASK_RUN_ID_COL,
     AGENT_TASK_RUN_PASSED_CHECKS_COL,
@@ -70,6 +71,8 @@ class ViewRun:
     pass_result: bool | None
     total_checks: int
     passed_checks: int
+    # SPEC-185: effective-projection correction count (hot run scalar).
+    corrected_tests: int
     task_definition_revision_id: str | None
 
 
@@ -153,6 +156,7 @@ def runs_in_view(
             AGENT_TASK_RUN_PASS_RESULT_COL,
             AGENT_TASK_RUN_TOTAL_CHECKS_COL,
             AGENT_TASK_RUN_PASSED_CHECKS_COL,
+            AGENT_TASK_RUN_CORRECTED_TESTS_COL,
             AGENT_TASK_RUN_DEFINITION_REVISION_COL,
         )
         .join(AgentTaskBatchRunDB, AGENT_TASK_RUN_BATCH_RUN_ID_COL == AGENT_TASK_BATCH_ID_COL)
@@ -171,6 +175,7 @@ def runs_in_view(
         pass_result,
         total_checks,
         passed_checks,
+        corrected_tests,
         def_rev,
     ) in session.execute(stmt).all():
         runs.append(
@@ -184,6 +189,7 @@ def runs_in_view(
                 pass_result=pass_result,
                 total_checks=total_checks,
                 passed_checks=passed_checks,
+                corrected_tests=corrected_tests,
                 task_definition_revision_id=def_rev,
             )
         )

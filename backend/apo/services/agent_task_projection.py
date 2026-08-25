@@ -142,6 +142,7 @@ def to_task_run_summary(
         run_configuration=configuration_from_row(
             tr.configured_model, tr.configured_effort
         ),
+        corrected_tests=tr.corrected_tests,
     )
 
 

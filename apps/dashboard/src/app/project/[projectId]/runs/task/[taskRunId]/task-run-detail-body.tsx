@@ -41,6 +41,7 @@ export function TaskRunDetailBody({
   sourceType,
   taskDefinition,
   taskRunId,
+  correctable = false,
 }: {
   checks: CheckResult[];
   deliverables: Record<string, unknown> | null;
@@ -52,6 +53,8 @@ export function TaskRunDetailBody({
   sourceType?: string | null;
   taskDefinition?: TaskDefinitionRevisionSummary | null;
   taskRunId?: string | null;
+  /** SPEC-185: terminal verdict-bearing run with recorded checks. */
+  correctable?: boolean;
 }) {
   // Active tab lives in the URL (?tab=) so a shared link lands the reader on
   // the same view (checks / transcript / deliverables).
@@ -288,7 +291,12 @@ export function TaskRunDetailBody({
 
             {checks.length > 0 && (
               <Panel padded={false}>
-                <ChecksList checks={checks} checksSource={checksSource} />
+                <ChecksList
+                  checks={checks}
+                  checksSource={checksSource}
+                  correctable={correctable}
+                  taskRunId={taskRunId ?? undefined}
+                />
               </Panel>
             )}
 

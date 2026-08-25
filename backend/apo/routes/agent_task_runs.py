@@ -47,6 +47,7 @@ from ..services.agent_task_batch_listing import (
 from ..services.agent_task_deliverables import derive_deliverables_json
 from ..services.check_report_storage import load_check_report
 from ..services.judgments import count_judgments
+from ..services.test_result_corrections import projected_check_report
 from ..services.agent_task_outcome import classify_run_outcome
 from ..services.agent_task_run_access import require_task_run_access
 from ..services.agent_task_projection import (
@@ -199,8 +200,12 @@ def _build_task_run_detail(
         total_checks=task_run.total_checks,
         passed_checks=task_run.passed_checks,
         failed_checks=task_run.failed_checks,
+        corrected_tests=task_run.corrected_tests,
         trigger=trigger,
-        checks_json=load_check_report(session, task_run.id),
+        # SPEC-185: current surfaces show the effective projection —
+        # recorded evidence stays inside the report, overlay adds
+        # recorded_pass/correction metadata on corrected tests.
+        checks_json=projected_check_report(session, task_run),
         transcript_json=task_run.transcript_json if include_transcript else None,
         deliverables_json=deliverables_json,
         error_category=classify_run_outcome(

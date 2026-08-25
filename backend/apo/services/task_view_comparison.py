@@ -41,6 +41,11 @@ class _ResolvedRun:
     run_id: str
     status: str | None
     task_definition_revision_id: str | None
+    # SPEC-185: effective verdict/count scalars frozen at snapshot creation.
+    pass_result: bool | None
+    total_checks: int | None
+    passed_checks: int | None
+    corrected_tests: int
 
 
 def _short_id() -> str:
@@ -87,6 +92,10 @@ def _resolve_side(
             run_id=run.run_id,
             status=run.status,
             task_definition_revision_id=run.task_definition_revision_id,
+            pass_result=run.pass_result,
+            total_checks=run.total_checks,
+            passed_checks=run.passed_checks,
+            corrected_tests=run.corrected_tests,
         )
         for task_id, run in latest_by_task.items()
     }
@@ -161,6 +170,16 @@ def create_comparison(
                 a_status=a.status if a else None,
                 b_status=b.status if b else None,
                 state=state,
+                # SPEC-185: freeze the current effective scalars so the
+                # snapshot renders identically even after later corrections.
+                a_pass_result=a.pass_result if a else None,
+                a_total_checks=a.total_checks if a else None,
+                a_passed_checks=a.passed_checks if a else None,
+                a_corrected_tests=a.corrected_tests if a else None,
+                b_pass_result=b.pass_result if b else None,
+                b_total_checks=b.total_checks if b else None,
+                b_passed_checks=b.passed_checks if b else None,
+                b_corrected_tests=b.corrected_tests if b else None,
             )
         )
 

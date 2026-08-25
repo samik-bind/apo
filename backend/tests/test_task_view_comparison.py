@@ -300,7 +300,9 @@ def test_bulk_run_evidence_uses_a_fixed_number_of_queries(session: Session) -> N
         event.remove(bind, "before_cursor_execute", _record_statement)
 
     assert len(details) == 7
-    assert len(statements) == 5  # runs + batches/triggers + definitions + checks + deliverables
+    # runs + batches/triggers + definitions + checks + corrections (SPEC-185)
+    # + deliverables — the corrections overlay is one bulk query, not per-run.
+    assert len(statements) == 6
 
 
 def test_comparison_rejects_empty_selection(cmp_client: TestClient) -> None:

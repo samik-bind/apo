@@ -778,6 +778,64 @@ def _migrate_judgment_schema(conn: Connection) -> None:
     )
 
 
+def _migrate_to_v32() -> None:
+    """Version 32 (SPEC-185): manual test result corrections.
+
+    Existing DBs gain the append-only
+    ``agent_task_test_result_corrections`` table plus the
+    ``agent_task_runs.corrected_tests`` scalar. Nothing is backfilled:
+    zero corrections means the effective projection equals today's
+    recorded projection. New DBs already have both (``create_all`` runs
+    before migrations), so the DDL is a guarded no-op there.
+    """
+    with engine.begin() as conn:
+        _migrate_test_result_correction_schema(conn)
+
+
+def _migrate_test_result_correction_schema(conn: Connection) -> None:
+    if "agent_task_test_result_corrections" not in _get_table_names(conn):
+        id_type = "TEXT" if is_sqlite() else "VARCHAR"
+        timestamp_type = "DATETIME" if is_sqlite() else "TIMESTAMPTZ"
+        conn.exec_driver_sql(
+            f"""
+            CREATE TABLE agent_task_test_result_corrections (
+                id {id_type} PRIMARY KEY,
+                task_run_id {id_type} NOT NULL
+                    REFERENCES agent_task_runs(id) ON DELETE CASCADE,
+                project {id_type} NOT NULL,
+                test_id {id_type} NOT NULL,
+                action VARCHAR NOT NULL,
+                reason {id_type},
+                corrected_by_user_id {id_type},
+                corrected_via VARCHAR NOT NULL DEFAULT 'session',
+                api_key_id {id_type},
+                created_at {timestamp_type} NOT NULL
+            )
+            """
+        )
+        _create_index_if_not_exists(
+            conn,
+            "ix_agent_task_test_result_corrections_task_run_id",
+            "agent_task_test_result_corrections",
+            "task_run_id",
+        )
+        _create_index_if_not_exists(
+            conn,
+            "ix_agent_task_test_result_corrections_project",
+            "agent_task_test_result_corrections",
+            "project",
+        )
+        _create_index_if_not_exists(
+            conn,
+            "ix_agent_task_test_result_corrections_lookup",
+            "agent_task_test_result_corrections",
+            "task_run_id, test_id, created_at, id",
+        )
+    _add_column_if_missing(
+        conn, "agent_task_runs", "corrected_tests", "INTEGER NOT NULL DEFAULT 0"
+    )
+
+
 def _normalize_run_and_trace_statuses(conn: Connection) -> None:
     """Idempotently rewrite non-canonical run/trace statuses to canonical values.
 
@@ -2178,7 +2236,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 31
+LATEST_SCHEMA_VERSION = 32
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2212,6 +2270,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     29: _migrate_to_v29,
     30: _migrate_to_v30,
     31: _migrate_to_v31,
+    32: _migrate_to_v32,
 }
 
 

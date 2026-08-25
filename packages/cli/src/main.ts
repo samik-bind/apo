@@ -252,6 +252,27 @@ const commands: Record<string, CommandEntry> = {
     ],
     note: "Replays the run's FULL check set against its stored deliverables and records a new judgment — the original verdict is never overwritten. Judge API key comes from OPENROUTER_API_KEY / OPENAI_API_KEY env. Requires the run's deliverables to be complete. Trajectory assertions need the run's trace projection; without it they are recorded as unsupported.",
   },
+  "runs correct": {
+    handler: loadCommand("runs-correct"),
+    help: "Correct a recorded test result — set effective PASS/FAIL or restore the recorded result",
+    args: [
+      ["<run-id>", "Run ID, unique prefix, or 'last'"],
+      ["<test-id>", "Exact recorded top-level Test id to correct"],
+    ],
+    options: [
+      ["--pass", "Set the test's effective result to PASS"],
+      ["--fail", "Set the test's effective result to FAIL"],
+      ["--clear", "Restore the recorded result (removes the active correction)"],
+      ["--reason <text>", "Why (required for --pass/--fail, 3–1000 chars; recorded on the correction)"],
+      ["--task <id>", "Filter 'last' to the latest run of a specific task"],
+    ],
+    examples: [
+      "apo runs correct last \"report-is-complete\" --pass --reason \"Retention is present; judge missed the table\"",
+      "apo runs correct de89cab \"no-failed-actions\" --fail --reason \"The trace contains a failed payment call\"",
+      "apo runs correct de89cab \"report-is-complete\" --clear",
+    ],
+    note: "Records a human decision about existing evidence — the Check Report, assertions, judge responses, and judgments stay untouched. Run/Batch verdicts, lists, stats, and runs show --exit-status all use the effective result. Exit 0 on success (including idempotent retry), 2 on usage/API failure. Never prompts — safe for agents and CI.",
+  },
   "runs judgments": {
     handler: loadCommand("runs-judgments"),
     help: "List a run's judgments (original + re-judges), or show one judgment's checks",

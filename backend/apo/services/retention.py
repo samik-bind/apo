@@ -154,6 +154,14 @@ def _delete_old_batch_runs(session: Session, cutoff: datetime) -> int:
             "(SELECT id FROM agent_task_runs WHERE batch_run_id IN :ids)",
             old_batch_ids,
         )
+    # SPEC-185 corrections FK task_runs the same way. Deleted before runs so
+    # schemas without FK enforcement (and tests that enable it) both purge.
+    if _table_exists(session, "agent_task_test_result_corrections"):
+        deleted += _exec_in(
+            "DELETE FROM agent_task_test_result_corrections WHERE task_run_id IN "
+            "(SELECT id FROM agent_task_runs WHERE batch_run_id IN :ids)",
+            old_batch_ids,
+        )
     if _table_exists(session, "agent_task_runs"):
         deleted += _exec_in(
             "DELETE FROM agent_task_runs WHERE batch_run_id IN :ids",

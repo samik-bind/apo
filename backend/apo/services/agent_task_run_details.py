@@ -9,6 +9,7 @@ queries, independent of the comparison size.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import cast
 
 from sqlalchemy.orm import defer
@@ -33,6 +34,11 @@ from .agent_task_outcome import classify_run_outcome
 from .agent_task_projection import parse_trigger
 from .check_report_storage import load_check_reports
 from .task_definition_revisions import to_definition_summary
+from .test_result_corrections import (
+    effective_check_report,
+    load_corrections,
+    resolve_actor_labels,
+)
 
 
 def load_task_run_summaries(
@@ -104,6 +110,7 @@ def _to_summary(
         total_checks=run.total_checks,
         passed_checks=run.passed_checks,
         failed_checks=run.failed_checks,
+        corrected_tests=run.corrected_tests,
         trigger=trigger,
         error_category=classify_run_outcome(
             run.status,
@@ -122,8 +129,15 @@ def load_task_run_details(
     run_ids: Sequence[str],
     *,
     project_id: str,
+    corrections_as_of: datetime | None = None,
 ) -> list[AgentTaskRunDetail]:
-    """Return project-scoped details in requested-id order without N+1 reads."""
+    """Return project-scoped details in requested-id order without N+1 reads.
+
+    ``corrections_as_of`` projects each run's checks as they were effective
+    at that instant (comparison evidence for frozen snapshots); the default
+    projects the current effective state. Check Reports themselves are never
+    rewritten — the overlay happens in memory.
+    """
     unique_ids = list(dict.fromkeys(run_ids))
     if not unique_ids:
         return []
@@ -144,6 +158,14 @@ def load_task_run_details(
     definitions = _load_definitions(session, runs)
     check_reports = load_check_reports(session, runs)
 
+    # SPEC-185: one bulk corrections query for all runs, then in-memory
+    # overlay per run — no N+1.
+    corrections_by_run = load_corrections(session, unique_ids)
+    labels = resolve_actor_labels(
+        session,
+        [c for rows in corrections_by_run.values() for c in rows],
+    )
+
     derived = derive_deliverables_json_for_runs(session, list(run_by_id.values()))
     return [
         _to_detail(
@@ -151,7 +173,13 @@ def load_task_run_details(
             run,
             trigger=triggers.get(run.batch_run_id),
             task_definition=definitions.get(run.task_definition_revision_id),
-            checks=check_reports.get(run.id),
+            checks=effective_check_report(
+                check_reports.get(run.id) or [],
+                corrections_by_run.get(run.id, []),
+                as_of=corrections_as_of,
+                actor_labels=labels,
+            )
+            or None,
             deliverables_json=derived.get(run.id),
         )
         for run_id in unique_ids
@@ -228,6 +256,7 @@ def _to_detail(
         total_checks=run.total_checks,
         passed_checks=run.passed_checks,
         failed_checks=run.failed_checks,
+        corrected_tests=run.corrected_tests,
         trigger=trigger,
         checks_json=checks,
         transcript_json=None,

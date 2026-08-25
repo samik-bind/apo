@@ -14,9 +14,14 @@ import { groupChecksByDescribe, groupVerdict, groupCost } from "./group-by-descr
 export function ChecksList({
   checks,
   checksSource,
+  correctable = false,
+  taskRunId,
 }: {
   checks: CheckResult[];
   checksSource?: TaskFileContentResponse | null;
+  /** SPEC-185: whether test-result corrections are allowed on this run. */
+  correctable?: boolean;
+  taskRunId?: string;
 }) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
     () => new Set(),
@@ -53,6 +58,8 @@ export function ChecksList({
               item={segment.check}
               index={idx}
               checksSource={checksSource}
+              correctable={correctable}
+              taskRunId={taskRunId}
             />
           );
         }
@@ -80,6 +87,8 @@ export function ChecksList({
                     item={item}
                     index={indexByGroupId.get(item.id) ?? 0}
                     checksSource={checksSource}
+                    correctable={correctable}
+                    taskRunId={taskRunId}
                   />
                 ))}
               </div>

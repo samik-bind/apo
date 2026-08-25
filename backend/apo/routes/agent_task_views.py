@@ -9,6 +9,8 @@ manage them so derived tabs persist across refresh / cross-device.
 
 from __future__ import annotations
 
+from typing import Any
+
 from datetime import datetime, timezone
 from typing import Annotated, cast
 
@@ -120,9 +122,43 @@ async def get_task_view_comparison_overview(
             if run_id is not None
         )
     )
+    summaries = load_task_run_summaries(session, run_ids, project_id=project_id)
+    # SPEC-185: overlay the frozen verdict/count scalars from the snapshot
+    # onto the live-run summaries. Summaries read the *current* effective
+    # projection; corrections made after this snapshot must not leak into it.
+    # Load-bearing fields that are not frozen (cost, tokens, model) stay live.
+    frozen_by_run: dict[str, Any] = {}
+    for cell in snapshot.resolved:
+        for run_id, prefix in (
+            (cell.a_run_id, "a"),
+            (cell.b_run_id, "b"),
+        ):
+            if run_id is not None:
+                frozen_by_run[run_id] = cell
+    for summary in summaries:
+        cell = frozen_by_run.get(summary.id)
+        if cell is None:
+            continue
+        pass_result = cell.a_pass_result if cell.a_run_id == summary.id else cell.b_pass_result
+        total = cell.a_total_checks if cell.a_run_id == summary.id else cell.b_total_checks
+        passed = cell.a_passed_checks if cell.a_run_id == summary.id else cell.b_passed_checks
+        corrected = (
+            cell.a_corrected_tests if cell.a_run_id == summary.id else cell.b_corrected_tests
+        )
+        if pass_result is not None:
+            summary.pass_result = pass_result
+            summary.status = "passed" if pass_result else "failed"
+        if total is not None:
+            summary.total_checks = total
+        if passed is not None:
+            summary.passed_checks = passed
+            summary.failed_checks = max((total or 0) - passed, 0)
+        if corrected is not None:
+            summary.corrected_tests = corrected
+
     return TaskViewComparisonOverview(
         snapshot=snapshot,
-        runs=load_task_run_summaries(session, run_ids, project_id=project_id),
+        runs=summaries,
     )
 
 
@@ -157,7 +193,11 @@ async def get_task_comparison_evidence(
             rid for rid in (cell.a_run_id, cell.b_run_id) if rid is not None
         )
     )
-    details = load_task_run_details(session, pair_ids, project_id=project_id)
+    # SPEC-185: evidence renders the run as it was effective when the
+    # snapshot was frozen — corrections made later must not leak in.
+    details = load_task_run_details(
+        session, pair_ids, project_id=project_id, corrections_as_of=row.created_at
+    )
     detail_by_id = {d.id: d for d in details}
 
     # Spec rule 8 / error table: a frozen run that cannot be resolved is a

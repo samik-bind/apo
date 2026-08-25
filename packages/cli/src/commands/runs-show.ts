@@ -40,6 +40,8 @@ type RunDetail = {
   run_configuration?: { model: string; effort?: string | null } | null;
   task_definition?: { id?: string } | null;
   judgments_count?: number;
+  /** SPEC-185: tests whose effective result differs from the recorded one. */
+  corrected_tests?: number;
 };
 
 type GenerationExecution = {
@@ -166,7 +168,13 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
   console.log(`  Result:   ${run.pass_result === null ? "-" : passFail(run.pass_result)}`);
 
   if (run.total_checks > 0) {
-    console.log(`  Checks:   ${run.passed_checks}/${run.total_checks} passed (${run.failed_checks} failed)`);
+    const correctedNote =
+      run.corrected_tests && run.corrected_tests > 0
+        ? yellow(` · ${run.corrected_tests} corrected`)
+        : "";
+    console.log(
+      `  Checks:   ${run.passed_checks}/${run.total_checks} passed (${run.failed_checks} failed)${correctedNote}`,
+    );
   }
   if ((run.judgments_count ?? 0) > 0) {
     console.log(

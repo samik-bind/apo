@@ -123,6 +123,24 @@ export type CheckResult = {
   group_id?: string;
   /** display name of the enclosing describe() group. */
   group_name?: string;
+  /**
+   * SPEC-185: present only on corrected tests. `pass` is the effective
+   * verdict; `recorded_pass` is what evaluation emitted; `correction`
+   * carries the human decision's provenance.
+   */
+  recorded_pass?: boolean;
+  correction?: TestResultCorrection;
+};
+
+export type TestResultCorrection = {
+  id: string;
+  action: "set_pass" | "set_fail" | "clear";
+  pass_result: boolean;
+  reason: string;
+  corrected_by_user_id: string | null;
+  corrected_by_label: string | null;
+  corrected_via: "session" | "api_key" | "open_dev";
+  created_at: string;
 };
 
 export type AgentTaskBatchRunSummary = {

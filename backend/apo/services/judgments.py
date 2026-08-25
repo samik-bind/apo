@@ -125,6 +125,11 @@ def synthesize_original_judgment(
     best-effort from the stored check evidence's judge metadata.
     """
     checks = load_check_report(session, task_run.id) or []
+    # SPEC-185: the original judgment is recorded machine evidence — counts
+    # and verdict derive from the RAW report, never from the run's effective
+    # scalars (which a later human correction may have flipped).
+    recorded_pass = sum(1 for c in checks if c.get("pass") is True)
+    recorded_fail = len(checks) - recorded_pass
     return AgentTaskJudgmentSummary(
         id=task_run.id,
         task_run_id=task_run.id,
@@ -133,10 +138,10 @@ def synthesize_original_judgment(
         task_definition_revision_id=task_run.task_definition_revision_id,
         definition_revision_matches_run=True,
         samples=1,
-        pass_result=task_run.pass_result,
-        total_checks=task_run.total_checks,
-        passed_checks=task_run.passed_checks,
-        failed_checks=task_run.failed_checks,
+        pass_result=recorded_pass == len(checks) and len(checks) > 0,
+        total_checks=len(checks),
+        passed_checks=recorded_pass,
+        failed_checks=recorded_fail,
         created_at=task_run.completed_at or task_run.started_at,
     )
 

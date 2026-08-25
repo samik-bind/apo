@@ -527,6 +527,10 @@ class AgentTaskRunDB(SQLModel, table=True):
     task_definition_revision_id: str | None = Field(
         default=None, foreign_key="task_definition_revisions.id", index=True
     )
+    # SPEC-185: number of Tests whose effective result differs from the
+    # recorded one (latest active correction per Test). Maintained by the
+    # correction service in the same transaction as the verdict scalars.
+    corrected_tests: int = Field(default=0)
 
 
 class AgentTaskCheckReportDB(SQLModel, table=True):
@@ -660,6 +664,50 @@ class AgentTaskJudgmentDB(SQLModel, table=True):
     stability_json: list[dict[str, object]] | None = Field(
         default=None, sa_column=Column("stability_json", JSON)
     )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+
+
+class AgentTaskTestResultCorrectionDB(SQLModel, table=True):
+    """SPEC-185: an append-only human decision about a recorded Test result.
+
+    A correction sets one top-level Test of one Task Run to an effective
+    PASS/FAIL (or clears back to the recorded result) without touching the
+    Check Report, assertions, judge evidence, or judgments. Run verdict
+    scalars are re-derived from the effective projection by the correction
+    service; this row is the audit trail that makes the projection
+    reproducible (including as-of projection for old comparison snapshots).
+
+    The FK is ``ON DELETE CASCADE``, but SQLite deployments do not always
+    enforce FKs — retention and project deletion pre-delete correction rows
+    explicitly, mirroring check reports and judgments.
+    """
+
+    __tablename__: ClassVar[str] = "agent_task_test_result_corrections"
+    __table_args__: ClassVar[tuple[object, ...]] = (
+        # Latest-action-per-test lookup: filter by run+test, read newest first.
+        Index(
+            "ix_agent_task_test_result_corrections_lookup",
+            "task_run_id",
+            "test_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    id: str = Field(primary_key=True, default_factory=lambda: f"cor_{uuid4().hex[:16]}")
+    task_run_id: str = Field(foreign_key="agent_task_runs.id", index=True)
+    # Denormalized from the Run's Batch for project-scoped queries, mirroring
+    # AgentTaskJudgmentDB.
+    project: str = Field(index=True)
+    test_id: str
+    action: str  # set_pass | set_fail | clear
+    reason: str | None = None
+    corrected_by_user_id: str | None = None
+    corrected_via: str = "session"  # session | api_key | open_dev
+    api_key_id: str | None = None
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(UTCDateTime, server_default=func.now()),

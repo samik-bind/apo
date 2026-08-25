@@ -114,6 +114,7 @@ export default defineConfig({
 							{ label: 'runs show', slug: 'cli/runs-show' },
 							{ label: 'runs deliverable', slug: 'cli/runs-deliverable' },
 							{ label: 'runs rejudge', slug: 'cli/runs-rejudge' },
+							{ label: 'runs correct', slug: 'cli/runs-correct' },
 							{ label: 'runs judgments', slug: 'cli/runs-judgments' },
 						],
 					},
