@@ -85,7 +85,7 @@ export function TestResultCorrectionDialog({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="font-mono text-sm">
-            Review result — {String(check.id)}
+            Correct Result — {String(check.id)}
           </DialogTitle>
           <DialogDescription>
             Recorded <Verdict pass={recordedPass} />

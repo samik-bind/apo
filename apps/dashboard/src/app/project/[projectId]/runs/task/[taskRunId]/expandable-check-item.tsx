@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, PenLine } from "lucide-react";
 import { useUrlParam } from "@/hooks/use-url-state";
 import type { CheckAssertionResult, CheckResult, TaskFileContentResponse } from "@/lib/agent-task-api";
 import { buildCheckDiagnostics } from "@/lib/check-diagnostics";
@@ -128,53 +128,71 @@ export function ExpandableCheckItem({
   return (
     <div
       className={cn(
-        "border-b border-border last:border-b-0 transition-colors",
+        "group border-b border-border last:border-b-0 transition-colors",
         expanded ? "bg-card/30" : "hover:bg-card/20",
       )}
     >
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
-      >
-        <span
-          className={cn(
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px]",
-            passed ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive",
-          )}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="flex w-full items-center gap-3 px-4 py-3 text-left"
         >
-          {passed ? "✓" : "✗"}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={cn(
-                "font-mono text-[13px]",
-                passed ? "text-foreground" : "text-destructive",
-                expanded && "font-medium",
+          <span
+            className={cn(
+              "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px]",
+              passed ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive",
+            )}
+          >
+            {passed ? "✓" : "✗"}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={cn(
+                  "font-mono text-[13px]",
+                  passed ? "text-foreground" : "text-destructive",
+                  expanded && "font-medium",
+                )}
+              >
+                {id}
+              </span>
+              {!passed && !expanded && reasoning && (
+                <span className="truncate text-[11px] text-muted-foreground">
+                  {reasoning.split("\n")[0]}
+                </span>
               )}
-            >
-              {id}
-            </span>
-            {!passed && !expanded && reasoning && (
-              <span className="truncate text-[11px] text-muted-foreground">
-                {reasoning.split("\n")[0]}
-              </span>
-            )}
-            {corrected && (
-              <span className="shrink-0 border border-warning/40 bg-warning/10 px-1.5 py-px text-[10px] font-medium text-warning">
-                Corrected
-              </span>
-            )}
+              {corrected && (
+                <span className="shrink-0 border border-warning/40 bg-warning/10 px-1.5 py-px text-[10px] font-medium text-warning">
+                  Corrected
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-        <span
-          className="shrink-0 text-muted-foreground/60 transition-transform"
-          style={{ transform: expanded ? "rotate(90deg)" : "none" }}
-        >
-          <ChevronRight className="h-3.5 w-3.5" />
-        </span>
-      </button>
+          <span
+            className="shrink-0 text-muted-foreground/60 transition-transform"
+            style={{ transform: expanded ? "rotate(90deg)" : "none" }}
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </span>
+        </button>
+        {correctable && taskRunId && (
+          <button
+            type="button"
+            aria-label={corrected ? "Change Correction" : "Correct Result"}
+            title={corrected ? "Change Correction" : "Correct Result"}
+            onClick={() => setCorrectionOpen(true)}
+            className={cn(
+              "absolute right-9 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center text-muted-foreground transition-opacity hover:text-foreground",
+              corrected
+                ? "opacity-100"
+                : "opacity-0 focus-visible:opacity-100 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100",
+            )}
+          >
+            <PenLine className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
 
       {expanded && (
         <div className="border-t border-border px-4 pb-4 pt-3">
@@ -208,7 +226,7 @@ export function ExpandableCheckItem({
                   onClick={() => setCorrectionOpen(true)}
                   className="inline-flex h-7 items-center gap-1.5 border border-border px-2.5 text-xs text-foreground transition-colors hover:bg-muted/40"
                 >
-                  {corrected ? "Change correction" : "Review result"}
+                  {corrected ? "Change Correction" : "Correct Result"}
                 </button>
               </div>
             )}

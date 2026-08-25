@@ -6,7 +6,8 @@
  * 2. The dialog sends the exact request, toasts, closes, refreshes.
  * 3. Restore sends clear.
  * 4. Invalid reason disables Save; request failure preserves input + toasts.
- * 5. Non-correctable runs render no review action.
+ * 5. Non-correctable runs render no correction action.
+ * 6. The collapsed-row pencil opens the dialog without expanding.
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -96,12 +97,12 @@ describe("ExpandableCheckItem corrections", () => {
     expect(screen.getByText("judge missed the table")).toBeInTheDocument();
   });
 
-  it("shows Change correction on a corrected test", () => {
+  it("shows Change Correction on a corrected test (row pencil + expanded panel)", () => {
     expand();
-    expect(screen.getByRole("button", { name: /change correction/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /change correction/i }).length).toBe(2);
   });
 
-  it("shows Review result on an uncorrected correctable test", () => {
+  it("shows Correct Result on an uncorrected correctable test (row pencil + expanded panel)", () => {
     render(
       <ExpandableCheckItem
         item={{ id: "plain", pass: false, reasoning: "nope" }}
@@ -111,15 +112,29 @@ describe("ExpandableCheckItem corrections", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /plain/i }));
-    expect(screen.getByRole("button", { name: /review result/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /correct result/i }).length).toBe(2);
   });
 
-  it("renders no review action when not correctable", () => {
+  it("opens the dialog from the collapsed row pencil without expanding", () => {
+    render(
+      <ExpandableCheckItem
+        item={{ id: "plain", pass: false, reasoning: "nope" }}
+        index={0}
+        correctable
+        taskRunId="run_1"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /correct result/i }));
+    // Cancel only exists inside the correction dialog.
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  it("renders no correction action when not correctable", () => {
     render(
       <ExpandableCheckItem item={{ id: "plain", pass: false, reasoning: "nope" }} index={0} />,
     );
     fireEvent.click(screen.getByRole("button", { name: /plain/i }));
-    expect(screen.queryByRole("button", { name: /review result|change correction/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /correct result|change correction/i })).not.toBeInTheDocument();
   });
 });
 
