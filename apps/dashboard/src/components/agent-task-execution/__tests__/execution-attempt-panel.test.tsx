@@ -63,7 +63,15 @@ describe("ExecutionAttemptPanel — legacy Pool Runs", () => {
   it("uses explicit uncertain copy for a lost attempt", () => {
     render(
       <ExecutionAttemptPanel
-        attempts={[attempt({ status: "lost", failure_kind: "executor_lost" })]}
+        attempts={[
+          attempt({ id: "attempt-1", task_run_id: "task-run-1", status: "succeeded" }),
+          attempt({
+            id: "attempt-2",
+            task_run_id: "task-run-2",
+            status: "lost",
+            failure_kind: "executor_lost",
+          }),
+        ]}
         poolName="Private VPC"
       />,
     );
@@ -74,7 +82,15 @@ describe("ExecutionAttemptPanel — legacy Pool Runs", () => {
   it("distinguishes queue expiry from generic execution failure", () => {
     render(
       <ExecutionAttemptPanel
-        attempts={[attempt({ status: "failed", failure_kind: "executor_unavailable" })]}
+        attempts={[
+          attempt({ id: "attempt-1", task_run_id: "task-run-1", status: "succeeded" }),
+          attempt({
+            id: "attempt-2",
+            task_run_id: "task-run-2",
+            status: "failed",
+            failure_kind: "executor_unavailable",
+          }),
+        ]}
         poolName="Private VPC"
       />,
     );
@@ -87,6 +103,32 @@ describe("ExecutionAttemptPanel — legacy Pool Runs", () => {
       <ExecutionAttemptPanel attempts={[]} poolName={null} />,
     );
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it.each(["succeeded", "failed", "lost", "cancelled"] as const)(
+    "omits the panel for a lone %s attempt — the task-run table already tells that story",
+    (status) => {
+      const { container } = render(
+        <ExecutionAttemptPanel
+          attempts={[attempt({ status })]}
+          poolName={null}
+        />,
+      );
+      expect(container).toBeEmptyDOMElement();
+    },
+  );
+
+  it("keeps retry history visible when several attempts exist", () => {
+    render(
+      <ExecutionAttemptPanel
+        attempts={[
+          attempt({ id: "attempt-1", status: "succeeded" }),
+          attempt({ id: "attempt-2", status: "succeeded" }),
+        ]}
+        poolName={null}
+      />,
+    );
+    expect(screen.getByText("2 attempts")).toBeInTheDocument();
   });
 });
 
@@ -157,11 +199,16 @@ describe("ExecutionAttemptPanel — source-owned Runs", () => {
   it("explains the 24-hour executor-unavailable terminal state", () => {
     render(
       <ExecutionAttemptPanel
-        attempts={[attempt({
-          assignment_kind: "source_owned",
-          status: "failed",
-          failure_kind: "executor_unavailable",
-        })]}
+        attempts={[
+          attempt({ id: "attempt-1", task_run_id: "task-run-1", status: "succeeded" }),
+          attempt({
+            id: "attempt-2",
+            task_run_id: "task-run-2",
+            assignment_kind: "source_owned",
+            status: "failed",
+            failure_kind: "executor_unavailable",
+          }),
+        ]}
         poolName={null}
       />,
     );
@@ -173,11 +220,16 @@ describe("ExecutionAttemptPanel — source-owned Runs", () => {
   it("explains the task-removed-from-catalog terminal state", () => {
     render(
       <ExecutionAttemptPanel
-        attempts={[attempt({
-          assignment_kind: "source_owned",
-          status: "failed",
-          failure_kind: "task_not_in_catalog",
-        })]}
+        attempts={[
+          attempt({ id: "attempt-1", task_run_id: "task-run-1", status: "succeeded" }),
+          attempt({
+            id: "attempt-2",
+            task_run_id: "task-run-2",
+            assignment_kind: "source_owned",
+            status: "failed",
+            failure_kind: "task_not_in_catalog",
+          }),
+        ]}
         poolName={null}
       />,
     );
