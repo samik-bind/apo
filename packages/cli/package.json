@@ -1,6 +1,6 @@
 {
   "name": "@apo-ai/cli",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Command-line interface for the Apo agent testing and observability platform",
   "type": "module",
   "bin": {
@@ -39,7 +39,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@apo-ai/sdk": "^0.3.0",
+    "@apo-ai/sdk": "^0.4.0",
     "tsx": "^4.22.4"
   },
   "devDependencies": {
