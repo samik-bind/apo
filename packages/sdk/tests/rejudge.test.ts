@@ -80,6 +80,34 @@ check("judged-quality", async (t, { deliverables }) => {
 `;
 }
 
+function artifactPathEvalModule(): string {
+  return `
+import { basename } from "node:path";
+import { task, satisfies } from "${LOCAL_PUBLIC_IMPORT}";
+import { rejudgeAdapter } from "./adapter.ts";
+
+const { test: check } = task("rejudge-demo", {
+  adapter: rejudgeAdapter,
+  deliverables: ["report", "memo"],
+});
+
+check("artifact-paths-are-isolated", (t, { deliverables }) => {
+  const paths = [
+    (deliverables.report as { path: string }).path,
+    (deliverables.memo as { path: string }).path,
+  ];
+  t.check(
+    paths.map((path) => basename(path)),
+    satisfies(
+      (names: string[]) =>
+        new Set(names).size === 2 && names.every((name) => name.startsWith("artifact-")),
+      "artifact scratch paths are unique and generated locally",
+    ),
+  );
+});
+`;
+}
+
 function makeTaskDir(name: string, evalContent: string): string {
   const dir = join(TMP_ROOT, name);
   rmSync(dir, { recursive: true, force: true });
@@ -242,6 +270,56 @@ describe("rejudgeTaskRun", () => {
     await expect(
       rejudgeTaskRun(RUN_ID, { backendUrl: BACKEND, authToken: "key" }, { taskDir }),
     ).rejects.toThrow(RejudgeError);
+  });
+
+  it("refuses replay when an expected deliverable is absent from storage", async () => {
+    const taskDir = makeTaskDir("missing", evalModule());
+    stubBackend(
+      {
+        deliverables: [
+          { id: "dlv-report", name: "report", kind: "json", status: "ready" },
+        ],
+      },
+      evalModule(),
+    );
+
+    await expect(
+      rejudgeTaskRun(RUN_ID, { backendUrl: BACKEND, authToken: "key" }, { taskDir }),
+    ).rejects.toThrow(/stored deliverables are incomplete; missing memo/);
+  });
+
+  it("uses unique local scratch names instead of remote artifact filenames", async () => {
+    const evalContent = artifactPathEvalModule();
+    const taskDir = makeTaskDir("artifact-paths", evalContent);
+    stubBackend(
+      {
+        deliverables: [
+          {
+            id: "dlv-report",
+            name: "report",
+            kind: "artifact",
+            status: "ready",
+            display_filename: "../../same.txt",
+          },
+          {
+            id: "dlv-memo",
+            name: "memo",
+            kind: "artifact",
+            status: "ready",
+            display_filename: "../../same.txt",
+          },
+        ],
+      },
+      evalContent,
+    );
+
+    const outcome = await rejudgeTaskRun(
+      RUN_ID,
+      { backendUrl: BACKEND, authToken: "key" },
+      { taskDir },
+    );
+
+    expect(outcome.pass).toBe(true);
   });
 
   it("refuses replay for a non-terminal run", async () => {

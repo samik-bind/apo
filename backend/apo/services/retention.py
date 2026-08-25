@@ -146,6 +146,14 @@ def _delete_old_batch_runs(session: Session, cutoff: datetime) -> int:
             "(SELECT id FROM agent_task_runs WHERE batch_run_id IN :ids)",
             old_batch_ids,
         )
+    # Rejudge judgments also FK task_runs. Explicit deletion keeps retention
+    # correct on older/test SQLite schemas where FK cascades are not active.
+    if _table_exists(session, "agent_task_judgments"):
+        deleted += _exec_in(
+            "DELETE FROM agent_task_judgments WHERE task_run_id IN "
+            "(SELECT id FROM agent_task_runs WHERE batch_run_id IN :ids)",
+            old_batch_ids,
+        )
     if _table_exists(session, "agent_task_runs"):
         deleted += _exec_in(
             "DELETE FROM agent_task_runs WHERE batch_run_id IN :ids",

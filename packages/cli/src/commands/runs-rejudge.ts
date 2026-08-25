@@ -8,7 +8,7 @@
  * never touched.
  *
  * Judge cost warning: this makes real LLM calls for every `t.judge`
- * criterion — including with --dry-run, which only skips RECORDING.
+ * judged test — including with --dry-run, which only skips RECORDING.
  */
 
 import { existsSync } from "node:fs";

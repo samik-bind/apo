@@ -612,7 +612,7 @@ class AgentTaskJudgmentDB(SQLModel, table=True):
     A Run's verdict is welded to the judge that ran it; a judgment is the
     outcome of replaying the Run's Phase-2 checks against its stored
     Deliverables — typically under a different judge model, fixed check
-    code, or for a per-criterion stability estimate (``samples > 1``).
+    code, or for a per-test stability estimate (``samples > 1``).
 
     Only ``rejudge`` judgments are stored. The Run's original verdict stays
     where it always lived (run scalar columns + ``AgentTaskCheckReportDB``)

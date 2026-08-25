@@ -119,4 +119,13 @@ describe("runs judgments command", () => {
     expect(parsed).toHaveLength(1);
     expect(parsed[0].trigger).toBe("original");
   });
+
+  it("rejects a missing run id", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const code = await run([]);
+
+    expect(code).toBe(2);
+    expect(error).toHaveBeenCalledWith("Missing required argument: <run-id>");
+  });
 });

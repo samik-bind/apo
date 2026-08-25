@@ -42,6 +42,7 @@ from ..models.db import (
     AgentTaskBatchRunDB,
     AgentTaskCheckReportDB,
     AgentTaskDeliverableDB,
+    AgentTaskJudgmentDB,
     AgentTaskRunDB,
     AgentTaskScheduleDB,
     AgentTaskScheduleOccurrenceDB,
@@ -149,6 +150,9 @@ def delete_project_data(
         select(AgentTaskRunDB.id).join(AgentTaskBatchRunDB).where(
             AgentTaskBatchRunDB.project == project_id
         ),
+    )
+    deleted["agent_task_judgments"] = _delete_by_column(
+        session, AgentTaskJudgmentDB, AgentTaskJudgmentDB.project == project_id
     )
     # SPEC-178: deliverables are direct (have a ``project`` column) but FK
     # agent_task_runs, so they must be deleted before runs. Their stored

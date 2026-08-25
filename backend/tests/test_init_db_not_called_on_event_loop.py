@@ -55,7 +55,7 @@ def test_init_db_is_never_called_inline_from_async_code() -> None:
     offenders = _direct_async_calls()
     assert not offenders, (
         "init_db() called directly inside an async def — the v26 backfill's "
-        "asyncio.run will raise there. Use `await asyncio.to_thread(init_db)`:\n"
+        + "asyncio.run will raise there. Use `await asyncio.to_thread(init_db)`:\n"
         + "\n".join(f"  {f}:{n}" for f, n in offenders)
     )
 

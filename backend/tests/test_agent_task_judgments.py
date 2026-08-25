@@ -12,7 +12,7 @@ verdict is never overwritten.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 from sqlmodel import Session
@@ -20,6 +20,7 @@ from sqlmodel import Session
 from apo.db import LATEST_SCHEMA_VERSION, _SCHEMA_MIGRATIONS
 from apo.models.db import (
     AgentTaskBatchRunDB,
+    AgentTaskJudgmentDB,
     AgentTaskRunDB,
     ProjectDB,
     UserDB,
@@ -28,6 +29,8 @@ from apo.services.check_report_storage import persist_check_report
 from apo.services.task_definition_revisions import (
     ensure_task_definition_revision,
 )
+from apo.services.project_deletion import delete_project_data
+from apo.services.retention import _delete_old_batch_runs
 
 NOW = datetime.now(timezone.utc)
 
@@ -332,6 +335,43 @@ class TestRunDetailExposure:
         )
         after = client.get(f"/v1/agent-task-runs/{run.id}").json()
         assert after["judgments_count"] == 1
+
+
+class TestJudgmentLifecycle:
+    def test_retention_removes_judgments_before_task_runs(
+        self, client: TestClient, session: Session
+    ) -> None:
+        run = _seed_run(session, run_id="run-retention")
+        run_id = run.id
+        created = client.post(
+            f"/v1/agent-task-runs/{run_id}/judgments",
+            json={"checks": _checks()},
+        ).json()
+
+        _delete_old_batch_runs(session, NOW + timedelta(days=1))
+        session.expire_all()
+
+        assert session.get(AgentTaskJudgmentDB, created["id"]) is None
+        assert session.get(AgentTaskRunDB, run_id) is None
+
+    def test_project_deletion_removes_judgments(
+        self, client: TestClient, session: Session
+    ) -> None:
+        run = _seed_run(session, run_id="run-project-delete")
+        created = client.post(
+            f"/v1/agent-task-runs/{run.id}/judgments",
+            json={"checks": _checks()},
+        ).json()
+
+        delete_project_data(
+            session,
+            "p1",
+            keep_project=False,
+            keep_api_keys=False,
+        )
+
+        assert session.get(AgentTaskJudgmentDB, created["id"]) is None
+        assert session.get(AgentTaskRunDB, run.id) is None
 
 
 class TestProjectionMemberAccess:

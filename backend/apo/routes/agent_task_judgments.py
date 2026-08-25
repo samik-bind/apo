@@ -44,13 +44,6 @@ router = APIRouter(prefix="/v1", tags=["agent-tasks"])
 _TERMINAL_VERDICT_STATUSES = ("passed", "failed")
 
 
-def _load_task_run(session: Session, task_run_id: str) -> AgentTaskRunDB:
-    task_run = session.get(AgentTaskRunDB, task_run_id)
-    if task_run is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task run not found")
-    return task_run
-
-
 @router.get("/agent-task-runs/{task_run_id}/judgments")
 async def list_run_judgments(
     task_run_id: str,
@@ -219,7 +212,7 @@ async def get_run_definition_source(
                 detail={"kind": "definition_source_not_found"},
             )
 
-    files = []
+    files: list[dict[str, object]] = []
     for file in rev_row.source_files_json or []:
         content = str(file.get("content", ""))
         files.append(
@@ -234,6 +227,13 @@ async def get_run_definition_source(
         "task_id": rev_row.task_id,
         "files": files,
     }
+
+
+def _load_task_run(session: Session, task_run_id: str) -> AgentTaskRunDB:
+    task_run = session.get(AgentTaskRunDB, task_run_id)
+    if task_run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Task run not found")
+    return task_run
 
 
 __all__ = ["router"]

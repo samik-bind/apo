@@ -48,6 +48,22 @@ Read one judgment's full breakdown — same format as `apo runs show`, plus per-
 apo runs judgments run_9efafa10f1c3e59647900db5 jdg_71143936fadf4d8f
 ```
 
+<TerminalOutput
+  lines={[
+    { text: "  jdg_71143936fadf4d8f (rejudge) — 2/3 checks · 3 samples · sonnet calibration" },
+    { text: "    Judge: anthropic/claude-sonnet-4.5   Created: 8/25/2026, 8:41 AM" },
+    { text: "" },
+    { text: "  Checks:", tone: "bold" },
+    { text: "    PASS citations-are-grounded", tone: "success" },
+    { text: "    FAIL tone-is-executive", tone: "danger" },
+    { text: "      the tone is conversational rather than executive", tone: "dim" },
+    { text: "" },
+    { text: "  Stability (3 samples):", tone: "bold" },
+    { text: "    citations-are-grounded                3/3" },
+    { parts: [{ text: "    tone-is-executive                    1/3" }, { text: "  ← unstable", tone: "warning" }] },
+  ]}
+/>
+
 ## What the columns mean
 
 | Field | Meaning |

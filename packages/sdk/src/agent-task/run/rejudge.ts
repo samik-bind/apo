@@ -20,7 +20,7 @@
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { JudgeConfig } from "../checks/t.ts";
 import {
@@ -210,6 +210,16 @@ export async function rejudgeTaskRun(
     });
     progress(`loaded eval ${evalFile.path} from revision ${revisionId}`);
 
+    const missingDeliverables = loaded.task.deliverables.filter(
+      (name) => !Object.prototype.hasOwnProperty.call(deliverables, name),
+    );
+    if (missingDeliverables.length > 0) {
+      throw new RejudgeError(
+        `Refusing to replay run ${runId}: stored deliverables are incomplete; ` +
+          `missing ${missingDeliverables.join(", ")}. Re-run the agent instead.`,
+      );
+    }
+
     const samples = Math.max(1, Math.min(options.samples ?? 1, MAX_SAMPLES));
     const validation = validateDeliverables(
       loaded.task,
@@ -300,17 +310,21 @@ async function fetchDeliverables(
   artifactDir: string,
 ): Promise<Record<string, unknown>> {
   const deliverables: Record<string, unknown> = {};
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     if (item.kind === "artifact") {
       const bytes = await api.getBytes(`/v1/agent-task-runs/${runId}/deliverables/${item.id}`);
-      const filename = item.display_filename || item.name;
-      const path = join(artifactDir, filename);
+      const displayFilename = item.display_filename || item.name;
+      // display_filename is remote metadata, not a trusted local path. A
+      // unique prefix also prevents two artifacts with the same display name
+      // from overwriting each other during replay.
+      const safeFilename = basename(displayFilename) || "artifact";
+      const path = join(artifactDir, `artifact-${index}-${safeFilename}`);
       writeFileSync(path, bytes);
       deliverables[item.name] = Object.freeze({
         kind: "apo.file-artifact",
         path,
         mediaType: item.media_type ?? "application/octet-stream",
-        displayFilename: filename,
+        displayFilename,
       });
     } else {
       deliverables[item.name] = await api.getJson(

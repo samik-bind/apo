@@ -7,7 +7,7 @@ import TerminalOutput from '../../../components/demos/TerminalOutput.astro';
 
 `apo runs rejudge` replays a completed run's tests against the deliverables the run already produced. The agent is not re-run and nothing is re-billed for execution — the stored deliverables are fetched, the run's pinned task definition is replayed, and the tests evaluate exactly what the agent actually delivered that day.
 
-This solves a measured problem: on rubric-heavy tasks, roughly one in six judged criteria is decided by *which judge was configured*, not by what the agent produced. Re-judging is how you see that variance instead of paying for it — swap the judge model, fix a broken `t.check`, sample for stability — against history you already own. The original verdict is never overwritten; each re-judge is recorded as a new judgment next to it.
+This solves a measured problem: on rubric-heavy tasks, roughly one in six judged tests is decided by *which judge was configured*, not by what the agent produced. Re-judging is how you see that variance instead of paying for it — swap the judge model, replay a corrected test revision, or sample for stability against history you already own. The original verdict is never overwritten; each re-judge is recorded as a new judgment next to it.
 
 ## Synopsis
 
@@ -21,7 +21,7 @@ apo runs rejudge <run-id> [--judge-model <m>] [--samples <n>] [--label <text>] [
 2. Executes the revision's full test set here, in your CLI, with the deliverables substituted in. The backend never executes task code; it only serves the sources and stores the result.
 3. Records the outcome as a judgment (`trigger: rejudge`) on the run. `apo runs show` keeps showing the original verdict as canonical.
 
-The whole test set replays every time. There is deliberately no way to re-judge only the criteria that failed — keeping the draws you like and discarding the rest is a one-directional ratchet toward PASS, and the variance this command exists to measure would silently disappear.
+The whole test set replays every time. There is deliberately no way to re-judge only the tests that failed — keeping the draws you like and discarding the rest is a one-directional ratchet toward PASS, and the variance this command exists to measure would silently disappear.
 
 ## Arguments
 
@@ -48,7 +48,7 @@ The judge API key comes from `OPENROUTER_API_KEY` or `OPENAI_API_KEY` — it is 
 
 ## Example
 
-Re-judge the latest run under a different judge, twice, to see which criteria are stable:
+Re-judge the latest run under a different judge, twice, to see which tests are stable:
 
 ```bash
 apo runs rejudge last --judge-model anthropic/claude-sonnet-4.5 --samples 2 --label "sonnet calibration"
@@ -75,7 +75,7 @@ apo runs rejudge last --judge-model anthropic/claude-sonnet-4.5 --samples 2 --la
   ]}
 />
 
-`tone-is-executive` passing 1 of 2 samples is the honest signal: that criterion is decided by judge draw, not by the agent. Spend agent budget on the criteria that fail every time, not the unstable ones.
+`tone-is-executive` passing 1 of 2 samples is the honest signal: that test is decided by judge draw, not by the agent. Spend agent budget on the tests that fail every time, not the unstable ones.
 
 ## What replay can and cannot see
 
@@ -83,7 +83,7 @@ apo runs rejudge last --judge-model anthropic/claude-sonnet-4.5 --samples 2 --la
 - **Trajectory tests** (`t.calledTool`, `t.maxTurns`, …) replay against the run's stored trace projection when one exists. Without a trace, they are recorded as **unsupported** — visible in the output, never silently skipped.
 - **Fixture files** (`files/`) resolve from a local checkout of the task (`--task-dir`); without one, file-listing tests fail honestly rather than pretend.
 
-Replay is refused outright when any deliverable is not `ready` — a missing deliverable must surface as a refusal, not as a low score.
+Replay is refused outright when any expected deliverable is missing or not `ready` — incomplete stored evidence must surface as a refusal, not as a low score.
 
 ## Exit codes
 

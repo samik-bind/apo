@@ -235,7 +235,7 @@ const commands: Record<string, CommandEntry> = {
     options: [
       ["--judge-model <m>", "Judge model for t.judge checks (default: AGENT_TASK_JUDGE_MODEL / OPENROUTER_MODEL / OPENAI_MODEL env)"],
       ["--judge-base-url <url>", "OpenAI-compatible base URL for the judge (default: OPENROUTER_BASE_URL / OPENAI_BASE_URL env)"],
-      ["--samples <n>", "Judge the same deliverables n times (1-50) for a per-criterion stability measure"],
+      ["--samples <n>", "Judge the same deliverables n times (1-50) for a per-test stability measure"],
       ["--dry-run", "Run the replay but do not record a judgment (LLM judge calls still cost money)"],
       ["--label <text>", "Operator label recorded on the judgment, e.g. 'sonnet-4.5 calibration'"],
       ["--definition-revision <id>", "Score against this revision instead of the run's pinned one (stamped on the judgment)"],
@@ -245,7 +245,7 @@ const commands: Record<string, CommandEntry> = {
       ["--task <id>", "Filter 'last' to the latest run of a specific task"],
     ],
     examples: [
-      "apo runs rejudge last                       # same judge config, replay checks",
+      "apo runs rejudge last                       # current judge config, replay tests",
       "apo runs rejudge de89cab --judge-model anthropic/claude-sonnet-4.5",
       "apo runs rejudge de89cab --samples 5 --label 'judge variance'",
       "apo runs rejudge de89cab --dry-run",
