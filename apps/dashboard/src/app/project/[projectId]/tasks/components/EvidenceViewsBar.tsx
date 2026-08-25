@@ -182,7 +182,7 @@ export function EvidenceViewsBar({
         </div>
         {viewsActive && (
           <>
-            <label className="flex shrink-0 items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1.5">
               <span className="text-[11px] uppercase tracking-wide text-foreground/50">Model</span>
               <ModelFilterMenu
                 options={facets}
@@ -203,7 +203,7 @@ export function EvidenceViewsBar({
                   </button>
                 }
               />
-            </label>
+            </div>
             {effortOptions.length > 0 && (
               <FilterPicker
                 label="Effort"

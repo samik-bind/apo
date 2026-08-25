@@ -5,7 +5,7 @@ import { type AgentTaskSummary } from "@/lib/agent-task-api";
 import { Button } from "@/components/ui/button";
 
 import { useProjectId, useIsDemo } from "@/lib/project-router";
-import { usePublishRunCohort } from "@/lib/run-cohort";
+import { usePublishRunCohort } from "@/lib/run-cohort-context";
 import type { ProjectTaskSource } from "@/lib/projects-api";
 import type { ProjectFirstRunSetup } from "@/lib/first-run";
 

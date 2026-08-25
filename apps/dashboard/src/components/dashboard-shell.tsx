@@ -22,11 +22,11 @@ import {
   dashboardAllItems,
   dashboardPrimaryNavGroups,
 } from "@/lib/dashboard-ia";
+import { hrefWithRunCohort } from "@/lib/run-cohort";
 import {
-  hrefWithRunCohort,
   RunCohortProvider,
   useRunCohort,
-} from "@/lib/run-cohort";
+} from "@/lib/run-cohort-context";
 
 export function DashboardShell({
   children,

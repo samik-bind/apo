@@ -132,9 +132,12 @@ export function RunsClient({
         ? modelFacets.find((f) => f.model === selectedModelArr[0])
         : undefined;
     const known = facet?.efforts ?? [];
-    const missing = Array.from(selectedEfforts)
-      .filter((e) => !known.some((k) => k.effort === e))
-      .map((effort) => ({ effort, count: 0 }));
+    const missing: { effort: string; count: number }[] = [];
+    for (const effort of selectedEfforts) {
+      if (!known.some((option) => option.effort === effort)) {
+        missing.push({ effort, count: 0 });
+      }
+    }
     if (selectedEfforts.size === 0 && known.length < 2) return [];
     return [...known, ...missing];
   }, [modelFacets, selectedModelArr, selectedEfforts]);
@@ -215,10 +218,10 @@ export function RunsClient({
             </div>
           </div>
         ) : batchRuns.length === 0 ? (
-          <div className="m-6 rounded-md border border-dashed border-border bg-card/40 p-10 text-center text-[13px] text-muted-foreground">
+          <div className="m-6 border border-dashed border-border bg-card/40 p-10 text-center text-[13px] text-muted-foreground">
             <History className="mx-auto mb-2 h-5 w-5 text-muted-foreground/50" />
             {hasActiveFilters
-              ? <>No runs match these filters. <button type="button" onClick={clearFilters} className="text-primary underline underline-offset-4">Clear them</button></>
+              ? <>No runs match these filters. <button type="button" onClick={clearFilters} className="text-primary underline underline-offset-4">Clear Filters</button></>
               : <>No runs yet. <Link href={`/project/${projectId}/tasks`} className="text-primary underline underline-offset-4">Discover and run tasks</Link></>}
           </div>
         ) : (

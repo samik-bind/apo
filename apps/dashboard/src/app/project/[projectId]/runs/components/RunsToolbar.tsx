@@ -214,7 +214,7 @@ export function RunsToolbar({
               onClick={onClearFilters}
               className="underline-offset-2 hover:text-foreground/70 hover:underline"
             >
-              Clear filters
+              Clear Filters
             </button>
           )}
           <span>

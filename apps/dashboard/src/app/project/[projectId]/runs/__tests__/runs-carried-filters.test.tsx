@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { RunsClient } from "@/app/project/[projectId]/runs/runs-client";
@@ -92,9 +92,10 @@ describe("Runs page with filters carried in", () => {
     // with the navigation.
     const user = userEvent.setup();
     renderRuns("model=claude-opus-5&since=5d");
-    expect(screen.getByText(/No runs match these filters/)).toBeInTheDocument();
+    const emptyState = screen.getByText(/No runs match these filters/);
+    expect(emptyState).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Clear them" }));
+    await user.click(within(emptyState).getByRole("button", { name: "Clear Filters" }));
     expect(replace).toHaveBeenCalledWith("/project/acme/runs", {
       scroll: false,
     });

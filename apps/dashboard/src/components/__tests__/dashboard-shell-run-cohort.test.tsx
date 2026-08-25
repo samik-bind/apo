@@ -11,7 +11,8 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import { DashboardShell } from "../dashboard-shell";
-import { usePublishRunCohort, type RunCohort } from "@/lib/run-cohort";
+import type { RunCohort } from "@/lib/run-cohort";
+import { usePublishRunCohort } from "@/lib/run-cohort-context";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/project/acme/tasks",

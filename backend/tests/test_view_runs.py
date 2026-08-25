@@ -25,7 +25,7 @@ from apo.models.db import (
     UserDB,
 )
 from apo.models.schemas import TaskViewConfig
-from apo.services.view_runs import ViewRun, runs_in_view
+from apo.services.view_runs import ViewRun, runs_in_view, since_cutoff
 from tests.conftest import seed_project_for_user
 
 _PROJECT = "proj-cohort"
@@ -154,6 +154,11 @@ def test_runs_in_view_filters_by_since(session: Session) -> None:
     run_ids = {r.run_id for r in runs}
     assert "a-opus-old" not in run_ids
     assert run_ids == {"a-opus-new", "a-deep", "b-opus"}
+
+
+def test_since_cutoff_rejects_out_of_range_window() -> None:
+    """A malformed URL filter must not turn a listing request into a 500."""
+    assert since_cutoff("999999999999999999d") is None
 
 
 def test_runs_in_view_scopes_to_task_ids(session: Session) -> None:

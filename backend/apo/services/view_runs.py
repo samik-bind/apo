@@ -77,8 +77,8 @@ def since_cutoff(since: str | None) -> datetime | None:
     """Resolve a ``since`` preset to a UTC cutoff.
 
     Accepts ``Nh`` (hours) or ``Nd`` (days), e.g. ``"5h"``, ``"3d"``. Returns
-    ``None`` for all-time (no preset / unparseable). Owned here so the cohort
-    is the single authority on what a date window means.
+    ``None`` for all-time (no preset, unparseable, or out of range). Owned here
+    so the cohort is the single authority on what a date window means.
     """
     if not since:
         return None
@@ -87,7 +87,7 @@ def since_cutoff(since: str | None) -> datetime | None:
             return datetime.now(timezone.utc) - timedelta(hours=int(since[:-1]))
         if since.endswith("d"):
             return datetime.now(timezone.utc) - timedelta(days=int(since[:-1]))
-    except ValueError:
+    except (OverflowError, ValueError):
         pass
     return None
 
