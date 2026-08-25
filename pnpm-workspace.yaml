@@ -7,7 +7,12 @@ allowBuilds:
   msgpackr-extract: true
   msw: true
   protobufjs: false
-  sharp: true
+  # sharp's install script only picks source-vs-prebuilt; when it picks
+  # source (global libvips present, or a Node too new for its check) the
+  # node-gyp build fails and aborts the whole workspace install (#153),
+  # even though the @img prebuilt binary works fine. Skip the script —
+  # the prebuild installs as a no-script optional dependency.
+  sharp: false
   unrs-resolver: true
 minimumReleaseAgeExclude:
   - '@vitest/coverage-v8@4.1.9'

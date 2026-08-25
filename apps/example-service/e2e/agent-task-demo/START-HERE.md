@@ -44,10 +44,10 @@ Then work from this directory:
 cd apps/example-service/e2e/agent-task-demo
 ```
 
-Use Node 22 or 24 (LTS). On Node 25 the demo site's `sharp` dependency has
-no prebuilt binary yet and its failed build aborts the install — task
-execution itself never needs it, so staying on LTS is the supported path
-until sharp catches up.
+Use Node 22 or 24 (LTS); Node 25 also works. The demo site's `sharp`
+dependency (via Next.js) ships prebuilt binaries that install without
+running its build script — its native source build is disabled in
+`pnpm-workspace.yaml` precisely so it can never abort the install (#153).
 
 ## Run it
 
