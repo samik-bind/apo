@@ -286,6 +286,17 @@ with `runTask(dir, { judge: { model, apiKey?, baseURL? } })`, or set
 same recorder and result format as code assertions, including model, prompt,
 response, token usage, and latency metadata.
 
+A task can also set its own judge layer (`task("id", { judge: { model?, prompt? } })`)
+that overrides the run-level config and is itself overridden per `t.judge`
+call — resolution is `run-level ← task-level ← per-call`, field by field.
+`prompt` is a builder `(ctx) => ({ system?, user? })` that receives what the
+judge is grading (`taskId`, `taskDescription?`, `checkName`, `instruction`,
+`deliverableNames?`) so the briefing can say what a bare deliverable + rubric
+never revealed. The SDK appends its JSON response contract to any custom
+`system` — a builder customizes the briefing, never the response format. Keep
+`system` constant per task and vary only `user` to preserve the cached prompt
+prefix across a task's criteria (issue #161).
+
 **Testing agents not built on apo's adapter.** Build a `Flow` from the
 framework's own output with a normalizer, then run the same checks:
 

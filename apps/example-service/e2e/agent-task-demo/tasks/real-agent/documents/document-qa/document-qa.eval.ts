@@ -10,6 +10,12 @@
  *
  * Layers: trajectory → fact table (regex + similarity) → judges (grounding,
  * completeness).
+ *
+ * The task-level `judge` config (issue #161) briefs the judges with what
+ * they are grading: the task, its description, the check name, and which
+ * deliverable they are reading. The briefing's `system` is constant for the
+ * whole task so both judges share one cached prompt prefix; only the
+ * per-check `user` text varies.
  */
 import {
   task,
@@ -35,6 +41,21 @@ const { test: check } = task("document-qa", {
   metadata: { category: "comprehension", difficulty: "easy" },
   maxTurns: 2,
   deliverables: ["result", "tool_log", "stats"],
+  judge: {
+    // Brief the judges (issue #161). Without this, a judge sees a bare
+    // deliverable + one-sentence rubric and tends to treat every element
+    // of the rubric as a checklist item — e.g. failing "answers cite spec
+    // sections" because a parenthetical example wasn't reproduced verbatim.
+    prompt: (ctx) => ({
+      system:
+        `You are grading deliverable(s) [${ctx.deliverableNames?.join(", ")}] of ` +
+        `the task "${ctx.taskId}": ${ctx.taskDescription ?? "(no description)"}\n` +
+        `Read the rubric as a whole: an example in parentheses illustrates what ` +
+        `to look for, it does not add a requirement. Judge the substance the ` +
+        `agent produced, not whether it echoes the rubric's wording.`,
+      user: `Check "${ctx.checkName}":\n${ctx.instruction}`,
+    }),
+  },
 });
 
 // Objective facts from spec.md. Most are exact-match regex (version numbers,

@@ -23,7 +23,7 @@ import {
 } from "../checks/flow-runner.ts";
 import { createProjectionTee } from "../trace-projection/projection-tee.ts";
 import { readTaskRunProjection } from "../trace-projection/remote-capture.ts";
-import type { JudgeConfig } from "../checks/t.ts";
+import { resolveJudgeConfig, type JudgeConfig } from "../checks/t.ts";
 import { APO_TASK_ID, APO_TASK_RUN_ID } from "../../semconv.ts";
 import { aggregateResult } from "./aggregate.ts";
 import type { AgentTaskTraceContext, AgentTaskTraceOptions } from "../tracing.ts";
@@ -407,6 +407,9 @@ async function executeLoadedTask(
           summarizeEvaluationResults(result as EvaluationItemResult[]),
       },
       async () => {
+        // Task-level judge config beats the run-level one (#161); per-call
+        // overrides are applied later, inside t.judge.
+        const judgeConfig = resolveJudgeConfig(options?.judge, task.judge);
         if (!inlineChecks) {
           return loadAndRunFlowChecks(
             checksPath,
@@ -415,7 +418,7 @@ async function executeLoadedTask(
               deliverables: collected,
               files,
               task,
-              judgeConfig: options?.judge,
+              ...(judgeConfig ? { judgeConfig } : {}),
             },
             validationResults.brokenDeliverables,
           );
@@ -428,7 +431,7 @@ async function executeLoadedTask(
           ),
           files,
           task,
-          judgeConfig: options?.judge,
+          ...(judgeConfig ? { judgeConfig } : {}),
           moduleUrl,
           displayFile: evalFileName,
         });
@@ -650,13 +653,17 @@ async function evaluate(
     validationResults.brokenDeliverables,
   );
 
+  // Task-level judge config beats the run-level one (#161); per-call
+  // overrides are applied later, inside t.judge.
+  const judgeConfig = resolveJudgeConfig(options?.judge, task.judge);
+
   const checksResults = await (inlineChecks
     ? runTraceChecks({
         snapshot: phase1.snapshot,
         deliverables,
         files,
         task,
-        judgeConfig: options?.judge,
+        ...(judgeConfig ? { judgeConfig } : {}),
         moduleUrl,
         displayFile: evalFileName,
       })
@@ -667,7 +674,7 @@ async function evaluate(
           deliverables,
           files,
           task,
-          judgeConfig: options?.judge,
+          ...(judgeConfig ? { judgeConfig } : {}),
         },
         validationResults.brokenDeliverables,
       ));

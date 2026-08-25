@@ -15,7 +15,7 @@ import type { AssertionOutcome } from "../run/types.ts";
 import type { Recorder } from "./recorder.ts";
 import type { Matcher, ValueMatcher } from "./matchers.ts";
 import { describeValue, matchValue } from "./matchers.ts";
-import { callJudge } from "./judge.ts";
+import { callJudge, type JudgeCallContext, type JudgePromptBuilder } from "./judge.ts";
 
 /** A tool/agent name matcher: literal (exact), RegExp, or predicate. */
 export type NameMatcher = string | RegExp | ((name: string) => boolean);
@@ -31,7 +31,8 @@ export type ToolCallOptions = {
 /**
  * LLM judge model config for `t.judge(...)` calls in checks.ts. Threaded
  * through `runTask({ judge })` from the caller — the runner has no opinion
- * about which model grades a deliverable.
+ * about which model grades a deliverable. A task definition may also set a
+ * `judge` layer of its own; see {@link resolveJudgeConfig} for precedence.
  */
 export type JudgeConfig = {
   /** Model id, e.g. ``"google/gemini-2.5-flash-lite"``. */
@@ -40,16 +41,38 @@ export type JudgeConfig = {
   baseURL?: string;
   /** Override the API key (defaults to env). */
   apiKey?: string;
+  /**
+   * Build a custom judge briefing from the threaded context (#161). The SDK
+   * keeps ownership of the JSON response contract — see
+   * {@link JudgePromptBuilder}.
+   */
+  prompt?: JudgePromptBuilder;
 };
 
 /**
- * Resolves the judge config for a single ``t.judge`` call: merges a per-call
- * ``opts.judge`` override onto the run-level ``judgeConfig``, field-by-field.
+ * What a check knows about its scope when it invokes the judge — the
+ * task-level frame threaded from the runner plus the deliverables the check
+ * has read so far.
+ */
+export type JudgeScope = {
+  taskId: string;
+  taskDescription?: string;
+  checkName: string;
+  /** Deliverable keys read so far, recorded by the check runner. */
+  readDeliverableNames?: () => string[];
+};
+
+/**
+ * Resolves the judge config for a single ``t.judge`` call by merging
+ * field-by-field, most specific layer winning:
+ *
+ * ``run-level (runTask({ judge })) ← task-level (TaskDefinition.judge) ← per-call (t.judge opts)``
+ *
  * Returns ``undefined`` when the result has no model — callers should treat
  * that as "no judge configured" and record the env-setup guidance. (The model
  * is the only required field, so it's the one worth gating on.)
  */
-function resolveJudgeConfig(
+export function resolveJudgeConfig(
   judgeConfig: JudgeConfig | undefined,
   override: Partial<JudgeConfig> | undefined,
 ): JudgeConfig | undefined {
@@ -59,6 +82,7 @@ function resolveJudgeConfig(
     model,
     baseURL: override?.baseURL ?? judgeConfig?.baseURL,
     apiKey: override?.apiKey ?? judgeConfig?.apiKey,
+    prompt: override?.prompt ?? judgeConfig?.prompt,
   };
 }
 
@@ -169,8 +193,7 @@ export function createTestContext(
   rec: Recorder,
   judgeConfig?: JudgeConfig,
 ): TestContext {
-  return {
-    calledTool(name, opts) {
+  return {    calledTool(name, opts) {
       const count = view.toolCalls.filter((call) =>
         matchesToolCall(call, name, opts),
       ).length;
@@ -321,59 +344,88 @@ export function createTestContext(
       });
     },
 
-    async judge(values, instruction, opts) {
-      const label = opts?.label ?? "judge";
-      // Capture the call site BEFORE any await. After `await callJudge` resumes,
-      // V8 reports this caller's frame at an unreliable line (often the
-      // statement's closing `});`), which placed the failure marker on the
-      // wrong line. Pinning it here lands the marker on `await t.judge(`.
-      const location = rec.captureLocation();
-      const valueArray = Array.isArray(values) ? values : [values];
-      const effective = resolveJudgeConfig(judgeConfig, opts?.judge);
-      if (!effective) {
-        rec.record(
-          label,
-          false,
-          "No judge model configured. Set one of:\n" +
-          "• OPENROUTER_MODEL + OPENROUTER_API_KEY (OpenRouter — works with 200+ models, one account)\n" +
-          "• OPENAI_MODEL + OPENAI_API_KEY (OpenAI direct)\n" +
-          "Or pass { judge } to runTask() programmatically.",
-          { evaluator_type: "llm", location },
-        );
-        return;
-      }
-      try {
-        const { pass, reasoning, judge } = await callJudge({
-          values: valueArray,
-          instruction,
-          model: effective.model,
-          baseURL: effective.baseURL,
-          apiKey: effective.apiKey,
-        });
-        rec.record(label, pass, reasoning, {
+    judge: createJudgeMethod(rec, judgeConfig),
+  };
+}
+
+/**
+ * The `t.judge` implementation, shared by both test contexts. Records a
+ * single LLM assertion (or an explanatory failure when no judge is
+ * configured / the provider errors). `judgeScope`, when present, threads
+ * the task/check frame into the judge context for prompt builders (#161).
+ */
+function createJudgeMethod(
+  rec: Recorder,
+  judgeConfig: JudgeConfig | undefined,
+  judgeScope?: JudgeScope,
+): TestContext["judge"] {
+  return async (values, instruction, opts) => {
+    const label = opts?.label ?? "judge";
+    // Capture the call site BEFORE any await. After `await callJudge` resumes,
+    // V8 reports this caller's frame at an unreliable line (often the
+    // statement's closing `});`), which placed the failure marker on the
+    // wrong line. Pinning it here lands the marker on `await t.judge(`.
+    const location = rec.captureLocation();
+    const valueArray = Array.isArray(values) ? values : [values];
+    const effective = resolveJudgeConfig(judgeConfig, opts?.judge);
+    if (!effective) {
+      rec.record(
+        label,
+        false,
+        "No judge model configured. Set one of:\n" +
+        "• OPENROUTER_MODEL + OPENROUTER_API_KEY (OpenRouter — works with 200+ models, one account)\n" +
+        "• OPENAI_MODEL + OPENAI_API_KEY (OpenAI direct)\n" +
+        "Or pass { judge } to runTask() programmatically.",
+        { evaluator_type: "llm", location },
+      );
+      return;
+    }
+    const context = judgeScopeToContext(judgeScope);
+    try {
+      const { pass, reasoning, judge } = await callJudge({
+        values: valueArray,
+        instruction,
+        model: effective.model,
+        baseURL: effective.baseURL,
+        apiKey: effective.apiKey,
+        prompt: effective.prompt,
+        ...(context ? { context } : {}),
+      });
+      rec.record(label, pass, reasoning, {
+        evaluator_type: "llm",
+        judge,
+        expected: instruction,
+        // Store the raw evaluated value (not a truncated string) so the
+        // dashboard can render it with the right viewer — Markdown for
+        // prose, a JSON tree for structured objects.
+        received: valueArray.length === 1 ? valueArray[0] : valueArray,
+        location,
+      });
+    } catch (error) {
+      rec.record(
+        label,
+        false,
+        `judge failed: ${error instanceof Error ? error.message : String(error)}`,
+        {
           evaluator_type: "llm",
-          judge,
           expected: instruction,
-          // Store the raw evaluated value (not a truncated string) so the
-          // dashboard can render it with the right viewer — Markdown for
-          // prose, a JSON tree for structured objects.
           received: valueArray.length === 1 ? valueArray[0] : valueArray,
           location,
-        });
-      } catch (error) {
-        rec.record(
-          label,
-          false,
-          `judge failed: ${error instanceof Error ? error.message : String(error)}`,
-          {
-            evaluator_type: "llm",
-            expected: instruction,
-            received: valueArray.length === 1 ? valueArray[0] : valueArray,
-            location,
-          },
-        );
-      }
-    },
+        },
+      );
+    }
+  };
+}
+
+/** Assemble the judge-call context from the threaded scope, if any. */
+function judgeScopeToContext(scope: JudgeScope | undefined): JudgeCallContext | undefined {
+  if (!scope) return undefined;
+  const deliverableNames = scope.readDeliverableNames?.();
+  return {
+    taskId: scope.taskId,
+    checkName: scope.checkName,
+    ...(scope.taskDescription !== undefined ? { taskDescription: scope.taskDescription } : {}),
+    ...(deliverableNames && deliverableNames.length > 0 ? { deliverableNames } : {}),
   };
 }
 
@@ -402,6 +454,7 @@ export function createTraceTestContext(
   view: TraceView,
   rec: Recorder,
   judgeConfig?: JudgeConfig,
+  judgeScope?: JudgeScope,
 ): TestContext {
   const unsupported = (
     id: string,
@@ -618,53 +671,9 @@ export function createTraceTestContext(
       );
     },
 
-    async judge(values, instruction, opts) {
-      // judge does not consult trace capabilities.
-      const label = opts?.label ?? "judge";
-      const location = rec.captureLocation();
-      const valueArray = Array.isArray(values) ? values : [values];
-      const effective = resolveJudgeConfig(judgeConfig, opts?.judge);
-      if (!effective) {
-        rec.record(
-          label,
-          false,
-          "No judge model configured. Set one of:\n" +
-          "• OPENROUTER_MODEL + OPENROUTER_API_KEY (OpenRouter — works with 200+ models, one account)\n" +
-          "• OPENAI_MODEL + OPENAI_API_KEY (OpenAI direct)\n" +
-          "Or pass { judge } to runTask() programmatically.",
-          { evaluator_type: "llm", location },
-        );
-        return;
-      }
-      try {
-        const { pass, reasoning, judge } = await callJudge({
-          values: valueArray,
-          instruction,
-          model: effective.model,
-          baseURL: effective.baseURL,
-          apiKey: effective.apiKey,
-        });
-        rec.record(label, pass, reasoning, {
-          evaluator_type: "llm",
-          judge,
-          expected: instruction,
-          received: valueArray.length === 1 ? valueArray[0] : valueArray,
-          location,
-        });
-      } catch (error) {
-        rec.record(
-          label,
-          false,
-          `judge failed: ${error instanceof Error ? error.message : String(error)}`,
-          {
-            evaluator_type: "llm",
-            expected: instruction,
-            received: valueArray.length === 1 ? valueArray[0] : valueArray,
-            location,
-          },
-        );
-      }
-    },
+    // judge does not consult trace capabilities; the scope carries the
+    // task/check frame for prompt builders (#161).
+    judge: createJudgeMethod(rec, judgeConfig, judgeScope),
   };
 }
 

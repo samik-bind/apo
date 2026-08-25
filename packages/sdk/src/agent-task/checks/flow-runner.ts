@@ -196,14 +196,24 @@ export async function runTraceChecks(args: {
       ? (stack) => parseCheckLocation(stack, args.moduleUrl!, args.displayFile!)
       : undefined;
 
+  // Task frame for judge briefings (#161): the id/description every
+  // `t.judge` call in this run can be briefed with.
+  const taskMeta = readTaskMeta(args.task);
+
   const results = await Promise.all(
     registry.map(async (check) => {
       const rec = new Recorder(locate);
-      const t = createTraceTestContext(view, rec, args.judgeConfig);
+      const reads = trackDeliverableReads(args.deliverables);
+      const t = createTraceTestContext(view, rec, args.judgeConfig, {
+        taskId: taskMeta.id ?? "",
+        ...(taskMeta.description !== undefined ? { taskDescription: taskMeta.description } : {}),
+        checkName: check.id,
+        readDeliverableNames: reads.names,
+      });
       let thrownLocation: CheckLocation | undefined;
       try {
         await check.fn(t, {
-          deliverables: args.deliverables,
+          deliverables: reads.proxied,
           files: args.files,
           task: args.task,
         });
@@ -315,4 +325,43 @@ export function proxyBrokenDeliverables(
       return Reflect.get(target, property, receiver);
     },
   });
+}
+
+/**
+ * Read the judge-briefing fields off the (deliberately untyped) task object:
+ * `id` and `description` per the TaskDefinition. Values arrive defensively
+ * narrowed because this module never imports task types.
+ */
+function readTaskMeta(task: unknown): { id?: string; description?: string } {
+  if (!task || typeof task !== "object") return {};
+  const record = task as { id?: unknown; description?: unknown };
+  return {
+    ...(typeof record.id === "string" ? { id: record.id } : {}),
+    ...(typeof record.description === "string" ? { description: record.description } : {}),
+  };
+}
+
+/**
+ * Wrap a check's deliverables so reads are recorded in order. `t.judge`
+ * reports the keys read so far as `deliverableNames` in its context — the
+ * judge's briefing can then say whether it is reading the memo or the
+ * redline, which positional values alone never revealed (#161).
+ */
+function trackDeliverableReads(deliverables: Record<string, unknown>): {
+  proxied: Record<string, unknown>;
+  names: () => string[];
+} {
+  const read = new Set<string>();
+  const proxied = new Proxy(deliverables, {
+    get(target, property, receiver) {
+      if (
+        typeof property === "string" &&
+        Object.prototype.hasOwnProperty.call(target, property)
+      ) {
+        read.add(property);
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  return { proxied, names: () => [...read] };
 }

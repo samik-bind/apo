@@ -23,6 +23,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { JudgeConfig } from "../checks/t.ts";
+import { resolveJudgeConfig } from "../checks/t.ts";
 import {
   loadAndRunFlowChecks,
   proxyBrokenDeliverables,
@@ -230,9 +231,12 @@ export async function rejudgeTaskRun(
 
     const passCounts = new Map<string, number>();
     let primary: EvaluationItemResult[] = [];
+    // Task-level judge config beats the caller-supplied one (#161), same as
+    // a live run. The key never reaches the resolved config's report below.
+    const judgeConfig = resolveJudgeConfig(options.judge, loaded.task.judge);
     for (let sample = 0; sample < samples; sample++) {
       if (samples > 1) progress(`judging sample ${sample + 1}/${samples}`);
-      const results = await runChecksOnce(loaded, proxied, snapshot, options.judge);
+      const results = await runChecksOnce(loaded, proxied, snapshot, judgeConfig);
       if (sample === 0) primary = results;
       for (const result of results) {
         passCounts.set(result.id, (passCounts.get(result.id) ?? 0) + (result.pass ? 1 : 0));
@@ -251,10 +255,10 @@ export async function rejudgeTaskRun(
       taskId: detail.task_id,
       definitionRevisionId: revisionId,
       definitionRevisionIsPinned: revisionIsPinned,
-      judge: options.judge
+      judge: judgeConfig
         ? {
-            model: options.judge.model,
-            baseURL: options.judge.baseURL ?? process.env.OPENROUTER_BASE_URL,
+            model: judgeConfig.model,
+            baseURL: judgeConfig.baseURL ?? process.env.OPENROUTER_BASE_URL,
           }
         : null,
       samples,

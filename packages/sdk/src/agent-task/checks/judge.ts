@@ -12,9 +12,43 @@ export type JudgeCallResult = {
   judge: JudgeMetadata;
 };
 
+/**
+ * What a judge call is grading — everything the SDK knows that a bare
+ * (deliverable, instruction) pair withholds (#161). Threaded automatically
+ * from the task definition and the check registry; consumed by
+ * {@link JudgePromptBuilder}.
+ */
+export type JudgeContext = {
+  /** The task being graded (`TaskDefinition.id`). */
+  taskId: string;
+  /** `TaskDefinition.description`, when the task sets one. */
+  taskDescription?: string;
+  /** The name of the check invoking the judge (the `test(...)` id). */
+  checkName: string;
+  /** The rubric instruction for this call. */
+  instruction: string;
+  /** Deliverable keys the check read before judging, in read order. */
+  deliverableNames?: string[];
+};
+
+/**
+ * Builds the judge *briefing* — not the whole prompt. The SDK appends its
+ * own response contract to whatever `system` comes back and keeps
+ * `response_format`, so a builder cannot break verdict parsing. Keep the
+ * returned `system` constant per task (vary only `user`) to preserve the
+ * cached prompt prefix across a task's criteria.
+ */
+export type JudgePromptBuilder = (ctx: JudgeContext) => {
+  system?: string;
+  user?: string;
+};
+
+const JUDGE_RESPONSE_CONTRACT =
+  'Respond with ONLY a JSON object: {"pass": true/false, "reasoning": "your reasoning"}';
+
 const JUDGE_SYSTEM_PROMPT =
   "You are an evaluation judge. Evaluate the given value(s) against the " +
-  'instruction. Respond with ONLY a JSON object: {"pass": true/false, "reasoning": "your reasoning"}';
+  `instruction. ${JUDGE_RESPONSE_CONTRACT}`;
 
 function formatValue(value: unknown, depth = 0): string {
   const indent = "  ".repeat(depth);
@@ -167,6 +201,10 @@ export async function callJudge(args: {
   model: string;
   baseURL?: string;
   apiKey?: string;
+  /** Custom briefing builder; the response contract stays SDK-owned. */
+  prompt?: JudgePromptBuilder;
+  /** What is being graded — threaded to the builder. */
+  context?: JudgeCallContext;
 }): Promise<JudgeCallResult> {
   const baseURL = args.baseURL ?? process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1";
   const apiKey = args.apiKey ?? process.env.OPENROUTER_API_KEY ?? process.env.OPENAI_API_KEY;
@@ -178,12 +216,20 @@ export async function callJudge(args: {
   // extension that OpenRouter passes through, and is ignored harmlessly by
   // providers without prompt caching. See issue #21.
   const deliverableText = `Values to evaluate:\n${formatJudgeValues(args.values)}`;
-  const instructionText = `Instruction:\n${args.instruction}`;
-  const systemPromptText = `${JUDGE_SYSTEM_PROMPT}\n\n${deliverableText}`;
 
-  // The cached prefix is model + system blocks; the varying instruction lives
-  // in the user message, so it's excluded from the key.
-  const cacheKey = `${args.model}\u0000${deliverableText}`;
+  // Briefing: today's fixed one-liner, or a caller's builder. The SDK always
+  // appends its own response contract (#161): a builder that elicited
+  // `{"verdict": "pass"}` instead would make every criterion silently FAIL,
+  // so the contract is never the caller's to write.
+  const { briefingText, instructionText } = assembleBriefing(args);
+
+  const systemPromptText = `${briefingText}\n\n${deliverableText}`;
+
+  // The cached prefix is model + briefing + system blocks; the varying
+  // instruction lives in the user message, so it's excluded from the key.
+  // The briefing must be part of the key: once prompts vary per task, two
+  // different briefings grading one deliverable would otherwise collide (#161).
+  const cacheKey = `${args.model}\u0000${briefingText}\u0000${deliverableText}`;
 
   return runWithSharedPrefix(cacheKey, async () => {
     const startedAt = Date.now();
@@ -200,7 +246,7 @@ export async function callJudge(args: {
           {
             role: "system",
             content: [
-              { type: "text", text: JUDGE_SYSTEM_PROMPT },
+              { type: "text", text: briefingText },
               {
                 type: "text",
                 text: deliverableText,
@@ -272,4 +318,50 @@ export async function callJudge(args: {
       },
     };
   });
+}
+
+/**
+ * The scope parts a caller knows before the instruction — `instruction` is
+ * merged in here, so callers never duplicate it.
+ */
+export type JudgeCallContext = Omit<JudgeContext, "instruction">;
+
+/**
+ * Resolve the briefing + user text for one judge call. With no builder (or a
+ * builder that returns nothing) this is today's prompt byte-for-byte, so no
+ * existing score moves until a caller opts in (#161 compatibility).
+ */
+function assembleBriefing(args: {
+  instruction: string;
+  prompt?: JudgePromptBuilder;
+  context?: JudgeCallContext;
+}): { briefingText: string; instructionText: string } {
+  if (!args.prompt) {
+    return {
+      briefingText: JUDGE_SYSTEM_PROMPT,
+      instructionText: `Instruction:\n${args.instruction}`,
+    };
+  }
+
+  const ctx: JudgeContext = {
+    taskId: args.context?.taskId ?? "",
+    checkName: args.context?.checkName ?? "",
+    ...(args.context?.taskDescription !== undefined
+      ? { taskDescription: args.context.taskDescription }
+      : {}),
+    ...(args.context?.deliverableNames !== undefined &&
+      args.context.deliverableNames.length > 0
+      ? { deliverableNames: args.context.deliverableNames }
+      : {}),
+    instruction: args.instruction,
+  };
+  const built = args.prompt(ctx);
+
+  const system = built.system?.trim();
+  const user = built.user?.trim();
+  return {
+    // The SDK appends its own response contract to any custom briefing.
+    briefingText: system ? `${system}\n\n${JUDGE_RESPONSE_CONTRACT}` : JUDGE_SYSTEM_PROMPT,
+    instructionText: user ?? `Instruction:\n${args.instruction}`,
+  };
 }

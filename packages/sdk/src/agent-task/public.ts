@@ -75,7 +75,12 @@ export type {
   NameMatcher,
   ToolCallOptions,
   JudgeConfig,
+  JudgeScope,
 } from "./checks/t.ts";
+export type {
+  JudgeContext,
+  JudgePromptBuilder,
+} from "./checks/judge.ts";
 export { TEST_METHOD_NAMES } from "./checks/t.ts";
 export type { Flow, FlowEvent, ToolCallStatus } from "./flow/types.ts";
 export { FlowView } from "./flow/view.ts";
