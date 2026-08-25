@@ -10,7 +10,6 @@ parses query params and delegates; everything from the base
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel
 from sqlalchemy import desc, func, or_
@@ -32,6 +31,7 @@ from ..services.agent_task_projection import (
     to_batch_run_summary,
 )
 from ..services.archived_models import load_archived_models
+from ..services.view_runs import since_cutoff
 
 
 class EffortFacetOption(BaseModel):
@@ -77,9 +77,6 @@ class BatchRunListPagination:
     @property
     def offset(self) -> int:
         return self.page * self.page_size
-
-
-_SINCE_HOURS: dict[str, int] = {"1h": 1, "24h": 24, "7d": 168, "30d": 720}
 
 
 def list_batch_run_summaries(
@@ -152,11 +149,12 @@ def _apply_base_filters(
         base = base.where(AgentTaskBatchRunDB.project == filters.project)
     if filters.status:
         base = base.where(AgentTaskBatchRunDB.status == filters.status)
-    if filters.since:
-        hours = _SINCE_HOURS.get(filters.since, 0)
-        if hours:
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-            base = base.where(col(AgentTaskBatchRunDB.created_at) >= cutoff)
+    # Same ``Nh``/``Nd`` vocabulary the evidence-view cohort uses, so a date
+    # window carried over from the Tasks page filters here instead of being
+    # silently dropped (a fixed preset table read "5d" as all-time).
+    cutoff = since_cutoff(filters.since)
+    if cutoff is not None:
+        base = base.where(col(AgentTaskBatchRunDB.created_at) >= cutoff)
     if filters.search:
         pattern = f"%{filters.search}%"
         base = base.where(

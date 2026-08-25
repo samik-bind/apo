@@ -13,12 +13,11 @@ import {
 import { cn } from "@/lib/utils";
 import { ModelFilterMenu } from "@/components/model-filter-menu";
 import { shortModel } from "@/lib/run-configuration";
+import { ALL_SINCE_VALUE, sinceOptionsFor } from "@/lib/since-window";
 
 import { FilterPicker } from "./FilterPicker";
 import {
-  ALL_SINCE_VALUE,
   MAIN_VIEW_ID,
-  SINCE_OPTIONS,
   STATUS_FILTERS,
   type ViewTab,
 } from "./task-list-shared";
@@ -219,7 +218,7 @@ export function EvidenceViewsBar({
             <FilterPicker
               label="Date"
               value={active.since ?? ALL_SINCE_VALUE}
-              options={SINCE_OPTIONS}
+              options={sinceOptionsFor(active.since)}
               onChange={(value) => onChange({ since: value === ALL_SINCE_VALUE ? null : value })}
             />
             {viewsActive && (

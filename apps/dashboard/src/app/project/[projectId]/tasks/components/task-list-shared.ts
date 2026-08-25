@@ -18,19 +18,6 @@ export interface ViewTab {
   since: string | null;  // "7d" | "30d" | "90d" | null (all time)
 }
 
-export const SINCE_OPTIONS = [
-  { value: "__all__", label: "All time" },
-  { value: "5h", label: "5 hours" },
-  { value: "1d", label: "1 day" },
-  { value: "2d", label: "2 days" },
-  { value: "3d", label: "3 days" },
-  { value: "5d", label: "5 days" },
-  { value: "7d", label: "7 days" },
-  { value: "14d", label: "14 days" },
-  { value: "30d", label: "30 days" },
-];
-export const ALL_SINCE_VALUE = "__all__";
-
 export const STATUS_FILTERS = [
   { key: "passed", label: "Passed", dot: "bg-success" },
   { key: "failed", label: "Failed", dot: "bg-destructive" },

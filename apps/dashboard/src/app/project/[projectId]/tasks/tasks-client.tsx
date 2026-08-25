@@ -5,6 +5,7 @@ import { type AgentTaskSummary } from "@/lib/agent-task-api";
 import { Button } from "@/components/ui/button";
 
 import { useProjectId, useIsDemo } from "@/lib/project-router";
+import { usePublishRunCohort } from "@/lib/run-cohort";
 import type { ProjectTaskSource } from "@/lib/projects-api";
 import type { ProjectFirstRunSetup } from "@/lib/first-run";
 
@@ -62,6 +63,15 @@ export function AgentTasksClient({
     closeView,
     setModelArchivedState,
   } = useEvidenceViews({ projectId, isDemoProject, tasks });
+
+  // The active tab is a model/effort/date cohort. Publish it so the Runs nav
+  // link opens the same cohort instead of the unfiltered run list; Main
+  // publishes an empty cohort, which leaves the link plain.
+  usePublishRunCohort({
+    model: activeView.model,
+    effort: activeView.effort,
+    since: activeView.since,
+  });
 
   const statusFilteredTasks = useMemo<AgentTaskSummary[]>(() => {
     if (statusFilter.size === STATUS_FILTER_KEYS.length) return effectiveTasks;

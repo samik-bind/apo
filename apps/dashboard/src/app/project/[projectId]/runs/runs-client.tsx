@@ -115,19 +115,50 @@ export function RunsClient({
     [projectId, router],
   );
 
-  // Effort filter — only show when exactly one model is selected and that
-  // model has 2+ effort tiers (same pattern as the tasks page).
-  const selectedModelArr = Array.from(selectedModels);
-  const effortOptions = useMemo(() => {
-    if (selectedModelArr.length !== 1) return [];
-    const facet = modelFacets.find((f) => f.model === selectedModelArr[0]);
-    return facet && facet.efforts.length > 1 ? facet.efforts : [];
-  }, [modelFacets, selectedModelArr]);
-
   const selectedEfforts = useMemo(() => {
     const raw = searchParams.get("effort") ?? "";
     return new Set(raw.split(",").filter(Boolean));
   }, [searchParams]);
+
+  // Effort filter — normally shown only when exactly one model is selected and
+  // that model has 2+ effort tiers (same pattern as the tasks page). An effort
+  // the URL already selects is always listed, whatever the facets hold: a
+  // cohort carried in from Tasks, or a shared link, must never leave a filter
+  // applied but invisible and unclearable.
+  const selectedModelArr = Array.from(selectedModels);
+  const effortOptions = useMemo(() => {
+    const facet =
+      selectedModelArr.length === 1
+        ? modelFacets.find((f) => f.model === selectedModelArr[0])
+        : undefined;
+    const known = facet?.efforts ?? [];
+    const missing = Array.from(selectedEfforts)
+      .filter((e) => !known.some((k) => k.effort === e))
+      .map((effort) => ({ effort, count: 0 }));
+    if (selectedEfforts.size === 0 && known.length < 2) return [];
+    return [...known, ...missing];
+  }, [modelFacets, selectedModelArr, selectedEfforts]);
+
+  // Filters can arrive with the navigation now (a cohort carried over from
+  // Tasks), so both the way back to the full list and the empty state have to
+  // tell the difference between "no runs" and "none match".
+  const hasActiveFilters =
+    urlQ !== "" ||
+    urlStatus !== "" ||
+    urlSince !== null ||
+    selectedModels.size > 0 ||
+    selectedEfforts.size > 0;
+
+  const clearFilters = useCallback(() => {
+    updateUrl({
+      q: null,
+      status: null,
+      model: null,
+      effort: null,
+      since: null,
+      page: null,
+    });
+  }, [updateUrl]);
 
   const handlePageChange = useCallback(
     (newPage: number) => {
@@ -170,7 +201,9 @@ export function RunsClient({
         modelOptions={modelOptions}
         effortOptions={effortOptions}
         totalCount={totalCount}
+        hasActiveFilters={hasActiveFilters}
         updateUrl={updateUrl}
+        onClearFilters={clearFilters}
         onSetArchived={setModelArchivedState}
       />
 
@@ -184,9 +217,9 @@ export function RunsClient({
         ) : batchRuns.length === 0 ? (
           <div className="m-6 rounded-md border border-dashed border-border bg-card/40 p-10 text-center text-[13px] text-muted-foreground">
             <History className="mx-auto mb-2 h-5 w-5 text-muted-foreground/50" />
-            {totalCount === 0
-              ? <>No runs yet. <Link href={`/project/${projectId}/tasks`} className="text-primary underline underline-offset-4">Discover and run tasks</Link></>
-              : "No runs match your filters."}
+            {hasActiveFilters
+              ? <>No runs match these filters. <button type="button" onClick={clearFilters} className="text-primary underline underline-offset-4">Clear them</button></>
+              : <>No runs yet. <Link href={`/project/${projectId}/tasks`} className="text-primary underline underline-offset-4">Discover and run tasks</Link></>}
           </div>
         ) : (
           <Table density="compact">

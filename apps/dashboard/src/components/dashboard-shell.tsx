@@ -22,6 +22,11 @@ import {
   dashboardAllItems,
   dashboardPrimaryNavGroups,
 } from "@/lib/dashboard-ia";
+import {
+  hrefWithRunCohort,
+  RunCohortProvider,
+  useRunCohort,
+} from "@/lib/run-cohort";
 
 export function DashboardShell({
   children,
@@ -30,7 +35,24 @@ export function DashboardShell({
   children: React.ReactNode;
   projectId: string;
 }) {
+  // The provider wraps both the nav and the page, so the page can publish the
+  // cohort it is showing and the nav can hand it to the next page.
+  return (
+    <RunCohortProvider>
+      <DashboardChrome projectId={projectId}>{children}</DashboardChrome>
+    </RunCohortProvider>
+  );
+}
+
+function DashboardChrome({
+  children,
+  projectId,
+}: {
+  children: React.ReactNode;
+  projectId: string;
+}) {
   const pathname = usePathname();
+  const runCohort = useRunCohort();
   const p = (path: string) => `/project/${projectId}${path}`;
   const activeNav =
     dashboardAllItems.find((item) => pathname.startsWith(p(item.href))) ??
@@ -55,10 +77,16 @@ export function DashboardShell({
                 <SidebarMenu>
                   {group.items.map((item) => {
                     const Icon = item.icon;
-                    const href = p(item.href);
-                    const isActive = pathname.startsWith(href);
+                    const base = p(item.href);
+                    const isActive = pathname.startsWith(base);
+                    // Carry the cohort the current page is showing, so leaving
+                    // Tasks narrowed to one model lands on the matching runs
+                    // rather than the unfiltered list.
+                    const href = item.carriesRunCohort
+                      ? hrefWithRunCohort(base, runCohort)
+                      : base;
                     return (
-                      <SidebarMenuItem key={href}>
+                      <SidebarMenuItem key={base}>
                         <SidebarMenuButton asChild isActive={isActive}>
                           <Link href={href}>
                             <Icon className="size-4" suppressHydrationWarning />

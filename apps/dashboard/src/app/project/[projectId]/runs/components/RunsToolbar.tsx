@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { shortModel } from "@/lib/run-configuration";
+import { ALL_SINCE_VALUE, sinceOptionsFor } from "@/lib/since-window";
 import { ModelFilterMenu } from "@/components/model-filter-menu";
 
 import { type ModelOption } from "../runs-model-filter";
@@ -27,7 +28,10 @@ interface RunsToolbarProps {
   modelOptions: ModelOption[];
   effortOptions: EffortFacetOption[];
   totalCount: number;
+  /** Any filter dimension in play — typed here or carried in from Tasks. */
+  hasActiveFilters: boolean;
   updateUrl: (updates: Record<string, string | null>) => void;
+  onClearFilters: () => void;
   /** Retire a model from the palette, or bring it back. */
   onSetArchived: (model: string, archived: boolean) => void;
 }
@@ -46,7 +50,9 @@ export function RunsToolbar({
   modelOptions,
   effortOptions,
   totalCount,
+  hasActiveFilters,
   updateUrl,
+  onClearFilters,
   onSetArchived,
 }: RunsToolbarProps) {
   const [searchInput, setSearchInput] = useState(urlQ);
@@ -149,7 +155,8 @@ export function RunsToolbar({
           />
         </label>
 
-        {/* Effort filter — shown only when one model selected with 2+ tiers */}
+        {/* Effort filter — shown when one model selected with 2+ tiers, or
+            whenever an effort is already selected (see runs-client) */}
         {effortOptions.length > 0 && (
           <label htmlFor="runs-effort-filter" className="flex shrink-0 items-center gap-1.5">
             <span className="text-[11px] uppercase tracking-wide text-foreground/50">Effort</span>
@@ -160,14 +167,14 @@ export function RunsToolbar({
                 else updateUrl({ effort: v, page: null });
               }}
             >
-              <SelectTrigger id="runs-effort-filter" size="sm" className="h-7 w-[100px] bg-muted/40 text-[12px]">
+              <SelectTrigger id="runs-effort-filter" data-testid="runs-effort-filter" size="sm" className="h-7 w-[100px] bg-muted/40 text-[12px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__any" className="text-[12px]">Any</SelectItem>
                 {effortOptions.map((e) => (
                   <SelectItem key={e.effort} value={e.effort} className="text-[12px]">
-                    {e.effort} ({e.count})
+                    {e.count > 0 ? `${e.effort} (${e.count})` : e.effort}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -179,23 +186,37 @@ export function RunsToolbar({
         <label htmlFor="runs-date-filter" className="flex shrink-0 items-center gap-1.5">
           <span className="text-[11px] uppercase tracking-wide text-foreground/50">Date</span>
           <Select
-            value={urlSince ?? "all"}
-            onValueChange={(v) => updateUrl({ since: v === "all" ? null : v, page: null })}
+            value={urlSince ?? ALL_SINCE_VALUE}
+            onValueChange={(v) =>
+              updateUrl({ since: v === ALL_SINCE_VALUE ? null : v, page: null })
+            }
           >
-            <SelectTrigger id="runs-date-filter" size="sm" className="h-7 w-[90px] bg-muted/40 text-[12px]">
+            <SelectTrigger id="runs-date-filter" data-testid="runs-date-filter" size="sm" className="h-7 w-[100px] bg-muted/40 text-[12px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all" className="text-[12px]">All time</SelectItem>
-              <SelectItem value="1h" className="text-[12px]">1 hour</SelectItem>
-              <SelectItem value="24h" className="text-[12px]">24 hours</SelectItem>
-              <SelectItem value="7d" className="text-[12px]">7 days</SelectItem>
-              <SelectItem value="30d" className="text-[12px]">30 days</SelectItem>
+              {sinceOptionsFor(urlSince).map((o) => (
+                <SelectItem key={o.value} value={o.value} className="text-[12px]">
+                  {o.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </label>
 
         <div className="ml-auto flex items-center gap-3 text-[12px] text-muted-foreground">
+          {/* Filters can arrive with the navigation (a cohort carried over from
+              Tasks), so the way back to the full list has to be one click. */}
+          {hasActiveFilters && (
+            <button
+              type="button"
+              data-testid="runs-clear-filters"
+              onClick={onClearFilters}
+              className="underline-offset-2 hover:text-foreground/70 hover:underline"
+            >
+              Clear filters
+            </button>
+          )}
           <span>
             <span className="font-medium text-foreground">{totalCount}</span> runs
           </span>

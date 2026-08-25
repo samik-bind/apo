@@ -142,6 +142,36 @@ def test_batch_list_search_matches_environment(session: Session):
     assert ids == ["b1"]
 
 
+def test_batch_list_since_filter(session: Session):
+    session.add(_batch("recent", created_at=_NOW - timedelta(hours=2)))
+    session.add(_batch("old", created_at=_NOW - timedelta(days=9)))
+    session.commit()
+
+    ids, _, _ = _query_batches(session, BatchRunListFilters(since="7d"))
+    assert ids == ["recent"]
+
+
+def test_batch_list_since_accepts_any_hour_or_day_window(session: Session):
+    """Every ``Nh``/``Nd`` window filters — not just the four the old
+    preset table listed. The Tasks page offers windows like ``5d``, and a
+    window it carries into this listing must narrow it rather than silently
+    read as all-time."""
+    session.add(_batch("recent", created_at=_NOW - timedelta(days=3)))
+    session.add(_batch("old", created_at=_NOW - timedelta(days=8)))
+    session.commit()
+
+    ids, _, _ = _query_batches(session, BatchRunListFilters(since="5d"))
+    assert ids == ["recent"]
+
+
+def test_batch_list_since_unparseable_means_all_time(session: Session):
+    session.add(_batch("b1", created_at=_NOW - timedelta(days=400)))
+    session.commit()
+
+    ids, _, _ = _query_batches(session, BatchRunListFilters(since="nonsense"))
+    assert ids == ["b1"]
+
+
 # ---------------------------------------------------------------------------
 # Batch listing: model facets
 # ---------------------------------------------------------------------------

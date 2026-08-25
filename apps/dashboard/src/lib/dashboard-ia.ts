@@ -16,6 +16,12 @@ export type DashboardIAItem = {
   href: string;
   icon: DashboardIcon;
   description?: string;
+  /**
+   * This destination reads the run cohort (model / effort / date window) from
+   * the URL, so nav to it carries whatever cohort the current page published.
+   * See `lib/run-cohort`.
+   */
+  carriesRunCohort?: boolean;
 };
 
 export type DashboardIAGroup = {
@@ -44,6 +50,7 @@ const dashboardIAGroups: DashboardIAGroup[] = [
         href: "/runs",
         icon: Layers,
         description: "Task run history — expand a run to see its task executions",
+        carriesRunCohort: true,
       },
       {
         label: "Schedules",
