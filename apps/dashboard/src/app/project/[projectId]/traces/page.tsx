@@ -22,14 +22,6 @@ export default async function TracesPage({
   const queryParams = await searchParams;
   const view = typeof queryParams.view === "string" ? queryParams.view : "list";
 
-  // PROTOTYPE gate (?variant=A|B|C): renders the throwaway mobile-UX
-  // prototype instead of the standard layout. Delete when decided — see
-  // prototype-mobile.tsx / PROTOTYPE-NOTES.md.
-  const prototypeVariant =
-    queryParams.variant === "A" || queryParams.variant === "B" || queryParams.variant === "C"
-      ? queryParams.variant
-      : undefined;
-
   const page = queryParams.page ? Number(queryParams.page) : 0;
   const pageSize = queryParams.page_size ? Number(queryParams.page_size) : 40;
   let paginatedData: PaginatedTraceSummary | null = null;
@@ -87,7 +79,6 @@ export default async function TracesPage({
       <main className="h-full flex flex-col">
         <TracesPageClient
           projectId={projectId}
-          prototypeVariant={prototypeVariant}
           traces={paginatedData?.data ?? []}
           error={error}
           pagination={paginatedData ? {
@@ -116,7 +107,6 @@ export default async function TracesPage({
     <main className="h-full flex flex-col">
       <TracesPageClient
         projectId={projectId}
-        prototypeVariant={prototypeVariant}
         traces={paginatedData?.data ?? []}
         error={error}
         pagination={paginatedData ? {
