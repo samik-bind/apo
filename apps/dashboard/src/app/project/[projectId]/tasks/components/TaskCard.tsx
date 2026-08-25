@@ -12,6 +12,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { formatCostMicro } from "@/lib/format";
 import { useProjectId } from "@/lib/project-router";
+import { hrefWithRunCohort } from "@/lib/run-cohort";
+import { useRunCohort } from "@/lib/run-cohort-context";
 import { taskDetailHref } from "@/lib/task-routes";
 
 import { PassBar } from "./PassBar";
@@ -32,10 +34,14 @@ export function TaskCard({
   toggleTask: (id: string) => void;
 }) {
   const projectId = useProjectId();
+  // The active evidence view is a question ("what did this cohort do?"). The
+  // task's stats already answer it scoped; carry the cohort into the detail
+  // page so the run history answers the same question (Main = empty cohort).
+  const cohort = useRunCohort();
   const s = status !== "idle" ? STATUS_CONFIG[status] : null;
   return (
     <Link
-      href={taskDetailHref(projectId, task.id)}
+      href={hrefWithRunCohort(taskDetailHref(projectId, task.id), cohort)}
       className={cn(
         "group/card relative block border px-2 py-3 transition-colors",
         isSel

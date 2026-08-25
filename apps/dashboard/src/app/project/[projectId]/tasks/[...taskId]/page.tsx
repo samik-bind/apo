@@ -9,6 +9,8 @@ import { TaskRunHistory } from "./task-run-history";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { FolderOpen } from "lucide-react";
+import { sinceLabel } from "@/lib/since-window";
+import { taskDetailHref } from "@/lib/task-routes";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,25 @@ export const dynamic = "force-dynamic";
 // hierarchical paths with slashes (e.g. "openai-agent/data-extraction").
 // Join the captured segments back into the slash-delimited id the API expects.
 const joinTaskId = (segments: string[]): string => segments.join("/");
+
+// The run-history cohort, carried from the Tasks page's active evidence view
+// (`?model=&effort=&since=`, the same vocabulary the Runs page reads). Absent
+// params mean all-history. See `lib/run-cohort`.
+interface CohortSearchParams {
+  model?: string;
+  effort?: string;
+  since?: string;
+}
+
+function parseCohort(
+  query: Record<string, string | string[] | undefined>,
+): CohortSearchParams {
+  const first = (key: string): string | undefined => {
+    const value = query[key];
+    return typeof value === "string" && value ? value : undefined;
+  };
+  return { model: first("model"), effort: first("effort"), since: first("since") };
+}
 
 // Tab title: "Task: <display_name>". Falls back to "Task" on any failure.
 export async function generateMetadata({
@@ -37,11 +58,18 @@ const EMPTY_TASK_RUNS: Awaited<ReturnType<typeof listTaskRuns>> = [];
 
 export default async function TaskDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ projectId: string; taskId: string[] }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { projectId, taskId: taskIdSegments } = await params;
+  const [{ projectId, taskId: taskIdSegments }, query] = await Promise.all([
+    params,
+    searchParams,
+  ]);
   const taskId = joinTaskId(taskIdSegments);
+  const cohort = parseCohort(query);
+  const cohortActive = cohort.model !== undefined || cohort.effort !== undefined || cohort.since !== undefined;
 
   let task: Awaited<ReturnType<typeof getProjectAgentTask>> | null = null;
   let taskRuns = EMPTY_TASK_RUNS;
@@ -50,7 +78,7 @@ export default async function TaskDetailPage({
   try {
     const [resolved, runs] = await Promise.all([
       getProjectAgentTask(projectId, taskId),
-      listTaskRuns(taskId, projectId),
+      listTaskRuns(taskId, projectId, cohort),
     ]);
     task = resolved;
     taskRuns = runs;
@@ -98,8 +126,30 @@ export default async function TaskDetailPage({
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <Badge variant="outline" className="font-mono text-[10px]">{task.folder_path || "(root)"}</Badge>
           <Badge variant="outline" className="text-[10px]">{fileCount} files</Badge>
-          <Badge variant="outline" className="text-[10px]">{taskRuns.length} task runs</Badge>
+          <Badge variant="outline" className="text-[10px]">
+            {taskRuns.length} task runs{cohortActive ? " in view" : ""}
+          </Badge>
         </div>
+        {cohortActive && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span>Run history scoped to:</span>
+            {cohort.model && (
+              <Badge variant="outline" className="font-mono text-[10px]">{cohort.model}</Badge>
+            )}
+            {cohort.effort && (
+              <Badge variant="outline" className="text-[10px]">effort: {cohort.effort}</Badge>
+            )}
+            {cohort.since && (
+              <Badge variant="outline" className="text-[10px]">last {sinceLabel(cohort.since)}</Badge>
+            )}
+            <Link
+              href={taskDetailHref(projectId, taskId)}
+              className="ml-1 underline underline-offset-4 hover:text-foreground"
+            >
+              All history
+            </Link>
+          </div>
+        )}
 
       </div>
 

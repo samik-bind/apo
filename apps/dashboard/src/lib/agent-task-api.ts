@@ -606,13 +606,32 @@ export const getProjectAgentTask = async (
   return { ...task, latest_run: null };
 };
 
+/**
+ * Run-history cohort filters. These are the Tasks page evidence-view
+ * dimensions (see `run-cohort`); a task-detail drill-down sends the active
+ * view's values so the run list shows exactly the cohort the task card's
+ * stats were scoped to.
+ */
+export interface TaskRunCohortFilter {
+  model?: string;
+  effort?: string;
+  since?: string;
+}
+
 export const listTaskRuns = (
   taskId: string,
   project?: string,
+  cohort?: TaskRunCohortFilter,
 ): Promise<AgentTaskRunSummary[]> =>
   apiClient("/v1/agent-task-runs", {
     ...NO_CACHE,
-    query: { task_id: taskId, project },
+    query: {
+      task_id: taskId,
+      project,
+      model: cohort?.model,
+      effort: cohort?.effort,
+      since: cohort?.since,
+    },
   });
 
 export const createAgentTaskBatchRun = (

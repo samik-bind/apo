@@ -2,7 +2,7 @@
 
 # pyright: reportAny=false
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
@@ -230,6 +230,28 @@ def test_task_run_list_filter_is_exact_and_case_sensitive(
     assert {r["id"] for r in client.get("/v1/agent-task-runs", params={"project": "proj-filter", "model": "terra"}).json()} == set()
     # Exact case matches.
     assert {r["id"] for r in client.get("/v1/agent-task-runs", params={"project": "proj-filter", "model": "Terra"}).json()} == {"r"}
+
+
+def test_task_run_list_filters_since_window_over_started_at(
+    client: TestClient,
+    session: Session,
+) -> None:
+    """?since=Nd keeps only runs newer than the cutoff (the evidence-view vocabulary)."""
+    now = datetime.now(timezone.utc)
+    session.add_all([_batch("b", "proj-since", now)])
+    session.add_all(
+        [
+            _run("r-fresh", "b", "task-1", now - timedelta(hours=2)),
+            _run("r-stale", "b", "task-1", now - timedelta(days=9)),
+        ]
+    )
+    session.commit()
+
+    base = "/v1/agent-task-runs"
+    assert {r["id"] for r in client.get(base, params={"project": "proj-since"}).json()} == {"r-fresh", "r-stale"}
+    assert {r["id"] for r in client.get(base, params={"project": "proj-since", "since": "7d"}).json()} == {"r-fresh"}
+    # Unparseable presets degrade to all-time, matching the view-cohort rule.
+    assert {r["id"] for r in client.get(base, params={"project": "proj-since", "since": "nope"}).json()} == {"r-fresh", "r-stale"}
 
 
 def test_batch_run_list_filter_matches_only_when_one_child_satisfies_all_dimensions(

@@ -4,7 +4,9 @@
  * Tasks and Runs answer different questions about the same cohort, and they
  * hold it in different places: Tasks in the active evidence-view tab and Runs
  * in the URL. This value object is the small, framework-free handoff between
- * those two representations.
+ * those two representations. The task detail page is the third consumer: task
+ * cards link into it with the cohort as query params, so its run history
+ * answers the same question the task list's stats were scoped to.
  *
  * Status and search deliberately do not travel: status has different meanings
  * on the two pages, and their search boxes match different fields.

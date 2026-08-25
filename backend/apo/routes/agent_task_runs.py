@@ -55,6 +55,7 @@ from ..services.agent_task_projection import (
     to_batch_run_detail,
     to_task_run_summary,
 )
+from ..services.view_runs import since_cutoff
 from ..services.demo_workspace import require_project_not_demo
 from ..services.project_task_sources import get_task_source_db
 from ..services.agent_task_runner import (
@@ -640,6 +641,7 @@ async def list_agent_task_runs(
     batch_run_id: str | None = Query(default=None),
     model: list[str] | None = Query(default=None),
     effort: list[str] | None = Query(default=None),
+    since: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
     """List all task runs, optionally filtered.
@@ -647,6 +649,9 @@ async def list_agent_task_runs(
     ``model``/``effort`` are repeatable and exact/case-sensitive.
     Repeated values within one dimension OR; the two dimensions AND. A run
     with an unreported configuration (NULL columns) never matches.
+    ``since`` is a ``"Nh"``/``"Nd"`` window over ``started_at`` (the same
+    vocabulary the Tasks evidence views use), so a task-detail drill-down
+    can show exactly the cohort the view was scoped to.
 
     SPEC-178: the list is scoped to the caller's readable Projects. An
     explicit ``project`` is authorized before use; omitting it returns
@@ -680,6 +685,9 @@ async def list_agent_task_runs(
         query = query.where(col(AgentTaskRunDB.configured_model).in_(model))
     if effort:
         query = query.where(col(AgentTaskRunDB.configured_effort).in_(effort))
+    since_cutoff_value = since_cutoff(since)
+    if since_cutoff_value is not None:
+        query = query.where(col(AgentTaskRunDB.started_at) >= since_cutoff_value)
 
     query = query.order_by(desc(as_column(cast(object, AgentTaskRunDB.started_at))))
     task_runs = session.exec(query).all()

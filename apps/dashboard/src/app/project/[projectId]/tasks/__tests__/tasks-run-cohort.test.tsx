@@ -80,6 +80,9 @@ const taskSource = {
 const runsHref = () =>
   screen.getByRole("link", { name: "Runs" }).getAttribute("href");
 
+const taskHref = () =>
+  screen.getByRole("link", { name: /refund/ }).getAttribute("href");
+
 describe("Tasks page cohort handoff", () => {
   it("points at the unfiltered run list while Main is active", () => {
     render(
@@ -93,6 +96,7 @@ describe("Tasks page cohort handoff", () => {
       </DashboardShell>,
     );
     expect(runsHref()).toBe("/project/acme/runs");
+    expect(taskHref()).toBe("/project/acme/tasks/support/refund");
   });
 
   it("narrows the Runs link to the model the view filters on", async () => {
@@ -115,6 +119,33 @@ describe("Tasks page cohort handoff", () => {
 
     await waitFor(() =>
       expect(runsHref()).toBe("/project/acme/runs?model=claude-opus-5"),
+    );
+  });
+
+  it("carries the view cohort into the task detail link", async () => {
+    const user = userEvent.setup();
+    render(
+      <DashboardShell projectId="acme">
+        <AgentTasksClient
+          tasks={tasks}
+          error={null}
+          taskSource={taskSource}
+          isDemo={false}
+        />
+      </DashboardShell>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Model filter" }));
+    await user.click(
+      await screen.findByRole("menuitemcheckbox", { name: /claude-opus-5/ }),
+    );
+
+    // The card's stats are scoped to the view; the detail page's run history
+    // must land on the same cohort, not all-history.
+    await waitFor(() =>
+      expect(taskHref()).toBe(
+        "/project/acme/tasks/support/refund?model=claude-opus-5",
+      ),
     );
   });
 });
