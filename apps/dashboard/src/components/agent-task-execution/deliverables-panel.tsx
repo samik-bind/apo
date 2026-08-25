@@ -14,6 +14,8 @@ import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Download, FileText, Loader2 } from "lucide-react";
 import { ExpandableJson } from "@/components/ExpandableJson";
 import { ShikiCodeBlock } from "@/components/shiki-code-block";
+import { DeliverableMarkdown } from "@/components/agent-task-execution/deliverable-markdown";
+import { looksLikeMarkdown } from "@/lib/looks-like-markdown";
 import {
   type DeliverableSummary,
   fetchDeliverableBody,
@@ -125,6 +127,9 @@ function BodyValue({ value }: { value: unknown }) {
   const isString = typeof value === "string";
   if (isObject) {
     return <ExpandableJson data={value} className="!rounded-none !border-0 !shadow-none" />;
+  }
+  if (isString && looksLikeMarkdown(value)) {
+    return <DeliverableMarkdown text={value} />;
   }
   const code = isString ? value : String(value ?? "");
   return <ShikiCodeBlock code={code} language="text" className="!rounded-none !border-0" />;

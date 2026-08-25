@@ -4,6 +4,8 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight, FileText } from "lucide-react";
 import { ExpandableJson } from "@/components/ExpandableJson";
 import { ShikiCodeBlock } from "@/components/shiki-code-block";
+import { DeliverableMarkdown } from "@/components/agent-task-execution/deliverable-markdown";
+import { looksLikeMarkdown } from "@/lib/looks-like-markdown";
 
 export function DeliverablesView({ deliverables }: { deliverables: Record<string, unknown> }) {
   const entries = Object.entries(deliverables);
@@ -50,6 +52,8 @@ function DeliverableFile({ name, value }: { name: string; value: unknown }) {
         <div className="border-t border-border/50 bg-background/50">
           {isObject ? (
             <ExpandableJson data={value} className="!rounded-none !border-0 !shadow-none" />
+          ) : isString && looksLikeMarkdown(value) ? (
+            <DeliverableMarkdown text={value} />
           ) : (
             <ShikiCodeBlock code={code} language="text" className="!rounded-none !border-0" />
           )}
