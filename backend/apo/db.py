@@ -728,6 +728,56 @@ def _migrate_to_v30() -> None:
         _normalize_run_and_trace_statuses(conn)
 
 
+def _migrate_to_v31() -> None:
+    """Version 31 (issue #159): judgment records for re-judged Task Runs.
+
+    Existing DBs gain the ``agent_task_judgments`` table. Nothing is
+    backfilled: the original verdict keeps living on the run row + check
+    report and is synthesized as the trigger=``original`` judgment on read.
+    New DBs already have the table (``create_all`` runs before migrations),
+    so the DDL is a guarded no-op there.
+    """
+    with engine.begin() as conn:
+        _migrate_judgment_schema(conn)
+
+
+def _migrate_judgment_schema(conn: Connection) -> None:
+    if "agent_task_judgments" in _get_table_names(conn):
+        return
+    id_type = "TEXT" if is_sqlite() else "VARCHAR"
+    timestamp_type = "DATETIME" if is_sqlite() else "TIMESTAMPTZ"
+    conn.exec_driver_sql(
+        f"""
+        CREATE TABLE agent_task_judgments (
+            id {id_type} PRIMARY KEY,
+            task_run_id {id_type} NOT NULL
+                REFERENCES agent_task_runs(id) ON DELETE CASCADE,
+            project {id_type} NOT NULL,
+            trigger VARCHAR NOT NULL DEFAULT 'rejudge',
+            label {id_type},
+            judge_model {id_type},
+            judge_base_url {id_type},
+            task_definition_revision_id {id_type}
+                REFERENCES task_definition_revisions(id),
+            samples INTEGER NOT NULL DEFAULT 1,
+            pass_result BOOLEAN,
+            total_checks INTEGER NOT NULL DEFAULT 0,
+            passed_checks INTEGER NOT NULL DEFAULT 0,
+            failed_checks INTEGER NOT NULL DEFAULT 0,
+            checks_json JSON,
+            stability_json JSON,
+            created_at {timestamp_type} NOT NULL
+        )
+        """
+    )
+    _create_index_if_not_exists(
+        conn, "ix_agent_task_judgments_task_run_id", "agent_task_judgments", "task_run_id"
+    )
+    _create_index_if_not_exists(
+        conn, "ix_agent_task_judgments_project", "agent_task_judgments", "project"
+    )
+
+
 def _normalize_run_and_trace_statuses(conn: Connection) -> None:
     """Idempotently rewrite non-canonical run/trace statuses to canonical values.
 
@@ -2128,7 +2178,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 30
+LATEST_SCHEMA_VERSION = 31
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2161,6 +2211,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     28: _migrate_to_v28,
     29: _migrate_to_v29,
     30: _migrate_to_v30,
+    31: _migrate_to_v31,
 }
 
 

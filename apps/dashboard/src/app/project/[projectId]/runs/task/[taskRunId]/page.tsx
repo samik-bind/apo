@@ -1,4 +1,4 @@
-import { getAgentTaskRun } from "@/lib/agent-task-api";
+import { getAgentTaskRun, listAgentTaskRunJudgments } from "@/lib/agent-task-api";
 import type { Metadata } from "next";
 import { Button } from "@/components/ui/button";
 import { TraceHomeLink } from "@/components/trace-detail";
@@ -21,6 +21,7 @@ import { OutcomeSummary } from "@/components/run-outcome";
 import { formatTokenTotal, formatCostMicro } from "@/lib/format";
 import { getProject } from "@/lib/projects-api";
 import GenerationExecutionNotice from "@/components/generation-execution-notice";
+import { RunJudgmentsSection } from "./run-judgments-section";
 
 export const dynamic = "force-dynamic";
 
@@ -122,6 +123,13 @@ export default async function TaskRunDetailPage({
   // awaited here (after the guards) so the error path never waits on it.
   const project = await projectPromise;
   const sourceType = project?.task_source?.source_type ?? null;
+
+  // Issue #159: judgments only exist once a run was re-judged. Non-fatal —
+  // the section just stays hidden if the read fails.
+  const judgments =
+    (taskRun.judgments_count ?? 0) > 0
+      ? await listAgentTaskRunJudgments(taskRunId).catch(() => null)
+      : null;
 
   const checks = taskRun.checks_json ?? [];
   const checksPassed = checks.filter((c) => c.pass === true).length;
@@ -276,6 +284,10 @@ export default async function TaskRunDetailPage({
             ]}
           />
         </div>
+
+        {judgments && judgments.judgments.length > 0 && (
+          <RunJudgmentsSection taskRunId={taskRun.id} judgments={judgments.judgments} />
+        )}
 
         <GenerationExecutionNotice
           execution={taskRun.generation_execution ?? null}

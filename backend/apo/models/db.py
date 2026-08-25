@@ -606,6 +606,66 @@ class AgentTaskDeliverableDB(SQLModel, table=True):
     ready_at: datetime | None = None
 
 
+class AgentTaskJudgmentDB(SQLModel, table=True):
+    """Issue #159: a recorded re-evaluation of a completed Task Run.
+
+    A Run's verdict is welded to the judge that ran it; a judgment is the
+    outcome of replaying the Run's Phase-2 checks against its stored
+    Deliverables — typically under a different judge model, fixed check
+    code, or for a per-criterion stability estimate (``samples > 1``).
+
+    Only ``rejudge`` judgments are stored. The Run's original verdict stays
+    where it always lived (run scalar columns + ``AgentTaskCheckReportDB``)
+    and is synthesized as the trigger=``original`` judgment on read, so
+    nothing that reads runs today changes meaning and the original is never
+    overwritten. Replay always records the full check set — there is no
+    per-check re-judging, which would ratchet a ~16%-unstable verdict
+    toward PASS.
+
+    Retention mirrors check reports: the FK is ``ON DELETE CASCADE`` and
+    retention pre-deletes judgment rows when the Run's Batch is purged.
+    """
+
+    __tablename__: ClassVar[str] = "agent_task_judgments"
+
+    id: str = Field(primary_key=True, default_factory=lambda: f"jdg_{uuid4().hex[:16]}")
+    task_run_id: str = Field(
+        foreign_key="agent_task_runs.id",
+        index=True,
+    )
+    # Denormalized from the Run's Batch for project-scoped queries, mirroring
+    # AgentTaskDeliverableDB.
+    project: str = Field(index=True)
+    trigger: str = "rejudge"
+    label: str | None = None
+    # Resolved judge configuration actually used — model and base URL only;
+    # an API key is never recorded.
+    judge_model: str | None = None
+    judge_base_url: str | None = None
+    task_definition_revision_id: str | None = Field(
+        default=None, foreign_key="task_definition_revisions.id"
+    )
+    samples: int = 1
+    pass_result: bool | None = None
+    total_checks: int = 0
+    passed_checks: int = 0
+    failed_checks: int = 0
+    # Full check evidence from the primary sample, same shape as
+    # agent_task_check_reports.value_json.
+    checks_json: list[dict[str, object]] | None = Field(
+        default=None, sa_column=Column("checks_json", JSON)
+    )
+    # Per-check pass counts across samples, e.g.
+    # [{"check_id": "...", "passes": 2, "samples": 5}]. Null for samples=1.
+    stability_json: list[dict[str, object]] | None = Field(
+        default=None, sa_column=Column("stability_json", JSON)
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+
+
 class AgentTaskScheduleDB(SQLModel, table=True):
     __tablename__: ClassVar[str] = "agent_task_schedules"
 

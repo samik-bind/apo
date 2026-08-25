@@ -231,6 +231,31 @@ export interface AgentTaskRunDetail extends AgentTaskRunSummary {
   error_category: string | null;
   /** SPEC-169: pinned Task Definition for CodeMirror source display. */
   task_definition?: TaskDefinitionRevisionSummary | null;
+  /** Issue #159: recorded rejudge judgments. The verdict above stays canonical. */
+  judgments_count?: number;
+}
+
+/** Issue #159: one judgment on a Task Run (original or rejudge). */
+export interface AgentTaskJudgmentSummary {
+  id: string;
+  task_run_id: string;
+  trigger: "original" | "rejudge";
+  label: string | null;
+  judge_model: string | null;
+  judge_base_url: string | null;
+  task_definition_revision_id: string | null;
+  definition_revision_matches_run: boolean | null;
+  samples: number;
+  pass_result: boolean | null;
+  total_checks: number;
+  passed_checks: number;
+  failed_checks: number;
+  created_at: string | null;
+}
+
+export interface AgentTaskJudgmentsResponse {
+  task_run_id: string;
+  judgments: AgentTaskJudgmentSummary[];
 }
 
 export interface AgentTaskBatchRunSummary {
@@ -594,6 +619,12 @@ export const getAgentTaskRun = (
   taskRunId: string,
 ): Promise<AgentTaskRunDetail> =>
   apiClient(`/v1/agent-task-runs/${encodeURIComponent(taskRunId)}`, NO_CACHE);
+
+/** Issue #159: a run's judgments — original first, rejudges newest first. */
+export const listAgentTaskRunJudgments = (
+  taskRunId: string,
+): Promise<AgentTaskJudgmentsResponse> =>
+  apiClient(`/v1/agent-task-runs/${encodeURIComponent(taskRunId)}/judgments`, NO_CACHE);
 
 export function listTaskFiles(
   taskId: string,

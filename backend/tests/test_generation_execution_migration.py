@@ -15,7 +15,7 @@ from apo.db import (
 
 
 def test_v29_is_registered() -> None:
-    assert LATEST_SCHEMA_VERSION == 30
+    assert LATEST_SCHEMA_VERSION == 31
     assert _SCHEMA_MIGRATIONS[29].__name__ == "_migrate_to_v29"
 
 

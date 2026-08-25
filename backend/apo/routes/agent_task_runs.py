@@ -46,6 +46,7 @@ from ..services.agent_task_batch_listing import (
 )
 from ..services.agent_task_deliverables import derive_deliverables_json
 from ..services.check_report_storage import load_check_report
+from ..services.judgments import count_judgments
 from ..services.agent_task_outcome import classify_run_outcome
 from ..services.agent_task_run_access import require_task_run_access
 from ..services.agent_task_projection import (
@@ -211,6 +212,7 @@ def _build_task_run_detail(
             task_run.configured_model, task_run.configured_effort
         ),
         task_definition=task_definition,
+        judgments_count=count_judgments(session, task_run.id),
     )
 
 

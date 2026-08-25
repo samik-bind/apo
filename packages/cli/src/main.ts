@@ -226,6 +226,49 @@ const commands: Record<string, CommandEntry> = {
     ],
     note: "Accepts run-id prefixes. Requires backend auth. Fetches only the manifest, then exactly one body when a name is given — never the whole run. Binary artifacts require --output on an interactive terminal (use '.' to keep the original filename). Supports --json.",
   },
+  "runs rejudge": {
+    handler: loadCommand("runs-rejudge"),
+    help: "Re-judge a completed run against its stored deliverables — without re-running the agent",
+    args: [
+      ["<run-id>", "Run ID, unique prefix, or 'last'"],
+    ],
+    options: [
+      ["--judge-model <m>", "Judge model for t.judge checks (default: AGENT_TASK_JUDGE_MODEL / OPENROUTER_MODEL / OPENAI_MODEL env)"],
+      ["--judge-base-url <url>", "OpenAI-compatible base URL for the judge (default: OPENROUTER_BASE_URL / OPENAI_BASE_URL env)"],
+      ["--samples <n>", "Judge the same deliverables n times (1-50) for a per-criterion stability measure"],
+      ["--dry-run", "Run the replay but do not record a judgment (LLM judge calls still cost money)"],
+      ["--label <text>", "Operator label recorded on the judgment, e.g. 'sonnet-4.5 calibration'"],
+      ["--definition-revision <id>", "Score against this revision instead of the run's pinned one (stamped on the judgment)"],
+      ["--task-dir <path>", "Local checkout of the task directory (enables relative imports + fixture files)"],
+      ["--verbose", "Show all assertions incl. LLM judge responses"],
+      ["--exit-status", "Exit non-zero if the re-judged verdict fails (for CI / scripting)"],
+      ["--task <id>", "Filter 'last' to the latest run of a specific task"],
+    ],
+    examples: [
+      "apo runs rejudge last                       # same judge config, replay checks",
+      "apo runs rejudge de89cab --judge-model anthropic/claude-sonnet-4.5",
+      "apo runs rejudge de89cab --samples 5 --label 'judge variance'",
+      "apo runs rejudge de89cab --dry-run",
+    ],
+    note: "Replays the run's FULL check set against its stored deliverables and records a new judgment — the original verdict is never overwritten. Judge API key comes from OPENROUTER_API_KEY / OPENAI_API_KEY env. Requires the run's deliverables to be complete. Trajectory assertions need the run's trace projection; without it they are recorded as unsupported.",
+  },
+  "runs judgments": {
+    handler: loadCommand("runs-judgments"),
+    help: "List a run's judgments (original + re-judges), or show one judgment's checks",
+    args: [
+      ["<run-id>", "Run ID, unique prefix, or 'last'"],
+      ["[judgment-id]", "Judgment ID — omit to list all judgments as summaries"],
+    ],
+    options: [
+      ["--task <id>", "Filter 'last' to the latest run of a specific task"],
+    ],
+    examples: [
+      "apo runs judgments de89cab",
+      "apo runs judgments de89cab jdg_9f2a1c",
+      "apo runs judgments last --task meeting-summary",
+    ],
+    note: "The original verdict is the first row (trigger=original). Re-judge with `apo runs rejudge <run-id>`. Supports --json.",
+  },
   "traces list": {
     handler: loadCommand("traces-list"),
     help: "List recent traces from backend",

@@ -1,6 +1,6 @@
 import { parseArgs, getFlagValue } from "../lib/args.ts";
 import { resolveConfig } from "../lib/config.ts";
-import { bold, dim, formatCost, formatJson, formatTime, passFail } from "../lib/format.ts";
+import { bold, dim, formatCost, formatJson, formatTime, passFail, yellow } from "../lib/format.ts";
 import { apiGet } from "../lib/api.ts";
 import type { CheckResult, DeliverableSummary } from "../lib/agent-task-types.ts";
 import { formatChecks, NO_CHECKS_REGISTERED_MESSAGE } from "../lib/checks-format.ts";
@@ -38,6 +38,8 @@ type RunDetail = {
   transcript_json: Record<string, unknown> | null;
   deliverables?: DeliverableSummary[];
   run_configuration?: { model: string; effort?: string | null } | null;
+  task_definition?: { id?: string } | null;
+  judgments_count?: number;
 };
 
 type GenerationExecution = {
@@ -165,6 +167,12 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
 
   if (run.total_checks > 0) {
     console.log(`  Checks:   ${run.passed_checks}/${run.total_checks} passed (${run.failed_checks} failed)`);
+  }
+  if ((run.judgments_count ?? 0) > 0) {
+    console.log(
+      yellow(`  Judgments: ${run.judgments_count} re-judged ${run.judgments_count === 1 ? "verdict" : "verdicts"} on record `) +
+        dim(`(apo runs judgments ${run.id})`),
+    );
   }
   if (run.generation_execution && run.generation_execution.errored > 0) {
     console.log(

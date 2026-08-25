@@ -97,6 +97,14 @@ export type {
 } from "./run/types.ts";
 export { runTask, AgentTaskRunError, type RunTaskOptions } from "./run/runTask.ts";
 export {
+  rejudgeTaskRun,
+  RejudgeError,
+  type RejudgeCheckStability,
+  type RejudgeEndpoints,
+  type RejudgeOptions,
+  type RejudgeOutcome,
+} from "./run/rejudge.ts";
+export {
   parseAgentTaskCliArgs,
   runAgentTaskCli,
   type AgentTaskCliOptions,

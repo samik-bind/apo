@@ -2,23 +2,26 @@
 
 ``GET /v1/agent-task-runs/{task_run_id}/trace-projection``
 
-An internal execution boundary: the agent-task runner polls this after
-flushing its execution Trace to read back the immutable projection snapshot it
-will evaluate against. It is NOT the dashboard's canonical Trace detail API.
+Primarily an internal execution boundary: the agent-task runner polls this
+after flushing its execution Trace to read back the immutable projection
+snapshot it will evaluate against. It is NOT the dashboard's canonical
+Trace detail API.
 
 Security:
-  - The service-token subject MUST equal ``{task_run_id}``.
-  - Project comes from the verified token (``request.state.project``), never
-    query parameters or telemetry.
+  - Service/Attempt tokens: the token subject MUST equal ``{task_run_id}``,
+    and Project comes from the verified token — never query parameters or
+    telemetry.
+  - Session / API-key / open-dev callers (issue #159 rejudge replay reads
+    the same canonical snapshot): authorized as project members through
+    ``require_task_run_access``; non-member access is an opaque 404.
   - The route resolves the Trace through ``AgentTaskRunDB.trace_run_id``;
     callers cannot supply or read an arbitrary Trace ID.
-  - The narrow ``trace:read-own`` permission is required (added in Track B).
 
 Responses:
   200 — claimed Trace completely projected -> ``TraceProjectionSnapshot``
   202 — claim/export/projection not ready -> ``{"status":"pending"}`` + Retry-After
   403 — token subject or Project does not own this Task Run
-  404 — Task Run does not exist in the token's Project
+  404 — Task Run does not exist in the caller's Project
   409 — Task Run completed without a Trace claim
 """
 
@@ -31,6 +34,7 @@ from sqlmodel import Session, col, select
 from ..db import get_session
 from ..models.db import AgentTaskBatchRunDB, AgentTaskRunDB
 from ..models.trace_projection import TraceProjectionSnapshot
+from ..services.agent_task_run_access import require_task_run_access
 from ..services.trace_repository import get_trace_repository
 
 router = APIRouter(prefix="/v1", tags=["agent-tasks"])
@@ -41,24 +45,36 @@ router = APIRouter(prefix="/v1", tags=["agent-tasks"])
 _RETRY_AFTER_SECONDS = "2"
 
 
-def _require_service_token(request: Request) -> tuple[str, str]:
-    """Return (project, task_run_id) from the verified task-run token.
+def _require_read_access(
+    request: Request,
+    session: Session,
+    task_run_id: str,
+) -> AgentTaskRunDB:
+    """Authorize the read and return the loaded Task Run.
 
-    Accepts both a task-run ``service_token`` and a live ``attempt_token`` —
-    both set ``service_task_run_id`` and ``project``, and the route enforces
-    ``token task_run_id == path task_run_id`` so a token can only read its own
-    projection. (Browser/cookie consumers use the existing Trace APIs.)
+    Service/attempt tokens stay exact-run-scoped (subject must equal the path
+    id — mismatch is 403 so a token cannot infer another run's existence).
+    Every other caller (session, API key, open-dev) goes through the canonical
+    Project policy with an opaque 404 for non-members, mirroring the Run
+    detail route.
     """
-    if getattr(request.state, "auth_method", None) not in (
-        "service_token",
-        "attempt_token",
-    ):
-        raise HTTPException(status_code=403, detail="Not authorized for this task run")
-    project = getattr(request.state, "project", None)
-    task_run_id = getattr(request.state, "service_task_run_id", None)
-    if not isinstance(project, str) or not isinstance(task_run_id, str):
-        raise HTTPException(status_code=403, detail="Not authorized for this task run")
-    return project, task_run_id
+    auth_method = getattr(request.state, "auth_method", None)
+    if auth_method in ("service_token", "attempt_token"):
+        project = getattr(request.state, "project", None)
+        token_run_id = getattr(request.state, "service_task_run_id", None)
+        if not isinstance(project, str) or not isinstance(token_run_id, str):
+            raise HTTPException(status_code=403, detail="Not authorized for this task run")
+        # Cross-run read attempt — checked BEFORE the load so a mismatch is
+        # 403 and cannot leak another run's existence via 404.
+        if token_run_id != task_run_id:
+            raise HTTPException(status_code=403, detail="Not authorized for this task run")
+        return _load_task_run(session, project=project, task_run_id=task_run_id)
+
+    task_run = session.get(AgentTaskRunDB, task_run_id)
+    if task_run is None:
+        raise HTTPException(status_code=404, detail="Task run not found")
+    _ = require_task_run_access(request, session, task_run, write=False)
+    return task_run
 
 
 def _load_task_run(
@@ -85,6 +101,14 @@ def _load_task_run(
     return task_run
 
 
+def _run_project(session: Session, task_run: AgentTaskRunDB) -> str:
+    """Derive the Run's Project through its Batch (never request input)."""
+    batch = session.get(AgentTaskBatchRunDB, task_run.batch_run_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Task run not found")
+    return batch.project
+
+
 @router.get(
     "/agent-task-runs/{task_run_id}/trace-projection",
     response_model=TraceProjectionSnapshot,
@@ -96,19 +120,14 @@ async def get_task_run_trace_projection(
 ) -> TraceProjectionSnapshot | JSONResponse:
     """Read the projection snapshot for a task run's claimed Trace.
 
-    The path ``task_run_id`` must match the service-token subject. The Trace
-    is resolved through ``AgentTaskRunDB.trace_run_id`` — never a caller-
-    supplied Trace ID.
+    Service/attempt tokens must be scoped to this exact task run; project
+    members may read their own Run's snapshot (issue #159 rejudge replay).
+    The Trace is resolved through ``AgentTaskRunDB.trace_run_id`` — never a
+    caller-supplied Trace ID.
     """
-    project, token_task_run_id = _require_service_token(request)
+    task_run = _require_read_access(request, session, task_run_id)
 
-    # The token subject must equal the path's task_run_id. A mismatch is a
-    # cross-run read attempt -> 403, and we must not leak the other run's
-    # trace ID in the response.
-    if token_task_run_id != task_run_id:
-        raise HTTPException(status_code=403, detail="Not authorized for this task run")
-
-    task_run = _load_task_run(session, project=project, task_run_id=task_run_id)
+    project = _run_project(session, task_run)
 
     if task_run.trace_run_id is None:
         # Completed (or otherwise) without a Trace claim.

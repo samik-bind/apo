@@ -421,6 +421,32 @@ def test_task_run_detail_is_opaque_cross_project(
     assert _TASK_ID_A not in str(body)
 
 
+def test_run_judgments_are_opaque_cross_project(
+    session: Session, make_authed_client: Callable[..., TestClient]
+) -> None:
+    """Issue #159: judgment list/detail/definition-source stay Project-scoped.
+
+    A non-member reading another Project's run gets an opaque 404 on every
+    judgments surface — list, single judgment, definition source, and the
+    create route alike.
+    """
+    _seed_http_world(session)
+
+    bob_client = make_authed_client(_USER_BOB, session)
+    assert bob_client.get(f"/v1/agent-task-runs/{_RUN_A}/judgments").status_code == 404
+    assert (
+        bob_client.get(f"/v1/agent-task-runs/{_RUN_A}/judgments/{_RUN_A}").status_code == 404
+    )
+    assert (
+        bob_client.get(f"/v1/agent-task-runs/{_RUN_A}/definition-source").status_code == 404
+    )
+    create = bob_client.post(
+        f"/v1/agent-task-runs/{_RUN_A}/judgments",
+        json={"checks": [{"id": "c", "pass": True, "reasoning": "x"}]},
+    )
+    assert create.status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # Test 13: Batch Run list/detail do not cross Projects
 # ---------------------------------------------------------------------------
@@ -1284,6 +1310,10 @@ _ROUTE_MODULE_AUDIT: dict[str, tuple[str, list[tuple[str, str]]]] = {
     "agent_task_files": (
         "project",
         [("tests/test_project_authorization_boundary.py", "test_project_task_files_require_membership")],
+    ),
+    "agent_task_judgments": (
+        "project",
+        [("tests/test_project_authorization_boundary.py", "test_run_judgments_are_opaque_cross_project")],
     ),
     "agent_task_runs": (
         "project",

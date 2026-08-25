@@ -1,4 +1,4 @@
-import { copyFileSync, readdirSync, statSync, existsSync, unlinkSync } from "fs";
+import { copyFileSync, readdirSync, statSync, existsSync, unlinkSync, writeFileSync } from "fs";
 import { join, resolve, basename } from "path";
 import { pathToFileURL } from "url";
 import type { AdapterDefinition } from "../adapter/types.ts";
@@ -47,6 +47,66 @@ export async function loadTask(taskDir: string): Promise<LoadedTask> {
     moduleUrl,
     evalFileName: basename(taskFilePath),
   };
+}
+
+/**
+ * Materialize and load an eval from stored source text (issue #159 rejudge).
+ *
+ * Writes `content` as a temp sibling inside `siblingDir` (a real task
+ * directory, so relative imports and `files/` fixtures resolve like a live
+ * run) or inside `isolatedDir` (self-contained evals only — a scaffold next
+ * to the SDK so package imports resolve). The stored revision pins only the
+ * eval file itself; when a sibling dir is unavailable, evals that import
+ * sibling modules cannot replay and fail with a guided error.
+ */
+export async function loadEvalSource(
+  fileName: string,
+  content: string,
+  opts: { siblingDir?: string | null; isolatedDir?: string | null } = {},
+): Promise<LoadedTask> {
+  const dir = opts.siblingDir ?? opts.isolatedDir;
+  if (!dir) {
+    throw new Error("loadEvalSource requires a siblingDir or isolatedDir to materialize next to");
+  }
+  const tempPath = join(
+    dir,
+    `${fileName}.rejudge-${Date.now()}-${Math.random().toString(36).slice(2)}.ts`,
+  );
+  writeFileSync(tempPath, content);
+  try {
+    const { task, adapter, inlineChecks, moduleUrl } = await loadTaskDefinition(tempPath);
+    validateTaskDefinition(task, dir);
+    if (!inlineChecks && !existsSync(join(dir, "checks.ts"))) {
+      throw new Error(
+        `The pinned eval did not register checks: legacy two-file tasks need their checks module, ` +
+          `which the stored definition revision does not include`,
+      );
+    }
+    return {
+      task,
+      adapter,
+      taskDir: dir,
+      files: loadFilesDirectory(dir),
+      checksPath: resolveChecksPath(task, dir),
+      inlineChecks,
+      moduleUrl,
+      evalFileName: fileName,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!opts.siblingDir && /Failed to load task definition/.test(message)) {
+      throw new Error(
+        `Replay needs the task directory: the pinned eval imports sibling files that are not ` +
+          `part of the stored definition revision. Point the command at a checkout of the task ` +
+          `(--task-dir) and retry. Underlying error: ${message}`,
+      );
+    }
+    throw error;
+  } finally {
+    if (existsSync(tempPath)) {
+      unlinkSync(tempPath);
+    }
+  }
 }
 
 /**

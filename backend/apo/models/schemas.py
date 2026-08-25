@@ -727,6 +727,58 @@ class AgentTaskRunDetail(SQLModel):
     deliverables: list[DeliverableSummary] = Field(default_factory=list)
     # SPEC-169: Task Definition summary for CodeMirror source display.
     task_definition: dict[str, object] | None = None
+    # Issue #159: number of recorded rejudge judgments. The original verdict
+    # above is always the canonical one; this only signals "this run was
+    # re-judged" to readers.
+    judgments_count: int = 0
+
+
+class CreateAgentTaskJudgmentRequest(SQLModel):
+    """Record a rejudge judgment for a completed Task Run (issue #159).
+
+    ``checks`` is the FULL check set replayed against the Run's stored
+    Deliverables — partial re-judging is not expressible here on purpose
+    (keeping only the draws you like ratchets an unstable verdict toward
+    PASS). Counts and ``pass_result`` are derived server-side from
+    ``checks``; ``trigger`` is always ``rejudge``.
+    """
+
+    label: str | None = None
+    judge_model: str | None = None
+    judge_base_url: str | None = None
+    task_definition_revision_id: str | None = None
+    samples: int = 1
+    checks: list[dict[str, object]]
+    stability: list[dict[str, object]] | None = None
+
+
+class AgentTaskJudgmentSummary(SQLModel):
+    """One judgment on a Task Run (original or rejudge).
+
+    ``definition_revision_matches_run`` tells readers whether the score was
+    produced under the Run's pinned definition revision — False means it was
+    scored against a different (explicitly requested) rubric and is not
+    comparable to the original verdict.
+    """
+
+    id: str
+    task_run_id: str
+    trigger: str  # "original" | "rejudge"
+    label: str | None = None
+    judge_model: str | None = None
+    judge_base_url: str | None = None
+    task_definition_revision_id: str | None = None
+    definition_revision_matches_run: bool | None = None
+    samples: int = 1
+    pass_result: bool | None = None
+    total_checks: int = 0
+    passed_checks: int = 0
+    failed_checks: int = 0
+    created_at: datetime | None = None
+    # Full check evidence — only on the single-judgment detail endpoint.
+    checks: list[dict[str, object]] | None = None
+    # Per-check pass counts across samples — detail endpoint only.
+    stability: list[dict[str, object]] | None = None
 
 
 class TaskViewComparisonOverview(SQLModel):

@@ -83,8 +83,26 @@ A PASS/FAIL verdict claims "the agent ran, and here is what it produced." When t
 
 A minority of errored generations — the run recovered — keeps its normal PASS/FAIL verdict; the totals are still disclosed as partial. The strict rule is: silence beats a wrong signal.
 
+## Re-judging a run
+
+A verdict is only meaningful together with the conditions that produced it: the task definition it ran under, and — for judged tests — the judge model that was configured. Change the judge and the *same deliverables* score differently: on rubric-heavy tasks, roughly one in six judged criteria flips with the judge, not the agent. That variance is a property of your eval, and you should be able to see it without re-running the agent.
+
+`apo runs rejudge` replays a completed run's tests against the deliverables the run already stored, under a judge you choose now. Each replay is recorded as a **judgment** on the run:
+
+- The run's original verdict stays first and canonical — `runs show`, the dashboard, and comparisons keep reading it. Judgments accumulate next to it, never over it.
+- Replay scores against the run's **pinned task definition revision** — the exact `*.eval.ts` that ran — so a re-judged score answers "same eval, different judge?". Scoring old deliverables against a *new* rubric is a different question and is stamped as such.
+- The full test set replays every time. Re-judging only the criteria that failed would keep the draws you like and discard the rest — a ratchet toward PASS that destroys exactly the variance you're measuring.
+- Replay refuses runs whose deliverables are incomplete, for the same reason verdict validity suppresses errored runs: a missing deliverable must not dress up as a low score.
+
+Judging the same run several times (`--samples`) turns "this test failed" into "this test fails 2 of 5 times" — which is what you actually need to know before spending agent budget chasing it.
+
+:::tip
+Before changing your task's judge model, re-judge a handful of historical runs under the new one. If the scores move, your baseline moved — and you'll know it was the judge, not the agents.
+:::
+
 ## Next
 
 - [Tasks](/concepts/tasks/), where `test(...)` sits in the `.eval.ts` file.
 - [Adapters](/concepts/adapters/), where `deliverables` comes from.
+- [`apo runs rejudge`](/cli/runs-rejudge/) — replay a run's tests against its stored deliverables.
 - [Run and debug](/guides/run-and-debug/), the workflow from a failing test to the trace.

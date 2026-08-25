@@ -30,6 +30,8 @@ The core loop: run a task, read its verdict, open its trace when something fails
 | [`apo runs list`](/cli/runs-list/) | List past runs. Filter by task, status, limit. |
 | [`apo runs show`](/cli/runs-show/) | Show a run's verdict, checks, and failures. |
 | [`apo runs deliverable`](/cli/runs-deliverable/) | Read a run's deliverables (manifest, or one deliverable's full content). |
+| [`apo runs rejudge`](/cli/runs-rejudge/) | Re-judge a completed run against its stored deliverables — swap the judge, sample for stability, without re-running the agent. |
+| [`apo runs judgments`](/cli/runs-judgments/) | List a run's verdict history — the original plus every re-judge. |
 | [`apo traces list`](/cli/traces-list/) | List recent traces. |
 | [`apo traces show`](/cli/traces-show/) | Show a trace's call tree, timing, tokens, cost. |
 | [`apo traces import langfuse`](/cli/traces-import-langfuse/) | Import one Langfuse-captured trace into apo. |

@@ -406,6 +406,11 @@ The agent-testing product uses a layered execution model:
   - operational queue/lease state for one Task Run
 - **Executor Pool**
   - an exact placement target owned by one Project
+- **Judgment**
+  - one recorded evaluation of a completed Task Run's tests; the run's own
+    verdict is the synthesized `original` judgment, `apo runs rejudge`
+    records `rejudge` judgments replayed against the run's stored
+    Deliverables under a caller-chosen judge config
 
 Rules:
 
@@ -415,6 +420,13 @@ Rules:
   materializing a Revision and queued Attempts
 - Pool placement never changes after creation; offline work waits until its TTL
 - the Control Plane owns durable state and never executes customer Task code
+- re-judging (issue #159) respects that boundary: the backend serves the
+  pinned definition revision + Deliverables and stores judgments, but the
+  replay executes in the CLI, where task code already executes
+- judgments are append-only records beside a run: the run's original verdict
+  columns and check report are never rewritten, and a judgment always
+  replays the full test set (no per-test re-judging — that would ratchet an
+  unstable verdict toward PASS)
 - persistent Executors pull outbound and run one Batch sequentially while
   different Batches may use available capacity
 - each `Task Run` owns at most one `Trace Run`; all calls, tool activity, and
