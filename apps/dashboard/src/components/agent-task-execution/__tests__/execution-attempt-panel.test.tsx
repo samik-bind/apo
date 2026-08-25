@@ -64,13 +64,8 @@ describe("ExecutionAttemptPanel — legacy Pool Runs", () => {
     render(
       <ExecutionAttemptPanel
         attempts={[
-          attempt({ id: "attempt-1", task_run_id: "task-run-1", status: "succeeded" }),
-          attempt({
-            id: "attempt-2",
-            task_run_id: "task-run-2",
-            status: "lost",
-            failure_kind: "executor_lost",
-          }),
+          attempt({ id: "attempt-1", task_run_id: "task-run-1", status: "lost", failure_kind: "executor_lost" }),
+          attempt({ id: "attempt-2", task_run_id: "task-run-2", status: "queued" }),
         ]}
         poolName="Private VPC"
       />,
@@ -83,13 +78,8 @@ describe("ExecutionAttemptPanel — legacy Pool Runs", () => {
     render(
       <ExecutionAttemptPanel
         attempts={[
-          attempt({ id: "attempt-1", task_run_id: "task-run-1", status: "succeeded" }),
-          attempt({
-            id: "attempt-2",
-            task_run_id: "task-run-2",
-            status: "failed",
-            failure_kind: "executor_unavailable",
-          }),
+          attempt({ id: "attempt-1", task_run_id: "task-run-1", status: "failed", failure_kind: "executor_unavailable" }),
+          attempt({ id: "attempt-2", task_run_id: "task-run-2", status: "queued" }),
         ]}
         poolName="Private VPC"
       />,
@@ -118,12 +108,26 @@ describe("ExecutionAttemptPanel — legacy Pool Runs", () => {
     },
   );
 
-  it("keeps retry history visible when several attempts exist", () => {
+  it("omits the panel when every Task Run finished in exactly one terminal attempt", () => {
+    const { container } = render(
+      <ExecutionAttemptPanel
+        attempts={[
+          attempt({ id: "attempt-1", task_run_id: "task-run-1", status: "succeeded" }),
+          attempt({ id: "attempt-2", task_run_id: "task-run-2", status: "failed", failure_kind: "timeout" }),
+          attempt({ id: "attempt-3", task_run_id: "task-run-3", status: "succeeded" }),
+        ]}
+        poolName={null}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("keeps retry history visible when a Task Run has several attempts", () => {
     render(
       <ExecutionAttemptPanel
         attempts={[
-          attempt({ id: "attempt-1", status: "succeeded" }),
-          attempt({ id: "attempt-2", status: "succeeded" }),
+          attempt({ id: "attempt-1", task_run_id: "task-run-1", status: "cancelled" }),
+          attempt({ id: "attempt-2", task_run_id: "task-run-1", status: "succeeded" }),
         ]}
         poolName={null}
       />,
@@ -200,14 +204,8 @@ describe("ExecutionAttemptPanel — source-owned Runs", () => {
     render(
       <ExecutionAttemptPanel
         attempts={[
-          attempt({ id: "attempt-1", task_run_id: "task-run-1", status: "succeeded" }),
-          attempt({
-            id: "attempt-2",
-            task_run_id: "task-run-2",
-            assignment_kind: "source_owned",
-            status: "failed",
-            failure_kind: "executor_unavailable",
-          }),
+          attempt({ id: "attempt-1", task_run_id: "task-run-1", assignment_kind: "source_owned", status: "failed", failure_kind: "executor_unavailable" }),
+          attempt({ id: "attempt-2", task_run_id: "task-run-2", status: "queued" }),
         ]}
         poolName={null}
       />,
@@ -221,14 +219,8 @@ describe("ExecutionAttemptPanel — source-owned Runs", () => {
     render(
       <ExecutionAttemptPanel
         attempts={[
-          attempt({ id: "attempt-1", task_run_id: "task-run-1", status: "succeeded" }),
-          attempt({
-            id: "attempt-2",
-            task_run_id: "task-run-2",
-            assignment_kind: "source_owned",
-            status: "failed",
-            failure_kind: "task_not_in_catalog",
-          }),
+          attempt({ id: "attempt-1", task_run_id: "task-run-1", assignment_kind: "source_owned", status: "failed", failure_kind: "task_not_in_catalog" }),
+          attempt({ id: "attempt-2", task_run_id: "task-run-2", status: "queued" }),
         ]}
         poolName={null}
       />,
