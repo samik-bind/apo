@@ -82,7 +82,9 @@ describe("@apo-ai/sdk package manifest", () => {
     });
 
     it("declares homepage and bugs urls", () => {
-      expect(pkg.homepage).toContain("github.com");
+      // Homepage moved to the docs site (feat(docs) discovery); bugs stay on
+      // GitHub. Both must be absolute https URLs.
+      expect(pkg.homepage).toMatch(/^https:\/\//);
       expect(pkg.bugs?.url).toContain("github.com");
     });
   });
