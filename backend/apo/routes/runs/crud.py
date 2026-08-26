@@ -11,11 +11,13 @@ from sqlmodel import Session, select
 
 from ...db import get_session
 from ...auth.deps import require_api_key_scope
+from ...models.db import OtlpSpanDB
 from ...services.project_memberships import (
     enforce_project_read_from_request,
     enforce_project_role_from_request,
     list_readable_projects_from_request,
 )
+from ...services.trace_repository import derive_capabilities
 from ...db_helpers import as_column, ensure_utc_datetime
 from ...models import (
     AgentTaskRunDB,
@@ -383,6 +385,32 @@ def get_run_details(
     response["run"]["status"] = (
         "error" if "ERROR" in levels else "warning" if "WARNING" in levels else "success"
     )
+
+    # Same capability semantics as the projection snapshot (issue #164 DX
+    # ask): let a reader see which evidence categories this trace's
+    # projection carries, so an `unsupported` assertion verdict can be told
+    # apart from a misbehaving producer.
+    response["capabilities"] = derive_capabilities(list(calls), run).model_dump(
+        mode="json", by_alias=True
+    )
+
+    # `?include=attributes` attaches each call's canonical OtlpSpanDB
+    # attributes (issue #164 DX ask) so a producer can verify its OTLP
+    # attributes arrived and what they normalized to. Calls ingested through
+    # paths that store no canonical span simply carry no `attributes` key.
+    if include and "attributes" in include:
+        spans = session.exec(
+            select(OtlpSpanDB).where(
+                OtlpSpanDB.trace_id == run_id,
+                OtlpSpanDB.project_id == project,
+            )
+        ).all()
+        attrs_by_span = {s.span_id: s.attributes for s in spans if s.attributes}
+        for call in cast(list[dict[str, object]], response["calls"]):
+            raw = attrs_by_span.get(str(call["id"]))
+            if raw is not None:
+                call["attributes"] = raw
+
     return response
 
 

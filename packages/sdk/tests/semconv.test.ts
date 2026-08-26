@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   APO_OBSERVATION_TYPE,
+  APO_SKILL_NAME,
   APO_RUN_ID,
   APO_RUN_FLOW_NAME,
   APO_RUN_TASK_ID,
@@ -16,6 +17,7 @@ describe("apo.* semantic conventions", () => {
   describe("attribute keys", () => {
     it("exports observation type attribute", () => {
       expect(APO_OBSERVATION_TYPE).toBe("apo.observation.type");
+      expect(APO_SKILL_NAME).toBe("apo.skill.name");
     });
 
     it("exports run identity attributes", () => {
@@ -42,7 +44,8 @@ describe("apo.* semantic conventions", () => {
       expect(OBSERVATION_TYPES).toContain("EMBEDDING");
       expect(OBSERVATION_TYPES).toContain("GUARDRAIL");
       expect(OBSERVATION_TYPES).toContain("SPAN");
-      expect(OBSERVATION_TYPES.length).toBe(9);
+      expect(OBSERVATION_TYPES).toContain("SKILL");
+      expect(OBSERVATION_TYPES.length).toBe(10);
     });
 
     it("exports score data types", () => {

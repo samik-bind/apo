@@ -87,7 +87,24 @@ const content = await traceTool(
 | `traceChain(tracer, name, fn)` | `(tracer, name: string, fn: () => Promise<T>) => Promise<T>` | `CHAIN` |
 | `traceRetriever(tracer, query, fn)` | `(tracer, query: string, fn: () => Promise<T>) => Promise<T>` | `RETRIEVER` |
 
-`apo.observation.type` must be one of the valid kinds: `GENERATION`, `SPAN`, `TOOL`, `CHAIN`, `RETRIEVER`, `EVALUATOR`, `EMBEDDING`, `GUARDRAIL`, `AGENT`. An out-of-vocabulary value is ignored and the span falls through to generic classification.
+`apo.observation.type` must be one of the valid kinds: `GENERATION`, `SPAN`, `TOOL`, `CHAIN`, `RETRIEVER`, `EVALUATOR`, `EMBEDDING`, `GUARDRAIL`, `AGENT`, `SKILL`. An out-of-vocabulary value is ignored and the span falls through to generic classification.
+
+### Skill observations
+
+Runtimes without a dedicated Skill tool load a skill when the model reads `<skill>/SKILL.md` — that read is the evidence a skill loaded. Instrument the read as a span with `apo.observation.type: "SKILL"`. Since such spans are usually tool-shaped (`gen_ai.execute_tool read_file`), set `apo.skill.name` so the observation's name is the skill itself — that name is what the [`t.loadedSkill`](/reference/assertions/#tloadedskillskill) assertion matches:
+
+```typescript
+tracer.startSpan(`gen_ai.execute_tool ${toolName}`, {
+  attributes: {
+    "gen_ai.operation.name": "execute_tool",
+    "gen_ai.tool.name": toolName,
+    "apo.observation.type": "SKILL",
+    "apo.skill.name": "xlsx",
+  },
+});
+```
+
+Without `apo.skill.name` the span name is used as the skill name.
 
 ## Attaching a score
 

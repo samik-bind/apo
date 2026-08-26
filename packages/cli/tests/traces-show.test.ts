@@ -118,3 +118,62 @@ describe("traces show model column", () => {
     expect(out).toContain(longModel);
   });
 });
+
+describe("traces show evidence + attributes (issue #164)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("prints the projection's evidence capabilities in the header", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse({
+        ...makeTraceDetail(),
+        capabilities: {
+          messages: "available",
+          tools: "available",
+          errors: "available",
+          timing: "available",
+          skills: "unavailable",
+          subagents: "unavailable",
+        },
+      }),
+    );
+    const { logs, restore } = captureLog();
+    const { run } = await import("../src/commands/traces-show.ts");
+
+    await run([FULL_ID, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("Evidence:");
+    expect(out).toContain("skills:unavailable");
+    expect(out).toContain("tools:available");
+  });
+
+  it("verbose requests raw span attributes and renders them with the resolved type", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse({
+        ...makeTraceDetail(),
+        calls: [
+          {
+            id: "c1", level: "DEFAULT", step_name: "read_file", observation_type: "SKILL",
+            model: null, latency_ms: 12, cost: null, total_tokens: null,
+            attributes: { "apo.observation.type": "SKILL", "gen_ai.tool.name": "read_file" },
+          },
+        ],
+      }),
+    );
+    const { logs, restore } = captureLog();
+    const { run } = await import("../src/commands/traces-show.ts");
+
+    await run([FULL_ID, "--backend", "http://backend.test", "--verbose"]);
+    restore();
+
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    expect(url).toContain("include=messages%2Cattributes");
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("type: SKILL");
+    expect(out).toContain("apo.observation.type");
+  });
+});

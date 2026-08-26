@@ -162,4 +162,20 @@ describe("projection-tee real span id propagation", () => {
     expect(real.ends[1]!.receivedId).toBe("real-span-2");
     expect(real.ends[0]!.receivedId).not.toBe(real.ends[1]!.receivedId);
   });
+
+  it("records a SKILL observation as SKILL and declares skills available (issue #164)", () => {
+    const real = makeRecordingReal();
+    const tee = createProjectionTee(real);
+    const id = tee.trace.createSpan({
+      step_name: "xlsx",
+      observation_type: "SKILL",
+    });
+    tee.trace.endSpan(id, { level: "DEFAULT" });
+
+    const snapshot = tee.getSnapshot();
+    const skills = snapshot.observations.filter((o) => o.type === "SKILL");
+    expect(skills).toHaveLength(1);
+    expect(skills[0]).toMatchObject({ name: "xlsx", status: "ok" });
+    expect(snapshot.capabilities.skills).toBe("available");
+  });
 });

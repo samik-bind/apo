@@ -27,6 +27,8 @@ type TraceCall = {
   tool_parameters: Record<string, unknown> | null;
   tool_result: unknown;
   metadata: Record<string, unknown> | null;
+  /** Raw canonical OtlpSpanDB attributes — present only with --verbose. */
+  attributes?: Record<string, unknown> | null;
 };
 
 type TraceRun = {
@@ -45,6 +47,8 @@ type TraceDetail = {
   run: TraceRun;
   calls: TraceCall[];
   metrics: unknown[];
+  /** Per-category evidence availability, mirroring the projection snapshot. */
+  capabilities?: Record<string, string>;
 };
 
 export async function run(argv: string[]): Promise<number> {
@@ -72,9 +76,10 @@ export async function run(argv: string[]): Promise<number> {
   try {
     const params: Record<string, string> = {};
     if (config.projectId) params.project = config.projectId;
-    // The backend omits per-call `messages` by default (it duplicates
-    // input/output content); verbose mode renders them, so opt in.
-    if (verbose) params.include = "messages";
+    // The backend omits per-call `messages` (duplicates input/output content)
+    // and raw span `attributes` (heavy) by default; verbose mode renders them,
+    // so opt in. Comma-separated — the backend checks each token by substring.
+    if (verbose) params.include = "messages,attributes";
     trace = await apiGet<TraceDetail>(
       config.backendUrl,
       `/v1/runs/${resolvedTraceId}`,
@@ -156,6 +161,15 @@ function printTraceDetail(trace: TraceDetail, calls: TraceCall[], verbose: boole
   console.log(`  Cost:      ${formatCost(totalCost)}`);
   console.log(`  Tokens:    ${totalTokens.toLocaleString()}`);
   console.log(`  Created:   ${formatTime(run.created_at)}`);
+  if (trace.capabilities) {
+    // Which evidence categories this trace's projection carries — an
+    // `unsupported` assertion verdict means the category reads "unavailable"
+    // here, not that the assertion is wrong (issue #164).
+    const caps = Object.entries(trace.capabilities)
+      .map(([name, state]) => `${name}:${state}`)
+      .join("  ");
+    console.log(`  Evidence:  ${caps}`);
+  }
 
   if (calls.length === 0) return;
 
@@ -210,6 +224,16 @@ function printCall(call: TraceCall, verbose: boolean, modelWidth: number): void 
   // Status messages (non-success)
   if (call.status_message && call.status_message !== "success") {
     console.log(red(`${indent}    ↳ ${call.status_message.slice(0, 200)}`));
+  }
+
+  // Verbose: raw span attributes — answers "did my OTLP attribute arrive,
+  // and next to the resolved observation_type above, what did it map to"
+  // (issue #164).
+  if (verbose) {
+    console.log(dim(`${indent}    type: ${call.observation_type}`));
+    if (call.attributes) {
+      console.log(dim(`${indent}    attrs: ${truncateJson(call.attributes, 400)}`));
+    }
   }
 
   // Verbose: show input/output

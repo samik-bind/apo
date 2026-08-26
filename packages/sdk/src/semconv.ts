@@ -25,6 +25,11 @@
 
 export const APO_OBSERVATION_TYPE = "apo.observation.type" as const;
 
+// The skill name of a SKILL observation — what the loadedSkill assertion
+// matches. On a SKILL.md read instrumented as a tool span, the span name is
+// the tool-call shape, so declare the skill explicitly (issue #164).
+export const APO_SKILL_NAME = "apo.skill.name" as const;
+
 // ── Run identity ──────────────────────────────────────────────────────────
 //
 // Carried on the root span of a trace. The backend's OTLP route synthesizes a
@@ -70,6 +75,7 @@ export const OBSERVATION_TYPES = [
   "EMBEDDING",
   "GUARDRAIL",
   "AGENT",
+  "SKILL",
 ] as const;
 
 export const SCORE_DATA_TYPES = ["NUMERIC", "CATEGORICAL", "BOOLEAN"] as const;

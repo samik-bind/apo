@@ -83,6 +83,14 @@ def normalize_span(span: OtlpSpanDB) -> NormalizedSpan:
         mapping_name=mapping_name,
     )
 
+    # A SKILL observation's name is what the loadedSkill assertion matches.
+    # `apo.skill.name` lets an OTLP producer declare it explicitly — the span
+    # name of a SKILL.md read is usually the tool-call shape (e.g.
+    # ``gen_ai.execute_tool read_file``), not the skill (issue #164).
+    skill_name = _get_first_str(attrs, "apo.skill.name")
+    if observation_type == "SKILL" and skill_name:
+        normalized.display_name = skill_name
+
     # Extract common fields (shared across all conventions)
     normalized.model = extract_model(attrs)
     normalized.token_usage = _token_usage(attrs, normalized.model)

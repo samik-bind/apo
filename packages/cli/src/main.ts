@@ -309,14 +309,14 @@ const commands: Record<string, CommandEntry> = {
       ["<trace-id>", "Trace ID or unique prefix"],
     ],
     options: [
-      ["--verbose", "Show per-call input/output/messages"],
+      ["--verbose", "Show per-call type, raw span attributes, input/output/messages"],
       ["--errors-only", "Show only error/warning calls"],
     ],
     examples: [
       "apo traces show abc123",
       "apo traces show abc123 --errors-only",
     ],
-    note: "Accepts trace-id prefixes. Requires backend auth. Supports --json.",
+    note: "Accepts trace-id prefixes. Requires backend auth. Supports --json. Header shows the projection's evidence capabilities; --verbose adds each call's resolved observation_type and raw OTLP span attributes.",
   },
   "traces import langfuse": {
     handler: loadCommand("traces-import-langfuse"),

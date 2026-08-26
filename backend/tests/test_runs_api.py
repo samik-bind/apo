@@ -170,6 +170,59 @@ def test_get_run_details_omits_messages_unless_included(client: TestClient, sess
     assert included.json()["calls"][0]["messages"] == msgs
 
 
+def test_get_run_details_reports_projection_capabilities(client: TestClient, session: Session):
+    # Issue #164 DX ask: surface which evidence categories the trace's
+    # projection carries, so an `unsupported` assertion verdict can be told
+    # apart from a misbehaving producer.
+    now = datetime.now(timezone.utc)
+    session.add(RunDB(id="r-cap", project="p", task_id="t", created_at=now, call_count=1))
+    session.add(LoggedCallDB(
+        id="c-cap", project="p", model="m", task_id="t", run_id="r-cap",
+        created_at=now, observation_type="TOOL", tool_name="read_file",
+        latency_ms=10, input={}, output={}, messages=[],
+    ))
+    session.commit()
+
+    response = client.get("/v1/runs/r-cap?project=p")
+    assert response.status_code == 200
+    caps = response.json()["capabilities"]
+    assert caps["tools"] == "available"
+    assert caps["errors"] == "available"
+    assert caps["timing"] == "available"
+    assert caps["skills"] == "unavailable"  # honest: no SKILL observation
+
+
+def test_get_run_details_includes_raw_span_attributes(client: TestClient, session: Session):
+    # Issue #164 DX ask: `?include=attributes` attaches each call's canonical
+    # OtlpSpanDB attributes so a producer can verify whether its OTLP
+    # attributes arrived and what they normalized to.
+    from apo.models.db import OtlpSpanDB
+
+    now = datetime.now(timezone.utc)
+    session.add(RunDB(id="r-attr", project="p", task_id="t", created_at=now, call_count=1))
+    session.add(LoggedCallDB(
+        id="c-attr", project="p", model="m", task_id="t", run_id="r-attr",
+        created_at=now, observation_type="SKILL", input={}, output={}, messages=[],
+    ))
+    session.add(OtlpSpanDB(
+        project_id="p", trace_id="r-attr", span_id="c-attr",
+        span_name="gen_ai.execute_tool read_file",
+        attributes={"apo.observation.type": "SKILL", "gen_ai.tool.name": "read_file"},
+        resource={}, raw_span={}, start_time=now,
+    ))
+    session.commit()
+
+    default = client.get("/v1/runs/r-attr?project=p")
+    assert default.status_code == 200
+    assert "attributes" not in default.json()["calls"][0]
+
+    included = client.get("/v1/runs/r-attr?project=p&include=attributes")
+    assert included.status_code == 200
+    call = included.json()["calls"][0]
+    assert call["observation_type"] == "SKILL"
+    assert call["attributes"]["apo.observation.type"] == "SKILL"
+
+
 def test_get_run_details_accepts_nondict_json_fields(client: TestClient, session: Session):
     # Regression for issue #23: a trace written via the projection path can hold
     # a non-dict tool_result / input / output (e.g. a plain string, number, or

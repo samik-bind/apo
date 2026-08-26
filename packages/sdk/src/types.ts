@@ -190,7 +190,7 @@ export interface CreateSpanParams {
   input?: Record<string, unknown>;
   messages?: Record<string, unknown>[];
   output?: Record<string, unknown>;
-  observation_type?: "GENERATION" | "SPAN" | "TOOL" | "CHAIN" | "RETRIEVER" | "EVALUATOR" | "EMBEDDING" | "GUARDRAIL" | "AGENT";
+  observation_type?: "GENERATION" | "SPAN" | "TOOL" | "CHAIN" | "RETRIEVER" | "EVALUATOR" | "EMBEDDING" | "GUARDRAIL" | "AGENT" | "SKILL";
   level?: "DEBUG" | "DEFAULT" | "WARNING" | "ERROR";
   user_id?: string;
   metadata?: Record<string, unknown>;

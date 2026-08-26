@@ -93,6 +93,7 @@ function observationTypeFor(
     case "RETRIEVER": return "RETRIEVER";
     case "EMBEDDING": return "EMBEDDING";
     case "GUARDRAIL": return "GUARDRAIL";
+    case "SKILL": return "SKILL";
     default: return "SPAN";
   }
 }

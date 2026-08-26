@@ -415,3 +415,113 @@ await handle.provider.forceFlush();
 await handle.shutdown();
 console.log(JSON.stringify({ traceId }));
 """
+
+
+# ===========================================================================
+# Issue #164: SKILL observations survive the full stock-exporter path
+# ===========================================================================
+
+
+class TestSkillObservationEndToEnd:
+    """Issue #164: a SKILL.md read instrumented as a tool-shaped span must
+    project as a SKILL observation, surface skills capability, and expose its
+    raw attributes via ?include=attributes — previously SKILL was rejected
+    from the override vocabulary and the span normalized to TOOL."""
+
+    def test_skill_span_projects_and_is_queryable(self, otel_server):
+        from opentelemetry import trace
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
+        import httpx
+
+        # The runs read API resolves the project row and rechecks the API
+        # key creator's membership — seed user, project, and membership.
+        from apo.models.db import ProjectDB, ProjectMembershipDB, UserDB
+
+        with Session(otel_server["engine"]) as session:
+            if session.get(ProjectDB, otel_server["project"]) is None:
+                session.add(
+                    ProjectDB(id=otel_server["project"], name="e2e-skill")
+                )
+            if session.get(UserDB, "e2e-test") is None:
+                session.add(UserDB(id="e2e-test", email="e2e@test", password_hash="x"))
+                session.add(
+                    ProjectMembershipDB(
+                        project_id=otel_server["project"],
+                        user_id="e2e-test",
+                        role="owner",
+                    )
+                )
+            session.commit()
+
+        resource = Resource.create({"service.name": "e2e-skill-service"})
+        provider = TracerProvider(resource=resource)
+        exporter = OTLPSpanExporter(
+            endpoint=_url(otel_server), headers=_auth_headers(otel_server)
+        )
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+        tracer = provider.get_tracer("e2e-skill")
+
+        trace_id_holder: dict[str, str] = {}
+        root = tracer.start_span("skill.root")
+        root.set_attribute("apo.observation.type", "AGENT")
+        with trace.use_span(root, end_on_exit=True):
+            raw_id = root.get_span_context().trace_id
+            trace_id_holder["id"] = (
+                f"{raw_id:032x}" if isinstance(raw_id, int) else str(raw_id)
+            )
+            # The exact producer shape from the issue: gen_ai.* tool attrs
+            # plus the priority-1 SKILL override and the skill name.
+            read = tracer.start_span("gen_ai.execute_tool read")
+            read.set_attribute("gen_ai.operation.name", "execute_tool")
+            read.set_attribute("gen_ai.tool.name", "read")
+            read.set_attribute("apo.observation.type", "SKILL")
+            read.set_attribute("apo.skill.name", "xlsx")
+            read.end()
+
+        provider.force_flush()
+        provider.shutdown()
+
+        trace_id = trace_id_holder["id"]
+        base = f"http://127.0.0.1:{otel_server['port']}"
+        headers = _auth_headers(otel_server)
+        params = {"project": otel_server["project"]}
+
+        # The receiver projects in a background task — poll until the run
+        # detail carries the SKILL call.
+        detail = None
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            resp = httpx.get(
+                f"{base}/v1/runs/{trace_id}", headers=headers, params=params
+            )
+            if resp.status_code == 200:
+                detail = resp.json()
+                if any(c["observation_type"] == "SKILL" for c in detail["calls"]):
+                    break
+            time.sleep(0.2)
+
+        assert detail is not None, "run detail never became available"
+        skill_calls = [c for c in detail["calls"] if c["observation_type"] == "SKILL"]
+        assert len(skill_calls) == 1
+        # apo.skill.name wins over the tool-shaped span name.
+        assert skill_calls[0]["step_name"] == "xlsx"
+        assert detail["capabilities"]["skills"] == "available"
+
+        attrs_resp = httpx.get(
+            f"{base}/v1/runs/{trace_id}",
+            headers=headers,
+            params={**params, "include": "attributes"},
+        )
+        assert attrs_resp.status_code == 200
+        attrs_call = next(
+            c
+            for c in attrs_resp.json()["calls"]
+            if c["observation_type"] == "SKILL"
+        )
+        assert attrs_call["attributes"]["apo.observation.type"] == "SKILL"
+        assert attrs_call["attributes"]["apo.skill.name"] == "xlsx"

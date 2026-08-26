@@ -79,6 +79,27 @@ describe("LocalTraceProjectionRecorder", () => {
     expect(turn!.output).toBeUndefined();
   });
 
+  it("records a SKILL observation and declares skills available (issue #164)", async () => {
+    const recorder = createLocalTraceProjectionRecorder();
+    const captured = await recorder.capture(
+      { project: "p", flow_name: "test-flow" },
+      async (trace) => {
+        const id = trace.createSpan({
+          task_id: "skill.xlsx",
+          step_name: "xlsx",
+          observation_type: "SKILL",
+        });
+        trace.endSpan(id, { level: "DEFAULT" });
+        return "done";
+      },
+    );
+    const skills = captured.snapshot.observations.filter((o) => o.type === "SKILL");
+    expect(skills).toHaveLength(1);
+    expect(skills[0]).toMatchObject({ name: "xlsx", status: "ok" });
+    expect(captured.snapshot.capabilities.skills).toBe("available");
+    expect(new TraceView(captured.snapshot).skillLoads.map((s) => s.skill)).toEqual(["xlsx"]);
+  });
+
   it("records an erroring tool span with status error", async () => {
     const recorder = createLocalTraceProjectionRecorder();
     const captured = await recorder.capture(

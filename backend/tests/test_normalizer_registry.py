@@ -28,6 +28,11 @@ class TestApoOverrideMapper:
     def test_case_insensitive(self):
         assert apo_map({"apo.observation.type": "generation"}, "") == "GENERATION"
 
+    def test_skill_override_is_valid(self):
+        """Issue #164: SKILL must be an accepted override so a SKILL.md read
+        can be typed as SKILL evidence instead of falling through to TOOL."""
+        assert apo_map({"apo.observation.type": "SKILL"}, "") == "SKILL"
+
     def test_invalid_type_falls_through(self):
         assert apo_map({"apo.observation.type": "GARBAGE"}, "") is None
 
@@ -92,6 +97,47 @@ class TestRegistryDispatch:
         }))
         assert result.observation_type == "CHAIN"
         assert result.mapping_name == "apo-override"
+
+    def test_skill_override_beats_genai_tool(self):
+        """Issue #164: a SKILL.md read instrumented as an execute_tool span
+        (gen_ai.tool.name present) with an explicit SKILL override must win —
+        previously SKILL was rejected from the valid set, so the span fell
+        through to the gen-ai mapper and normalized to TOOL."""
+        result = normalize_span(_span(attrs={
+            "apo.observation.type": "SKILL",
+            "gen_ai.operation.name": "execute_tool",
+            "gen_ai.tool.name": "read_file",
+        }))
+        assert result.observation_type == "SKILL"
+        assert result.mapping_name == "apo-override"
+
+    def test_skill_name_attribute_becomes_display_name(self):
+        """Issue #164: a SKILL observation's name is what the loadedSkill
+        assertion matches. apo.skill.name lets an OTLP producer declare it
+        explicitly — the span name of a SKILL.md read is usually the tool
+        call shape (e.g. ``gen_ai.execute_tool read_file``)."""
+        result = normalize_span(_span(
+            name="gen_ai.execute_tool read_file",
+            attrs={"apo.observation.type": "SKILL", "apo.skill.name": "xlsx"},
+        ))
+        assert result.observation_type == "SKILL"
+        assert result.display_name == "xlsx"
+
+    def test_skill_name_ignored_without_skill_type(self):
+        result = normalize_span(_span(
+            name="read_file",
+            attrs={"gen_ai.tool.name": "read_file", "apo.skill.name": "xlsx"},
+        ))
+        assert result.observation_type == "TOOL"
+        assert result.display_name == "read_file"
+
+    def test_skill_without_name_keeps_span_name(self):
+        result = normalize_span(_span(
+            name="gen_ai.execute_tool read_file",
+            attrs={"apo.observation.type": "SKILL"},
+        ))
+        assert result.observation_type == "SKILL"
+        assert result.display_name == "gen_ai.execute_tool read_file"
 
     def test_openinference_beats_genai(self):
         result = normalize_span(_span(attrs={

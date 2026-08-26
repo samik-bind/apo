@@ -204,7 +204,7 @@ def _build_observation(call: LoggedCallDB) -> TraceProjectionObservation:
     return obs
 
 
-def _derive_capabilities(
+def derive_capabilities(
     calls: list[LoggedCallDB],
     run: RunDB,
 ) -> TraceProjectionCapabilities:
@@ -289,7 +289,7 @@ class NativeTraceRepository:
             projection_version=projection_version,
             source="canonical",
             trace=trace,
-            capabilities=_derive_capabilities(list(calls), run),
+            capabilities=derive_capabilities(list(calls), run),
             observations=observations,
         )
 

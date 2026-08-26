@@ -12,11 +12,14 @@ logger = logging.getLogger(__name__)
 
 VALID_OBSERVATION_TYPES = frozenset({
     "GENERATION", "SPAN", "TOOL", "CHAIN", "RETRIEVER",
-    "EVALUATOR", "EMBEDDING", "GUARDRAIL", "AGENT",
+    "EVALUATOR", "EMBEDDING", "GUARDRAIL", "AGENT", "SKILL",
 })
 
 # Bump when any mapper's logic changes. Reproject uses this to detect stale projections.
-NORMALIZER_VERSION = 5
+# v6: SKILL added to the valid override set (issue #164) — a SKILL.md read
+# instrumented with apo.observation.type=SKILL no longer falls through to
+# the gen-ai mapper's gen_ai.tool.name -> TOOL rule.
+NORMALIZER_VERSION = 6
 
 
 @final

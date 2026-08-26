@@ -66,6 +66,8 @@ These read the run's trace — what the agent *did*. Fast, deterministic, free.
 - **Signature:** `(skill: string) → void`
 - **Asserts:** a skill was loaded.
 
+Matches the name of a `SKILL` observation. Produce one by marking the span that reads `<skill>/SKILL.md` with `apo.observation.type: "SKILL"` and `apo.skill.name: "<skill>"` (see [tracing reference](/reference/tracing/#skill-observations)). When the trace carries no `SKILL` observation at all, the verdict is `unsupported` — check the trace's evidence capabilities (`apo traces show <id>` header) to see whether `skills` is available.
+
 ### `t.calledSubagent(agent)`
 
 - **Signature:** `(agent: string) → void`
