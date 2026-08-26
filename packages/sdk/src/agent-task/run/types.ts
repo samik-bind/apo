@@ -23,6 +23,12 @@ export type AssertionOutcome = "pass" | "fail" | "unsupported";
 export type JudgeMetadata = {
   /** Model identifier, e.g. ``"google/gemini-2.5-flash-lite"``. */
   model?: string;
+  /**
+   * Which response contract elicited this judgment (#163): verdict-first
+   * (``pass`` before ``reasoning``) or reasoning-first. Arms the A/B
+   * measurement before reasoning-first can become the default.
+   */
+  contract?: "verdict-first" | "reasoning-first";
   /** The messages sent to the judge LLM. */
   prompt?: {
     system?: string;

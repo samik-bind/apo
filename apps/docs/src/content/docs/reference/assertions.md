@@ -170,6 +170,20 @@ test("answer-quality", async (t, { deliverables }) => {
 
 Absent fields inherit from the run's judge config (`runTask({ judge })`, or the `OPENROUTER_MODEL` / `AGENT_TASK_JUDGE_MODEL` env defaults), so `{ model }` alone is usually enough — `baseURL` and `apiKey` flow through unchanged. The overridden model is stamped on the assertion metadata and shown in the dashboard breakdown.
 
+#### Response-contract order: reasoning-first (experimental)
+
+By default the judge prompt asks for the verdict before the reasoning (`{"pass": ..., "reasoning": ...}`) — the model commits, then justifies. Setting `APO_JUDGE_REASONING_FIRST=1` (or `true`) flips the requested key order so the model reasons first. This is process-wide by design — there is deliberately no per-task or per-call knob.
+
+The change alters every elicited score, so it stays opt-in until measured on real tasks and re-baselined (issue #163). Judge metadata records which contract was used (`contract: "verdict-first" | "reasoning-first"`), and the parser accepts either key order regardless of the flag. To measure on a fixed deliverable set:
+
+```bash
+apo runs rejudge <run-id> --samples 3 --label verdict-first
+APO_JUDGE_REASONING_FIRST=1 apo runs rejudge <run-id> --samples 3 --label reasoning-first
+apo runs judgments <run-id>   # compare per-criterion flips between the labels
+```
+
+The repo ships a probe task for this (`apps/example-service/e2e/agent-task-demo/tasks/judge-flip-probe` — a stub agent returning one fixed memo, ten calibrated criteria); on `google/gemini-2.5-flash-lite` it measured zero flips across 10 criteria × 3 samples per arm.
+
 ## Matchers
 
 Imported from `@apo-ai/sdk/agent-task` and passed to `t.check(value, matcher)`:

@@ -43,12 +43,44 @@ export type JudgePromptBuilder = (ctx: JudgeContext) => {
   user?: string;
 };
 
-const JUDGE_RESPONSE_CONTRACT =
+const VERDICT_FIRST_CONTRACT =
   'Respond with ONLY a JSON object: {"pass": true/false, "reasoning": "your reasoning"}';
 
-const JUDGE_SYSTEM_PROMPT =
-  "You are an evaluation judge. Evaluate the given value(s) against the " +
-  `instruction. ${JUDGE_RESPONSE_CONTRACT}`;
+const REASONING_FIRST_CONTRACT =
+  'Respond with ONLY a JSON object: {"reasoning": "your reasoning", "pass": true/false}';
+
+/**
+ * Whether judge prompts should elicit the reasoning before the verdict
+ * (#163). Verdict-first makes the model commit to `pass` and then justify a
+ * decision already made; reasoning-first is the better default — but it
+ * changes every existing score, so it ships opt-in until measured and
+ * re-baselined. Process-wide by design: a per-task knob here is a way for a
+ * task to be wrong.
+ */
+export function isJudgeReasoningFirstEnabled(): boolean {
+  const value = process.env.APO_JUDGE_REASONING_FIRST?.trim().toLowerCase();
+  return value === "1" || value === "true";
+}
+
+function judgeResponseContract(): string {
+  return isJudgeReasoningFirstEnabled()
+    ? REASONING_FIRST_CONTRACT
+    : VERDICT_FIRST_CONTRACT;
+}
+
+/** Which contract a judgment was elicited with — arms the #163 measurement. */
+export type JudgeContract = "verdict-first" | "reasoning-first";
+
+function judgeContractInUse(): JudgeContract {
+  return isJudgeReasoningFirstEnabled() ? "reasoning-first" : "verdict-first";
+}
+
+function judgeSystemPrompt(): string {
+  return (
+    "You are an evaluation judge. Evaluate the given value(s) against the " +
+    `instruction. ${judgeResponseContract()}`
+  );
+}
 
 function formatValue(value: unknown, depth = 0): string {
   const indent = "  ".repeat(depth);
@@ -292,6 +324,7 @@ export async function callJudge(args: {
           "as a failure.",
         judge: {
           model: args.model,
+          contract: judgeContractInUse(),
           prompt: { system: systemPromptText, user: instructionText },
           response: text,
         tokens: parseJudgeUsage(data.usage),
@@ -311,6 +344,7 @@ export async function callJudge(args: {
       reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "",
       judge: {
         model: args.model,
+        contract: judgeContractInUse(),
         prompt: { system: systemPromptText, user: instructionText },
         response: text,
         tokens: parseJudgeUsage(data.usage),
@@ -338,7 +372,7 @@ function assembleBriefing(args: {
 }): { briefingText: string; instructionText: string } {
   if (!args.prompt) {
     return {
-      briefingText: JUDGE_SYSTEM_PROMPT,
+      briefingText: judgeSystemPrompt(),
       instructionText: `Instruction:\n${args.instruction}`,
     };
   }
@@ -361,7 +395,9 @@ function assembleBriefing(args: {
   const user = built.user?.trim();
   return {
     // The SDK appends its own response contract to any custom briefing.
-    briefingText: system ? `${system}\n\n${JUDGE_RESPONSE_CONTRACT}` : JUDGE_SYSTEM_PROMPT,
+    briefingText: system
+      ? `${system}\n\n${judgeResponseContract()}`
+      : judgeSystemPrompt(),
     instructionText: user ?? `Instruction:\n${args.instruction}`,
   };
 }
