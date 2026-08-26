@@ -11,6 +11,7 @@
 <p align="center">
   <a href="https://docs.test-apo.online/">Docs</a> ·
   <a href="https://docs.test-apo.online/quickstart/">Quickstart</a> ·
+  <a href="https://docs.test-apo.online/llms.txt">Docs for agents</a> ·
   <a href="PROJECT-BELIEFS.md">Beliefs</a> ·
   <a href="docs/self-hosted-alpha.md">Self-hosting</a>
 </p>
@@ -20,6 +21,8 @@
 Apo is an opinionated end-to-end testing framework for agent systems. Define the behavior you expect as executable tests, run your **real agent implementation**, and get a **binary verdict** — pass or fail — backed by the test breakdown, trace, and deliverables. Execution problems are surfaced separately as errors.
 
 It is not a prompt-scoring tool, an LLM-call optimizer, or an observability dashboard. It answers a more useful engineering question: **did the agent system actually do what we said it must do?**
+
+> **Coding agent?** The docs are machine-readable: fetch [`docs.test-apo.online/llms.txt`](https://docs.test-apo.online/llms.txt) for the full index (every page has a `.md` rendition), or [`docs.test-apo.online/start.md`](https://docs.test-apo.online/start.md) for a complete setup skill.
 
 ## Close the loop
 

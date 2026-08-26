@@ -2,6 +2,21 @@
   "name": "@apo-ai/sdk",
   "version": "0.5.0",
   "description": "TypeScript SDK for testing and observing AI agents with Apo",
+  "keywords": [
+    "ai-agents",
+    "agent-testing",
+    "agent-evaluation",
+    "agent-evals",
+    "evals",
+    "llm",
+    "llm-judge",
+    "e2e-testing",
+    "testing-framework",
+    "opentelemetry",
+    "tracing",
+    "vercel-ai-sdk",
+    "typescript"
+  ],
   "type": "module",
   "files": [
     "dist",
@@ -17,7 +32,7 @@
     "url": "git+https://github.com/samikuikka/apo.git",
     "directory": "packages/sdk"
   },
-  "homepage": "https://github.com/samikuikka/apo#readme",
+  "homepage": "https://docs.test-apo.online/",
   "bugs": {
     "url": "https://github.com/samikuikka/apo/issues"
   },

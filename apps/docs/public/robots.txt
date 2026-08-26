@@ -1,0 +1,10 @@
+# robots.txt for the apo docs. Origin is fixed in astro.config.mjs (`site`) —
+# keep this file in sync if it ever moves.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://docs.test-apo.online/sitemap-index.xml
+
+# AI agents: the machine-readable docs index lives at
+# https://docs.test-apo.online/llms.txt (every page also has a .md rendition).

@@ -1,7 +1,42 @@
 ---
 // Overrides Starlight's Head to load Inter + JetBrains Mono from Google Fonts,
 // matching Flue's docs exactly. Same weights, same display=swap, same preconnect.
-const { head } = Astro.locals.starlightRoute;
+//
+// Also layers the SEO/agent-discovery tags Starlight doesn't emit itself:
+//   - rel=alternate → the .md rendition served by pages/[...slug].md.ts, so
+//     agents and browsers can find the markdown version of every page.
+//   - og:image / twitter:image → the build-time OG card (og-landing.png), so
+//     subpage shares render a branded card instead of a bare link.
+//   - JSON-LD TechArticle → structured data for search engines.
+const { head, id, entry } = Astro.locals.starlightRoute;
+
+const PAGE_URL = new URL(`/${id}/`, Astro.site).href;
+const MARKDOWN_URL = new URL(`/${id}.md`, Astro.site).href;
+const OG_IMAGE = new URL("/og-landing.png", Astro.site).href;
+const TITLE = (entry.data.title as string) ?? id;
+const DESCRIPTION = (entry.data.description as string) ?? undefined;
+
+const ORG = {
+	"@context": "https://schema.org",
+	"@type": "TechArticle",
+	headline: TITLE,
+	url: PAGE_URL,
+	image: OG_IMAGE,
+	inLanguage: "en",
+	isPartOf: {
+		"@type": "WebSite",
+		name: "apo docs",
+		url: Astro.site?.href,
+	},
+	about: {
+		"@type": "SoftwareApplication",
+		name: "apo",
+		applicationCategory: "DeveloperApplication",
+		url: Astro.site?.href,
+		sameAs: ["https://github.com/samikuikka/apo"],
+	},
+	...(DESCRIPTION ? { description: DESCRIPTION } : {}),
+};
 ---
 
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -11,3 +46,15 @@ const { head } = Astro.locals.starlightRoute;
 	rel="stylesheet"
 />
 {head.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}
+<link
+	rel="alternate"
+	type="text/markdown"
+	href={MARKDOWN_URL}
+	title={`${TITLE} — markdown`}
+/>
+<meta property="og:image" content={OG_IMAGE} />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="apo — opinionated agent testing framework" />
+<meta name="twitter:image" content={OG_IMAGE} />
+<script type="application/ld+json" set:html={JSON.stringify(ORG)} />

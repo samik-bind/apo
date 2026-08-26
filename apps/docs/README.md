@@ -7,8 +7,10 @@ Documentation site for [apo](../..), built with [Astro Starlight](https://starli
 Live at **[docs.test-apo.online](https://docs.test-apo.online/)**. Themed to
 apo's dark/monochrome/sharp-cornered identity (see
 [`docs/design.md`](../../docs/design.md)). Includes a custom landing page,
-section-based header navigation, agent-readable `.md` routes, and a
-publication verifier that catches broken links and stale references.
+section-based header navigation, agent-readable `.md` routes, an
+[llms.txt](src/pages/llms.txt.ts) agent index, `robots.txt`, JSON-LD
+structured data, and a publication verifier that catches broken links and
+stale references.
 
 ## Run it
 
@@ -60,7 +62,11 @@ exposed as a route based on its file name. The sidebar is configured in
    { label: 'Page Title', slug: '<group>/<slug>' },
    ```
 
-3. Run `pnpm --filter docs dev` — the page appears at `/<group>/<slug>/`.
+3. Add the slug to the matching section list in `src/pages/llms.txt.ts` so
+   agents discover the page (unlisted pages fall into llms.txt's "More"
+   section, but the curated order matches the sidebar).
+
+4. Run `pnpm --filter docs dev` — the page appears at `/<group>/<slug>/`.
 
 ## Content sources
 

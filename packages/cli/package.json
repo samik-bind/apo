@@ -1,7 +1,18 @@
 {
   "name": "@apo-ai/cli",
   "version": "0.6.0",
-  "description": "Command-line interface for the Apo agent testing and observability platform",
+  "description": "CLI for Apo — the end-to-end testing framework for AI agents. Run tasks, read pass/fail verdicts, and inspect traces.",
+  "keywords": [
+    "ai-agents",
+    "agent-testing",
+    "agent-evaluation",
+    "agent-evals",
+    "evals",
+    "llm",
+    "cli",
+    "e2e-testing",
+    "developer-tools"
+  ],
   "type": "module",
   "bin": {
     "apo": "./dist/main.js"
@@ -20,7 +31,7 @@
     "url": "git+https://github.com/samikuikka/apo.git",
     "directory": "packages/cli"
   },
-  "homepage": "https://github.com/samikuikka/apo#readme",
+  "homepage": "https://docs.test-apo.online/",
   "bugs": {
     "url": "https://github.com/samikuikka/apo/issues"
   },

@@ -62,6 +62,33 @@ const CANONICAL = new URL("/", Astro.site).href;
 		<meta name="twitter:title" content={PAGE_TITLE} />
 		<meta name="twitter:description" content={PAGE_DESCRIPTION} />
 		<meta name="twitter:image" content={OG_IMAGE} />
+		{/* Structured data for search engines — what the product is and where
+		    it lives (repo, npm packages, docs). */}
+		<script
+			type="application/ld+json"
+			set:html={JSON.stringify({
+				"@context": "https://schema.org",
+				"@type": "SoftwareApplication",
+				name: "apo",
+				applicationCategory: "DeveloperApplication",
+				operatingSystem: "Linux, macOS, Docker",
+				description: PAGE_DESCRIPTION,
+				url: CANONICAL,
+				sameAs: [
+					GITHUB_URL,
+					"https://www.npmjs.com/package/@apo-ai/sdk",
+					"https://www.npmjs.com/package/@apo-ai/cli",
+				],
+				offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+				featureList: [
+					"Binary pass/fail verdicts with test breakdown",
+					"Code assertions and LLM judges on agent deliverables",
+					"Full runtime traces for every run",
+					"Adapters for any agent stack (Vercel AI SDK, OpenAI, Anthropic, custom)",
+					"Self-hosted, source-open",
+				],
+			})}
+		/>
 	</head>
 	<body>
 		<!-- Nav — matches the docs header: brand mark + wordmark, section tabs,
