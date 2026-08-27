@@ -372,6 +372,22 @@ async function executeAssignment(
       transcript?: Record<string, unknown>;
       runConfiguration?: { model: string; effort?: string };
     };
+    // SPEC-186 (issue #175): ship only what the server keeps. Oversized
+    // received values / judge segments become the backend's truncation
+    // markers here, so judging one large document N times doesn't upload N
+    // copies of it. Compaction is an optimization — if the SDK module
+    // somehow fails to load, submit the raw checks rather than fail the run.
+    let checksForSubmission: unknown = summary.checks ?? null;
+    try {
+      const { compactChecksForSubmission } = await import("@apo-ai/sdk/agent-task");
+      if (Array.isArray(checksForSubmission)) {
+        checksForSubmission = compactChecksForSubmission(
+          checksForSubmission as Parameters<typeof compactChecksForSubmission>[0],
+        ).checks;
+      }
+    } catch {
+      // fall through with the raw checks
+    }
     // SPEC-172: once result submission begins, the server may commit before we
     // see the response. Do not send a contradictory failure on a dropped response.
     finalized = true;
@@ -383,7 +399,7 @@ async function executeAssignment(
         completion_id: completionId,
         pass_result: summary.pass ?? false,
         adapter_name: summary.adapterName ?? null,
-        checks: summary.checks ?? null,
+        checks: checksForSubmission,
         trace_run_id: summary.traceRunId ?? null,
         transcript: summary.transcript ?? null,
         deliverables: summary.deliverables ?? null,

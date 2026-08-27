@@ -82,6 +82,12 @@ export type {
   JudgePromptBuilder,
 } from "./checks/judge.ts";
 export { TEST_METHOD_NAMES } from "./checks/t.ts";
+export {
+  compactChecksForSubmission,
+  RECEIVED_VALUE_LIMIT,
+  JUDGE_SEGMENT_LIMIT,
+  type CheckCompaction,
+} from "./checks/compact.ts";
 export type { Flow, FlowEvent, ToolCallStatus } from "./flow/types.ts";
 export { FlowView } from "./flow/view.ts";
 export {

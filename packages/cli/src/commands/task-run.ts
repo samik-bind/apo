@@ -16,6 +16,7 @@ import {
   submitCallerResult,
   submitCallerFailure,
   CallerHeartbeat,
+  type CallerResultBody,
 } from "../lib/caller-execution.ts";
 
 type LocalRunSummary = {
@@ -276,10 +277,12 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   // (step 3), and the SDK reads them at import time — no /start dependency.
   let runTaskDirImpl: (taskDir: string) => Promise<unknown>;
   let persistFileArtifactsImpl: typeof import("@apo-ai/sdk/agent-task").persistFileArtifacts | undefined;
+  let compactChecksImpl: typeof import("@apo-ai/sdk/agent-task").compactChecksForSubmission | undefined;
   try {
     const mod = await import("@apo-ai/sdk/agent-task");
     runTaskDirImpl = mod.runTaskDir;
     persistFileArtifactsImpl = mod.persistFileArtifacts;
+    compactChecksImpl = mod.compactChecksForSubmission;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(red(`Error: failed to load task SDK: ${message}`));
@@ -331,16 +334,27 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
     }
 
     resultStarted = true;
-    await submitCallerResult(backendUrl, created.lease, {
+    // SPEC-186 (issue #175): submit only what the server keeps. The backend
+    // truncates oversized received values and judge segments into markers at
+    // persist time anyway; compacting here means a task judging one large
+    // document N times ships N tiny markers instead of N copies of the
+    // document (43 MB bodies → single-digit MB). Local rendering and --json
+    // output above still use the full summary.
+    const checksForSubmission = compactChecksImpl
+      ? compactChecksImpl(summary.checks).checks
+      : summary.checks;
+    const resultBody: CallerResultBody = {
       completion_id: completionId,
       pass_result: summary.pass,
       adapter_name: summary.adapterName ?? null,
       trace_run_id: summary.traceRunId ?? null,
-      checks: summary.checks as unknown,
+      checks: checksForSubmission as unknown,
       transcript: summary.transcript ?? null,
       deliverables: jsonDeliverables,
       run_configuration: summary.runConfiguration ?? null,
-    });
+    };
+    warnIfResultBodyLarge(resultBody);
+    await submitCallerResult(backendUrl, created.lease, resultBody);
     // render the result so the CLI shows PASS/FAIL + checks,
     // just like the local and backend paths it replaced.
     exitCode = renderRecordedResult(config, summary, jsonDeliverables, created.taskRunId);
@@ -421,6 +435,30 @@ function renderRecordedResult(
     console.log(`Inspect: ${dim(`apo runs show ${taskRunId}`)}`);
   }
   return summary.pass ? 0 : 1;
+}
+
+/**
+ * Issue #175's submission guard: compaction already removes the duplicated
+ * judged subjects, so a body this large is transcript/deliverable content the
+ * server genuinely stores. Warn (never refuse — refusing loses runs, the
+ * lesson of #174) so the case is visible instead of dying as a timeout.
+ */
+const RESULT_BODY_WARN_BYTES = 20 * 1024 * 1024;
+
+/** Exported for tests: the 20 MB submission-size guard (issue #175). */
+export function warnIfResultBodyLarge(body: CallerResultBody): void {
+  let bytes: number;
+  try {
+    bytes = Buffer.byteLength(JSON.stringify(body));
+  } catch {
+    return;
+  }
+  if (bytes <= RESULT_BODY_WARN_BYTES) return;
+  console.error(
+    `Warning: result submission body is ${(bytes / (1024 * 1024)).toFixed(1)} MB (> 20 MB). ` +
+      "Check values are already compacted to markers; the remainder is " +
+      "transcript/deliverable content. Very large bodies risk upload timeouts.",
+  );
 }
 
 /**
