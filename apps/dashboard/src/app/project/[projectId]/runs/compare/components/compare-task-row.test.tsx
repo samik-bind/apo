@@ -307,6 +307,28 @@ describe("CompareTaskRow collapsed checks cell", () => {
     expect(screen.getAllByText("(+2)")).toHaveLength(2);
   });
 
+  it("keeps the score adjacent to the bar instead of flinging it to the cell's right edge", () => {
+    // The count track is auto-width (so "60/60 (+2)" fits), but an auto grid
+    // track stretches to absorb the cell's free space — without justify-start
+    // the score detaches from its bar and lands at the far right of the column.
+    render(
+      <CompareTaskRow
+        task={makeTask({ left: { run: makeRun("run-a", 58, 60) }, right: { run: makeRun("run-b", 60, 60) } })}
+        expanded={new Set()}
+        onToggleExpand={noopToggle}
+        projectId="p1"
+      />,
+    );
+    const cells = screen
+      .getAllByTestId("checks-bar-passed")
+      .map((seg) => seg.parentElement?.parentElement);
+    expect(cells).toHaveLength(4); // md+ row + narrow stack, both sides
+    for (const cell of cells) {
+      expect(cell?.className).toContain("justify-start");
+      expect(cell?.querySelector("span.font-mono")?.className).not.toContain("justify-self-end");
+    }
+  });
+
   it("shows a negative delta when the right side passed fewer checks", () => {
     render(
       <CompareTaskRow

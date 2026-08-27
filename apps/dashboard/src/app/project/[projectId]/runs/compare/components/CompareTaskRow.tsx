@@ -210,7 +210,10 @@ function ChecksCell({
   return (
     <div
       className={cn(
-        "grid items-center gap-2 text-[12px]",
+        // justify-start packs the two tracks to the left; without it the
+        // auto count track stretches to the cell's full width and the
+        // score ends up at the far right edge, detached from its bar.
+        "grid items-center justify-start gap-2 text-[12px]",
         compact ? "grid-cols-[16px_auto]" : "grid-cols-[64px_auto]",
         className,
       )}
@@ -239,7 +242,7 @@ function ChecksCell({
       )}
       <span
         className={cn(
-          "justify-self-end whitespace-nowrap font-mono tabular-nums",
+          "whitespace-nowrap font-mono tabular-nums",
           compact ? "text-[11px]" : "text-[12px]",
           countColor,
         )}
