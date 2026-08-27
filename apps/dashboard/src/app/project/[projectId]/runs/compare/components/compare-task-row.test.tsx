@@ -249,3 +249,125 @@ describe("CompareTaskRow evidence loading (SPEC-177)", () => {
     expect(bodyText).not.toContain("[object Object]");
   });
 });
+
+// ─── collapsed verdict cell ───────────────────────────────────────────────
+
+type RunSummaryLike = NonNullable<ComparisonTask["left"]["run"]>;
+
+function makeRun(
+  id: string,
+  passed: number,
+  total: number,
+  extra: Record<string, unknown> = {},
+): RunSummaryLike {
+  return {
+    id,
+    status: passed === total ? "passed" : "failed",
+    total_checks: total,
+    passed_checks: passed,
+    failed_checks: total - passed,
+    pass_result: passed === total,
+    ...extra,
+  } as unknown as RunSummaryLike;
+}
+
+describe("CompareTaskRow collapsed checks cell", () => {
+  it("colours 58/60 as a failure and 60/60 as a pass, so near-identical scores never look the same", () => {
+    render(
+      <CompareTaskRow
+        task={makeTask({ left: { run: makeRun("run-a", 58, 60) }, right: { run: makeRun("run-b", 60, 60) } })}
+        expanded={new Set()}
+        onToggleExpand={noopToggle}
+        projectId="p1"
+      />,
+    );
+
+    // The row renders each side twice (md+ cell and the narrow-screen stack).
+    for (const el of screen.getAllByText("58/60")) {
+      expect(el.className).toContain("text-destructive");
+      expect(el.className).not.toContain("text-success");
+    }
+    for (const el of screen.getAllByText(/^60\/60/)) {
+      expect(el.className).toContain("text-success");
+    }
+
+    // Only the side with failures gets a red segment in its bar.
+    const failedSegments = screen.getAllByTestId("checks-bar-failed");
+    expect(failedSegments).toHaveLength(2);
+    for (const seg of failedSegments) {
+      expect(seg.className).toContain("bg-destructive");
+      // 2/60 would round to ~2px; the minimum width keeps the sliver visible.
+      expect(seg.className).toContain("min-w-");
+    }
+    const passedSegments = screen.getAllByTestId("checks-bar-passed");
+    expect(passedSegments.filter((s) => s.className.includes("bg-success"))).toHaveLength(2);
+    expect(passedSegments.filter((s) => s.className.includes("bg-foreground/30"))).toHaveLength(2);
+
+    // The right cell says what changed: B passed two more checks than A.
+    expect(screen.getAllByText("(+2)")).toHaveLength(2);
+  });
+
+  it("shows a negative delta when the right side passed fewer checks", () => {
+    render(
+      <CompareTaskRow
+        task={makeTask({ left: { run: makeRun("run-a", 60, 60) }, right: { run: makeRun("run-b", 57, 60) } })}
+        expanded={new Set()}
+        onToggleExpand={noopToggle}
+        projectId="p1"
+      />,
+    );
+    expect(screen.getAllByText("(−3)")).toHaveLength(2);
+    for (const el of screen.getAllByText("(−3)")) {
+      expect(el.className).toContain("text-destructive");
+    }
+  });
+
+  it("shows no delta when both sides passed the same number of checks", () => {
+    render(
+      <CompareTaskRow
+        task={makeTask({ differs: false, left: { run: makeRun("run-a", 58, 60) }, right: { run: makeRun("run-b", 58, 60) } })}
+        expanded={new Set()}
+        onToggleExpand={noopToggle}
+        projectId="p1"
+      />,
+    );
+    expect(screen.queryByText(/^\([+−]\d+\)$/)).toBeNull();
+  });
+
+  it("hides the count and delta when the two runs used different eval versions", () => {
+    render(
+      <CompareTaskRow
+        task={makeTask({
+          state: "different_definition",
+          left: { run: makeRun("run-a", 10, 12) },
+          right: { run: makeRun("run-b", 30, 32) },
+        })}
+        expanded={new Set()}
+        onToggleExpand={noopToggle}
+        projectId="p1"
+      />,
+    );
+    expect(screen.queryByText("10/12")).toBeNull();
+    expect(screen.queryByText(/^\([+−]\d+\)$/)).toBeNull();
+  });
+
+  it("uses the recorded task verdict over the check count when they disagree", () => {
+    // Every check passed but the task was recorded as failed (e.g. a finish
+    // check outside the counted checks). The verdict colour must follow the
+    // recorded result, not the tally.
+    render(
+      <CompareTaskRow
+        task={makeTask({
+          left: { run: makeRun("run-a", 4, 4, { pass_result: false }) },
+          right: { run: makeRun("run-b", 4, 4) },
+        })}
+        expanded={new Set()}
+        onToggleExpand={noopToggle}
+        projectId="p1"
+      />,
+    );
+    const cells = screen.getAllByText(/^4\/4/);
+    expect(cells.filter((c) => c.className.includes("text-destructive"))).toHaveLength(2);
+    expect(cells.filter((c) => c.className.includes("text-success"))).toHaveLength(2);
+  });
+});
