@@ -55,6 +55,11 @@ The sequential claim rule that the comment references is enforced in `execution_
 2. **Batch-derived ordinal (`sequence_index`)** — already stored, but semantically *position of the task in the batch*, `0` for every single-task batch (where all real re-runs live). Presenting it as iteration would show a constant 0 for repeated runs and varying numbers across *different tasks* in one pass. Only honest use: intra-batch ordering.
 3. **Batch pass grouping** — group a task's runs by `batch_run_id`, label with batch `created_at` + `trigger` (cli / schedule / ci). Zero cost; on a task detail page every run is already a distinct batch (one-run-per-task-per-batch invariant), so "group by pass" is trivially the run list itself. Answers "which pass, how was it triggered".
 4. **Config-grouped passes** — group by `configured_model`/`configured_effort`. Works when config is reported; live data shows NULLs on all caller runs, so an explicit "unknown config" bucket is required.
+5. **Suite-level pass number** — "batch N of the project" only means "Nth pass of the task set" for **set-level** batches (`selection_type` `all`/grep/folder). The live data is 10 single-task `caller-task` batches vs 1 set-level batch, so a suite ordinal that naively counts batches would misnumber passes whenever caller executions interleave. A suite-level iteration, if ever wanted on the tasks page, must count only set-level batches.
+
+### Batch-origin signals (labeling "how this pass happened")
+
+Beyond the run-level `trigger` (above), the batch table itself distinguishes origins: `selection_type` (set-level vs `caller-task`), `requested_by_user_id` (set for dashboard-initiated runs, NULL for CLI/caller), `run_metadata` (raw), and the schedule chain (`agent_task_schedule_occurrences.batch_run_id`, `active_batch_run_id` on schedules) for scheduled passes. In the live data: the one `all` batch is the only one with a requester; all ten `caller-task` batches have none.
 
 ## Relation to the compare flow
 
