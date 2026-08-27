@@ -92,8 +92,11 @@ export function FlowSection({
         )}
       </div>
 
+      {/* Tasks indent one level under the folder header (their px-6 content
+          lands beneath the folder name) so parent/child reads as a tree —
+          mirrors the task picker's folder-row → pl-10 step. */}
       {isOpen && (
-        <div className="mt-0.5 divide-y divide-border/60">
+        <div className="mt-0.5 ml-12 divide-y divide-border/60">
           {tasks.map((task) => (
             <CompareTaskRow
               key={task.taskId}
