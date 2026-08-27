@@ -15,6 +15,7 @@ body raises a ``CompletionConflict`` (mapped to 409 by the route).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -344,7 +345,13 @@ async def finalize_attempt_with_deliverables(
     Raises ``CompletionConflict`` / ``ValueError`` / ``LeaseError`` — the
     caller maps these to HTTP responses.
     """
-    if precheck_result_replay(session, lease=lease, body=body):
+    # Issue #174: the body digest and the finalization SQL are seconds of sync
+    # work over multi-MB result bodies. Run them off the event loop so one
+    # heavy finalize cannot freeze heartbeats and every other request behind
+    # it. The request session is safe to hand over: SQLite opens with
+    # check_same_thread=False and each call is fully awaited before the
+    # session is touched again.
+    if await asyncio.to_thread(precheck_result_replay, session, lease=lease, body=body):
         return None
 
     if deliverables:
@@ -366,7 +373,7 @@ async def finalize_attempt_with_deliverables(
                 )
             session.flush()
 
-    return finalize_attempt_result(session, lease=lease, body=body)
+    return await asyncio.to_thread(finalize_attempt_result, session, lease=lease, body=body)
 
 
 __all__ = [

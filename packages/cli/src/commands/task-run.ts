@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
 import { getBoolFlag, parseArgs, requirePositional } from "../lib/args.ts";
 import { resolveConfig, type Config } from "../lib/config.ts";
-import { isBackendReachable } from "../lib/api.ts";
+import { apiGet, isBackendReachable } from "../lib/api.ts";
 import { discoverTaskMeta, findTaskMetaById } from "../lib/task-meta.ts";
 import { bold, dim, formatJson, passFail, red } from "../lib/format.ts";
 import type { CheckResult } from "../lib/agent-task-types.ts";
@@ -307,13 +307,17 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   let exitCode = 0;
   let resultStarted = false;
   let artifactPhase = false;
+  // Visible to the catch block: when the result POST fails at the transport
+  // level (Issue #174) the run may still have committed, and the recovery
+  // path needs the summary to render the verdict it confirmed server-side.
+  let summary: LocalRunSummary | null = null;
+  let jsonDeliverables: Record<string, unknown> = {};
   try {
-    const summary = await runTaskDirImpl(taskDir) as LocalRunSummary;
+    summary = await runTaskDirImpl(taskDir) as LocalRunSummary;
     await heartbeat.stop();
 
     // SPEC-172: upload file artifacts after checks, before result submission.
-    const rawDeliverables = (summary as { deliverables?: Record<string, unknown> }).deliverables ?? {};
-    let jsonDeliverables: Record<string, unknown> = rawDeliverables;
+    const rawDeliverables = summary.deliverables ?? {};
     if (persistFileArtifactsImpl) {
       artifactPhase = true;
       const prepared = await persistFileArtifactsImpl(rawDeliverables, {
@@ -333,30 +337,33 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
       adapter_name: summary.adapterName ?? null,
       trace_run_id: summary.traceRunId ?? null,
       checks: summary.checks as unknown,
-      transcript: (summary as { transcript?: Record<string, unknown> }).transcript ?? null,
+      transcript: summary.transcript ?? null,
       deliverables: jsonDeliverables,
-      run_configuration: (summary as { runConfiguration?: { model: string; effort?: string } }).runConfiguration ?? null,
+      run_configuration: summary.runConfiguration ?? null,
     });
     // render the result so the CLI shows PASS/FAIL + checks,
     // just like the local and backend paths it replaced.
-    if (config.json) {
-      console.log(JSON.stringify({ ...summary, deliverables: jsonDeliverables }));
-    } else {
-      printLocalRunSummary(summary);
-      // SPEC-180: hand over the exact recorded identity — onboarding copy
-      // must never rely on "latest run" lookup.
-      console.log(`\nRun:     ${bold(created.taskRunId)}`);
-      console.log(`Inspect: ${dim(`apo runs show ${created.taskRunId}`)}`);
-    }
-    exitCode = summary.pass ? 0 : 1;
+    exitCode = renderRecordedResult(config, summary, jsonDeliverables, created.taskRunId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await heartbeat.stop();
     if (resultStarted) {
       // SPEC-172: ambiguous result — the server may have committed before the
       // connection failed. Do NOT send a contradictory failure.
-      console.error(red(`Error: result submission outcome unknown: ${message}`));
-      exitCode = 2;
+      // Issue #174: the transport giving up on a multi-MB body (ingress
+      // timeout, dropped connection) says nothing about the backend — it may
+      // still be finalizing the very result it stopped acknowledging. Re-poll
+      // the run's authoritative state before declaring the outcome unknown.
+      console.error(red(`Error: result submission failed: ${message}`));
+      console.error(dim("Checking whether the backend still recorded the run..."));
+      const verdict = await pollRunVerdict(config, created.taskRunId);
+      if (verdict && summary) {
+        console.error(dim(`Result recorded: run ${created.taskRunId} is ${verdict}.`));
+        exitCode = renderRecordedResult(config, summary, jsonDeliverables, created.taskRunId);
+      } else {
+        console.error(red(`Error: result submission outcome unknown: ${message}`));
+        exitCode = 2;
+      }
     } else {
       try {
         await submitCallerFailure(backendUrl, created.lease, {
@@ -395,6 +402,64 @@ function printLocalRunSummary(summary: LocalRunSummary): void {
     // Don't leave the user staring at a bare FAIL — say what went wrong.
     console.log(`  ${NO_CHECKS_REGISTERED_MESSAGE}`);
   }
+}
+
+/** Render a recorded run's verdict and hand over its exact identity. */
+function renderRecordedResult(
+  config: Config,
+  summary: LocalRunSummary,
+  jsonDeliverables: Record<string, unknown>,
+  taskRunId: string,
+): number {
+  if (config.json) {
+    console.log(JSON.stringify({ ...summary, deliverables: jsonDeliverables }));
+  } else {
+    printLocalRunSummary(summary);
+    // SPEC-180: hand over the exact recorded identity — onboarding copy
+    // must never rely on "latest run" lookup.
+    console.log(`\nRun:     ${bold(taskRunId)}`);
+    console.log(`Inspect: ${dim(`apo runs show ${taskRunId}`)}`);
+  }
+  return summary.pass ? 0 : 1;
+}
+
+/**
+ * Issue #174: after a failed result submission, poll the run's authoritative
+ * state. A terminal ``passed``/``failed`` verdict means the backend committed
+ * the result even though the transport gave up on it — the run is safe and
+ * the CLI can report the verdict instead of exiting "outcome unknown".
+ * Returns the terminal status, or null while the run is still undecided.
+ */
+export async function pollRunVerdict(
+  config: Config,
+  taskRunId: string,
+  attempts: number = 5,
+  intervalMs: number = 2_000,
+): Promise<"passed" | "failed" | null> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const run = await apiGet<{ status: string }>(
+        config.backendUrl,
+        `/v1/agent-task-runs/${encodeURIComponent(taskRunId)}`,
+        undefined,
+        config,
+      );
+      if (run.status === "passed" || run.status === "failed") {
+        return run.status;
+      }
+      if (run.status === "error") {
+        // Terminal without our verdict — the result never landed.
+        return null;
+      }
+    } catch {
+      // An unreachable or flaky run endpoint is not evidence about the
+      // result — keep polling while budget remains.
+    }
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  }
+  return null;
 }
 
 function loadEnvFiles(taskDir: string): void {

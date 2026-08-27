@@ -275,7 +275,12 @@ class QueueWorker:
 
     async def _process_claimed(self, batch_id: str) -> None:
         try:
-            result = self._process_batch(batch_id)
+            # Issue #174: a heavy span-projection batch is seconds of sync SQL.
+            # Run it off the event loop so request handling (heartbeats, result
+            # submissions) keeps flowing while the batch projects. The projector
+            # is stateless and each batch owns its Session, so concurrent batches
+            # are safe; SQLite serializes the commits.
+            result = await asyncio.to_thread(self._process_batch, batch_id)
         except Exception as exc:
             logger.error("Batch %s failed: %s", batch_id, exc, exc_info=True)
             await self._queue.mark_failed(batch_id, str(exc))

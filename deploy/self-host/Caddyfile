@@ -56,9 +56,29 @@
 	# API proxy path — backend handles its own auth (API key or session).
 	# Keep this after the diagnostic denials: handle blocks are mutually
 	# exclusive, so the broad prefix would otherwise make the denials unreachable.
-	handle /backend-proxy/* {
-		encode zstd gzip
-		reverse_proxy frontend:3000
+	#
+	# Issue #174: API traffic goes straight to the backend. Routing it through
+	# the frontend's Next rewrite added a 30 s proxy timeout and a second Node
+	# buffer, so multi-MB CLI result submissions died as bodyless 500s and their
+	# runs were later reaped as errors. The frontend adds no auth on this path
+	# (the backend validates session/API key itself) and its server components
+	# already bypass the rewrite via the internal BACKEND_URL. No `encode`
+	# here: compression buffers the SSE run/trace feeds behind this prefix
+	# (same lesson as `compress: false` in next.config.mjs). Caddy's
+	# reverse_proxy has no response timeout by default.
+	handle_path /backend-proxy/* {
+		reverse_proxy backend:8000
+	}
+
+	# Backend-owned paths on the public origin (SPEC-180: `apo login --backend
+	# <origin>` calls /v1/* and /auth/* directly) — same rule as above: straight
+	# to the backend, no frontend hop, no 30 s timeout on heavy submissions.
+	handle /v1/* {
+		reverse_proxy backend:8000
+	}
+
+	handle /auth/* {
+		reverse_proxy backend:8000
 	}
 
 	# Everything else (dashboard pages, admission shells, CLI rewrites) goes

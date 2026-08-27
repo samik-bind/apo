@@ -8,6 +8,15 @@ const nextConfig = {
   // Production deployments typically run behind a reverse proxy (nginx/Caddy)
   // that handles compression, and localhost traffic doesn't need it.
   compress: false,
+  // Issue #174: the rewrite proxy defaults to a 30 s response timeout, which
+  // kills multi-MB CLI result submissions (`/backend-proxy/…/result`) with a
+  // bodyless 500 while the backend is still finalizing. Server-profile
+  // deployments now route API traffic straight to the backend in Caddy, but
+  // this hop remains for direct-frontend access (local profile, custom
+  // ingresses) — give those the same headroom the backend path has.
+  experimental: {
+    proxyTimeout: 300_000,
+  },
   images: {
     unoptimized: true,
     remotePatterns: [
