@@ -58,6 +58,12 @@ export function CompareTaskRow({
   // derived from the runs so the badge can name it ("not run on A").
   const notRunSide: "A" | "B" | "either" =
     !left.run && !right.run ? "either" : !left.run ? "A" : "B";
+  // Per-row passed-checks delta (B − A), only when both sides ran checks
+  // against the same eval — across eval versions the counts don't align.
+  const checkDelta =
+    state === "aligned" && left.run && right.run && left.run.total_checks > 0 && right.run.total_checks > 0
+      ? (right.run.passed_checks ?? 0) - (left.run.passed_checks ?? 0)
+      : undefined;
 
   return (
     <div className="group/row">
@@ -104,13 +110,13 @@ export function CompareTaskRow({
         {/* Right checks cell — separate column at md+, wraps under on narrow.
             md:grid (not md:flex): the cell's internal layout IS a grid, and
             md:flex would override it, collapsing the bar slot. */}
-        <ChecksCell run={right.run} className="hidden md:grid" hideCount={state === "different_definition"} />
+        <ChecksCell run={right.run} className="hidden md:grid" hideCount={state === "different_definition"} delta={checkDelta} />
       </div>
 
       {/* On narrow screens, stack the two cells so both are visible. */}
       <div className="grid grid-cols-2 gap-3 px-6 pb-2 md:hidden">
         <ChecksCell run={left.run} compact hideCount={state === "different_definition"} />
-        <ChecksCell run={right.run} compact hideCount={state === "different_definition"} />
+        <ChecksCell run={right.run} compact hideCount={state === "different_definition"} delta={checkDelta} />
       </div>
 
       {isOpen && expandable && (
@@ -136,23 +142,37 @@ export function CompareTaskRow({
   );
 }
 
-/** The checks-only verdict cell for the collapsed row. Shows HOW MUCH of the
- *  task passed as a mini bar + "7/8" count, colored by pass proportion — a
- *  task that passed 7/8 is very different from one that passed 2/8, and that
- *  difference is the whole point of comparing. Errored/running/no-checks runs
- *  fall back to a status dot. Cost/time are NOT here — they live in the
- *  expand (TornadoMetrics), where the A-vs-B comparison has room to breathe
- *  without crowding the collapsed row. */
+/** The checks-only verdict cell for the collapsed row: a stacked bar plus a
+ *  "58/60" count. Two things must be readable at a glance, and the colour
+ *  carries both:
+ *
+ *  - Did the task pass? Green is reserved for a run whose task verdict is a
+ *    pass (every check green). Any failed check makes the count red — 58/60
+ *    and 60/60 must never look the same, because "which side had failures"
+ *    is the first question a comparison answers.
+ *  - How much passed? The bar is stacked: the passed share, then the failed
+ *    share in red. The failed segment keeps a minimum width so 2 failures out
+ *    of 60 are still a visible red sliver rather than a rounding error.
+ *
+ *  Errored/running/no-checks runs fall back to a status dot. Cost/time are
+ *  NOT here — they live in the expand (TornadoMetrics), where the A-vs-B
+ *  comparison has room to breathe without crowding the collapsed row.
+ *
+ *  `delta` (right cell only) is this side's passed count minus the other
+ *  side's, rendered `(+2)` / `(−2)` like the folder header, so the row says
+ *  *what changed* without the reader subtracting two numbers. */
 function ChecksCell({
   run,
   className,
   compact,
   hideCount = false,
+  delta,
 }: {
   run: AgentTaskRunDetail | AgentTaskRunSummary | null;
   className?: string;
   compact?: boolean;
   hideCount?: boolean;
+  delta?: number;
 }) {
   if (!run) {
     return (
@@ -163,52 +183,91 @@ function ChecksCell({
     );
   }
 
-  const errored = run.status === "error";
-  const running = run.status === "running" || run.status === "pending";
+  const verdict = runVerdict(run);
   const hasChecks = run.total_checks > 0;
   const passedChecks = run.passed_checks ?? 0;
-  const checkRate = hasChecks ? Math.round((passedChecks / run.total_checks) * 100) : 0;
+  const failedChecks = Math.max(0, run.total_checks - passedChecks);
+  const passedPct = hasChecks ? (passedChecks / run.total_checks) * 100 : 0;
+  const failedPct = hasChecks ? (failedChecks / run.total_checks) * 100 : 0;
 
-  // Bar color: the established tiering — green mostly-passing, red
-  // mostly-failing, amber errored. A fact about proportion, not direction.
-  const barColor = running
-    ? "bg-foreground/40"
-    : errored
-      ? "bg-warning"
-      : checkRate >= 80
-        ? "bg-success"
-        : checkRate < 50
-          ? "bg-destructive"
-          : "bg-foreground/30";
+  const dotColor =
+    verdict === "running"
+      ? "bg-foreground/40"
+      : verdict === "errored"
+        ? "bg-warning"
+        : verdict === "passed"
+          ? "bg-success"
+          : "bg-destructive";
+  const countColor =
+    verdict === "running"
+      ? "text-muted-foreground"
+      : verdict === "errored"
+        ? "text-warning"
+        : verdict === "passed"
+          ? "text-success"
+          : "text-destructive";
 
   return (
     <div
       className={cn(
         "grid items-center gap-2 text-[12px]",
-        compact ? "grid-cols-[16px_32px]" : "grid-cols-[64px_28px]",
+        compact ? "grid-cols-[16px_auto]" : "grid-cols-[64px_auto]",
         className,
       )}
     >
-      {hideCount ? (
-        <span className={cn("h-2 w-2 justify-self-center rounded-full", barColor)} aria-hidden />
-      ) : hasChecks ? (
-        <div className="h-1.5 overflow-hidden rounded-full bg-border">
-          <div className={cn("h-full", barColor)} style={{ width: `${checkRate}%` }} />
-        </div>
+      {hideCount || !hasChecks ? (
+        <span className={cn("h-2 w-2 justify-self-center rounded-full", dotColor)} aria-hidden />
       ) : (
-        <span className={cn("h-2 w-2 justify-self-center rounded-full", barColor)} aria-hidden />
+        <div
+          className="flex h-1.5 overflow-hidden rounded-full bg-border"
+          role="img"
+          aria-label={`${passedChecks} of ${run.total_checks} checks passed`}
+        >
+          <div
+            data-testid="checks-bar-passed"
+            className={cn("h-full", verdict === "passed" ? "bg-success" : "bg-foreground/30")}
+            style={{ width: `${passedPct}%` }}
+          />
+          {failedChecks > 0 && (
+            <div
+              data-testid="checks-bar-failed"
+              className="h-full min-w-[3px] bg-destructive"
+              style={{ width: `${failedPct}%` }}
+            />
+          )}
+        </div>
       )}
       <span
         className={cn(
-          "justify-self-end font-mono tabular-nums",
+          "justify-self-end whitespace-nowrap font-mono tabular-nums",
           compact ? "text-[11px]" : "text-[12px]",
-          running ? "text-muted-foreground" : errored ? "text-warning" : "text-muted-foreground",
+          countColor,
         )}
       >
         {hideCount || !hasChecks ? "" : `${passedChecks}/${run.total_checks}`}
+        {!hideCount && hasChecks && delta !== undefined && delta !== 0 && (
+          <span className={cn("ml-1", delta > 0 ? "text-success" : "text-destructive")}>
+            ({delta > 0 ? "+" : "−"}
+            {Math.abs(delta)})
+          </span>
+        )}
       </span>
     </div>
   );
+}
+
+type RunVerdict = "running" | "errored" | "passed" | "failed";
+
+/** Task-level verdict for the cell colour. `pass_result` is the recorded
+ *  verdict; when it is missing we fall back to "every check passed" so a run
+ *  with checks still gets a colour. */
+function runVerdict(run: AgentTaskRunDetail | AgentTaskRunSummary): RunVerdict {
+  if (run.status === "running" || run.status === "pending") return "running";
+  if (run.status === "error") return "errored";
+  if (run.pass_result !== null && run.pass_result !== undefined) {
+    return run.pass_result ? "passed" : "failed";
+  }
+  return run.total_checks > 0 && run.passed_checks === run.total_checks ? "passed" : "failed";
 }
 
 function asRunDetail(
