@@ -40,6 +40,14 @@ apo's tasks panel has saved views (`model`/`effort`/`since`). Clicking a task op
 - Saved Views have explicit reset semantics: "Reload your default view," "Reset… to Datadog's defaults." ([saved-views](https://docs.datadoghq.com/logs/explorer/saved_views/))
 - Repetition grouping is first-class where it matters: fingerprinted **issues** with occurrence counts over time. ([error-tracking](https://docs.datadoghq.com/tracing/error_tracking/))
 
+### Langfuse — never leave the list (added for the interaction-model decision)
+
+- **No filter inheritance into detail pages, by design**: full-page detail URLs carry identity + point-in-time params only (`/traces/{id}?timestamp=…&observation=…`). ([url](https://langfuse.com/docs/observability/features/url), code-verified peek param handling in `web/src/components/table/peek/`)
+- Instead, drill-down opens as a **non-modal peek panel over the still-mounted filtered table** — list state (filters, sort, pagination, search) explicitly persists while you J/K through items. (code-verified: `web/src/components/table/peek/README.md`)
+- **Filters are always URL-serialized** ("sending someone the link reproduces the exact filtered view") and **saved views get their own URLs**; facet values show counts that respect active filters, so a picked value "never comes back with no results". ([filter-search-bar](https://langfuse.com/docs/observability/features/filter-search-bar), [save-table-views](https://langfuse.com/changelog/2025-05-20-save-table-views))
+- In-detail narrowing exists (log-level filter, observation search). When scope must travel across real navigation (human eval), it's frozen into an explicit **annotation queue**, not inherited from live filters. ([annotation-queues](https://langfuse.com/docs/evaluation/evaluation-methods/annotation-queues))
+- v4 goes furthest structurally: "a trace is just the set of rows sharing a `trace_id`" — drilling in *is* applying a filter on one observations table. ([v4 FAQ](https://langfuse.com/faq/all/explore-observations-in-v4))
+
 ### Weights & Biases — server-side views, no URL scope
 
 - Run detail does not inherit table filters (standalone run-scoped URL). ([view-logged-runs](https://docs.wandb.ai/models/runs/view-logged-runs))
