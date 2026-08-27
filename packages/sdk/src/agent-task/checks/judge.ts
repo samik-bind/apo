@@ -50,29 +50,33 @@ const REASONING_FIRST_CONTRACT =
   'Respond with ONLY a JSON object: {"reasoning": "your reasoning", "pass": true/false}';
 
 /**
- * Whether judge prompts should elicit the reasoning before the verdict
- * (#163). Verdict-first makes the model commit to `pass` and then justify a
- * decision already made; reasoning-first is the better default — but it
- * changes every existing score, so it ships opt-in until measured and
- * re-baselined. Process-wide by design: a per-task knob here is a way for a
- * task to be wrong.
+ * Whether judge prompts should elicit the legacy verdict-first contract
+ * (`{"pass": ..., "reasoning": ...}`). Reasoning-first is the default since
+ * the #163 measurement: verdict-first makes the model commit to `pass` and
+ * then justify a decision already made — on a degenerate deliverable it
+ * false-passed 3/3 with the one-word reasoning "passed", while
+ * reasoning-first reasoned to the correct FAIL, and every sound deliverable
+ * scored identically in both arms. `APO_JUDGE_VERDICT_FIRST` exists to
+ * elicit the legacy arm for A/B measurement — not as a task knob.
+ * Process-wide by design: a per-task knob here is a way for a task to be
+ * wrong.
  */
-export function isJudgeReasoningFirstEnabled(): boolean {
-  const value = process.env.APO_JUDGE_REASONING_FIRST?.trim().toLowerCase();
+export function isJudgeVerdictFirstOverrideEnabled(): boolean {
+  const value = process.env.APO_JUDGE_VERDICT_FIRST?.trim().toLowerCase();
   return value === "1" || value === "true";
 }
 
 function judgeResponseContract(): string {
-  return isJudgeReasoningFirstEnabled()
-    ? REASONING_FIRST_CONTRACT
-    : VERDICT_FIRST_CONTRACT;
+  return isJudgeVerdictFirstOverrideEnabled()
+    ? VERDICT_FIRST_CONTRACT
+    : REASONING_FIRST_CONTRACT;
 }
 
-/** Which contract a judgment was elicited with — arms the #163 measurement. */
+/** Which contract a judgment was elicited with — groups A/B comparisons (#163). */
 export type JudgeContract = "verdict-first" | "reasoning-first";
 
 function judgeContractInUse(): JudgeContract {
-  return isJudgeReasoningFirstEnabled() ? "reasoning-first" : "verdict-first";
+  return isJudgeVerdictFirstOverrideEnabled() ? "verdict-first" : "reasoning-first";
 }
 
 function judgeSystemPrompt(): string {

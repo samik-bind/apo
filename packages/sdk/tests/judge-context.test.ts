@@ -41,12 +41,12 @@ const emptySnapshot: TraceProjectionSnapshot = {
   observations: [],
 };
 
-const LEGACY_SYSTEM_PROMPT =
+const DEFAULT_SYSTEM_PROMPT =
   "You are an evaluation judge. Evaluate the given value(s) against the " +
-  'instruction. Respond with ONLY a JSON object: {"pass": true/false, "reasoning": "your reasoning"}';
+  'instruction. Respond with ONLY a JSON object: {"reasoning": "your reasoning", "pass": true/false}';
 
 const RESPONSE_CONTRACT =
-  'Respond with ONLY a JSON object: {"pass": true/false, "reasoning": "your reasoning"}';
+  'Respond with ONLY a JSON object: {"reasoning": "your reasoning", "pass": true/false}';
 
 const judgeConfig = {
   model: "test/judge",
@@ -115,7 +115,7 @@ describe("t.judge default prompt compatibility (issue #161)", () => {
 
     // Exactly two system blocks: fixed briefing + cached deliverable.
     expect(blocks).toHaveLength(2);
-    expect(blocks[0]!.text).toBe(LEGACY_SYSTEM_PROMPT);
+    expect(blocks[0]!.text).toBe(DEFAULT_SYSTEM_PROMPT);
     expect(blocks[0]!.cache_control).toBeUndefined();
     expect(blocks[1]!.text).toBe("Values to evaluate:\nmemo body");
     expect(blocks[1]!.cache_control).toEqual({ type: "ephemeral" });
@@ -137,7 +137,7 @@ describe("t.judge default prompt compatibility (issue #161)", () => {
       judgeConfig,
     });
 
-    expect(systemBlocks(requestBody(fetchMock))[0]!.text).toBe(LEGACY_SYSTEM_PROMPT);
+    expect(systemBlocks(requestBody(fetchMock))[0]!.text).toBe(DEFAULT_SYSTEM_PROMPT);
   });
 });
 
@@ -285,7 +285,7 @@ describe("t.judge prompt builder assembly (issue #161 part 3)", () => {
       'Check "figures":\nPASS when figures are exact',
     );
     // System briefing untouched when the builder returns no system.
-    expect(systemBlocks(requestBody(fetchMock))[0]!.text).toBe(LEGACY_SYSTEM_PROMPT);
+    expect(systemBlocks(requestBody(fetchMock))[0]!.text).toBe(DEFAULT_SYSTEM_PROMPT);
   });
 
   it("does not collide cache keys when the builder system varies per check", async () => {

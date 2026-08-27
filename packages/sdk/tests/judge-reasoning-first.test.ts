@@ -1,14 +1,19 @@
 /**
- * Issue #163: reasoning-first judge response contract, behind an opt-in flag.
+ * Issue #163: reasoning-first is the DEFAULT judge response contract.
  *
  * With `response_format: json_object` the model emits keys in the order the
  * contract asks for them — verdict-first (`{"pass": ..., "reasoning": ...}`)
- * makes it commit before justifying. Reasoning-first is the better default,
- * but it changes every existing score, so it ships behind a process-wide
- * opt-in (`APO_JUDGE_REASONING_FIRST`) until measured (#163 measurement plan).
+ * makes it commit before justifying. The #163 measurement (every judged run
+ * on the main stack, 14 criteria × 3 samples per arm) flipped the default:
+ * sound deliverables scored identically in both arms, while on a degenerate
+ * deliverable verdict-first false-passed 3/3 with the one-word reasoning
+ * "passed" and reasoning-first reasoned to the correct FAIL.
  *
- * Compatibility invariant under test: with the flag unset, every assembled
- * prompt is byte-identical to the pre-#163 prompt — no existing score moves.
+ * `APO_JUDGE_VERDICT_FIRST=1` elicits the legacy arm for A/B measurement.
+ *
+ * Compatibility invariant under test: with the override unset, every
+ * assembled prompt is byte-identical to the reasoning-first prompt — the
+ * flip is total, not per-task.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { callJudge } from "../src/agent-task/checks/judge.ts";
@@ -49,51 +54,51 @@ function systemText(fetchMock: vi.Mock, call = 0): string {
 }
 
 describe("judge response contract elicitation order (#163)", () => {
-  it("flag unset: default system prompt is byte-identical to the verdict-first prompt", async () => {
+  it("override unset: default system prompt is byte-identical to the reasoning-first prompt", async () => {
+    const fetchMock = stubJudge('{"reasoning": "ok", "pass": true}');
+    await callJudge(judgeArgs);
+    expect(systemText(fetchMock)).toBe(
+      "You are an evaluation judge. Evaluate the given value(s) against the " +
+        `instruction. ${REASONING_FIRST_CONTRACT}`,
+    );
+  });
+
+  it("override on (1): default system prompt asks for the verdict first", async () => {
+    vi.stubEnv("APO_JUDGE_VERDICT_FIRST", "1");
     const fetchMock = stubJudge('{"pass": true, "reasoning": "ok"}');
     await callJudge(judgeArgs);
     expect(systemText(fetchMock)).toBe(
       "You are an evaluation judge. Evaluate the given value(s) against the " +
-      `instruction. ${VERDICT_FIRST_CONTRACT}`,
+        `instruction. ${VERDICT_FIRST_CONTRACT}`,
     );
   });
 
-  it("flag on (1): default system prompt asks for reasoning first", async () => {
-    vi.stubEnv("APO_JUDGE_REASONING_FIRST", "1");
-    const fetchMock = stubJudge('{"reasoning": "ok", "pass": true}');
+  it("override on (true, any case): accepted", async () => {
+    vi.stubEnv("APO_JUDGE_VERDICT_FIRST", "TRUE");
+    const fetchMock = stubJudge('{"pass": true, "reasoning": "ok"}');
     await callJudge(judgeArgs);
-    expect(systemText(fetchMock)).toBe(
-      "You are an evaluation judge. Evaluate the given value(s) against the " +
-      `instruction. ${REASONING_FIRST_CONTRACT}`,
-    );
-  });
-
-  it("flag on (true, any case): accepted", async () => {
-    vi.stubEnv("APO_JUDGE_REASONING_FIRST", "TRUE");
-    const fetchMock = stubJudge('{"reasoning": "ok", "pass": true}');
-    await callJudge(judgeArgs);
-    expect(systemText(fetchMock)).toContain(REASONING_FIRST_CONTRACT);
+    expect(systemText(fetchMock)).toContain(VERDICT_FIRST_CONTRACT);
   });
 
   it.each(["0", "false", "garbage", ""])(
-    "flag %s: stays verdict-first",
+    "override %s: stays reasoning-first",
     async (value) => {
-      vi.stubEnv("APO_JUDGE_REASONING_FIRST", value);
-      const fetchMock = stubJudge('{"pass": true, "reasoning": "ok"}');
+      vi.stubEnv("APO_JUDGE_VERDICT_FIRST", value);
+      const fetchMock = stubJudge('{"reasoning": "ok", "pass": true}');
       await callJudge(judgeArgs);
-      expect(systemText(fetchMock)).toContain(VERDICT_FIRST_CONTRACT);
+      expect(systemText(fetchMock)).toContain(REASONING_FIRST_CONTRACT);
     },
   );
 
-  it("flag on: the SDK-owned contract after a custom briefing flips too", async () => {
-    vi.stubEnv("APO_JUDGE_REASONING_FIRST", "1");
-    const fetchMock = stubJudge('{"reasoning": "ok", "pass": true}');
+  it("override on: the SDK-owned contract after a custom briefing flips too", async () => {
+    vi.stubEnv("APO_JUDGE_VERDICT_FIRST", "1");
+    const fetchMock = stubJudge('{"pass": true, "reasoning": "ok"}');
     await callJudge({
       ...judgeArgs,
       prompt: () => ({ system: "Custom briefing.", user: "Custom user." }),
     });
     const system = systemText(fetchMock);
-    expect(system).toBe(`Custom briefing.\n\n${REASONING_FIRST_CONTRACT}`);
+    expect(system).toBe(`Custom briefing.\n\n${VERDICT_FIRST_CONTRACT}`);
     const body = fetchMock.mock.calls[0]?.[1]?.body as string;
     expect(JSON.parse(body).messages[1].content).toBe("Custom user.");
   });
@@ -102,38 +107,38 @@ describe("judge response contract elicitation order (#163)", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        Response.json({ choices: [{ message: { content: '{"pass": true, "reasoning": "ok"}' } }] }),
-      ),
-    );
-    const verdictFirst = await callJudge({ ...judgeArgs, values: ["a"] });
-    expect(verdictFirst.judge.contract).toBe("verdict-first");
-
-    vi.stubEnv("APO_JUDGE_REASONING_FIRST", "1");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        Response.json({ choices: [{ message: { content: '{"reasoning": "ok", "pass": false}' } }] }),
+        Response.json({ choices: [{ message: { content: '{"reasoning": "ok", "pass": true}' } }] }),
       ),
     );
     const reasoningFirst = await callJudge({ ...judgeArgs, values: ["a"] });
     expect(reasoningFirst.judge.contract).toBe("reasoning-first");
+
+    vi.stubEnv("APO_JUDGE_VERDICT_FIRST", "1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ choices: [{ message: { content: '{"pass": false, "reasoning": "because not"}' } }] }),
+      ),
+    );
+    const verdictFirst = await callJudge({ ...judgeArgs, values: ["a"] });
+    expect(verdictFirst.judge.contract).toBe("verdict-first");
   });
 
-  describe("parser stays key-order tolerant regardless of the flag", () => {
-    it("flag off: reasoning-first JSON still parses (tolerance pinned)", async () => {
-      const fetchMock = stubJudge('{"reasoning": "because", "pass": true}');
-      const result = await callJudge(judgeArgs);
-      expect(result.pass).toBe(true);
-      expect(result.reasoning).toBe("because");
-      expect(systemText(fetchMock)).toContain(VERDICT_FIRST_CONTRACT);
-    });
-
-    it("flag on: verdict-first JSON still parses (tolerance pinned)", async () => {
-      vi.stubEnv("APO_JUDGE_REASONING_FIRST", "1");
-      stubJudge('{"pass": false, "reasoning": "because not"}');
+  describe("parser stays key-order tolerant regardless of the contract", () => {
+    it("default (reasoning-first): verdict-first JSON still parses (tolerance pinned)", async () => {
+      const fetchMock = stubJudge('{"pass": false, "reasoning": "because not"}');
       const result = await callJudge(judgeArgs);
       expect(result.pass).toBe(false);
       expect(result.reasoning).toBe("because not");
+      expect(systemText(fetchMock)).toContain(REASONING_FIRST_CONTRACT);
+    });
+
+    it("override on (verdict-first): reasoning-first JSON still parses (tolerance pinned)", async () => {
+      vi.stubEnv("APO_JUDGE_VERDICT_FIRST", "1");
+      stubJudge('{"reasoning": "because", "pass": true}');
+      const result = await callJudge(judgeArgs);
+      expect(result.pass).toBe(true);
+      expect(result.reasoning).toBe("because");
     });
   });
 });

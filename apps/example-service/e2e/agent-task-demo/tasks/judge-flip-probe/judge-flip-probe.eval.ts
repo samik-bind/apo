@@ -8,9 +8,9 @@ import { defineAdapter, task } from "@apo-ai/sdk/agent-task";
  * borderline. That gives a fixed deliverable set for A/B re-judging the
  * response-contract elicitation order:
  *
- *   apo runs rejudge <run> --samples 3 --label verdict-first
- *   APO_JUDGE_REASONING_FIRST=1 apo runs rejudge <run> --samples 3 \
- *     --label reasoning-first
+ *   apo runs rejudge <run> --samples 3 --label reasoning-first
+ *   APO_JUDGE_VERDICT_FIRST=1 apo runs rejudge <run> --samples 3 \
+ *     --label verdict-first
  *
  * Flips between the arms (apo runs judgments <run> --json) are the
  * measurement; the memo never changes, so any verdict movement is the

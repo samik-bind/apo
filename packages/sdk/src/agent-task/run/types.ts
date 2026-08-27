@@ -24,9 +24,10 @@ export type JudgeMetadata = {
   /** Model identifier, e.g. ``"google/gemini-2.5-flash-lite"``. */
   model?: string;
   /**
-   * Which response contract elicited this judgment (#163): verdict-first
-   * (``pass`` before ``reasoning``) or reasoning-first. Arms the A/B
-   * measurement before reasoning-first can become the default.
+   * Which response contract elicited this judgment (#163): reasoning-first
+   * (the default) or the legacy verdict-first (``pass`` before
+   * ``reasoning``, via ``APO_JUDGE_VERDICT_FIRST``). Group comparisons
+   * across the default flip on this field, not on time.
    */
   contract?: "verdict-first" | "reasoning-first";
   /** The messages sent to the judge LLM. */

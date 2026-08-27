@@ -170,17 +170,21 @@ test("answer-quality", async (t, { deliverables }) => {
 
 Absent fields inherit from the run's judge config (`runTask({ judge })`, or the `OPENROUTER_MODEL` / `AGENT_TASK_JUDGE_MODEL` env defaults), so `{ model }` alone is usually enough — `baseURL` and `apiKey` flow through unchanged. The overridden model is stamped on the assertion metadata and shown in the dashboard breakdown.
 
-#### Response-contract order: reasoning-first (experimental)
+#### Response-contract order: reasoning-first
 
-By default the judge prompt asks for the verdict before the reasoning (`{"pass": ..., "reasoning": ...}`) — the model commits, then justifies. Setting `APO_JUDGE_REASONING_FIRST=1` (or `true`) flips the requested key order so the model reasons first. This is process-wide by design — there is deliberately no per-task or per-call knob.
+The judge prompt asks for the reasoning before the verdict — `{"reasoning": ..., "pass": ...}` — so the model argues from the evidence before committing to `pass`. The legacy order (`{"pass": ..., "reasoning": ...}`) had the model commit first and then justify a decision already made: on a degenerate deliverable (an agent that admitted it never read the file it was graded on), the legacy contract passed it 3/3 with the one-word reasoning `"passed"`. Reasoning-first failed it, with the correct reasoning. That measurement — every judged run on a live stack, 14 criteria × 3 samples per arm, zero flips on sound deliverables — is why reasoning-first is the default, not an option (issue #163).
 
-The change alters every elicited score, so it stays opt-in until measured on real tasks and re-baselined (issue #163). Judge metadata records which contract was used (`contract: "verdict-first" | "reasoning-first"`), and the parser accepts either key order regardless of the flag. To measure on a fixed deliverable set:
+`APO_JUDGE_VERDICT_FIRST=1` (or `true`) elicits the legacy arm for A/B measurement. Process-wide by design — there is deliberately no per-task or per-call knob. Judge metadata records which contract was used (`contract: "verdict-first" | "reasoning-first"`), and the parser accepts either key order regardless, so existing judgments stay readable. To measure on a fixed deliverable set:
 
 ```bash
-apo runs rejudge <run-id> --samples 3 --label verdict-first
-APO_JUDGE_REASONING_FIRST=1 apo runs rejudge <run-id> --samples 3 --label reasoning-first
+apo runs rejudge <run-id> --samples 3 --label reasoning-first
+APO_JUDGE_VERDICT_FIRST=1 apo runs rejudge <run-id> --samples 3 --label verdict-first
 apo runs judgments <run-id>   # compare per-criterion flips between the labels
 ```
+
+:::note[Comparing scores across the flip]
+Judgments elicited before the default flip carry `contract: "verdict-first"`. When comparing scores across that boundary, group on `judge.contract` — not on time.
+:::
 
 The repo ships a probe task for this (`apps/example-service/e2e/agent-task-demo/tasks/judge-flip-probe` — a stub agent returning one fixed memo, ten calibrated criteria); on `google/gemini-2.5-flash-lite` it measured zero flips across 10 criteria × 3 samples per arm.
 
