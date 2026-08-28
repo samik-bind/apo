@@ -273,6 +273,23 @@ const commands: Record<string, CommandEntry> = {
     ],
     note: "Records a human decision about existing evidence — the Check Report, assertions, judge responses, and judgments stay untouched. Run/Batch verdicts, lists, stats, and runs show --exit-status all use the effective result. Exit 0 on success (including idempotent retry), 2 on usage/API failure. Never prompts — safe for agents and CI.",
   },
+  "runs delete": {
+    handler: loadCommand("runs-delete"),
+    help: "Permanently delete runs whose results are garbage (harness failure, bad environment)",
+    args: [
+      ["<run-id>...", "Run ID, unique prefix, or 'last' — one or more"],
+    ],
+    options: [
+      ["--yes", "Required — confirms the irreversible delete"],
+      ["--task <id>", "Filter 'last' to the latest run of a specific task"],
+    ],
+    examples: [
+      "apo runs delete de89cab --yes",
+      "apo runs delete last --yes",
+      "apo runs delete run_aa1100 run_bb2200 --yes",
+    ],
+    note: "Destructive: removes the run's checks, judgments, corrections, deliverables (rows and stored objects), attempt, and trace; the batch's rollups are recomputed and an emptied batch is removed. Terminal or cancelled runs only — cancel a live run first. Requires project admin. Without --yes, prints what would be deleted and exits 2. Exit 0 on success, 2 on usage/API failure. Never prompts — safe for agents and CI.",
+  },
   "runs judgments": {
     handler: loadCommand("runs-judgments"),
     help: "List a run's judgments (original + re-judges), or show one judgment's checks",
@@ -366,6 +383,20 @@ const commands: Record<string, CommandEntry> = {
       "apo batch show abc123 --watch",
     ],
     note: "Accepts batch-id prefixes. Requires backend auth. Supports --json.",
+  },
+  "batch delete": {
+    handler: loadCommand("batch-delete"),
+    help: "Permanently delete a batch run and every task run it owns",
+    args: [
+      ["<batch-id>", "Batch ID or unique prefix"],
+    ],
+    options: [
+      ["--yes", "Required — confirms the irreversible delete"],
+    ],
+    examples: [
+      "apo batch delete 9a3f2c --yes",
+    ],
+    note: "Destructive: removes the batch, all its task runs (checks, judgments, corrections, deliverables, attempts, traces), and its task revision bundles. Terminal batches only — cancel a live batch first. Requires project admin. Without --yes, prints what would be deleted and exits 2. Exit 0 on success, 2 on usage/API failure. Never prompts — safe for agents and CI.",
   },
   reprice: {
     handler: loadCommand("reprice"),

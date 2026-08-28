@@ -2,7 +2,7 @@ import { parseArgs, requirePositional } from "../lib/args.ts";
 import { resolveConfig } from "../lib/config.ts";
 import { bold, dim, formatCost, formatDuration, formatJson, formatTime, passFail } from "../lib/format.ts";
 import { apiGet } from "../lib/api.ts";
-import { findByPrefix } from "../lib/prefix.ts";
+import { resolveBatchId } from "../lib/batch-resolve.ts";
 import { reportCommandError } from "../lib/command-error.ts";
 
 type TaskRunSummary = {
@@ -54,7 +54,7 @@ export async function run(argv: string[]): Promise<number> {
   let resolvedBatchId = batchIdPrefix;
   if (batchIdPrefix.length < 32) {
     try {
-      resolvedBatchId = await resolveBatchIdByPrefix(
+      resolvedBatchId = await resolveBatchId(
         config.backendUrl,
         batchIdPrefix,
         config,
@@ -99,34 +99,6 @@ export async function run(argv: string[]): Promise<number> {
     }
     await sleep(3000);
   }
-}
-
-async function resolveBatchIdByPrefix(
-  backendUrl: string,
-  prefix: string,
-  config: ReturnType<typeof resolveConfig>,
-): Promise<string> {
-  const params: Record<string, string> = {};
-  if (config.projectId) params.project = config.projectId;
-
-  // The backend returns a paginated payload ({data: [...]}); accept a bare
-  // array from older deployments too.
-  const payload = await apiGet<
-    Array<{ id: string }> | { data: Array<{ id: string }> }
-  >(backendUrl, "/v1/agent-task-batch-runs", params, config);
-  const batches = Array.isArray(payload) ? payload : payload.data;
-  const result = findByPrefix(batches, prefix, (b) => b.id);
-  if (result.status === "none") {
-    throw new Error(`Backend error 404: {"detail":"Batch run not found"}`);
-  }
-  if (result.status === "ambiguous") {
-    throw new Error(
-      `Batch ID prefix "${prefix}" matches multiple batches: ${result.items
-        .map((b) => b.id)
-        .join(", ")}`,
-    );
-  }
-  return result.item.id;
 }
 
 function printBatchDetail(batch: BatchDetail): void {

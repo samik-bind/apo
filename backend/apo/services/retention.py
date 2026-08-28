@@ -36,7 +36,7 @@ from sqlmodel import Session, select
 from fastapi import HTTPException
 
 from ..db import DATA_DIR, SQLITE_FILE_NAME, engine, is_sqlite
-from ..db_helpers import as_column
+from ..db_helpers import as_column, table_exists
 from ..models.db import AgentTaskDeliverableDB
 from .artifact_stores.registry import artifact_limits, get_store
 
@@ -45,23 +45,9 @@ logger = logging.getLogger(__name__)
 # Age-based retention. 0 = disabled (no automatic deletion).
 RETENTION_DAYS = int(os.environ.get("APO_RETENTION_DAYS", "0"))
 
-# Hard ceiling on the DB file size expressed in SQLite pages (4 KiB each
+# Hard ceiling on the DB file size, expressed in SQLite pages (4 KiB each
 # by default). 0 = unlimited. e.g. 65536 pages ~= 256 MiB. SQLite-only.
 MAX_DB_PAGES = int(os.environ.get("APO_MAX_DB_PAGES", "0"))
-
-
-def _table_exists(session: Session, table_name: str) -> bool:
-    if is_sqlite():
-        row = session.execute(
-            text("SELECT 1 FROM sqlite_master WHERE type='table' AND name=:n"),
-            {"n": table_name},
-        ).first()
-    else:
-        row = session.execute(
-            text("SELECT 1 FROM information_schema.tables WHERE table_name=:n"),
-            {"n": table_name},
-        ).first()
-    return row is not None
 
 
 def _delete_old_runs(session: Session, cutoff: datetime) -> int:
@@ -89,17 +75,17 @@ def _delete_old_runs(session: Session, cutoff: datetime) -> int:
         return result.rowcount or 0
 
     deleted = 0
-    if _table_exists(session, "call_metrics"):
+    if table_exists(session, "call_metrics"):
         deleted += _exec_in(
             "DELETE FROM call_metrics WHERE call_id IN "
             "(SELECT id FROM logged_calls WHERE run_id IN :ids)",
             old_run_ids,
         )
-    if _table_exists(session, "logged_calls"):
+    if table_exists(session, "logged_calls"):
         deleted += _exec_in(
             "DELETE FROM logged_calls WHERE run_id IN :ids", old_run_ids
         )
-    if _table_exists(session, "run_metrics"):
+    if table_exists(session, "run_metrics"):
         deleted += _exec_in(
             "DELETE FROM run_metrics WHERE run_id IN :ids", old_run_ids
         )
@@ -117,65 +103,114 @@ def _old_batch_ids(session: Session, cutoff: datetime) -> list[str]:
     ]
 
 
+def _exec_in(session: Session, sql: str, params: dict[str, Any]) -> int:
+    """Run one ``IN :ids`` statement (expanding bindparam) and return rowcount."""
+    stmt = text(sql).bindparams(bindparam("ids", expanding=True))
+    result = cast(CursorResult[Any], session.execute(stmt, params))
+    return result.rowcount or 0
+
+
+def delete_agent_task_rows(session: Session, run_ids: list[str]) -> int:
+    """Delete agent-task rows for the given Task Run ids, children first.
+
+    The shared cascade behind both retention's purge and manual run deletion
+    (``run_deletion``), so the two can never drift apart. The trace
+    projection (``runs`` and its children) is NOT touched — retention
+    expires traces by their own age (keeping bookmarked ones) and manual
+    deletion handles traces explicitly.
+
+    Row deletes are explicit and pragma-independent: SQLite only fires
+    ``ON DELETE CASCADE`` when ``PRAGMA foreign_keys=ON`` (true in
+    production, not in every test engine), so the child-first ordering here
+    is the contract, not a duplication of the FK metadata.
+    """
+    if not run_ids:
+        return 0
+
+    deleted = 0
+    # attempts FK task_runs; remove them first.
+    if table_exists(session, "task_execution_attempts"):
+        deleted += _exec_in(
+            session,
+            "DELETE FROM task_execution_attempts WHERE task_run_id IN :ids",
+            {"ids": run_ids},
+        )
+    # Check reports FK task_runs (ON DELETE CASCADE — see the note above).
+    if table_exists(session, "agent_task_check_reports"):
+        deleted += _exec_in(
+            session,
+            "DELETE FROM agent_task_check_reports WHERE run_id IN :ids",
+            {"ids": run_ids},
+        )
+    # Rejudge judgments and SPEC-185 corrections FK task_runs the same way.
+    if table_exists(session, "agent_task_judgments"):
+        deleted += _exec_in(
+            session,
+            "DELETE FROM agent_task_judgments WHERE task_run_id IN :ids",
+            {"ids": run_ids},
+        )
+    if table_exists(session, "agent_task_test_result_corrections"):
+        deleted += _exec_in(
+            session,
+            "DELETE FROM agent_task_test_result_corrections WHERE task_run_id IN :ids",
+            {"ids": run_ids},
+        )
+    # Deliverable manifest rows (their stored objects went earlier).
+    if table_exists(session, "agent_task_deliverables"):
+        deleted += _exec_in(
+            session,
+            "DELETE FROM agent_task_deliverables WHERE task_run_id IN :ids",
+            {"ids": run_ids},
+        )
+    deleted += _exec_in(
+        session, "DELETE FROM agent_task_runs WHERE id IN :ids", {"ids": run_ids}
+    )
+    return deleted
+
+
+def delete_batch_rows(session: Session, batch_ids: list[str]) -> int:
+    """Delete Batch rows and their task_revisions; returns batches deleted.
+
+    task_revisions rows go first — their bundle objects were removed by the
+    caller before this runs. The count covers Batch rows only; revision rows
+    are dependents, not batches.
+    """
+    if not batch_ids:
+        return 0
+    # Guarded so pre-v12 databases don't break.
+    if table_exists(session, "task_revisions"):
+        _ = _exec_in(
+            session,
+            "DELETE FROM task_revisions WHERE batch_run_id IN :ids",
+            {"ids": batch_ids},
+        )
+    return _exec_in(
+        session,
+        "DELETE FROM agent_task_batch_runs WHERE id IN :ids",
+        {"ids": batch_ids},
+    )
+
+
 def _delete_old_batch_runs(session: Session, cutoff: datetime) -> int:
-    """Delete agent-task batch runs (and their task runs) older than cutoff."""
+    """Delete agent-task batch runs (and their task runs) older than cutoff.
+
+    The trace projection is intentionally untouched here — traces expire by
+    their own age via ``_delete_old_runs`` (which keeps bookmarked runs).
+    """
     old_batch_ids = _old_batch_ids(session, cutoff)
     if not old_batch_ids:
         return 0
 
-    def _exec_in(sql: str, ids: list[str]) -> int:
-        stmt = text(sql).bindparams(bindparam("ids", expanding=True))
-        result = cast(CursorResult[Any], session.execute(stmt, {"ids": ids}))
-        return result.rowcount or 0
-
-    deleted = 0
-    # attempts FK task_runs; remove them first.
-    if _table_exists(session, "task_execution_attempts"):
-        deleted += _exec_in(
-            "DELETE FROM task_execution_attempts WHERE task_run_id IN "
-            "(SELECT id FROM agent_task_runs WHERE batch_run_id IN :ids)",
-            old_batch_ids,
-        )
-    # Check reports FK task_runs. The FK is ON DELETE CASCADE, but
-    # SQLite only fires cascades when ``PRAGMA foreign_keys=ON`` (set in
-    # production but not in every test engine), so an explicit guarded
-    # pre-delete makes purge robust and testable regardless of the pragma.
-    if _table_exists(session, "agent_task_check_reports"):
-        deleted += _exec_in(
-            "DELETE FROM agent_task_check_reports WHERE run_id IN "
-            "(SELECT id FROM agent_task_runs WHERE batch_run_id IN :ids)",
-            old_batch_ids,
-        )
-    # Rejudge judgments also FK task_runs. Explicit deletion keeps retention
-    # correct on older/test SQLite schemas where FK cascades are not active.
-    if _table_exists(session, "agent_task_judgments"):
-        deleted += _exec_in(
-            "DELETE FROM agent_task_judgments WHERE task_run_id IN "
-            "(SELECT id FROM agent_task_runs WHERE batch_run_id IN :ids)",
-            old_batch_ids,
-        )
-    # SPEC-185 corrections FK task_runs the same way. Deleted before runs so
-    # schemas without FK enforcement (and tests that enable it) both purge.
-    if _table_exists(session, "agent_task_test_result_corrections"):
-        deleted += _exec_in(
-            "DELETE FROM agent_task_test_result_corrections WHERE task_run_id IN "
-            "(SELECT id FROM agent_task_runs WHERE batch_run_id IN :ids)",
-            old_batch_ids,
-        )
-    if _table_exists(session, "agent_task_runs"):
-        deleted += _exec_in(
-            "DELETE FROM agent_task_runs WHERE batch_run_id IN :ids",
-            old_batch_ids,
-        )
-    # task_revisions rows go after their bundle objects (removed in
-    # run_retention_cleanup). Guarded so pre-v12 databases don't break.
-    if _table_exists(session, "task_revisions"):
-        deleted += _exec_in(
-            "DELETE FROM task_revisions WHERE batch_run_id IN :ids", old_batch_ids
-        )
-    deleted += _exec_in(
-        "DELETE FROM agent_task_batch_runs WHERE id IN :ids", old_batch_ids
-    )
+    run_ids = [
+        row[0]
+        for row in session.execute(
+            text("SELECT id FROM agent_task_runs WHERE batch_run_id IN :ids")
+            .bindparams(bindparam("ids", expanding=True)),
+            {"ids": old_batch_ids},
+        ).all()
+    ]
+    deleted = delete_agent_task_rows(session, run_ids)
+    deleted += delete_batch_rows(session, old_batch_ids)
     return deleted
 
 

@@ -2,23 +2,45 @@
 
 import Link from "next/link";
 import { ArrowUpRight, Clock } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 
 import { type AgentTaskRunSummary } from "@/lib/agent-task-api";
 import { taskRunStatusConfig } from "@/components/task-run-list.utils";
+import { DeleteRunButton } from "@/components/runs/DeleteRunButton";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { formatCostMicro, formatTokenTotal } from "@/lib/format";
 import { formatRunExecution, formatRunExecutionFull } from "@/lib/run-configuration";
+import { hrefWithRunCohort, parseDrilldownCohort } from "@/lib/run-cohort";
 
 import { formatDuration, formatRelative } from "./runs-utils";
 
 /** A single task run nested under its parent batch run row. */
-export function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTaskRunSummary; projectId: string; clientNow: number | null }) {
+export function InlineTaskRunRow({
+  run,
+  projectId,
+  clientNow,
+  canDelete,
+  onDeleted,
+}: {
+  run: AgentTaskRunSummary;
+  projectId: string;
+  clientNow: number | null;
+  /** Caller's project role allows run deletion (owner/admin). */
+  canDelete: boolean;
+  /** Splices this row out of the parent's task-run list. */
+  onDeleted: () => void;
+}) {
   const status = run.status;
   const statusConfig = taskRunStatusConfig(status);
   const isDone = status === "passed" || status === "failed";
   const isInactive = status === "pending" || status === "error";
   const passRate = run.total_checks > 0 ? Math.round((run.passed_checks / run.total_checks) * 100) : 0;
+  // SPEC-187 scope loop: the Runs page's URL cohort travels into run detail
+  // (single-model selections only — the drill-down vocabulary has no
+  // comma-joined multi-model form).
+  const cohort = parseDrilldownCohort(Object.fromEntries(useSearchParams().entries()));
+  const runHref = hrefWithRunCohort(`/project/${projectId}/runs/task/${run.id}`, cohort);
 
   return (
     <TableRow className="group cursor-default border-border/60 bg-white/10 transition-colors hover:bg-white/15">
@@ -30,7 +52,7 @@ export function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTask
             <span className={cn("h-2 w-2 shrink-0 rounded-full", statusConfig.dot)} aria-hidden />
             <span className="sr-only">{statusConfig.label}</span>
             <Link
-              href={`/project/${projectId}/runs/task/${run.id}`}
+              href={runHref}
               className="truncate text-[13px] font-medium text-foreground hover:text-primary"
             >
               {run.task_id}
@@ -109,8 +131,13 @@ export function InlineTaskRunRow({ run, projectId, clientNow }: { run: AgentTask
           <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
             {formatRelative(run.started_at, clientNow)}
           </span>
+          <DeleteRunButton
+            target={{ kind: "task-run", taskRunId: run.id }}
+            canDelete={canDelete}
+            onDeleted={onDeleted}
+          />
           <Link
-            href={`/project/${projectId}/runs/task/${run.id}`}
+            href={runHref}
             aria-label={`Open task run ${run.id}`}
             data-testid={`task-run-link-${run.id}`}
             className="text-muted-foreground transition-opacity hover:text-foreground"

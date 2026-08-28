@@ -32,6 +32,7 @@ The core loop: run a task, read its verdict, open its trace when something fails
 | [`apo runs deliverable`](/cli/runs-deliverable/) | Read a run's deliverables (manifest, or one deliverable's full content). |
 | [`apo runs rejudge`](/cli/runs-rejudge/) | Re-judge a completed run against its stored deliverables — swap the judge, sample for stability, without re-running the agent. |
 | [`apo runs judgments`](/cli/runs-judgments/) | List a run's verdict history — the original plus every re-judge. |
+| [`apo runs delete`](/cli/runs-delete/) | Permanently delete garbage runs (harness failures, wrong environment). `--yes` required; admin only. |
 | [`apo traces list`](/cli/traces-list/) | List recent traces. |
 | [`apo traces show`](/cli/traces-show/) | Show a trace's call tree, timing, tokens, cost. |
 | [`apo traces import langfuse`](/cli/traces-import-langfuse/) | Import one Langfuse-captured trace into apo. |
@@ -44,6 +45,7 @@ Run many tasks at once and watch the aggregate result.
 |---|---|
 | [`apo batch show`](/cli/batch/) | Show batch details. `--watch` auto-refreshes. |
 | [`apo batch list`](/cli/batch/) | List batch runs. |
+| [`apo batch delete`](/cli/batch/) | Permanently delete a poisoned batch and every task run it owns. `--yes` required; admin only. |
 
 ## Projects and task sources
 

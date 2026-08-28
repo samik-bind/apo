@@ -6,6 +6,7 @@ import { ArrowUpRight, Clock, DollarSign, GitCompare, Hash } from "lucide-react"
 import { type AgentTaskRunSummary } from "@/lib/agent-task-api";
 import { TraceHomeLink } from "@/components/trace-detail";
 import { TriggerBadge } from "@/components/trigger-badge";
+import { DeleteRunButton } from "@/components/runs/DeleteRunButton";
 import { TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { formatCostMicro, formatTokenTotal } from "@/lib/format";
@@ -102,6 +103,8 @@ export function TaskRunRow({
   compareSelected = false,
   compareDisabled = false,
   onToggleCompare,
+  canDelete = false,
+  onDelete,
 }: {
   run: AgentTaskRunSummary;
   projectId: string;
@@ -109,6 +112,10 @@ export function TaskRunRow({
   compareSelected?: boolean;
   compareDisabled?: boolean;
   onToggleCompare?: () => void;
+  /** Optional delete action (batch detail / task history). When either
+   * prop is omitted, no delete button renders. */
+  canDelete?: boolean;
+  onDelete?: () => void;
 }) {
   const router = useRouter();
   const status = run.status;
@@ -219,6 +226,13 @@ export function TaskRunRow({
             >
               <GitCompare className="h-3.5 w-3.5" />
             </button>
+          )}
+          {canDelete && onDelete && (
+            <DeleteRunButton
+              target={{ kind: "task-run", taskRunId: run.id }}
+              canDelete={canDelete}
+              onDeleted={onDelete}
+            />
           )}
           <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
         </div>

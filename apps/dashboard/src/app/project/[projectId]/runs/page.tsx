@@ -61,6 +61,8 @@ export default async function RunsPage({
   // Project result (started in parallel with the runs list).
   const project = await projectPromise;
   taskSource = project?.task_source ?? null;
+  const canDeleteRuns =
+    project?.current_user_role === "owner" || project?.current_user_role === "admin";
 
   return (
     <main className="h-full flex flex-col">
@@ -74,6 +76,7 @@ export default async function RunsPage({
           pageSize={pageSize}
           totalPages={totalPages}
           modelFacets={modelFacets}
+          canDeleteRuns={canDeleteRuns}
         />
       </Suspense>
     </main>

@@ -1,6 +1,6 @@
 ---
 title: "apo batch"
-description: "List and watch batch runs — many tasks run together."
+description: "List and watch batch runs — many tasks run together — and permanently delete poisoned ones."
 ---
 
 import TerminalDemo from '../../../components/demos/TerminalDemo.astro';
@@ -105,7 +105,37 @@ apo batch list [--status <s>]
 
 A batch's `Cost` is the sum over its task runs; when any run had unpriced model calls, the total is suffixed `partial` — the same rule as [`apo runs list`](/cli/runs-list/), so an incomplete total never reads as a cheap one.
 
+## `apo batch delete`
+
+Permanently delete a batch run and every task run it owns. For batches that went wrong end to end — infrastructure failure, wrong environment — where deleting run-by-run would be tedious.
+
+### Synopsis
+
+```bash
+apo batch delete <batch-id> --yes
+```
+
+### Options
+
+| Option | Default | Description |
+|---|---|---|
+| `<batch-id>` | (required) | Batch id or unique prefix. |
+| `--yes` | (required) | Confirms the irreversible delete. Without it, the command prints what would go and exits `2`. |
+
+:::danger[Irreversible]
+Deletes the batch, all its task runs (checks, judgments, corrections, deliverables — rows and stored objects — attempts, and traces), and its task revision bundles. There is no undo. Terminal batches only — cancel a live batch first. Requires project admin. Never prompts, so it is safe for agents and CI.
+:::
+
+### Output
+
+<TerminalOutput
+  lines={[
+    { text: "bch_7c0a89f9525e6735b9cb5b1b deleted  (3 runs, 3 traces)", tone: "success" },
+  ]}
+/>
+
 ## See also
 
+- [`apo runs delete`](/cli/runs-delete/) — delete individual task runs; the batch stays with recomputed rollups.
 - [`apo task run`](/cli/task-run/) — run a single task.
 - [CLI overview](/cli/) — the full command surface.

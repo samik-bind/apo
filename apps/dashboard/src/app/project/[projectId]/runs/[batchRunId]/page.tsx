@@ -1,4 +1,5 @@
 import { getAgentTaskBatchRun } from "@/lib/agent-task-api";
+import { getProject } from "@/lib/projects-api";
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
@@ -11,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { formatCostMicro } from "@/lib/format";
 import { formatBatchExecution } from "@/lib/run-configuration";
 import { TriggerInline } from "@/components/trigger-badge";
+import { DeleteRunButton } from "@/components/runs/DeleteRunButton";
 import { BatchTaskRunsTable } from "./batch-task-runs-table";
 import { BatchRunAutoRefresh } from "@/components/agent-task-execution/batch-run-auto-refresh";
 import { OutcomeSummary, FailuresByType, conclusionStyle } from "@/components/run-outcome";
@@ -81,6 +83,13 @@ export default async function BatchRunDetailPage({
   let batchRun;
   let error: string | null = null;
 
+  // Role for the delete action; failure degrades to no button, not a
+  // broken page.
+  const project = await getProject(projectId).catch(() => null);
+  const canDeleteRuns =
+    project?.current_user_role === "owner" ||
+    project?.current_user_role === "admin";
+
   try {
     batchRun = await getAgentTaskBatchRun(batchRunId);
   } catch (e: unknown) {
@@ -145,6 +154,18 @@ export default async function BatchRunDetailPage({
               {isRunning && (
                 <BatchRunCancelButton batchRunId={batchRunId} />
               )}
+              {!isRunning && (
+                <DeleteRunButton
+                  target={{
+                    kind: "batch",
+                    batchRunId,
+                    taskCount: batchRun.total_tasks,
+                  }}
+                  canDelete={canDeleteRuns}
+                  redirectTo={`/project/${projectId}/runs`}
+                  appearance="button"
+                />
+              )}
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
               <span>{batchRun.selection_type}</span>
@@ -204,7 +225,11 @@ export default async function BatchRunDetailPage({
             No task runs were recorded for this batch run.
           </div>
         ) : (
-          <BatchTaskRunsTable runs={batchRun.task_runs} projectId={projectId} />
+          <BatchTaskRunsTable
+            runs={batchRun.task_runs}
+            projectId={projectId}
+            canDelete={canDeleteRuns}
+          />
         )}
       </div>
     </div>

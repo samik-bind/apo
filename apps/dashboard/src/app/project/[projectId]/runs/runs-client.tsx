@@ -37,6 +37,7 @@ export function RunsClient({
   pageSize,
   totalPages,
   modelFacets,
+  canDeleteRuns,
 }: {
   batchRuns: AgentTaskBatchRunSummary[];
   error: string | null;
@@ -46,6 +47,8 @@ export function RunsClient({
   pageSize: number;
   totalPages: number;
   modelFacets: ModelFacetOption[];
+  /** Caller's project role allows run deletion (owner/admin). */
+  canDeleteRuns: boolean;
 }) {
   const projectId = useProjectId();
   const router = useRouter();
@@ -259,6 +262,7 @@ export function RunsClient({
                   compareDisabled={compareIds.length >= 2 && !compareIdSet.has(b.id)}
                   onToggleCompare={() => toggleCompare(b.id)}
                   modelFilter={selectedModels}
+                  canDelete={canDeleteRuns}
                 />
               ))}
             </TableBody>

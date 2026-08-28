@@ -15,25 +15,35 @@ const PAGE_SIZE = 20;
 
 interface TaskRunHistoryProps {
   runs: AgentTaskRunSummary[];
+  /** Caller's project role allows run deletion (owner/admin). */
+  canDelete?: boolean;
 }
 
-export function TaskRunHistory({ runs }: TaskRunHistoryProps) {
+export function TaskRunHistory({ runs, canDelete = false }: TaskRunHistoryProps) {
   const projectId = useProjectId();
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [page, setPage] = useState(0);
+  const [liveRuns, setLiveRuns] = useState(runs);
 
-  const totalPages = Math.ceil(runs.length / PAGE_SIZE);
+  // Deleted runs splice out locally; the surrounding counts refresh with
+  // the next server render.
+  const handleDeleted = (runId: string) => {
+    setLiveRuns((prev) => prev.filter((run) => run.id !== runId));
+    setCompareIds((prev) => prev.filter((id) => id !== runId));
+  };
+
+  const totalPages = Math.ceil(liveRuns.length / PAGE_SIZE);
   // A refresh can shrink the list (run deleted) — clamp into range.
   const safePage = Math.min(page, Math.max(0, totalPages - 1));
-  const visibleRuns = runs.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const visibleRuns = liveRuns.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   // Map selected run ids → their parent batch ids. Compare is only meaningful
   // across two DIFFERENT batches (comparing a batch to itself is nonsensical).
   const compareBatches = useMemo(() => {
     return compareIds
-      .map((rid) => runs.find((r) => r.id === rid)?.batch_run_id)
+      .map((rid) => liveRuns.find((r) => r.id === rid)?.batch_run_id)
       .filter((b): b is string => typeof b === "string");
-  }, [compareIds, runs]);
+  }, [compareIds, liveRuns]);
   const canCompare =
     compareIds.length === 2 && compareBatches.length === 2 && compareBatches[0] !== compareBatches[1];
 
@@ -45,7 +55,7 @@ export function TaskRunHistory({ runs }: TaskRunHistoryProps) {
     });
   };
 
-  if (!runs || runs.length === 0) {
+  if (!liveRuns || liveRuns.length === 0) {
     return (
       <div className="m-6 rounded-md border border-dashed border-border bg-card/40 p-10 text-center text-[13px] text-muted-foreground">
         No runs yet.{" "}
@@ -80,13 +90,15 @@ export function TaskRunHistory({ runs }: TaskRunHistoryProps) {
               compareSelected={compareIdSet.has(run.id)}
               compareDisabled={compareIds.length >= 2 && !compareIdSet.has(run.id)}
               onToggleCompare={() => toggleCompare(run.id)}
+              canDelete={canDelete}
+              onDelete={() => handleDeleted(run.id)}
             />
           ))}
         </TableBody>
       </Table>
 
       <ListPagination
-        totalCount={runs.length}
+        totalCount={liveRuns.length}
         page={safePage}
         pageSize={PAGE_SIZE}
         totalPages={totalPages}

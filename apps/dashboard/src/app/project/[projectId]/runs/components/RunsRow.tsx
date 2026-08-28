@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { ArrowUpRight, ChevronDown, Clock, GitBranch, GitCompare, Loader2 } from "lucide-react";
 
@@ -10,6 +11,7 @@ import {
   getAgentTaskBatchRun,
 } from "@/lib/agent-task-api";
 import { conclusionStyle } from "@/components/run-outcome";
+import { DeleteRunButton } from "@/components/runs/DeleteRunButton";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { formatCostMicro, formatTokenTotal } from "@/lib/format";
@@ -26,6 +28,8 @@ interface RunsRowProps {
   compareDisabled: boolean;
   onToggleCompare: () => void;
   modelFilter: Set<string>;
+  /** Caller's project role allows run deletion (owner/admin). */
+  canDelete: boolean;
 }
 
 /**
@@ -41,7 +45,9 @@ export function RunsRow({
   compareDisabled,
   onToggleCompare,
   modelFilter,
+  canDelete,
 }: RunsRowProps) {
+  const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const [taskRuns, setTaskRuns] = useState<AgentTaskRunSummary[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -81,6 +87,16 @@ export function RunsRow({
       }
     }
   }, [expanded, taskRuns, loading, batch.id]);
+
+  // Splice the deleted task run out of the expanded rows; deleting the
+  // last one also removes the (now empty) batch, so re-fetch the list.
+  const handleTaskRunDeleted = useCallback(
+    (taskRunId: string) => {
+      setTaskRuns((prev) => prev?.filter((run) => run.id !== taskRunId) ?? prev);
+      if ((taskRuns?.length ?? 0) <= 1) router.refresh();
+    },
+    [taskRuns, router],
+  );
 
   return (
     <>
@@ -237,6 +253,10 @@ export function RunsRow({
             >
               <GitCompare className="h-3.5 w-3.5" />
             </button>
+            <DeleteRunButton
+              target={{ kind: "batch", batchRunId: batch.id, taskCount: batch.total_tasks }}
+              canDelete={canDelete}
+            />
             <Link
               href={`/project/${projectId}/runs/${batch.id}`}
               aria-label="Open batch run"
@@ -284,7 +304,14 @@ export function RunsRow({
               );
             }
             return visible.map((run) => (
-              <InlineTaskRunRow key={run.id} run={run} projectId={projectId} clientNow={clientNow} />
+              <InlineTaskRunRow
+                key={run.id}
+                run={run}
+                projectId={projectId}
+                clientNow={clientNow}
+                canDelete={canDelete}
+                onDeleted={() => handleTaskRunDeleted(run.id)}
+              />
             ));
           })()}
         </>

@@ -15,7 +15,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { taskDetailHref } from "@/lib/task-routes";
+import { hrefWithRunCohort, parseDrilldownCohort } from "@/lib/run-cohort";
 import { TriggerInline } from "@/components/trigger-badge";
+import { DeleteRunButton } from "@/components/runs/DeleteRunButton";
 import { TaskRunDetailBody } from "./task-run-detail-body";
 import { TaskRunAutoRefresh } from "@/components/agent-task-execution/task-run-auto-refresh";
 import { OutcomeSummary } from "@/components/run-outcome";
@@ -84,10 +86,15 @@ const UNKNOWN_STATUS_DOT = { dot: "bg-muted-foreground/40", text: "text-muted-fo
 
 export default async function TaskRunDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ projectId: string; taskRunId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { projectId, taskRunId } = await params;
+  const [{ projectId, taskRunId }, query] = await Promise.all([params, searchParams]);
+  // SPEC-187 scope loop: a cohort handed in by the Runs page keeps flowing —
+  // the task back-links below forward it into the task detail page.
+  const cohort = parseDrilldownCohort(query);
 
   // Start the project fetch in parallel — it's independent of the task run.
   // A failure here is non-fatal (sourceType falls back to null).
@@ -124,6 +131,9 @@ export default async function TaskRunDetailPage({
   // awaited here (after the guards) so the error path never waits on it.
   const project = await projectPromise;
   const sourceType = project?.task_source?.source_type ?? null;
+  const canDeleteRuns =
+    project?.current_user_role === "owner" ||
+    project?.current_user_role === "admin";
 
   // Issue #159: judgments only exist once a run was re-judged. Non-fatal —
   // the section just stays hidden if the read fails.
@@ -165,7 +175,7 @@ export default async function TaskRunDetailPage({
         <div className="flex flex-col gap-3 px-6 py-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-              <Link href={`/project/${projectId}/runs`} className="inline-flex items-center gap-1 hover:text-foreground">
+              <Link href={hrefWithRunCohort(`/project/${projectId}/runs`, cohort)} className="inline-flex items-center gap-1 hover:text-foreground">
                 <ArrowLeft className="h-3 w-3" />
                 Runs
               </Link>
@@ -174,7 +184,7 @@ export default async function TaskRunDetailPage({
                 {taskRun.batch_run_id.slice(0, 8)}
               </Link>
               <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
-              <Link href={taskDetailHref(projectId, taskRun.task_id)} className="hover:text-foreground">
+              <Link href={hrefWithRunCohort(taskDetailHref(projectId, taskRun.task_id), cohort)} className="hover:text-foreground">
                 {taskRun.task_id}
               </Link>
               <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
@@ -239,7 +249,7 @@ export default async function TaskRunDetailPage({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" asChild variant="outline" size="sm" className="h-8 border-border bg-card text-[13px] font-normal hover:bg-card/80">
-              <Link href={taskDetailHref(projectId, taskRun.task_id)} className="inline-flex items-center gap-1.5">
+              <Link href={hrefWithRunCohort(taskDetailHref(projectId, taskRun.task_id), cohort)} className="inline-flex items-center gap-1.5">
                 <ListChecks className="h-3.5 w-3.5" /> Task
               </Link>
             </Button>
@@ -255,6 +265,14 @@ export default async function TaskRunDetailPage({
                 buttonVariant="default"
                 buttonSize="sm"
                 className="h-8 gap-1.5 text-[13px] font-medium"
+              />
+            )}
+            {!isRunning && (
+              <DeleteRunButton
+                target={{ kind: "task-run", taskRunId: taskRun.id }}
+                canDelete={canDeleteRuns}
+                redirectTo={`/project/${projectId}/runs/${taskRun.batch_run_id}`}
+                appearance="button"
               />
             )}
           </div>

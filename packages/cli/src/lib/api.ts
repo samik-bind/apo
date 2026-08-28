@@ -14,6 +14,7 @@ export class AuthError extends Error {
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+const DELETE_TIMEOUT_MS = 60_000;
 
 function authHeaders(config?: Config): Record<string, string> {
   const apiKey = config?.apiKey ?? process.env.APO_API_KEY;
@@ -30,6 +31,9 @@ type RequestOptions = {
   params?: Record<string, string | string[]>;
   body?: unknown;
   config?: Config;
+  /** Override the 15s default; deletes of large batches cascade through
+   * many rows and stored objects and can legitimately run longer. */
+  timeoutMs?: number;
 };
 
 /**
@@ -39,7 +43,7 @@ type RequestOptions = {
  * "Cannot connect" on network failure).
  */
 async function apiRequest<T>(
-  method: "GET" | "POST" | "PUT" | "PATCH",
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   baseUrl: string,
   path: string,
   options: RequestOptions = {},
@@ -56,7 +60,8 @@ async function apiRequest<T>(
     }
   }
 
-  const hasBody = method !== "GET";
+  const hasBody = method !== "GET" && method !== "DELETE";
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   let response: Response;
   try {
     response = await fetch(url.toString(), {
@@ -65,12 +70,12 @@ async function apiRequest<T>(
         ? { "Content-Type": "application/json", ...authHeaders(options.config) }
         : authHeaders(options.config),
       ...(hasBody ? { body: JSON.stringify(options.body) } : {}),
-      signal: timeoutSignal(DEFAULT_TIMEOUT_MS),
+      signal: timeoutSignal(timeoutMs),
     });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error(
-        `Request timed out after ${DEFAULT_TIMEOUT_MS / 1000}s — is the backend running at ${baseUrl}?`,
+        `Request timed out after ${timeoutMs / 1000}s — is the backend running at ${baseUrl}?`,
       );
     }
     throw new Error(`Cannot connect to backend at ${baseUrl}`);
@@ -121,6 +126,17 @@ export function apiPatch<T>(
   config?: Config,
 ): Promise<T> {
   return apiRequest<T>("PATCH", baseUrl, path, { body, config });
+}
+
+export function apiDelete<T>(
+  baseUrl: string,
+  path: string,
+  config?: Config,
+): Promise<T> {
+  return apiRequest<T>("DELETE", baseUrl, path, {
+    config,
+    timeoutMs: DELETE_TIMEOUT_MS,
+  });
 }
 
 export async function isBackendReachable(baseUrl: string): Promise<boolean> {

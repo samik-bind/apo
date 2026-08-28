@@ -13,16 +13,29 @@ const PAGE_SIZE = 20;
 export function BatchTaskRunsTable({
   runs,
   projectId,
+  canDelete,
 }: {
   runs: AgentTaskRunSummary[];
   projectId: string;
+  /** Caller's project role allows run deletion (owner/admin). */
+  canDelete: boolean;
 }) {
   const [page, setPage] = useState(0);
+  const [liveRuns, setLiveRuns] = useState(runs);
 
-  const totalPages = Math.ceil(runs.length / PAGE_SIZE);
+  // Deleted runs splice out locally; deleting the last one removes the
+  // whole batch, so head back to the runs list.
+  const handleDeleted = (runId: string) => {
+    setLiveRuns((prev) => prev.filter((run) => run.id !== runId));
+    if (liveRuns.length <= 1) {
+      window.location.href = `/project/${projectId}/runs`;
+    }
+  };
+
+  const totalPages = Math.ceil(liveRuns.length / PAGE_SIZE);
   // A refresh can shrink the list — clamp into range.
   const safePage = Math.min(page, Math.max(0, totalPages - 1));
-  const visibleRuns = runs.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
+  const visibleRuns = liveRuns.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   return (
     <div className="flex flex-col">
@@ -30,13 +43,19 @@ export function BatchTaskRunsTable({
         <TaskRunListHeader />
         <TableBody>
           {visibleRuns.map((run) => (
-            <TaskRunRow key={run.id} run={run} projectId={projectId} />
+            <TaskRunRow
+              key={run.id}
+              run={run}
+              projectId={projectId}
+              canDelete={canDelete}
+              onDelete={() => handleDeleted(run.id)}
+            />
           ))}
         </TableBody>
       </Table>
 
       <ListPagination
-        totalCount={runs.length}
+        totalCount={liveRuns.length}
         page={safePage}
         pageSize={PAGE_SIZE}
         totalPages={totalPages}

@@ -613,9 +613,10 @@ export const getProjectAgentTask = async (
  * stats were scoped to.
  */
 export interface TaskRunCohortFilter {
-  model?: string;
-  effort?: string;
-  since?: string;
+  /** `null` means the dimension is absent (the param is simply not sent). */
+  model?: string | null;
+  effort?: string | null;
+  since?: string | null;
   /** OR'd run statuses (repeatable `?status=` — SPEC-187). */
   status?: string[];
 }
@@ -791,6 +792,35 @@ export const cancelAgentTaskBatchRun = (
     `/v1/agent-task-batch-runs/${encodeURIComponent(batchRunId)}/cancel`,
     { method: "POST", body: {} },
   );
+
+export interface RunDeletionCounts {
+  ok: true;
+  deleted_runs: number;
+  deleted_traces: number;
+  deleted_calls: number;
+  deleted_batches: number;
+}
+
+/** Permanently delete one Task Run: its Check Report, judgments,
+ * corrections, Deliverables (rows and stored objects), attempt, and trace.
+ * Terminal/cancelled runs only; the parent Batch's rollups are recomputed
+ * and an emptied Batch is removed. Project admin only. */
+export const deleteAgentTaskRun = (
+  taskRunId: string,
+): Promise<RunDeletionCounts> =>
+  apiClient(`/v1/agent-task-runs/${encodeURIComponent(taskRunId)}`, {
+    method: "DELETE",
+  });
+
+/** Permanently delete a Batch Run and every Task Run it owns (checks,
+ * judgments, corrections, Deliverables, attempts, traces) plus the Batch's
+ * Task Revision bundles. Terminal batches only. Project admin only. */
+export const deleteAgentTaskBatchRun = (
+  batchRunId: string,
+): Promise<RunDeletionCounts> =>
+  apiClient(`/v1/agent-task-batch-runs/${encodeURIComponent(batchRunId)}`, {
+    method: "DELETE",
+  });
 
 /** SPEC-185: correct one recorded top-level test result on a Run.
  * `action` sets the effective PASS/FAIL or clears back to the recorded
