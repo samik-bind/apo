@@ -217,19 +217,122 @@ def test_task_run_list_filters_model_and_effort_with_and_across_dimensions(
     assert ids == {"r-th"}
 
 
-def test_task_run_list_filter_is_exact_and_case_sensitive(
+def test_task_run_list_filter_is_exact_but_case_insensitive(
     client: TestClient,
     session: Session,
 ) -> None:
+    """SPEC-187: matching ignores case so a hand-edited URL never silently empties the list."""
     now = datetime.now(timezone.utc)
     session.add_all([_batch("b", "proj-filter", now)])
     session.add_all([_configured_run("r", "b", "Terra", "High", now)])
     session.commit()
 
-    # Wrong case does not match.
-    assert {r["id"] for r in client.get("/v1/agent-task-runs", params={"project": "proj-filter", "model": "terra"}).json()} == set()
-    # Exact case matches.
-    assert {r["id"] for r in client.get("/v1/agent-task-runs", params={"project": "proj-filter", "model": "Terra"}).json()} == {"r"}
+    # Different case still matches, for model and effort alike.
+    assert {r["id"] for r in client.get("/v1/agent-task-runs", params={"project": "proj-filter", "model": "terra"}).json()} == {"r"}
+    assert {r["id"] for r in client.get("/v1/agent-task-runs", params={"project": "proj-filter", "model": "TERRA"}).json()} == {"r"}
+    assert {r["id"] for r in client.get("/v1/agent-task-runs", params={"project": "proj-filter", "effort": "high"}).json()} == {"r"}
+    # A different value still does not match (exact, not substring).
+    assert {r["id"] for r in client.get("/v1/agent-task-runs", params={"project": "proj-filter", "model": "terrax"}).json()} == set()
+
+
+def test_task_run_list_filters_status_repeated_with_or(
+    client: TestClient,
+    session: Session,
+) -> None:
+    """SPEC-187: repeated ?status= values OR; a run matches if its status is any of them."""
+    now = datetime.now(timezone.utc)
+    session.add_all([_batch("b", "proj-status", now)])
+    runs = [
+        _run("r-pass", "b", "task-1", now),
+        _run("r-fail", "b", "task-1", now),
+        _run("r-err", "b", "task-1", now),
+    ]
+    runs[1].status = "failed"
+    runs[1].pass_result = False
+    runs[2].status = "error"
+    runs[2].pass_result = None
+    session.add_all(runs)
+    session.commit()
+
+    resp = client.get(
+        "/v1/agent-task-runs",
+        params=[("project", "proj-status"), ("status", "passed"), ("status", "failed")],
+    )
+    assert resp.status_code == 200
+    assert {r["id"] for r in resp.json()} == {"r-pass", "r-fail"}
+
+
+def test_task_run_list_single_status_param_still_filters(
+    client: TestClient,
+    session: Session,
+) -> None:
+    """A single ?status= value (the pre-SPEC-187 URL shape) keeps working."""
+    now = datetime.now(timezone.utc)
+    session.add_all([_batch("b", "proj-status", now)])
+    runs = [_run("r-pass", "b", "task-1", now), _run("r-fail", "b", "task-1", now)]
+    runs[1].status = "failed"
+    runs[1].pass_result = False
+    session.add_all(runs)
+    session.commit()
+
+    assert {r["id"] for r in client.get("/v1/agent-task-runs", params={"project": "proj-status", "status": "passed"}).json()} == {"r-pass"}
+
+
+def test_task_run_list_status_filter_is_case_insensitive_on_input(
+    client: TestClient,
+    session: Session,
+) -> None:
+    now = datetime.now(timezone.utc)
+    session.add_all([_batch("b", "proj-status", now)])
+    session.add_all([_run("r-pass", "b", "task-1", now)])
+    session.commit()
+
+    assert {r["id"] for r in client.get("/v1/agent-task-runs", params={"project": "proj-status", "status": "PASSED"}).json()} == {"r-pass"}
+
+
+def test_task_run_list_null_configuration_never_matches_model_or_effort(
+    client: TestClient,
+    session: Session,
+) -> None:
+    """Documented invariant, regression-guarded: unconfigured runs stay invisible to config filters."""
+    now = datetime.now(timezone.utc)
+    session.add_all([_batch("b", "proj-null", now)])
+    session.add_all(
+        [
+            _run("r-unconfigured", "b", "task-1", now),
+            _configured_run("r-configured", "b", "terra", "high", now),
+        ]
+    )
+    session.commit()
+
+    base = {"project": "proj-null"}
+    assert {r["id"] for r in client.get("/v1/agent-task-runs", params={**base, "model": "terra"}).json()} == {"r-configured"}
+    assert {r["id"] for r in client.get("/v1/agent-task-runs", params={**base, "effort": "high"}).json()} == {"r-configured"}
+    # Case-insensitive matching must not turn NULL into a match either.
+    assert {r["id"] for r in client.get("/v1/agent-task-runs", params={**base, "model": "TERRA"}).json()} == {"r-configured"}
+
+
+def test_task_run_list_combines_status_with_model_and_since(
+    client: TestClient,
+    session: Session,
+) -> None:
+    """status ANDs with the other dimensions (it does not replace them)."""
+    now = datetime.now(timezone.utc)
+    session.add_all([_batch("b", "proj-combined", now)])
+    fresh_pass = _configured_run("r-fresh-pass", "b", "terra", "high", now - timedelta(hours=2))
+    fresh_fail = _configured_run("r-fresh-fail", "b", "terra", "high", now - timedelta(hours=3))
+    fresh_fail.status = "failed"
+    fresh_fail.pass_result = False
+    stale_pass = _configured_run("r-stale-pass", "b", "terra", "high", now - timedelta(days=9))
+    session.add_all([fresh_pass, fresh_fail, stale_pass])
+    session.commit()
+
+    resp = client.get(
+        "/v1/agent-task-runs",
+        params={"project": "proj-combined", "model": "terra", "status": "passed", "since": "7d"},
+    )
+    assert resp.status_code == 200
+    assert {r["id"] for r in resp.json()} == {"r-fresh-pass"}
 
 
 def test_task_run_list_filters_since_window_over_started_at(

@@ -13,7 +13,7 @@ from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import asc, desc
+from sqlalchemy import asc, desc, func
 from sqlalchemy.orm import defer
 from sqlmodel import Session, col, select
 
@@ -50,6 +50,7 @@ from ..services.judgments import count_judgments
 from ..services.test_result_corrections import projected_check_report
 from ..services.agent_task_outcome import classify_run_outcome
 from ..services.agent_task_run_access import require_task_run_access
+from ..services.lifecycle import TASK_RUN_TERMINAL, is_batch_run_terminal
 from ..services.agent_task_projection import (
     parse_trigger,
     to_batch_run_detail,
@@ -378,6 +379,79 @@ async def cancel_agent_task_batch_run(
 
 
 # ============================================================================
+# Deletion routes (terminal runs only; must precede any catch-all)
+# ============================================================================
+
+
+@router.delete("/agent-task-runs/{task_run_id}")
+async def delete_agent_task_run(
+    task_run_id: str,
+    http_request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """Permanently delete one Task Run.
+
+    Removes its Check Report, judgments, test-result corrections, Deliverables
+    (rows and stored objects), execution attempt, and trace. The parent Batch's
+    rollups are recomputed from the remaining runs; an emptied Batch is removed
+    together with its Revision bundles. Requires project admin. Terminal or
+    cancelled runs only — cancel a live run first.
+    """
+    task_run = session.get(AgentTaskRunDB, task_run_id)
+    if task_run is None:
+        raise HTTPException(status_code=404, detail="Task run not found")
+    batch = session.get(AgentTaskBatchRunDB, task_run.batch_run_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Batch run not found")
+    require_project_not_demo(batch.project)
+    # Run deletion is destructive history rewrite; project admin only
+    # (same policy as schedule deletion and trace bulk-delete).
+    _ = enforce_project_role_from_request(
+        http_request, session, batch.project, minimum_role="admin"
+    )
+    if task_run.status not in (*TASK_RUN_TERMINAL, "cancelled"):
+        raise HTTPException(
+            status_code=409,
+            detail="Run is still active — cancel it before deleting",
+        )
+    from apo.services.run_deletion import delete_task_runs
+
+    counts = await delete_task_runs(session, [task_run])
+    return {"ok": True, **counts}
+
+
+@router.delete("/agent-task-batch-runs/{batch_run_id}")
+async def delete_agent_task_batch_run(
+    batch_run_id: str,
+    http_request: Request,
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """Permanently delete a Batch Run and every Task Run it owns.
+
+    Removes all child runs (checks, judgments, corrections, Deliverables,
+    attempts, traces) plus the Batch's Task Revision bundles. Schedule
+    references to the Batch are cleared. Requires project admin. Terminal
+    batches only — cancel a live Batch first.
+    """
+    batch = session.get(AgentTaskBatchRunDB, batch_run_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Batch run not found")
+    require_project_not_demo(batch.project)
+    _ = enforce_project_role_from_request(
+        http_request, session, batch.project, minimum_role="admin"
+    )
+    if not is_batch_run_terminal(batch.status):
+        raise HTTPException(
+            status_code=409,
+            detail="Batch is still active — cancel it before deleting",
+        )
+    from apo.services.run_deletion import delete_batch_runs
+
+    counts = await delete_batch_runs(session, [batch])
+    return {"ok": True, **counts}
+
+
+# ============================================================================
 # Cancellation routes (idempotent; must precede any catch-all)
 # ============================================================================
 # Caller Executor create-and-claim
@@ -636,7 +710,7 @@ async def get_agent_task_batch_run(
 async def list_agent_task_runs(
     request: Request,
     project: str | None = Query(default=None),
-    status: str | None = Query(default=None),
+    status: list[str] | None = Query(default=None),
     task_id: str | None = Query(default=None),
     batch_run_id: str | None = Query(default=None),
     model: list[str] | None = Query(default=None),
@@ -646,10 +720,12 @@ async def list_agent_task_runs(
 ):
     """List all task runs, optionally filtered.
 
-    ``model``/``effort`` are repeatable and exact/case-sensitive.
-    Repeated values within one dimension OR; the two dimensions AND. A run
-    with an unreported configuration (NULL columns) never matches.
-    ``since`` is a ``"Nh"``/``"Nd"`` window over ``started_at`` (the same
+    ``model``/``effort``/``status`` are repeatable and exact but
+    case-insensitive (SPEC-187: a hand-edited URL must not silently
+    empty the list). Repeated values within one dimension OR; the
+    dimensions AND. A run with an unreported configuration (NULL
+    columns) never matches ``model``/``effort``. ``since`` is a
+    ``"Nh"``/``"Nd"`` window over ``started_at`` (the same
     vocabulary the Tasks evidence views use), so a task-detail drill-down
     can show exactly the cohort the view was scoped to.
 
@@ -676,15 +752,23 @@ async def list_agent_task_runs(
             AgentTaskBatchRunDB.project == project
         )
     if status:
-        query = query.where(AgentTaskRunDB.status == status)
+        query = query.where(col(AgentTaskRunDB.status).in_([s.lower() for s in status]))
     if task_id:
         query = query.where(AgentTaskRunDB.task_id == task_id)
     if batch_run_id:
         query = query.where(AgentTaskRunDB.batch_run_id == batch_run_id)
     if model:
-        query = query.where(col(AgentTaskRunDB.configured_model).in_(model))
+        query = query.where(
+            func.lower(as_column(AgentTaskRunDB.configured_model)).in_(
+                [m.lower() for m in model]
+            )
+        )
     if effort:
-        query = query.where(col(AgentTaskRunDB.configured_effort).in_(effort))
+        query = query.where(
+            func.lower(as_column(AgentTaskRunDB.configured_effort)).in_(
+                [e.lower() for e in effort]
+            )
+        )
     since_cutoff_value = since_cutoff(since)
     if since_cutoff_value is not None:
         query = query.where(col(AgentTaskRunDB.started_at) >= since_cutoff_value)
