@@ -18,6 +18,9 @@ import {
 interface RunCohortStore {
   cohort: RunCohort;
   setCohort: (cohort: RunCohort) => void;
+  /** The saved view the cohort came from, or null for Main / hand-set filters. */
+  viewId: string | null;
+  setViewId: (viewId: string | null) => void;
 }
 
 const RunCohortContext = createContext<RunCohortStore | null>(null);
@@ -25,6 +28,7 @@ const RunCohortContext = createContext<RunCohortStore | null>(null);
 /** Lets a page publish its cohort to navigation rendered by the same shell. */
 export function RunCohortProvider({ children }: { children: ReactNode }) {
   const [cohort, setCohortState] = useState<RunCohort>(EMPTY_RUN_COHORT);
+  const [viewId, setViewIdState] = useState<string | null>(null);
   const setCohort = useCallback((next: RunCohort) => {
     setCohortState((previous) =>
       previous.model === next.model &&
@@ -34,7 +38,13 @@ export function RunCohortProvider({ children }: { children: ReactNode }) {
         : next,
     );
   }, []);
-  const value = useMemo(() => ({ cohort, setCohort }), [cohort, setCohort]);
+  const setViewId = useCallback((next: string | null) => {
+    setViewIdState((previous) => (previous === next ? previous : next));
+  }, []);
+  const value = useMemo(
+    () => ({ cohort, setCohort, viewId, setViewId }),
+    [cohort, setCohort, viewId, setViewId],
+  );
   return (
     <RunCohortContext.Provider value={value}>
       {children}
@@ -47,13 +57,25 @@ export function useRunCohort(): RunCohort {
   return useContext(RunCohortContext)?.cohort ?? EMPTY_RUN_COHORT;
 }
 
-/** Publish a cohort while the calling page is mounted and clear it on exit. */
-export function usePublishRunCohort(cohort: RunCohort): void {
-  const setCohort = useContext(RunCohortContext)?.setCohort;
+/** The saved-view identity published alongside the cohort, if any. */
+export function useRunCohortViewId(): string | null {
+  return useContext(RunCohortContext)?.viewId ?? null;
+}
+
+/** Publish a cohort (and its originating view) while the page is mounted. */
+export function usePublishRunCohort(cohort: RunCohort, viewId: string | null = null): void {
+  // Depend on the stable setters, not the store object: the store's identity
+  // changes whenever the cohort state does, and re-running this effect would
+  // set that state again — an infinite publish/republish render loop.
+  const { setCohort, setViewId } = useContext(RunCohortContext) ?? {};
   const { model, effort, since } = cohort;
   useEffect(() => {
-    if (!setCohort) return;
+    if (!setCohort || !setViewId) return;
     setCohort({ model, effort, since });
-    return () => setCohort(EMPTY_RUN_COHORT);
-  }, [model, effort, since, setCohort]);
+    setViewId(viewId);
+    return () => {
+      setCohort(EMPTY_RUN_COHORT);
+      setViewId(null);
+    };
+  }, [model, effort, since, viewId, setCohort, setViewId]);
 }

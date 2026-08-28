@@ -54,6 +54,23 @@ export function parseRunCohort(query: SearchParamQuery): RunCohort {
 }
 
 /**
+ * The Runs page's variant of the cohort hop: its multi-select filters pack as
+ * comma-joined values ("a,b"), while the drill-down vocabulary is
+ * single-valued. Only an unambiguous single selection survives the hop —
+ * forwarding "a,b" would filter for a model literally named "a,b".
+ */
+export function parseDrilldownCohort(query: SearchParamQuery): RunCohort {
+  const one = (key: string): string | null => {
+    const value = query[key];
+    const single = Array.isArray(value) ? value[0] : value;
+    if (typeof single !== "string" || !single) return null;
+    const parts = single.split(",").filter(Boolean);
+    return parts.length === 1 ? parts[0] : null;
+  };
+  return { model: one("model"), effort: one("effort"), since: one("since") };
+}
+
+/**
  * Append the saved-view identity param (`?view=`). It is informational — the
  * tasks page uses it to re-select the tab, the task detail page to name the
  * scope's origin — and degrades to a plain link when absent.

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   hrefWithRunCohort,
+  parseDrilldownCohort,
   parseRunCohort,
   withViewId,
 } from "../run-cohort";
@@ -25,6 +26,31 @@ describe("parseRunCohort", () => {
   it("takes the first value when a param repeats", () => {
     expect(parseRunCohort({ model: ["a", "b"] })).toEqual({
       model: "a",
+      effort: null,
+      since: null,
+    });
+  });
+});
+
+describe("parseDrilldownCohort (Runs page hop)", () => {
+  it("forwards a single unambiguous model selection", () => {
+    expect(parseDrilldownCohort({ model: "claude-opus-5", since: "7d" })).toEqual({
+      model: "claude-opus-5",
+      effort: null,
+      since: "7d",
+    });
+  });
+
+  it("drops an ambiguous multi-model selection instead of mangling it", () => {
+    // The Runs page packs multi-select as "a,b"; the drill-down vocabulary is
+    // single-valued, so forwarding "a,b" would filter for a model named "a,b".
+    expect(parseDrilldownCohort({ model: "a,b", since: "7d" })).toEqual({
+      model: null,
+      effort: null,
+      since: "7d",
+    });
+    expect(parseDrilldownCohort({ effort: "high,low" })).toEqual({
+      model: null,
       effort: null,
       since: null,
     });
