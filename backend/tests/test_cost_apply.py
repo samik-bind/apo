@@ -1,10 +1,10 @@
 # pyright: reportAny=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportExplicitAny=false, reportMissingParameterType=false, reportPrivateUsage=false, reportReturnType=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedImport=false
 
-"""Regression tests for the cost-application seam (audit P1 #1, #2).
+"""Regression tests for the cost-application seam.
 
 Covers:
-  - provided_cost overwrites cost (not just fills a null) — audit P1 #2
-  - a partial update (no usage) does not erase a frozen cost — audit P1 #1
+  - provided_cost overwrites cost (not just fills a null)
+  - a partial update (no usage) does not erase a frozen cost
   - provided_cost wins over compute even when usage is present
 """
 
@@ -46,7 +46,7 @@ def _make_call(**kwargs: Any) -> LoggedCallDB:
 
 class TestProvidedCostWins:
     def test_provided_cost_overwrites_existing_cost(self, session: Session) -> None:
-        """Audit P1 #2: updating provided_cost must overwrite cost, not leave the
+        """Regression: updating provided_cost must overwrite cost, not leave the
         old computed cost while marking provenance 'provided'."""
         call = _make_call(cost=7_500_000, cost_provenance="computed")
         session.add(call)
@@ -73,7 +73,7 @@ class TestProvidedCostWins:
 
 class TestUpdateDoesNotEraseCost:
     def test_partial_update_no_usage_keeps_frozen_cost(self, session: Session) -> None:
-        """Audit P1 #1: an output-only update (no usage) must not erase a
+        """Regression: an output-only update (no usage) must not erase a
         previously-computed cost or raw_usage."""
         call = _make_call(
             cost=7_500_000,

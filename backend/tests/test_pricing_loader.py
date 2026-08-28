@@ -587,7 +587,7 @@ class TestCacheWriteIsPricedForEveryProvider:
 
 class TestMultipleErasPerPattern:
     def test_two_eras_for_same_pattern_coexist(self, session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Regression (audit P2 #7): two time-windowed eras sharing a
+        """Regression: two time-windowed eras sharing a
         match_pattern must both load (not collapse to one)."""
         path = _write_defaults(
             tmp_path,

@@ -124,7 +124,7 @@ describe("reprice command", () => {
   });
 
   it("rejects a non-integer --model-id instead of broadening the reprice", async () => {
-    // Regression (audit P1 #5): Number("abc") -> NaN -> JSON null -> no filter,
+    // Regression: Number("abc") -> NaN -> JSON null -> no filter,
     // which would reprice EVERY call. Must error instead.
     const { errors, restore } = captureError();
     const code = await run([
@@ -141,7 +141,7 @@ describe("reprice command", () => {
   });
 
   it("reports a job error in --json mode (exit 2, not silent success)", async () => {
-    // Regression (audit P1 #5): --json must surface an error status, not
+    // Regression: --json must surface an error status, not
     // silently succeed.
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(mockResponse({ job_id: "jerr" }))
