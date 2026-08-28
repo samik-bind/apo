@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractCheckBlock } from "../extract-check-block";
+import { extractCheckBlock, resolveCheckBlock } from "../extract-check-block";
 
 const source = `import { test } from "@apo-ai/sdk/agent-task";
 
@@ -88,5 +88,69 @@ check("quality", async (t) => {
 });
 `;
     expect(extractCheckBlock(aliasedSource, { anchorLine: 3 })?.startLine).toBe(2);
+  });
+});
+
+// Issue #178: table-driven evals register checks with generated titles
+// (`test(`P-${p.id} — …`)`) that never appear literally in the source, so
+// id matching cannot find the opener. The anchor must come from the check
+// result's recorded location — and the compare view holds TWO results.
+const tableDrivenSource = `/** Template upload checks. */
+PLACEHOLDER_TERMS.forEach((p) => {
+  test(\`P-\${p.id} — a placeholder exists for \${p.label}\`, (t, { deliverables }) => {
+    t.check(hasPlaceholderFor(p.id), satisfies(...));
+  });
+});
+
+test("literal-title-check", (t) => {
+  t.check(unrelated(), satisfies(...));
+});
+`;
+
+describe("resolveCheckBlock", () => {
+  it("resolves a generated-title block from the check's own assertion line", () => {
+    const block = resolveCheckBlock(tableDrivenSource, {
+      id: "P-reg — a placeholder exists for the company registration number",
+      anchorFrom: [
+        {
+          location: null,
+          assertions: [{ location: { line: 4 } }],
+        },
+      ],
+    });
+    expect(block?.startLine).toBe(3);
+    // Ends at the check's own `});` — the forEach wrapper's close is not part
+    // of the check block.
+    expect(block?.endLine).toBe(5);
+    expect(block?.code).toContain("P-${p.id}");
+    expect(block?.code).not.toContain("literal-title-check");
+  });
+
+  it("prefers the first check that recorded an anchor, falling through to the next", () => {
+    // Left has no anchor at all (location null, no assertion lines);
+    // right carries one. The pair must still resolve.
+    const block = resolveCheckBlock(tableDrivenSource, {
+      id: "P-reg — a placeholder exists for the company registration number",
+      anchorFrom: [
+        { location: null, assertions: [{ location: null }] },
+        { location: null, assertions: [{ location: { line: 4 } }] },
+      ],
+    });
+    expect(block?.startLine).toBe(3);
+  });
+
+  it("still prefers a literal id match over a stale anchor", () => {
+    const block = resolveCheckBlock(tableDrivenSource, {
+      id: "literal-title-check",
+      anchorFrom: [{ location: { line: 4 } }],
+    });
+    expect(block?.startLine).toBe(8);
+  });
+
+  it("returns null when neither id nor anchor can locate a block", () => {
+    expect(
+      resolveCheckBlock(tableDrivenSource, { id: "not-in-source", anchorFrom: [{}] }),
+    ).toBeNull();
+    expect(resolveCheckBlock("", { id: "x" })).toBeNull();
   });
 });

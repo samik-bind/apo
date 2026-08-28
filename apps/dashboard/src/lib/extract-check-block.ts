@@ -14,6 +14,8 @@
  * comments don't fool it.
  */
 
+import { checkAnchorLine, type CheckAnchorSource } from "./check-source-candidates";
+
 export interface CheckBlock {
   code: string;
   /** 1-indexed line in the original file where the block starts. */
@@ -73,6 +75,32 @@ export function extractCheckBlock(
     startLine: startIdx + 1,
     endLine: endIdx + 1,
   };
+}
+
+/** What to resolve a check's block from: its id plus the check results that
+ *  may carry an anchor line, in preference order. */
+export interface CheckBlockQuery {
+  /** The check's id — literal id matching is tried first (see findOpener). */
+  id?: string;
+  /**
+   * Check results to derive an anchor line from when the id doesn't appear
+   * literally in the source — table-driven evals with generated titles
+   * (issues #126/#178). First result with a recorded location wins.
+   */
+  anchorFrom?: Array<CheckAnchorSource | undefined | null>;
+}
+
+/**
+ * The one entry point views should use to turn check results into a source
+ * block. Derives the anchor line from the check results themselves, so a
+ * view that has the results can't forget the anchor the way the compare
+ * view did (issue #178: `{ id }` alone → whole file + wrong markers).
+ */
+export function resolveCheckBlock(source: string, query: CheckBlockQuery): CheckBlock | null {
+  const anchorLine = (query.anchorFrom ?? [])
+    .map((check) => (check ? checkAnchorLine(check) : undefined))
+    .find((line) => line !== undefined);
+  return extractCheckBlock(source, { id: query.id, anchorLine });
 }
 
 function findOpener(

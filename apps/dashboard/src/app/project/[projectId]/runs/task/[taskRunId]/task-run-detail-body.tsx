@@ -14,10 +14,9 @@ import { DeliverablesPanel } from "@/components/agent-task-execution/deliverable
 import type { DeliverableSummary } from "@/lib/agent-task-deliverables-api";
 import { readTaskFile, readTaskDefinitionSource, type TaskFileContentResponse, type TaskDefinitionRevisionSummary } from "@/lib/agent-task-api";
 import type { CheckResult } from "@/lib/agent-task-api";
-import { extractCheckBlock } from "@/lib/extract-check-block";
+import { resolveCheckBlock } from "@/lib/extract-check-block";
 import {
   buildSourceCandidates,
-  checkAnchorLine,
   shouldAcceptSource,
 } from "@/lib/check-source-candidates";
 import { cn } from "@/lib/utils";
@@ -110,7 +109,7 @@ export function TaskRunDetailBody({
             signal,
           );
           const containsKnownCheck = checks.some((check) =>
-            extractCheckBlock(source.content, { id: check.id, anchorLine: checkAnchorLine(check) }) !== null
+            resolveCheckBlock(source.content, { id: check.id, anchorFrom: [check] }) !== null
           );
           if (
             shouldAcceptSource({

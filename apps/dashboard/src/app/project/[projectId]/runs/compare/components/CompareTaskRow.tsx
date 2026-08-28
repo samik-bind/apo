@@ -19,7 +19,7 @@ import type { TaskComparisonEvidenceLoader } from "@/lib/agent-task-view-api";
 import { cn } from "@/lib/utils";
 import { formatDuration, runDurationMs, formatCostMicro, formatTokenTotal } from "@/lib/format";
 import { extractJudgeReasoning } from "@/lib/judge-reasoning";
-import { extractCheckBlock } from "@/lib/extract-check-block";
+import { resolveCheckBlock } from "@/lib/extract-check-block";
 import { locateAssertionsInBlock } from "@/lib/locate-assertion";
 import type { LineAssertion } from "./compare-markers";
 
@@ -1051,12 +1051,18 @@ function CheckSourceWithResults({
 
     (async () => {
       try {
+        // Issue #178: generated-title checks (table-driven evals) never
+        // appear literally in the source, so `{ id }` alone extracted
+        // nothing and the view fell back to the whole file — with the
+        // gutter markers landing on an unrelated check's lines. Both runs'
+        // results carry the anchor; prefer whichever side recorded one.
+        const blockQuery = { id: checkId, anchorFrom: [leftCheck, rightCheck] };
         const source = await loadCheckSource({
           taskId,
           recordedSourceFile: sourceFile,
           commitSha,
           definitionRefs,
-          containsKnownCheck: (content) => extractCheckBlock(content, { id: checkId }) !== null,
+          containsKnownCheck: (content) => resolveCheckBlock(content, blockQuery) !== null,
           deps: {
             readDefinitionSource: (runId, filePath) =>
               readTaskDefinitionSource(runId, filePath, controller.signal),
@@ -1065,7 +1071,7 @@ function CheckSourceWithResults({
           },
         });
         if (cancelled || controller.signal.aborted) return;
-        const block = extractCheckBlock(source.content, { id: checkId });
+        const block = resolveCheckBlock(source.content, blockQuery);
         setState({
           status: "ready",
           code: block?.code ?? source.content,
@@ -1084,7 +1090,7 @@ function CheckSourceWithResults({
       cancelled = true;
       controller.abort();
     };
-  }, [checkId, sourceFile, taskId, projectId, commitSha, definitionRefs]);
+  }, [checkId, sourceFile, taskId, projectId, commitSha, definitionRefs, leftCheck, rightCheck]);
 
   // Locate each run's assertions onto lines of the source block. Builds a
   // map: line number → { left?, right? } assertion results. Empty when the

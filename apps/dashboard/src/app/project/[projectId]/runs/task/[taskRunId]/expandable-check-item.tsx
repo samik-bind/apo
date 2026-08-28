@@ -6,8 +6,7 @@ import { ChevronRight, PenLine } from "lucide-react";
 import { useUrlParam } from "@/hooks/use-url-state";
 import type { CheckAssertionResult, CheckResult, TaskFileContentResponse } from "@/lib/agent-task-api";
 import { buildCheckDiagnostics } from "@/lib/check-diagnostics";
-import { checkAnchorLine } from "@/lib/check-source-candidates";
-import { extractCheckBlock } from "@/lib/extract-check-block";
+import { resolveCheckBlock } from "@/lib/extract-check-block";
 import { locateAssertionsInBlock } from "@/lib/locate-assertion";
 import { buildAssertionParam, parseOwnAssertionId } from "@/lib/assertion-select";
 import { cn } from "@/lib/utils";
@@ -46,13 +45,11 @@ export function ExpandableCheckItem({
   const judgeAssertion = item.assertions?.find((a) => a.judge);
   const judgeMeta = judgeAssertion?.judge ?? item.judge;
 
-  const checkBlock =
-    checksSource
-      ? extractCheckBlock(checksSource.content, {
-          id: item.id,
-          anchorLine: checkAnchorLine(item),
-        })
-      : null;
+  // Shared resolver (issue #178): the anchor is derived from the check
+  // result itself, so no view can forget it the way the compare view did.
+  const checkBlock = checksSource
+    ? resolveCheckBlock(checksSource.content, { id: item.id, anchorFrom: [item] })
+    : null;
   const diagnostics = checkBlock
     ? buildCheckDiagnostics(item, checkBlock.startLine, checkBlock.endLine, checkBlock.code)
     : [];

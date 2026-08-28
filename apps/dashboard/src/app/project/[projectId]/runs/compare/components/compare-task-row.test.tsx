@@ -1,14 +1,28 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import type { ReactNode } from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { AgentTaskRunDetail } from "@/lib/agent-task-api";
 
-// Mock the heavy code viewer (pulled in via next/dynamic) so the test stays fast.
+// Mock next/dynamic so it follows the loader: the stub renders nothing until
+// the real (mocked) module resolves, then renders it with the props — so
+// tests can capture what the lazily-loaded viewer receives (issue #178)
+// while never pulling in CodeMirror.
 vi.mock("next/dynamic", () => ({
   __esModule: true,
-  default: () => {
-    const Comp = () => null;
-    Comp.displayName = "DynamicComponent";
-    return Comp;
+  default: (loader: () => Promise<unknown>) => {
+    let Loaded: ((props: Record<string, unknown>) => ReactNode) | null = null;
+    // Loaders may map the module (`m => m.CompareCodeViewer`, so loader()
+    // resolves to the component itself) or return it whole.
+    void loader().then((resolved) => {
+      Loaded = (
+        typeof resolved === "function"
+          ? resolved
+          : (resolved as Record<string, unknown>).CompareCodeViewer
+      ) as typeof Loaded;
+    });
+    return function DynamicStub(props: Record<string, unknown>) {
+      return Loaded ? <Loaded {...props} /> : null;
+    };
   },
 }));
 
@@ -391,5 +405,104 @@ describe("CompareTaskRow collapsed checks cell", () => {
     const cells = screen.getAllByText(/^4\/4/);
     expect(cells.filter((c) => c.className.includes("text-destructive"))).toHaveLength(2);
     expect(cells.filter((c) => c.className.includes("text-success"))).toHaveLength(2);
+  });
+});
+
+// ─── issue #178: generated-title checks must show their own block ────────
+
+// The file a real table-driven eval has: unrelated literal-title checks plus
+// a forEach generating checks whose titles never appear literally in source.
+const tableDrivenFile = `/** Template upload — Shareholders' Agreement checks. */
+const PLACEHOLDER_TERMS: Term[] = [];
+
+test("literal-title-check", (t, { deliverables }) => {
+  t.check(unrelated(), satisfies(...));
+});
+
+PLACEHOLDER_TERMS.forEach((p) => {
+  test(\`P-\${p.id} — a placeholder exists for \${p.label}\`, (t, { deliverables }) => {
+    t.check(hasPlaceholderFor(p.id), satisfies(...));
+  });
+});
+`;
+
+// Captured props from the code viewer mock — the renderer under test.
+let viewerProps: { code?: string; assertions?: Array<{ line: number; left?: boolean; right?: boolean }> } = {};
+
+vi.mock("./CompareCodeViewer", () => ({
+  CompareCodeViewer: (props: { code: string; assertions: unknown[] }) => {
+    viewerProps = props as typeof viewerProps;
+    return null;
+  },
+}));
+
+import { loadCheckSource } from "@/lib/load-check-source";
+
+describe("CompareTaskRow check source for generated-title checks (issue #178)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    viewerProps = {};
+  });
+
+  it("shows the check's own block, with markers on its own t.check line", async () => {
+    vi.mocked(loadCheckSource).mockResolvedValue({
+      content: tableDrivenFile,
+      language: "typescript",
+    });
+    const generatedTitle = "P-reg — a placeholder exists for the company registration number";
+    const evidenceLoader = vi.fn().mockResolvedValue({
+      left: {
+        id: "run-a",
+        checks_json: [
+          {
+            id: generatedTitle,
+            pass: false,
+            location: null,
+            assertions: [{ id: "check", pass: false, location: { file: "shareholders-agreement.eval.ts", line: 10, column: 7 } }],
+          },
+        ],
+      },
+      right: {
+        id: "run-b",
+        checks_json: [
+          {
+            id: generatedTitle,
+            pass: true,
+            location: null,
+            assertions: [{ id: "check", pass: true, location: { file: "shareholders-agreement.eval.ts", line: 10, column: 7 } }],
+          },
+        ],
+      },
+    });
+
+    render(
+      <CompareTaskRow
+        task={makeTask()}
+        expanded={new Set(["task-1"])}
+        onToggleExpand={noopToggle}
+        projectId="proj"
+        evidenceLoader={evidenceLoader}
+      />,
+    );
+
+    // Expand the check row (aria-label "Expand" on the chevron button).
+    const expand = await screen.findByLabelText("Expand");
+    fireEvent.click(expand);
+
+    await waitFor(() => {
+      expect(viewerProps.code).toBeTruthy();
+    });
+
+    // The check's own generated-title block — not the whole file.
+    expect(viewerProps.code).toContain("P-${p.id}");
+    expect(viewerProps.code).not.toContain("literal-title-check");
+    expect(viewerProps.code).not.toContain("Template upload");
+
+    // The ✓/✗ markers land on THIS check's t.check line (block line 2),
+    // not on the unrelated literal-title check's line.
+    const marker = viewerProps.assertions?.find((a) => a.left !== undefined || a.right !== undefined);
+    expect(marker?.line).toBe(2);
+    expect(marker?.left).toBe(false);
+    expect(marker?.right).toBe(true);
   });
 });
