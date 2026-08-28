@@ -32,7 +32,7 @@ from ..models import (
     ReportAgentTaskRunResultRequest,
     RunDB,
 )
-from ..models.db import ProjectMembershipDB
+from ..models.db import ProjectMembershipDB, TaskExecutionAttemptDB
 from ..models.schemas import (
     as_task_run_status,
     as_trace_persistence_status,
@@ -220,6 +220,14 @@ def _build_task_run_detail(
         ),
         task_definition=task_definition,
         judgments_count=count_judgments(session, task_run.id),
+        # Issue #176: the run's single attempt row carries the lease
+        # heartbeat; surface it so a silently-dead beat stream is visible
+        # on `runs show` while the run is still alive.
+        heartbeat_at=session.exec(
+            select(col(TaskExecutionAttemptDB.heartbeat_at)).where(
+                col(TaskExecutionAttemptDB.task_run_id) == task_run.id
+            )
+        ).first(),
     )
 
 

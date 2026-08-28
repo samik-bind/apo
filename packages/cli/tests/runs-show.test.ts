@@ -464,3 +464,70 @@ describe("runs show command", () => {
     expect(out).not.toContain("[?]");
   });
 });
+
+describe("runs show heartbeat visibility (issue #176)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows the last heartbeat age for a live run", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(
+        makeRun({
+          status: "running",
+          pass_result: null,
+          completed_at: null,
+          heartbeat_at: new Date(Date.now() - 40_000).toISOString(),
+        }),
+      ),
+    );
+    const { logs, restore } = captureLog();
+
+    await run([FULL_ID, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("Last beat:");
+    expect(out).toMatch(/40s ago/);
+    // Fresh beat — not flagged as at risk.
+    expect(out).not.toContain("lease at risk");
+  });
+
+  it("flags a stale beat stream as a lease risk for a live run", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(
+        makeRun({
+          status: "running",
+          pass_result: null,
+          completed_at: null,
+          heartbeat_at: new Date(Date.now() - 200_000).toISOString(),
+        }),
+      ),
+    );
+    const { logs, restore } = captureLog();
+
+    await run([FULL_ID, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("Last beat:");
+    expect(out).toContain("lease at risk");
+  });
+
+  it("does not show heartbeat noise on terminal runs", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(
+        makeRun({
+          heartbeat_at: new Date(Date.now() - 200_000).toISOString(),
+        }),
+      ),
+    );
+    const { logs, restore } = captureLog();
+
+    await run([FULL_ID, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).not.toContain("Last beat:");
+  });
+});

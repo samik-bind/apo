@@ -42,6 +42,8 @@ type RunDetail = {
   judgments_count?: number;
   /** SPEC-185: tests whose effective result differs from the recorded one. */
   corrected_tests?: number;
+  /** Issue #176: the attempt's last lease heartbeat (null for terminal-only detail). */
+  heartbeat_at?: string | null;
 };
 
 type GenerationExecution = {
@@ -165,6 +167,8 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
     console.log(`  Effort:   ${run.run_configuration.effort ?? "-"}`);
   }
   console.log(`  Status:   ${run.status}`);
+  const beatLine = formatHeartbeatLine(run);
+  if (beatLine) console.log(beatLine);
   console.log(`  Result:   ${run.pass_result === null ? "-" : passFail(run.pass_result)}`);
 
   if (run.total_checks > 0) {
@@ -255,8 +259,34 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
   }
 }
 
-function printTranscript(transcript: Record<string, unknown>): void {
-  const turns = transcript.turns ?? transcript.messages ?? transcript;
+/**
+ * Issue #176: the backend's default attempt lease (APO_ATTEMPT_LEASE_SECONDS).
+ * A live run whose beat stream has been silent this long is at risk of being
+ * reaped `lost` — say so instead of leaving `batch show --json` as the only
+ * window into the heartbeat.
+ */
+const HEARTBEAT_AT_RISK_MS = 90_000;
+
+const LIVE_RUN_STATUSES = new Set(["pending", "running"]);
+
+function formatHeartbeatLine(run: RunDetail): string | null {
+  if (!run.heartbeat_at || !LIVE_RUN_STATUSES.has(run.status)) return null;
+  const ageMs = Date.now() - Date.parse(run.heartbeat_at);
+  if (!Number.isFinite(ageMs)) return null;
+  const line = `  Last beat: ${formatTime(run.heartbeat_at)} (${formatAge(ageMs)} ago)`;
+  return ageMs > HEARTBEAT_AT_RISK_MS ? yellow(`${line} — lease at risk`) : line;
+}
+
+function formatAge(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes < 60) return rest > 0 ? `${minutes}m ${rest}s` : `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function printTranscript(transcript: Record<string, unknown>): void {  const turns = transcript.turns ?? transcript.messages ?? transcript;
   if (Array.isArray(turns)) {
     for (const turn of turns) {
       if (typeof turn !== "object" || turn === null) continue;

@@ -745,6 +745,11 @@ class AgentTaskRunDetail(SQLModel):
     judgments_count: int = 0
     # SPEC-185: Tests whose effective result differs from the recorded one.
     corrected_tests: int = 0
+    # Issue #176: the run's attempt lease heartbeat — the run's live
+    # liveness signal. Null when no attempt exists; historical once the
+    # run is terminal. Surfaces "no beat for N seconds" on `runs show`
+    # instead of leaving `batch show --json` as the only window.
+    heartbeat_at: datetime | None = None
 
 
 class CreateAgentTaskJudgmentRequest(SQLModel):
