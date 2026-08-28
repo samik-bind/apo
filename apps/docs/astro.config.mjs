@@ -47,14 +47,15 @@ export default defineConfig({
 						{ label: 'Close the loop', slug: 'guides/loop-engineering' },
 					],
 				},
-				{
-					label: 'Self-Hosting',
-					items: [
-						{ label: 'Alpha Topology', slug: 'self-hosting/topology' },
-						{ label: 'Publish on a Domain', slug: 'self-hosting/public-server' },
-						{ label: 'Configuration', slug: 'self-hosting/configuration' },
-					],
-				},
+					{
+						label: 'Self-Hosting',
+						items: [
+							{ label: 'Alpha Topology', slug: 'self-hosting/topology' },
+							{ label: 'Publish on a Domain', slug: 'self-hosting/public-server' },
+							{ label: 'Configuration', slug: 'self-hosting/configuration' },
+							{ label: 'Data Growth and Retention', slug: 'self-hosting/data-growth' },
+						],
+					},
 				{
 					label: 'Reference',
 					items: [

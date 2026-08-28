@@ -150,22 +150,28 @@ async def get_retention_info(
     request: Request,
     _: object = Depends(require_api_key_scope("full")),
 ):
-    """Report DB size and the active retention/size-cap configuration."""
+    """Report DB size, per-table bytes, and the active retention policy."""
     if not verify_admin(request):
         raise HTTPException(
             status_code=401, detail="Unauthorized: Admin access required"
         )
     from ..services.retention import (
-        RETENTION_DAYS,
         MAX_DB_PAGES,
+        RETENTION_DAYS,
+        evidence_retention_days,
         get_db_size_info,
+        get_db_table_sizes,
+        ingest_payload_retention_days,
     )
 
     return {
         "status": "success",
         "retention_days": RETENTION_DAYS,
+        "evidence_retention_days": evidence_retention_days(),
+        "ingest_payload_retention_days": ingest_payload_retention_days(),
         "max_db_pages": MAX_DB_PAGES or None,
         "db": get_db_size_info(),
+        "table_sizes": get_db_table_sizes(),
     }
 
 

@@ -186,19 +186,28 @@ push into the store per request/minute; they do not cap total storage
 A daily maintenance pass always runs (at startup, then every 24 h): it
 blanks raw OTLP ingest payloads past their replay window, fails artifact
 uploads abandoned past their TTL, and deletes expired credential tokens.
-Age-based deletion of runs/traces only happens when
-`APO_RETENTION_DAYS` is set — and it also purges the OTLP spans of the
-traces it deletes (bookmarked traces and their spans always survive).
+Retention is **two-tier**: verdicts (run status, pass/fail, check counts,
+costs, corrections — the regression timeline) are never deleted
+automatically, while run *evidence* can expire on a window. Setting
+`APO_EVIDENCE_RETENTION_DAYS` drops the evidence tier (transcripts,
+traces, check reports, rejudge check evidence, deliverables, attempt
+diagnostics) of old runs — bookmarked runs keep everything. Full deletion
+of old runs/traces happens only under `APO_RETENTION_DAYS`, which also
+purges the OTLP spans of what it deletes.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `INIT_USER_EMAIL` | — | First-run admin email (seeds an account on startup). |
 | `INIT_USER_PASSWORD` | — | First-run admin password. |
 | `INIT_USER_NAME` | — | First-run admin display name. |
-| `APO_RETENTION_DAYS` | `0` | Days to keep runs/traces (and their OTLP spans). `0` disables automatic age-based deletion. |
+| `APO_RETENTION_DAYS` | `0` | Days to keep runs/traces entirely (verdicts and all). `0` disables automatic deletion. |
+| `APO_EVIDENCE_RETENTION_DAYS` | `0` | Days to keep run *evidence* (transcripts, traces, check reports, deliverables, attempt diagnostics). Verdicts stay forever; bookmarked runs keep their evidence. `0` keeps evidence forever. |
 | `APO_INGEST_RETENTION_DAYS` | `7` | Days raw OTLP ingest payloads stay replayable. After the window the payload is blanked in place (the audit row with its accepted/rejected counts stays). `0` keeps payloads forever. |
 | `APO_MAX_DB_PAGES` | `0` | SQLite page cap. `0` disables the cap. |
 | `PROJECT_INVITATION_TTL_HOURS` | `168` | How long project invitations stay valid (7 days). |
+
+See [Self-Hosting → Data Growth and Retention](/self-hosting/data-growth/)
+for what accumulates, how the tiers work, and recommended settings.
 
 ## Task Run Deliverables and Artifacts
 

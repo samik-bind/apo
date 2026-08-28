@@ -1,4 +1,4 @@
-# pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnusedCallResult=false, reportUnusedParameter=false
+# pyright: reportAny=false, reportAttributeAccessIssue=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnusedCallResult=false, reportUnusedParameter=false
 
 """Daily maintenance pass: ingest-payload trim, span sweep, credential
 reaping, batch-purge reference detachment, and schedule-delete cascade.
@@ -76,11 +76,13 @@ def test_trim_blanks_old_payloads_and_keeps_recent(session: Session) -> None:
     # Only the payload-bearing old row matches; already-empty rows are
     # excluded by the WHERE so the count reflects real bytes freed.
     assert trimmed == 1
-    assert session.get(OtlpIngestBatchDB, "ing-old").payload == ""
-    assert session.get(OtlpIngestBatchDB, "ing-fresh").payload == '{"spans": [...]}'
-    assert session.get(OtlpIngestBatchDB, "ing-already-empty").payload == ""
+    ing_old = session.get(OtlpIngestBatchDB, "ing-old")
+    ing_fresh = session.get(OtlpIngestBatchDB, "ing-fresh")
+    ing_empty = session.get(OtlpIngestBatchDB, "ing-already-empty")
+    assert ing_old is not None and ing_old.payload == ""
+    assert ing_fresh is not None and ing_fresh.payload == '{"spans": [...]}'
+    assert ing_empty is not None and ing_empty.payload == ""
     # The audit row survives the trim.
-    assert session.get(OtlpIngestBatchDB, "ing-old") is not None
 
 
 def test_trim_window_env_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -333,7 +335,8 @@ def test_maintenance_pass_runs_hygiene_with_retention_off(
     summary = retention.run_maintenance_cleanup()
 
     assert summary["trimmed_ingest_payloads"] == 1
-    assert session.get(OtlpIngestBatchDB, "ing-maint").payload == ""
+    ing_maint = session.get(OtlpIngestBatchDB, "ing-maint")
+    assert ing_maint is not None and ing_maint.payload == ""
     # Retention-off means no run/batch purge keys in the summary.
     assert "runs" not in summary
     assert "agent_task_batch_runs" not in summary

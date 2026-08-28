@@ -15,117 +15,20 @@ with the run row, the shared revision stays.
 
 from __future__ import annotations
 
-from typing import Any, cast
-
 # pyright: reportAny=false, reportDeprecated=false, reportExplicitAny=false, reportImplicitStringConcatenation=false, reportPrivateLocalImportUsage=false, reportUnusedCallResult=false
 
 from sqlalchemy import bindparam, text
-from sqlalchemy.engine import CursorResult
 from sqlmodel import Session
 
 from fastapi import HTTPException
 
-from ..db_helpers import table_exists
 from ..models.db import AgentTaskBatchRunDB, AgentTaskRunDB
 from .retention import (
     delete_agent_task_rows,
     delete_batch_rows,
     delete_deliverable_objects_for_runs,
+    delete_trace_projection,
 )
-
-
-def _exec_in(session: Session, sql: str, params: dict[str, Any]) -> int:
-    """Run one ``IN :ids`` statement (expanding bindparam) and return rowcount."""
-    stmt = text(sql).bindparams(bindparam("ids", expanding=True))
-    result = cast(CursorResult[Any], session.execute(stmt, params))
-    return result.rowcount or 0
-
-
-def _delete_trace_projection(
-    session: Session, project: str, run_ids: list[str], trace_ids: list[str]
-) -> dict[str, int]:
-    """Delete the trace a Task Run owns: ``runs`` and all its children.
-
-    Scoped by project so a shared OTel trace id cannot delete another
-    project's metrics or calls (mirrors the ``/v1/runs/bulk-delete`` guard).
-    The run link (``runs.task_run_id``) and the run row's own backlink
-    (``agent_task_runs.trace_run_id``) are both followed — either may be
-    missing on legacy rows.
-    """
-    if not run_ids and not trace_ids:
-        return {"deleted_traces": 0, "deleted_calls": 0}
-
-    # Resolve the full trace-id set from both links before any row goes.
-    resolved = set(trace_ids)
-    if run_ids:
-        rows = session.execute(
-            text(
-                "SELECT id FROM runs WHERE project = :p AND task_run_id IN :ids"
-            ).bindparams(bindparam("ids", expanding=True)),
-            {"p": project, "ids": run_ids},
-        ).all()
-        resolved.update(row[0] for row in rows)
-    if not resolved:
-        # No trace id anywhere: still drop the soft ingest reference and any
-        # projection row linked only by task_run_id.
-        traces = _exec_in(
-            session,
-            "DELETE FROM runs WHERE project = :p AND task_run_id IN :ids",
-            {"p": project, "ids": run_ids},
-        )
-        _exec_in(
-            session,
-            "UPDATE otlp_ingest_batches SET verified_task_run_id = NULL "
-            "WHERE verified_task_run_id IN :ids",
-            {"ids": run_ids},
-        )
-        return {"deleted_traces": traces, "deleted_calls": 0}
-
-    trace_id_list = sorted(resolved)
-    calls = 0
-    if table_exists(session, "call_metrics"):
-        calls += _exec_in(
-            session,
-            "DELETE FROM call_metrics WHERE project = :p AND call_id IN "
-            "(SELECT id FROM logged_calls WHERE project = :p AND run_id IN :ids)",
-            {"p": project, "ids": trace_id_list},
-        )
-    if table_exists(session, "logged_calls"):
-        calls += _exec_in(
-            session,
-            "DELETE FROM logged_calls WHERE project = :p AND run_id IN :ids",
-            {"p": project, "ids": trace_id_list},
-        )
-    if table_exists(session, "run_metrics"):
-        _exec_in(
-            session,
-            "DELETE FROM run_metrics WHERE project = :p AND run_id IN :ids",
-            {"p": project, "ids": trace_id_list},
-        )
-    if table_exists(session, "otlp_spans"):
-        _exec_in(
-            session,
-            "DELETE FROM otlp_spans WHERE project_id = :p AND trace_id IN :ids",
-            {"p": project, "ids": trace_id_list},
-        )
-    traces = _exec_in(
-        session,
-        "DELETE FROM runs WHERE project = :p AND id IN :ids",
-        {"p": project, "ids": trace_id_list},
-    )
-    if run_ids:
-        traces += _exec_in(
-            session,
-            "DELETE FROM runs WHERE project = :p AND task_run_id IN :ids",
-            {"p": project, "ids": run_ids},
-        )
-        _exec_in(
-            session,
-            "UPDATE otlp_ingest_batches SET verified_task_run_id = NULL "
-            "WHERE verified_task_run_id IN :ids",
-            {"ids": run_ids},
-        )
-    return {"deleted_traces": traces, "deleted_calls": calls}
 
 
 async def _delete_deliverable_objects_guarded(
@@ -178,7 +81,7 @@ async def delete_task_runs(
     await _delete_deliverable_objects_guarded(session, run_ids)
 
     trace_ids = [run.trace_run_id for run in task_runs if run.trace_run_id]
-    trace_counts = _delete_trace_projection(session, project, run_ids, trace_ids)
+    trace_counts = delete_trace_projection(session, project, run_ids, trace_ids)
     _ = delete_agent_task_rows(session, run_ids)
 
     deleted_batches = 0
@@ -240,7 +143,7 @@ async def delete_batch_runs(
     await _delete_deliverable_objects_guarded(session, run_ids)
     await delete_task_revision_bundles_for_batches(session, batch_ids)
 
-    trace_counts = _delete_trace_projection(session, project, run_ids, trace_ids)
+    trace_counts = delete_trace_projection(session, project, run_ids, trace_ids)
     _ = delete_agent_task_rows(session, run_ids)
     _ = delete_batch_rows(session, batch_ids)
 

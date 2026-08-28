@@ -127,6 +127,94 @@ def delete_orphaned_spans(session: Session, cutoff: datetime) -> int:
     return result.rowcount or 0
 
 
+def delete_trace_projection(
+    session: Session, project: str, run_ids: list[str], trace_ids: list[str]
+) -> dict[str, int]:
+    """Delete the trace a Task Run owns: ``runs`` and all its children.
+
+    Shared by manual run deletion (``run_deletion``) and evidence-tier
+    expiry. Scoped by project so a shared OTel trace id cannot delete
+    another project's metrics or calls (mirrors the
+    ``/v1/runs/bulk-delete`` guard). The run link (``runs.task_run_id``)
+    and the run row's own backlink (``agent_task_runs.trace_run_id``) are
+    both followed — either may be missing on legacy rows.
+    """
+    if not run_ids and not trace_ids:
+        return {"deleted_traces": 0, "deleted_calls": 0}
+
+    # Resolve the full trace-id set from both links before any row goes.
+    resolved = set(trace_ids)
+    if run_ids:
+        rows = session.execute(
+            text(
+                "SELECT id FROM runs WHERE project = :p AND task_run_id IN :ids"
+            ).bindparams(bindparam("ids", expanding=True)),
+            {"p": project, "ids": run_ids},
+        ).all()
+        resolved.update(row[0] for row in rows)
+    if not resolved:
+        # No trace id anywhere: still drop the soft ingest reference and any
+        # projection row linked only by task_run_id.
+        traces = _exec_in(
+            session,
+            "DELETE FROM runs WHERE project = :p AND task_run_id IN :ids",
+            {"p": project, "ids": run_ids},
+        )
+        _ = _exec_in(
+            session,
+            "UPDATE otlp_ingest_batches SET verified_task_run_id = NULL "
+            "WHERE verified_task_run_id IN :ids",
+            {"ids": run_ids},
+        )
+        return {"deleted_traces": traces, "deleted_calls": 0}
+
+    trace_id_list = sorted(resolved)
+    calls = 0
+    if table_exists(session, "call_metrics"):
+        calls += _exec_in(
+            session,
+            "DELETE FROM call_metrics WHERE project = :p AND call_id IN "
+            "(SELECT id FROM logged_calls WHERE project = :p AND run_id IN :ids)",
+            {"p": project, "ids": trace_id_list},
+        )
+    if table_exists(session, "logged_calls"):
+        calls += _exec_in(
+            session,
+            "DELETE FROM logged_calls WHERE project = :p AND run_id IN :ids",
+            {"p": project, "ids": trace_id_list},
+        )
+    if table_exists(session, "run_metrics"):
+        _ = _exec_in(
+            session,
+            "DELETE FROM run_metrics WHERE project = :p AND run_id IN :ids",
+            {"p": project, "ids": trace_id_list},
+        )
+    if table_exists(session, "otlp_spans"):
+        _ = _exec_in(
+            session,
+            "DELETE FROM otlp_spans WHERE project_id = :p AND trace_id IN :ids",
+            {"p": project, "ids": trace_id_list},
+        )
+    traces = _exec_in(
+        session,
+        "DELETE FROM runs WHERE project = :p AND id IN :ids",
+        {"p": project, "ids": trace_id_list},
+    )
+    if run_ids:
+        traces += _exec_in(
+            session,
+            "DELETE FROM runs WHERE project = :p AND task_run_id IN :ids",
+            {"p": project, "ids": run_ids},
+        )
+        _ = _exec_in(
+            session,
+            "UPDATE otlp_ingest_batches SET verified_task_run_id = NULL "
+            "WHERE verified_task_run_id IN :ids",
+            {"ids": run_ids},
+        )
+    return {"deleted_traces": traces, "deleted_calls": calls}
+
+
 def reap_expired_credentials(session: Session) -> int:
     """Delete credential tokens past their expiry.
 
@@ -154,19 +242,158 @@ def reap_expired_credentials(session: Session) -> int:
     return deleted
 
 
+# How long run EVIDENCE stays inspectable after the batch completed:
+# transcripts, traces (calls/metrics/spans), check-report documents,
+# rejudge check evidence, deliverables (rows and stored objects), and
+# attempt diagnostics. Verdict rows (status, pass_result, check counts,
+# costs, corrections) stay forever — the regression timeline is tiny and
+# is the product's long-lived value. 0 = keep evidence forever. Read fresh
+# each run so operators can change it without a restart.
+EVIDENCE_RETENTION_DAYS_ENV = "APO_EVIDENCE_RETENTION_DAYS"
+DEFAULT_EVIDENCE_RETENTION_DAYS = 0
+
+
+def evidence_retention_days() -> int:
+    value = os.environ.get(EVIDENCE_RETENTION_DAYS_ENV, "")
+    try:
+        days = int(value)
+    except ValueError:
+        days = DEFAULT_EVIDENCE_RETENTION_DAYS
+    return max(days, 0)
+
+
+async def expire_run_evidence(session: Session, cutoff: datetime) -> dict[str, int]:
+    """Drop the evidence tier of runs whose batch is older than ``cutoff``.
+
+    Two-tier retention: verdicts live forever, evidence expires. For every
+    non-bookmarked run that still holds evidence, this removes deliverable
+    objects then rows, check reports, trace projections (calls, metrics,
+    spans — project-scoped), blanks rejudge ``checks_json`` (the judgment
+    row keeps its verdict scalars), blanks attempt diagnostics and the
+    inline transcript, and clears the run's trace link. A store failure
+    during object cleanup raises before any row changes — the next pass
+    retries. Bookmarking a trace is the escape hatch: a bookmarked run
+    keeps all of its evidence forever. The read-only demo project is never
+    touched — its showcase content is managed by ``demo_workspace``.
+    """
+    raw = cast(
+        "list[tuple[object, ...]]",
+        cast(
+            object,
+            session.execute(
+                text(
+                    "SELECT atr.id, atr.trace_run_id, b.project "
+                    "FROM agent_task_runs atr "
+                    "JOIN agent_task_batch_runs b ON atr.batch_run_id = b.id "
+                    "WHERE b.created_at < :c "
+                    "AND b.project != :demo "
+                    "AND ("
+                    "  atr.transcript_json IS NOT NULL"
+                    "  OR atr.trace_run_id IS NOT NULL"
+                    "  OR EXISTS (SELECT 1 FROM agent_task_check_reports cr"
+                    "             WHERE cr.run_id = atr.id)"
+                    "  OR EXISTS (SELECT 1 FROM agent_task_deliverables d"
+                    "             WHERE d.task_run_id = atr.id)"
+                    "  OR EXISTS (SELECT 1 FROM agent_task_judgments j"
+                    "             WHERE j.task_run_id = atr.id AND j.checks_json IS NOT NULL)"
+                    ") "
+                    "AND NOT EXISTS ("
+                    "  SELECT 1 FROM runs r WHERE r.task_run_id = atr.id AND r.bookmarked = 1"
+                    ")"
+                ),
+                {"c": cutoff, "demo": _demo_project_id()},
+            ).all(),
+        ),
+    )
+    candidates = [
+        (str(row[0]), str(row[1]) if row[1] is not None else None, str(row[2]))
+        for row in raw
+    ]
+    if not candidates:
+        return {"runs_affected": 0, "deleted_traces": 0, "deleted_calls": 0}
+
+    summary: dict[str, int] = {"runs_affected": len(candidates)}
+    by_project: dict[str, list[tuple[str, str | None]]] = {}
+    for run_id, trace_run_id, project in candidates:
+        by_project.setdefault(project, []).append((run_id, trace_run_id))
+
+    for project, entries in by_project.items():
+        run_ids = [run_id for run_id, _ in entries]
+        trace_ids = [t for _, t in entries if t]
+
+        # Stored objects go first, while their manifest rows are readable.
+        await delete_deliverable_objects_for_runs(session, run_ids)
+
+        if table_exists(session, "agent_task_deliverables"):
+            summary["deleted_deliverables"] = summary.get("deleted_deliverables", 0) + _exec_in(
+                session,
+                "DELETE FROM agent_task_deliverables WHERE task_run_id IN :ids",
+                {"ids": run_ids},
+            )
+        if table_exists(session, "agent_task_check_reports"):
+            summary["deleted_check_reports"] = summary.get("deleted_check_reports", 0) + _exec_in(
+                session,
+                "DELETE FROM agent_task_check_reports WHERE run_id IN :ids",
+                {"ids": run_ids},
+            )
+        # Judgment rows keep their verdict scalars (pass_result, check
+        # counts, model); only the replayed check evidence goes.
+        if table_exists(session, "agent_task_judgments"):
+            summary["blanked_judgments"] = summary.get("blanked_judgments", 0) + _exec_in(
+                session,
+                "UPDATE agent_task_judgments SET checks_json = NULL "
+                "WHERE task_run_id IN :ids AND checks_json IS NOT NULL",
+                {"ids": run_ids},
+            )
+        if table_exists(session, "task_execution_attempts"):
+            _ = _exec_in(
+                session,
+                "UPDATE task_execution_attempts SET stdout_tail = NULL, "
+                "stderr_tail = NULL, executor_snapshot_json = NULL "
+                "WHERE task_run_id IN :ids "
+                "AND (stdout_tail IS NOT NULL OR stderr_tail IS NOT NULL "
+                "OR executor_snapshot_json IS NOT NULL)",
+                {"ids": run_ids},
+            )
+        # The inline transcript goes; the run row and its verdict stay.
+        _ = _exec_in(
+            session,
+            "UPDATE agent_task_runs SET transcript_json = NULL, "
+            "trace_run_id = NULL WHERE id IN :ids",
+            {"ids": run_ids},
+        )
+        counts = delete_trace_projection(session, project, run_ids, trace_ids)
+        summary["deleted_traces"] = summary.get("deleted_traces", 0) + counts["deleted_traces"]
+        summary["deleted_calls"] = summary.get("deleted_calls", 0) + counts["deleted_calls"]
+
+    return summary
+
+
+def _demo_project_id() -> str:
+    """The read-only demo project id (lazy — demo_workspace is a heavy import)."""
+    from .demo_workspace import DEMO_PROJECT_ID
+
+    return DEMO_PROJECT_ID
+
+
 def _delete_old_runs(session: Session, cutoff: datetime) -> int:
     """Delete non-bookmarked runs (and their children) older than ``cutoff``.
 
     Driven by parent age so children (run_metrics, logged_calls, and the
     call_metrics under those calls) are removed before the parents, keeping
     FK constraints (run_metrics.run_id, call_metrics.call_id) satisfied.
+    The demo project is never purged — its content is managed by
+    ``demo_workspace`` reseeding, not retention.
     """
     # Collect the IDs of runs to expire first — children reference these.
     old_run_ids = [
         row[0]
         for row in session.execute(
-            text("SELECT id FROM runs WHERE created_at < :c AND bookmarked = 0"),
-            {"c": cutoff},
+            text(
+                "SELECT id FROM runs WHERE created_at < :c AND bookmarked = 0 "
+                "AND project != :demo"
+            ),
+            {"c": cutoff, "demo": _demo_project_id()},
         ).all()
     ]
     if not old_run_ids:
@@ -198,11 +425,16 @@ def _delete_old_runs(session: Session, cutoff: datetime) -> int:
 
 
 def _old_batch_ids(session: Session, cutoff: datetime) -> list[str]:
+    # The demo project's batches are showcase content managed by
+    # demo_workspace reseeding — retention never touches them.
     return [
         row[0]
         for row in session.execute(
-            text("SELECT id FROM agent_task_batch_runs WHERE created_at < :c"),
-            {"c": cutoff},
+            text(
+                "SELECT id FROM agent_task_batch_runs "
+                "WHERE created_at < :c AND project != :demo"
+            ),
+            {"c": cutoff, "demo": _demo_project_id()},
         ).all()
     ]
 
@@ -495,6 +727,15 @@ def run_maintenance_cleanup() -> dict[str, int]:
         summary["expired_tokens"] = reap_expired_credentials(session)
         session.commit()
 
+        evidence_days = evidence_retention_days()
+        if evidence_days > 0:
+            summary.update(
+                asyncio.run(
+                    expire_run_evidence(session, now - timedelta(days=evidence_days))
+                )
+            )
+            session.commit()
+
         if RETENTION_DAYS > 0:
             cutoff = now - timedelta(days=RETENTION_DAYS)
             # collect the task-run ids whose batch is old, delete their
@@ -552,9 +793,10 @@ def run_maintenance_cleanup() -> dict[str, int]:
             _ = conn.exec_driver_sql("VACUUM")
 
     logger.info(
-        "maintenance cleanup: %s (retention window=%s days, ingest payload window=%s days)",
+        "maintenance cleanup: %s (retention=%s days, evidence=%s days, ingest payload=%s days)",
         summary,
         RETENTION_DAYS,
+        evidence_retention_days(),
         ingest_payload_retention_days(),
     )
     return summary
@@ -588,6 +830,41 @@ def get_db_size_info() -> dict[str, object]:
     info["freelist_pages"] = freelist
     info["max_page_count"] = MAX_DB_PAGES or None
     return info
+
+
+def get_db_table_sizes(limit: int = 15) -> dict[str, object]:
+    """Per-table on-disk bytes, largest first (SQLite ``dbstat``; best-effort).
+
+    The maintenance story is tiered — verdict rows are tiny and live
+    forever, evidence (spans, ingest payloads, transcripts, check reports)
+    is most of the bytes — so per-table sizes are what tells an operator
+    which knob actually moves their footprint.
+    """
+    if not is_sqlite():
+        return {"tables": {}}
+    try:
+        with engine.connect() as conn:
+            raw = cast(
+                "list[tuple[object, ...]]",
+                cast(
+                    object,
+                    conn.exec_driver_sql(
+                        "SELECT name, SUM(pgsize) FROM dbstat GROUP BY name "
+                        "ORDER BY 2 DESC"
+                    ).fetchall(),
+                ),
+            )
+    except Exception:  # noqa: BLE001 - dbstat needs a compile option; optional
+        return {"tables": {}}
+    tables = {
+        str(row[0]): int(cast("int | None", row[1]) or 0)
+        for row in raw
+        if str(row[0]) not in ("sqlite_master",)
+    }
+    return {
+        "tables": dict(list(tables.items())[:limit]),
+        "tables_total_bytes": sum(tables.values()),
+    }
 
 
 def apply_max_page_count() -> None:
@@ -644,8 +921,9 @@ def start_retention_loop() -> None:
     )
     _retention_thread.start()
     logger.info(
-        "data maintenance loop started (retention=%s days, ingest payload window=%s days)",
+        "data maintenance loop started (retention=%s days, evidence=%s days, ingest payload=%s days)",
         RETENTION_DAYS,
+        evidence_retention_days(),
         ingest_payload_retention_days(),
     )
 
