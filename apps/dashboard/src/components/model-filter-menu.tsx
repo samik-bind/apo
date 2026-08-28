@@ -82,7 +82,7 @@ export function ModelFilterMenu({
   /** Single-select: pick one model, or `null` for all. */
   onSelect?: (model: string | null) => void;
   onClear: () => void;
-  onSetArchived: (model: string, archived: boolean) => void;
+  onSetArchived?: (model: string, archived: boolean) => void;
   align?: "start" | "end";
 }) {
   const visible = useMemo(
@@ -149,7 +149,7 @@ export function ModelFilterMenu({
           </>
         )}
 
-        {options.length > 0 && (
+        {options.length > 0 && onSetArchived && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuSub>
