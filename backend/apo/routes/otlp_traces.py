@@ -14,6 +14,7 @@ encoding matches the request encoding (protobuf → protobuf, JSON → JSON).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -129,7 +130,16 @@ async def receive_otlp_traces(
                 raise _AdmissionUnitError(unit_rejection)
 
     try:
-        result = receiver.ingest(
+        # Issue #177: ingest decodes the (up to 10 MB) payload and persists
+        # every span with blocking SQL — run it off the event loop the same
+        # way #174 moved result finalization, so one busy exporter cannot
+        # freeze /heartbeat and the lease reaper's sweep. The request
+        # session is safe to hand over: SQLite opens with
+        # check_same_thread=False and each call is fully awaited before the
+        # session is touched again. The admission callback only touches the
+        # lock-protected in-memory controller, so it is thread-safe.
+        result = await asyncio.to_thread(
+            receiver.ingest,
             payload=body,
             content_type=content_type,
             project_id=project_id,

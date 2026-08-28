@@ -721,8 +721,11 @@ async def _run_reaper(stop_event: asyncio.Event) -> None:
 
     # Recover interrupted work once at startup (replaces the blanket
     # Recover immediately at startup, then sweep on the configured interval.
+    # Issue #177: the sweep is blocking SQL and runs on the same loop that
+    # serves /heartbeat — offload it like the other heavy paths (#174) so a
+    # slow sweep cannot stall every live run's liveness signal.
     with Session(engine) as session:
-        _ = recover_expired_attempts(session, now=_now())
+        _ = await asyncio.to_thread(recover_expired_attempts, session, now=_now())
         session.commit()
     while not stop_event.is_set():
         try:
@@ -736,7 +739,9 @@ async def _run_reaper(stop_event: asyncio.Event) -> None:
             break
         try:
             with Session(engine) as session:
-                _ = recover_expired_attempts(session, now=_now())
+                _ = await asyncio.to_thread(
+                    recover_expired_attempts, session, now=_now()
+                )
                 session.commit()
         except Exception:
             # A reaper sweep must never crash the background loop.

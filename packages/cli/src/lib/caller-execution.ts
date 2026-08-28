@@ -259,7 +259,27 @@ async function tick() {
         message: 'heartbeat failed: ' + resp.status,
       });
     } else {
-      parentPort.postMessage({ type: 'response', body: await resp.json().catch(() => null) });
+      // fetch resolves as soon as the response *headers* arrive; the body
+      // can still stall or arrive cut short (observed behind a proxy that
+      // flushes 200 headers and then times out). A beat whose body cannot
+      // be read and parsed is a FAILED beat — it may have carried
+      // cancel_requested, and counting it as success lets the lease lapse
+      // with the client believing every beat landed (issue #176).
+      let body = null;
+      let parseError = null;
+      try {
+        body = await resp.json();
+      } catch (err) {
+        parseError = err && err.message ? err.message : String(err);
+      }
+      if (parseError !== null || body === null) {
+        parentPort.postMessage({
+          type: 'error',
+          message: 'heartbeat response body unreadable (' + parseError + ')',
+        });
+      } else {
+        parentPort.postMessage({ type: 'response', body });
+      }
     }
   } catch (err) {
     parentPort.postMessage({ type: 'error', message: err && err.message ? err.message : String(err) });
@@ -292,6 +312,8 @@ export class CallerHeartbeat {
   private stopped = false;
   private consecutiveFailures = 0;
   private leaseLost = false;
+  private lastGoodBeatAt = Date.now();
+  private staleWarned = false;
   private readonly backendUrl: string;
   private readonly lease: CallerLease;
   private readonly onStale: () => void;
@@ -310,6 +332,7 @@ export class CallerHeartbeat {
   }
 
   start(phase: string): void {
+    this.lastGoodBeatAt = Date.now();
     try {
       this.worker = new Worker(HEARTBEAT_WORKER_SRC, {
         eval: true,
@@ -331,10 +354,23 @@ export class CallerHeartbeat {
           this.noteFailure(msg.message);
           return;
         }
+        // Only a parsed body counts as a good beat. An unparsed one means
+        // the response was cut short — treat it as a failed beat, not as
+        // silence with a reset failure count (issue #176).
+        if (msg.body == null) {
+          this.noteFailure("heartbeat response body missing");
+          return;
+        }
         this.consecutiveFailures = 0;
-        if (msg.body?.cancel_requested === true) this.onStale();
+        this.lastGoodBeatAt = Date.now();
+        this.staleWarned = false;
+        if (msg.body.cancel_requested === true) this.onStale();
       });
       this.worker.on("error", (err: Error) => this.noteFailure(err.message));
+      this.worker.on("exit", (code: number) => {
+        if (this.stopped) return;
+        this.noteFailure(`heartbeat worker exited unexpectedly (code ${code})`);
+      });
       // Never hold the process open on the heartbeat's account.
       this.worker.unref();
       return;
@@ -360,6 +396,8 @@ export class CallerHeartbeat {
           heartbeatTimeoutMs(this.intervalMs),
         );
         this.consecutiveFailures = 0;
+        this.lastGoodBeatAt = Date.now();
+        this.staleWarned = false;
         if (cancelRequested) this.onStale();
       } catch (err) {
         if (err instanceof HeartbeatHttpError && isLeaseLostStatus(err.status)) {
@@ -382,6 +420,23 @@ export class CallerHeartbeat {
     this.consecutiveFailures += 1;
     console.error(
       `Warning: heartbeat failed (${this.consecutiveFailures} in a row): ${message}`,
+    );
+    this.warnIfNoGoodBeat();
+  }
+
+  /**
+   * Issue #176 watchdog: per-beat errors cannot distinguish "beats are
+   * failing" from "no beat has landed for a long time". The lease is ~4.5
+   * intervals wide; once no good beat has landed for half that window, say
+   * so in terms of the consequence — once per episode, until a beat lands.
+   */
+  private warnIfNoGoodBeat(): void {
+    const sinceGoodMs = Date.now() - this.lastGoodBeatAt;
+    if (this.staleWarned || sinceGoodMs < 2 * this.intervalMs) return;
+    this.staleWarned = true;
+    console.error(
+      `Warning: no successful heartbeat for ${(sinceGoodMs / 1000).toFixed(1)}s — ` +
+        "the backend may declare this run lost and discard its result",
     );
   }
 

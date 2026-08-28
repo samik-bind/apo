@@ -279,9 +279,15 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   let jsonDeliverables: Record<string, unknown> = {};
   try {
     summary = await runTaskDirImpl(taskDir) as LocalRunSummary;
-    await heartbeat.stop();
 
     // SPEC-172: upload file artifacts after checks, before result submission.
+    // Issue #176: the heartbeat stays alive through this and the /result
+    // POST below — both are slow (multi-MB uploads + SQLite finalize) and
+    // used to happen after `heartbeat.stop()`, so anything slower than the
+    // lease TTL in that window was reaped mid-submission and a completed
+    // run died as `lease_stale … cannot finalize from 'lost'`. Every beat
+    // renews the lease server-side; stopping happens in the finally, after
+    // the terminal POST.
     const rawDeliverables = summary.deliverables ?? {};
     if (persistFileArtifactsImpl) {
       artifactPhase = true;
@@ -322,7 +328,6 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
     exitCode = renderRecordedResult(config, summary, jsonDeliverables, created.taskRunId);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await heartbeat.stop();
     if (resultStarted) {
       // SPEC-172: ambiguous result — the server may have committed before the
       // connection failed. Do NOT send a contradictory failure.
@@ -331,6 +336,11 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
       // still be finalizing the very result it stopped acknowledging. Re-poll
       // the run's authoritative state before declaring the outcome unknown.
       console.error(red(`Error: result submission failed: ${message}`));
+      // The lease's job was to protect the terminal POST, which is over.
+      // Stop the beat before polling: if the backend already committed the
+      // result, every further beat 409s ("cannot heartbeat from
+      // 'succeeded'") and would print a misleading lease-lost warning.
+      await heartbeat.stop();
       console.error(dim("Checking whether the backend still recorded the run..."));
       const verdict = await pollRunVerdict(config, created.taskRunId);
       if (verdict && summary) {
@@ -360,6 +370,10 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
       exitCode = 2;
     }
   } finally {
+    // The heartbeat outlives the Task body on purpose (issue #176): it is
+    // stopped here — after the terminal result/failure POST resolved — and
+    // exactly once, for every path through the try/catch above.
+    await heartbeat.stop();
     delete process.env.APO_AUTH_TOKEN;
   }
   return exitCode;
