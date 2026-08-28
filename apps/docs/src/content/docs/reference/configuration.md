@@ -153,6 +153,23 @@ source OAuth token, or ArtifactStore credentials.
 | `OPENROUTER_MODEL` | Passed through to the subprocess for LLM calls. |
 | `OPENROUTER_BASE_URL` | Passed through to the subprocess. |
 
+## Telemetry ingest limits
+
+Caps on incoming OTLP trace traffic — request sizes, span counts, and
+rate limits. These bound how much a single run or a runaway agent can
+push into the store per request/minute; they do not cap total storage
+(see maintenance above for that).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `APO_TELEMETRY_MAX_REQUEST_BYTES` | `10485760` | Max decoded OTLP request body (10 MiB). |
+| `APO_OTLP_MAX_DECOMPRESSED_BYTES` | `10485760` | Max decompressed gzip payload (10 MiB). |
+| `APO_OTLP_MAX_SPANS_PER_REQUEST` | `2048` | Max spans accepted per request. |
+| `APO_TELEMETRY_BYTES_PER_MINUTE` | `31457280` | Per-identity ingest rate (30 MiB/min). |
+| `APO_TELEMETRY_BYTE_BURST` | `10485760` | Per-identity burst allowance (10 MiB). |
+| `APO_TELEMETRY_GLOBAL_BYTES_PER_MINUTE` | `62914560` | Deployment-wide ingest rate (60 MiB/min). |
+| `APO_TELEMETRY_GLOBAL_BYTE_BURST` | `20971520` | Deployment-wide burst allowance (20 MiB). |
+
 ## Auth and sessions
 
 | Variable | Default | Purpose |
@@ -164,14 +181,22 @@ source OAuth token, or ArtifactStore credentials.
 | `AUTH_EMAIL_VERIFICATION_REQUIRED` | `false` | Require email verification before login. |
 | `ADMIN_API_KEY` | — | Admin-level API key for privileged routes. |
 
-## Bootstrap and retention
+## Bootstrap, retention, and maintenance
+
+A daily maintenance pass always runs (at startup, then every 24 h): it
+blanks raw OTLP ingest payloads past their replay window, fails artifact
+uploads abandoned past their TTL, and deletes expired credential tokens.
+Age-based deletion of runs/traces only happens when
+`APO_RETENTION_DAYS` is set — and it also purges the OTLP spans of the
+traces it deletes (bookmarked traces and their spans always survive).
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `INIT_USER_EMAIL` | — | First-run admin email (seeds an account on startup). |
 | `INIT_USER_PASSWORD` | — | First-run admin password. |
 | `INIT_USER_NAME` | — | First-run admin display name. |
-| `APO_RETENTION_DAYS` | `0` | Days to keep runs/traces. `0` disables automatic age-based deletion. |
+| `APO_RETENTION_DAYS` | `0` | Days to keep runs/traces (and their OTLP spans). `0` disables automatic age-based deletion. |
+| `APO_INGEST_RETENTION_DAYS` | `7` | Days raw OTLP ingest payloads stay replayable. After the window the payload is blanked in place (the audit row with its accepted/rejected counts stays). `0` keeps payloads forever. |
 | `APO_MAX_DB_PAGES` | `0` | SQLite page cap. `0` disables the cap. |
 | `PROJECT_INVITATION_TTL_HOURS` | `168` | How long project invitations stay valid (7 days). |
 

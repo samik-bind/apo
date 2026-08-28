@@ -128,31 +128,6 @@ def _delete_trace_projection(
     return {"deleted_traces": traces, "deleted_calls": calls}
 
 
-def _detach_batch_references(session: Session, batch_ids: list[str]) -> None:
-    """Null the soft references Schedules keep to a Batch before it goes."""
-    if not batch_ids:
-        return
-    params = {"ids": batch_ids}
-    _exec_in(
-        session,
-        "UPDATE agent_task_schedules SET active_batch_run_id = NULL "
-        "WHERE active_batch_run_id IN :ids",
-        params,
-    )
-    _exec_in(
-        session,
-        "UPDATE agent_task_schedules SET last_batch_run_id = NULL "
-        "WHERE last_batch_run_id IN :ids",
-        params,
-    )
-    _exec_in(
-        session,
-        "UPDATE agent_task_schedule_occurrences SET batch_run_id = NULL "
-        "WHERE batch_run_id IN :ids",
-        params,
-    )
-
-
 async def _delete_deliverable_objects_guarded(
     session: Session, run_ids: list[str]
 ) -> None:
@@ -219,7 +194,7 @@ async def delete_task_runs(
         ).scalar()
         if remaining == 0:
             await delete_task_revision_bundles_for_batches(session, [batch_id])
-            _detach_batch_references(session, [batch_id])
+            # delete_batch_rows detaches schedule references itself.
             deleted_batches += delete_batch_rows(session, [batch_id])
         else:
             update_batch_run_status(session, batch)
@@ -267,7 +242,6 @@ async def delete_batch_runs(
 
     trace_counts = _delete_trace_projection(session, project, run_ids, trace_ids)
     _ = delete_agent_task_rows(session, run_ids)
-    _detach_batch_references(session, batch_ids)
     _ = delete_batch_rows(session, batch_ids)
 
     session.commit()

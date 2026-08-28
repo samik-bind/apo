@@ -919,6 +919,25 @@ async def delete_agent_task_schedule(
     _ = enforce_project_role_from_request(
         http_request, session, schedule.project, minimum_role="admin"
     )
+    # Dependents go first so deleting the schedule cannot orphan them:
+    # occurrence history and per-task adaptive states are meaningless
+    # without their schedule.
+    from apo.models.db import AgentTaskScheduleOccurrenceDB
+
+    occurrences = session.exec(
+        select(AgentTaskScheduleOccurrenceDB).where(
+            AgentTaskScheduleOccurrenceDB.schedule_id == schedule_id
+        )
+    ).all()
+    for occurrence in occurrences:
+        session.delete(occurrence)
+    adaptive_states = session.exec(
+        select(AdaptiveTaskStateDB).where(
+            AdaptiveTaskStateDB.schedule_id == schedule_id
+        )
+    ).all()
+    for state in adaptive_states:
+        session.delete(state)
     session.delete(schedule)
     session.commit()
     return {"ok": True}

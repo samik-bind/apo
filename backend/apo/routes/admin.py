@@ -174,19 +174,19 @@ async def trigger_retention_cleanup(
     request: Request,
     _: object = Depends(require_api_key_scope("full")),
 ):
-    """Run a retention cleanup immediately. Honours APO_RETENTION_DAYS."""
+    """Run the maintenance cleanup immediately.
+
+    Always-on hygiene runs (ingest payload trim, abandoned uploads,
+    expired credentials); the age-based purge only runs when
+    ``APO_RETENTION_DAYS`` is configured.
+    """
     if not verify_admin(request):
         raise HTTPException(
             status_code=401, detail="Unauthorized: Admin access required"
         )
-    from ..services.retention import RETENTION_DAYS, run_retention_cleanup
+    from ..services.retention import run_maintenance_cleanup
 
-    if RETENTION_DAYS <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Retention is disabled (APO_RETENTION_DAYS=0).",
-        )
-    summary = run_retention_cleanup()
+    summary = run_maintenance_cleanup()
     return {"status": "success", "deleted": summary}
 
 

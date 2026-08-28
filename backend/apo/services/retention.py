@@ -1,22 +1,30 @@
 """Data retention / size control for the SQLite-backed store.
 
-Two independent mechanisms keep the database from growing without bound:
+Three mechanisms keep the database from growing without bound:
 
-1. **Time-based retention** (``APO_RETENTION_DAYS``): periodically deletes
-   old traces, runs, and agent-task outputs older than the configured
-   window, then ``VACUUM``s to reclaim file space. Driven by parent age so
-   that child rows (metrics, call spans) are removed before their parents
-   and FK constraints stay satisfied. Bookmarked runs are always kept.
+1. **Daily maintenance** (always on): trims raw OTLP ingest payloads past
+   their replay window, fails artifact uploads abandoned past their TTL,
+   reaps expired credential tokens, and — when retention is configured —
+   purges old data. Runs once at startup then every 24 h.
 
-2. **Hard size cap** (``APO_MAX_DB_PAGES``): sets SQLite's
+2. **Time-based retention** (``APO_RETENTION_DAYS``, default 0 = off):
+   deletes old traces, runs, and agent-task outputs older than the
+   configured window, then ``VACUUM``s to reclaim file space. Driven by
+   parent age so that child rows (metrics, call spans) are removed before
+   their parents and FK constraints stay satisfied. Bookmarked runs are
+   always kept.
+
+3. **Hard size cap** (``APO_MAX_DB_PAGES``): sets SQLite's
    ``PRAGMA max_page_count``. Once the DB file reaches the cap, further
    writes fail with ``SQLITE_FULL`` rather than growing the file. This is a
    blunt safety valve — retention is the graceful path, the cap is the
    last line of defence.
 
-Both default to off (0) so existing deployments are unaffected until an
-operator opts in. Non-SQLite backends ignore the size cap (it is a SQLite
-pragma) and simply skip the SQLite-specific optimisations.
+Retention defaults to off (0) so existing deployments are unaffected until
+an operator opts in; the maintenance tasks are pure hygiene (inbox
+payloads, abandoned uploads, dead credentials) and always run. Non-SQLite
+backends ignore the size cap (it is a SQLite pragma) and simply skip the
+SQLite-specific optimisations.
 """
 
 from __future__ import annotations
@@ -48,6 +56,102 @@ RETENTION_DAYS = int(os.environ.get("APO_RETENTION_DAYS", "0"))
 # Hard ceiling on the DB file size, expressed in SQLite pages (4 KiB each
 # by default). 0 = unlimited. e.g. 65536 pages ~= 256 MiB. SQLite-only.
 MAX_DB_PAGES = int(os.environ.get("APO_MAX_DB_PAGES", "0"))
+
+# How long raw OTLP ingest payloads (``otlp_ingest_batches.payload``, up to
+# 10 MiB per request) stay replayable. The payload is a replay inbox for
+# convention changes — after the window it is blanked (the audit row with
+# its accepted/rejected counts stays). Read fresh each run so operators can
+# change it without a restart, unlike the module-level knobs above.
+INGEST_PAYLOAD_RETENTION_DAYS_ENV = "APO_INGEST_RETENTION_DAYS"
+DEFAULT_INGEST_PAYLOAD_RETENTION_DAYS = 7
+
+
+def ingest_payload_retention_days() -> int:
+    value = os.environ.get(INGEST_PAYLOAD_RETENTION_DAYS_ENV, "")
+    try:
+        days = int(value)
+    except ValueError:
+        days = DEFAULT_INGEST_PAYLOAD_RETENTION_DAYS
+    return max(days, 0)
+
+
+def trim_old_ingest_payloads(session: Session, cutoff: datetime) -> int:
+    """Blank raw OTLP ingest payloads older than ``cutoff``.
+
+    ``otlp_ingest_batches`` rows are the durable inbox for replaying
+    received telemetry after convention changes; the payload Text is by far
+    the largest column in the database (a permanent second copy of every
+    trace). Past the replay window the payload is blanked in place — the
+    row keeps its received/accepted/rejected audit counts, matching the
+    ``payload=""`` convention failed batches already use. 0-day window
+    disables trimming (nothing is ever blanked).
+    """
+    if not table_exists(session, "otlp_ingest_batches"):
+        return 0
+    result = cast(
+        CursorResult[Any],
+        session.execute(
+            text(
+                "UPDATE otlp_ingest_batches SET payload = '' "
+                "WHERE received_at < :c AND payload != ''"
+            ),
+            {"c": cutoff},
+        ),
+    )
+    return result.rowcount or 0
+
+
+def delete_orphaned_spans(session: Session, cutoff: datetime) -> int:
+    """Delete OTLP spans older than ``cutoff`` whose trace is gone.
+
+    Spans belong to the canonical store (``otlp_spans``); the trace
+    projection (``runs``) is what retention expires. This sweep runs after
+    the projection delete and removes spans that no surviving ``runs`` row
+    claims in the same project — so spans of purged traces die with them,
+    while spans of bookmarked (surviving) traces stay. It also clears
+    orphans left by older deletions that predate span cleanup.
+    """
+    if not table_exists(session, "otlp_spans"):
+        return 0
+    result = cast(
+        CursorResult[Any],
+        session.execute(
+            text(
+                "DELETE FROM otlp_spans WHERE created_at < :c AND NOT EXISTS ("
+                "SELECT 1 FROM runs WHERE runs.project = otlp_spans.project_id "
+                "AND runs.id = otlp_spans.trace_id)"
+            ),
+            {"c": cutoff},
+        ),
+    )
+    return result.rowcount or 0
+
+
+def reap_expired_credentials(session: Session) -> int:
+    """Delete credential tokens past their expiry.
+
+    Verification/reset/enrollment tokens are unusable after ``expires_at``
+    whether or not they were consumed; the rows are pure dead weight.
+    Invitations are deliberately NOT reaped — they carry invite history.
+    """
+    deleted = 0
+    now = datetime.now(timezone.utc)
+    for table in (
+        "email_verification_tokens",
+        "password_reset_tokens",
+        "executor_enrollment_tokens",
+    ):
+        if not table_exists(session, table):
+            continue
+        result = cast(
+            CursorResult[Any],
+            session.execute(
+                text(f"DELETE FROM {table} WHERE expires_at < :n"),  # noqa: S608
+                {"n": now},
+            ),
+        )
+        deleted += result.rowcount or 0
+    return deleted
 
 
 def _delete_old_runs(session: Session, cutoff: datetime) -> int:
@@ -168,15 +272,49 @@ def delete_agent_task_rows(session: Session, run_ids: list[str]) -> int:
     return deleted
 
 
+def detach_batch_references(session: Session, batch_ids: list[str]) -> None:
+    """Null the soft references Schedules keep to a Batch before it goes.
+
+    ``agent_task_schedules.active_batch_run_id`` is a real FK — deleting a
+    batch it still points at fails the purge under ``PRAGMA
+    foreign_keys=ON``. Occurrences keep batch_run_id as history, so theirs
+    is nulled rather than deleted.
+    """
+    if not batch_ids:
+        return
+    params = {"ids": batch_ids}
+    _ = _exec_in(
+        session,
+        "UPDATE agent_task_schedules SET active_batch_run_id = NULL "
+        "WHERE active_batch_run_id IN :ids",
+        params,
+    )
+    _ = _exec_in(
+        session,
+        "UPDATE agent_task_schedules SET last_batch_run_id = NULL "
+        "WHERE last_batch_run_id IN :ids",
+        params,
+    )
+    _ = _exec_in(
+        session,
+        "UPDATE agent_task_schedule_occurrences SET batch_run_id = NULL "
+        "WHERE batch_run_id IN :ids",
+        params,
+    )
+
+
 def delete_batch_rows(session: Session, batch_ids: list[str]) -> int:
     """Delete Batch rows and their task_revisions; returns batches deleted.
 
-    task_revisions rows go first — their bundle objects were removed by the
-    caller before this runs. The count covers Batch rows only; revision rows
-    are dependents, not batches.
+    Any Schedule references are detached first (see
+    ``detach_batch_references``) so the delete cannot FK-fail on a batch a
+    schedule still points at. task_revisions rows go next — their bundle
+    objects were removed by the caller before this runs. The count covers
+    Batch rows only; revision rows are dependents, not batches.
     """
     if not batch_ids:
         return 0
+    detach_batch_references(session, batch_ids)
     # Guarded so pre-v12 databases don't break.
     if table_exists(session, "task_revisions"):
         _ = _exec_in(
@@ -333,66 +471,98 @@ async def cleanup_expired_artifact_uploads(session: Session) -> dict[str, int]:
     return {"failed_uploads": failed}
 
 
-def run_retention_cleanup() -> dict[str, int]:
-    """Delete data older than the retention window and reclaim space.
+def run_maintenance_cleanup() -> dict[str, int]:
+    """Run the daily maintenance pass; retention purge only if configured.
 
-    Returns a per-table deleted-row summary. Safe to call when retention
-    is disabled — it then reports zeros without touching the DB.
+    Always-on hygiene: blank past-window OTLP ingest payloads, fail
+    abandoned artifact uploads, reap expired credential tokens. When
+    ``APO_RETENTION_DAYS`` is set, also purge old traces/runs/batches (the
+    span orphan sweep runs inside that window). Returns a per-task summary;
+    ``VACUUM`` runs when anything freed pages.
     """
-    if RETENTION_DAYS <= 0:
-        return {"runs": 0, "agent_task_batch_runs": 0, "total": 0}
-
-    cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
     summary: dict[str, int] = {}
+    now = datetime.now(timezone.utc)
+
     with Session(engine) as session:
-        # collect the task-run ids whose batch is old, delete their
-        # external Deliverable objects first, then drop the rows. A store
-        # failure raises here so the rows are retained for the next cleanup.
-        old_run_ids = [
-            row[0]
-            for row in session.execute(
-                text(
-                    "SELECT agent_task_runs.id FROM agent_task_runs "
-                    "JOIN agent_task_batch_runs "
-                    "ON agent_task_runs.batch_run_id = agent_task_batch_runs.id "
-                    "WHERE agent_task_batch_runs.created_at < :c"
-                ),
-                {"c": cutoff},
-            ).all()
-        ]
-        if old_run_ids:
-            asyncio.run(delete_deliverable_objects_for_runs(session, old_run_ids))
-            session.commit()
-
-        # remove Task Revision bundle objects for old batches BEFORE
-        # their rows go. A store failure raises so the rows are retained for the
-        # next cleanup — objects are never orphaned by deleting the manifest first.
-        old_batch_ids = _old_batch_ids(session, cutoff)
-        if old_batch_ids:
-            from apo.services.task_revisions import delete_task_revision_bundles_for_batches
-
-            _ = asyncio.run(delete_task_revision_bundles_for_batches(session, old_batch_ids))
-            session.commit()
-
-        summary["runs"] = _delete_old_runs(session, cutoff)
-        summary["agent_task_batch_runs"] = _delete_old_batch_runs(session, cutoff)
+        ingest_days = ingest_payload_retention_days()
+        if ingest_days > 0:
+            summary["trimmed_ingest_payloads"] = trim_old_ingest_payloads(
+                session, now - timedelta(days=ingest_days)
+            )
+        summary["failed_uploads"] = asyncio.run(
+            cleanup_expired_artifact_uploads(session)
+        ).get("failed_uploads", 0)
+        summary["expired_tokens"] = reap_expired_credentials(session)
         session.commit()
 
-    summary["total"] = summary["runs"] + summary["agent_task_batch_runs"]
+        if RETENTION_DAYS > 0:
+            cutoff = now - timedelta(days=RETENTION_DAYS)
+            # collect the task-run ids whose batch is old, delete their
+            # external Deliverable objects first, then drop the rows. A store
+            # failure raises here so the rows are retained for the next
+            # cleanup.
+            old_run_ids = [
+                row[0]
+                for row in session.execute(
+                    text(
+                        "SELECT agent_task_runs.id FROM agent_task_runs "
+                        "JOIN agent_task_batch_runs "
+                        "ON agent_task_runs.batch_run_id = agent_task_batch_runs.id "
+                        "WHERE agent_task_batch_runs.created_at < :c"
+                    ),
+                    {"c": cutoff},
+                ).all()
+            ]
+            if old_run_ids:
+                asyncio.run(delete_deliverable_objects_for_runs(session, old_run_ids))
+                session.commit()
 
-    # VACUUM reclaims file space after deletes. It must run outside a
+            # remove Task Revision bundle objects for old batches BEFORE
+            # their rows go. A store failure raises so the rows are retained
+            # for the next cleanup — objects are never orphaned by deleting
+            # the manifest first.
+            old_batch_ids = _old_batch_ids(session, cutoff)
+            if old_batch_ids:
+                from apo.services.task_revisions import delete_task_revision_bundles_for_batches
+
+                _ = asyncio.run(
+                    delete_task_revision_bundles_for_batches(session, old_batch_ids)
+                )
+                session.commit()
+
+            summary["runs"] = _delete_old_runs(session, cutoff)
+            summary["agent_task_batch_runs"] = _delete_old_batch_runs(session, cutoff)
+            # Spans of the just-purged traces are now orphans; the sweep
+            # also clears strays older than the window from earlier eras.
+            summary["otlp_spans"] = delete_orphaned_spans(session, cutoff)
+            session.commit()
+
+    summary["total"] = sum(
+        count for key, count in summary.items() if key not in ("total", "failed_uploads", "expired_tokens")
+    )
+
+    # VACUUM reclaims file space after deletes/trims. It must run outside a
     # transaction (its own autocommit connection), so we use the raw
     # engine connection. SQLite-only; a no-op elsewhere.
-    if summary["total"] > 0 and is_sqlite():
+    # Row deletes and payload trims free DB pages; upload failures free
+    # staging bytes on disk. Only the former need a VACUUM.
+    freed_rows = summary["total"] > 0
+    if freed_rows and is_sqlite():
         with engine.connect() as conn:
             _ = conn.exec_driver_sql("VACUUM")
 
     logger.info(
-        "retention cleanup: removed %s rows older than %s days",
-        summary["total"],
+        "maintenance cleanup: %s (retention window=%s days, ingest payload window=%s days)",
+        summary,
         RETENTION_DAYS,
+        ingest_payload_retention_days(),
     )
     return summary
+
+
+def run_retention_cleanup() -> dict[str, int]:
+    """Back-compat alias: the retention-only view of the maintenance pass."""
+    return run_maintenance_cleanup()
 
 
 def get_db_size_info() -> dict[str, object]:
@@ -446,14 +616,13 @@ _retention_stop = threading.Event()
 
 
 def start_retention_loop() -> None:
-    """Run retention cleanup once now, then daily, on a daemon thread.
+    """Run the maintenance pass once now, then daily, on a daemon thread.
 
-    No-op (does not start a thread) when retention is disabled, so idle
-    deployments pay nothing.
+    Always starts: the ingest-payload trim, abandoned-upload cleanup, and
+    credential reaping are hygiene every deployment wants, independent of
+    whether age-based retention is configured.
     """
     global _retention_thread
-    if RETENTION_DAYS <= 0:
-        return
     if _retention_thread is not None and _retention_thread.is_alive():
         return
 
@@ -461,21 +630,23 @@ def start_retention_loop() -> None:
 
     def _loop() -> None:
         try:
-            _ = run_retention_cleanup()
+            _ = run_maintenance_cleanup()
         except Exception:
-            logger.exception("Initial retention cleanup failed")
+            logger.exception("Initial maintenance cleanup failed")
         while not _retention_stop.wait(_RETENTION_INTERVAL_SECONDS):
             try:
-                _ = run_retention_cleanup()
+                _ = run_maintenance_cleanup()
             except Exception:
-                logger.exception("Retention cleanup failed")
+                logger.exception("Maintenance cleanup failed")
 
     _retention_thread = threading.Thread(
-        target=_loop, name="data-retention", daemon=True
+        target=_loop, name="data-maintenance", daemon=True
     )
     _retention_thread.start()
     logger.info(
-        "data retention loop started (window=%s days)", RETENTION_DAYS
+        "data maintenance loop started (retention=%s days, ingest payload window=%s days)",
+        RETENTION_DAYS,
+        ingest_payload_retention_days(),
     )
 
 
