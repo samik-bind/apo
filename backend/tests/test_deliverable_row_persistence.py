@@ -2,7 +2,7 @@
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
-"""SPEC-162 #119: result submit persists deliverable rows, not blobs.
+"""Result submit persists deliverable rows, not blobs.
 
 When a source-owned or caller run submits a result with deliverables, the
 deliverables must be persisted as AgentTaskDeliverableDB rows (inline ≤64KiB,
@@ -204,7 +204,7 @@ def _seed_artifact_row(session, *, name="report", status="pending", run_id="run-
 
 
 class TestArtifactReadinessFence:
-    """SPEC-172 Step 6: a result cannot terminalize while an Artifact is
+    """A result cannot terminalize while an Artifact is
     pending or failed."""
 
     def test_pending_artifact_blocks_result(self, isolated, monkeypatch):
@@ -244,7 +244,7 @@ class TestArtifactReadinessFence:
 
 
 class TestDeliverableNameCollision:
-    """SPEC-172 Step 6: a JSON Deliverable name cannot collide with an
+    """A JSON Deliverable name cannot collide with an
     existing Artifact name."""
 
     def test_json_name_collides_with_artifact(self, isolated, monkeypatch):
@@ -267,7 +267,7 @@ class TestDeliverableNameCollision:
 
 
 class TestResultReplaySkipsDeliverablePersistence:
-    """SPEC-172 step 7: a replayed result must be detected before deliverable
+    """A replayed result must be detected before deliverable
     persistence, not collide with existing rows."""
 
     def test_identical_replay_returns_success_without_collision(self, isolated, monkeypatch):
@@ -320,7 +320,7 @@ class TestResultReplaySkipsDeliverablePersistence:
 
 
 class TestProtocolV2UploadToDownload:
-    """SPEC-172 step 8: full protocol-v2 upload → result → manifest → body."""
+    """Full protocol-v2 upload → result → manifest → body."""
 
     def test_full_flow_artifact_upload_then_result_then_download(self, isolated, monkeypatch, tmp_path):
         import hashlib
@@ -414,7 +414,7 @@ class TestProtocolV2UploadToDownload:
 
 
 class TestTaskRunFence:
-    """SPEC-172 step 5: Task Run row-lock fence.
+    """Task Run row-lock fence.
 
     On SQLite, writes serialize naturally (FOR UPDATE is a no-op). These
     tests verify the logical fence outcomes — the same outcomes PostgreSQL's
@@ -485,7 +485,7 @@ class TestTaskRunFence:
             app.dependency_overrides.clear()
 
     def test_ready_artifacts_retained_on_error(self, isolated, monkeypatch, tmp_path):
-        """SPEC-172 invariant #11: ready Artifacts remain downloadable even
+        """Ready Artifacts remain downloadable even
         when the Task Run later errors."""
         monkeypatch.setenv("APO_ARTIFACT_DIR", str(tmp_path))
         engine = isolated

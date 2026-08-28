@@ -36,7 +36,7 @@ export function InlineTaskRunRow({
   const isDone = status === "passed" || status === "failed";
   const isInactive = status === "pending" || status === "error";
   const passRate = run.total_checks > 0 ? Math.round((run.passed_checks / run.total_checks) * 100) : 0;
-  // SPEC-187 scope loop: the Runs page's URL cohort travels into run detail
+  // Scope loop: the Runs page's URL cohort travels into run detail
   // (single-model selections only — the drill-down vocabulary has no
   // comma-joined multi-model form).
   const cohort = parseDrilldownCohort(Object.fromEntries(useSearchParams().entries()));

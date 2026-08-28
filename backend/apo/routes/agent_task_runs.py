@@ -204,7 +204,7 @@ def _build_task_run_detail(
         failed_checks=task_run.failed_checks,
         corrected_tests=task_run.corrected_tests,
         trigger=trigger,
-        # SPEC-185: current surfaces show the effective projection —
+        # Current surfaces show the effective projection —
         # recorded evidence stays inside the report, overlay adds
         # recorded_pass/correction metadata on corrected tests.
         checks_json=projected_check_report(session, task_run),
@@ -613,7 +613,7 @@ async def list_agent_task_batch_runs(
 ):
     """List batch runs with server-side filtering and pagination.
 
-    SPEC-178: the list is scoped to the caller's readable Projects. An
+    The list is scoped to the caller's readable Projects. An
     explicit ``project`` is authorized before use; omitting it returns
     only the caller's membership Projects.
     """
@@ -654,7 +654,7 @@ async def get_agent_task_batch_run(
     if batch is None:
         raise HTTPException(status_code=404, detail="Batch run not found")
 
-    # SPEC-178: authorize after load — deny cross-Project access with 404.
+    # Authorize after load — deny cross-Project access with 404.
     try:
         authorize_project_request(request, session, batch.project, minimum_role="member")
     except HTTPException as exc:
@@ -729,20 +729,20 @@ async def list_agent_task_runs(
     """List all task runs, optionally filtered.
 
     ``model``/``effort``/``status`` are repeatable and exact but
-    case-insensitive (SPEC-187: a hand-edited URL must not silently
-    empty the list). Repeated values within one dimension OR; the
+    case-insensitive — a hand-edited URL must not silently
+    empty the list. Repeated values within one dimension OR; the
     dimensions AND. A run with an unreported configuration (NULL
     columns) never matches ``model``/``effort``. ``since`` is a
     ``"Nh"``/``"Nd"`` window over ``started_at`` (the same
     vocabulary the Tasks evidence views use), so a task-detail drill-down
     can show exactly the cohort the view was scoped to.
 
-    SPEC-178: the list is scoped to the caller's readable Projects. An
+    The list is scoped to the caller's readable Projects. An
     explicit ``project`` is authorized before use; omitting it returns
     only the caller's membership Projects (or is unrestricted in
     development open-dev mode).
     """
-    # Derive the Project scope (SPEC-178 §List scoping).
+    # Derive the Project scope.
     if project:
         authorize_project_request(request, session, project)
         project_ids: list[str] | None = [project]
@@ -799,7 +799,7 @@ async def get_agent_task_run(
     if task_run is None:
         raise HTTPException(status_code=404, detail="Task run not found")
 
-    # SPEC-178: authorize after load — derive Project through batch and deny
+    # Authorize after load — derive Project through batch and deny
     # cross-Project access with an opaque 404.
     batch = session.get(AgentTaskBatchRunDB, task_run.batch_run_id)
     if batch is not None:
@@ -849,7 +849,7 @@ async def report_agent_task_run_result(
     checks, transcript, and deliverables back after running the task on its
     own machine.
 
-    Authorization (SPEC-178): the Project is derived through the Batch and
+    Authorization: the Project is derived through the Batch and
     the caller must hold authority over it — a service/Attempt token must
     match this exact run; a session/API-key caller must be a member.
     Cross-Project reports are opaque 404s, before any verdict, transcript,
@@ -870,9 +870,9 @@ async def report_agent_task_run_result(
 
     _ = require_task_run_access(request, session, task_run, write=True)
 
-    # SPEC-179 phase 1: inline JSON deliverables persist as canonical
-    # AgentTaskDeliverableDB rows (SPEC-172 placement rules apply: inline
-    # under the threshold, gzip+store above, name collisions rejected).
+    # Inline JSON deliverables persist as canonical
+    # AgentTaskDeliverableDB rows (inline under the threshold, gzip+store
+    # above, name collisions rejected).
     # The legacy ``deliverables_json`` column write below continues during
     # the transition so the detail response field keeps working.
     if payload.deliverables:
@@ -906,7 +906,7 @@ async def report_agent_task_run_result(
             trace_run_id=payload.trace_run_id,
             checks=payload.checks,
             transcript=payload.transcript,
-            deliverables=None,  # rows persisted above (SPEC-179 phase 2)
+            deliverables=None,  # rows persisted above
             errored=payload.errored,
             error_message=payload.error_message,
             run_configuration=payload.run_configuration,

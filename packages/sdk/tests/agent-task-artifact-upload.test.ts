@@ -205,7 +205,7 @@ describe("persistFileArtifacts", () => {
     expect(dumped).not.toContain("secret-name.log");
   });
 
-  // SPEC-172 SDK test #4: JSON-only runs need no upload context at all.
+  // SDK test #4: JSON-only runs need no upload context at all.
   it("passes JSON-only deliverables through without upload context", async () => {
     const failFetch = vi.fn(async () => {
       throw new Error("fetch should not be called for JSON-only deliverables");
@@ -219,7 +219,7 @@ describe("persistFileArtifacts", () => {
     expect(failFetch).not.toHaveBeenCalled();
   });
 
-  // SPEC-172 SDK test #5: missing Artifact context fails safely before any request.
+  // SDK test #5: missing Artifact context fails safely before any request.
   it("fails safely when Artifact context is missing (no request, no path leak)", async () => {
     const logPath = join(dir, "secret-path.log");
     writeFileSync(logPath, "data");

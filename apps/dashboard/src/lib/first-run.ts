@@ -1,5 +1,5 @@
 /**
- * SPEC-180: structured builders for the first-run onboarding commands.
+ * Structured builders for the first-run onboarding commands.
  *
  * Values are validated and quoted for shell display/copy only — the
  * dashboard never interpolates raw values into HTML and never invokes a
@@ -37,7 +37,7 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-// SPEC-182: the canonical hosted docs live on their own origin — a hosted
+// The canonical hosted docs live on their own origin — a hosted
 // installation consumes the central documentation, and the link must work no
 // matter which application origin the dashboard is served from. Deliberately
 // not derived from APO_PUBLIC_URL.

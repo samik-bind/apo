@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportDeprecated=false, reportImplicitStringConcatenation=false, reportMissingParameterType=false, reportPrivateUsage=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false
 
-"""SPEC-180 phase 4b: upgrade from a v25 database backfills, then drops the
+"""Upgrade from a v25 database backfills, then drops the
 legacy deliverables_json / checks_json columns."""
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
  * verify-publication.mjs — fail the build on publication drift.
  *
  * Runs after `astro build` + schema publication and asserts the five
- * publication invariants (SPEC-171 acceptance tests 1-5):
+ * publication invariants:
  *
  *   1. No built artifact references the retired origin (https://apo.dev).
  *   2. Every same-origin absolute URL in start.md resolves to a built file.

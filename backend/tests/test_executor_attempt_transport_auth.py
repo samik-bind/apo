@@ -211,7 +211,7 @@ def test_attempt_token_can_read_own_trace_projection(
 
 
 # ---------------------------------------------------------------------------
-# SPEC-172 Step 4: only a currently running, live Attempt may upload artifacts.
+# Only a currently running, live Attempt may upload artifacts.
 # ---------------------------------------------------------------------------
 
 
@@ -241,7 +241,7 @@ def test_leased_attempt_cannot_upload(
     tmp_path: Path,
 ) -> None:
     """A leased (not-yet-started) attempt must not upload artifacts — the task
-    code hasn't started, so no artifact can exist yet (SPEC-172 invariant #3)."""
+    code hasn't started, so no artifact can exist yet."""
     monkeypatch.setattr(auth_middleware, "engine", session.get_bind())
     monkeypatch.setattr(executor_auth, "AUTH_SECRET", "attempt-transport-secret")
     monkeypatch.setenv("APO_ARTIFACT_DIR", str(tmp_path))

@@ -61,7 +61,7 @@ class PaginatedBatchRunSummary(BaseModel):
 @dataclass
 class BatchRunListFilters:
     project: str | None = None
-    project_ids: list[str] | None = None  # SPEC-178: readable-Project scope
+    project_ids: list[str] | None = None  # readable-Project scope
     status: str | None = None
     search: str | None = None
     since: str | None = None

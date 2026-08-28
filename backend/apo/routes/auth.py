@@ -207,8 +207,8 @@ async def setup(body: SetupRequest, session: Session = Depends(get_session)) -> 
     if error:
         raise HTTPException(status_code=422, detail=error)
 
-    # First-installation only (SPEC-182). Once the installation is claimed,
-    # admission is invite-only through Hosted Access Invitations (SPEC-179)
+    # First-installation only. Once the installation is claimed,
+    # admission is invite-only through Hosted Access Invitations
     # — an open /auth/setup would bypass that boundary entirely (#152).
     status = get_installation_setup_status(session)
     if not status.setup_available:

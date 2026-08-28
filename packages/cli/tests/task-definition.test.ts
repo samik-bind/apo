@@ -27,7 +27,7 @@ function writeTask(root: string, name: string, content: string): { meta: TaskMet
   };
 }
 
-describe("SPEC-169: Task Definition preparation", () => {
+describe("Task Definition preparation", () => {
   let tmp: string;
   beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), "apo-task-def-")); });
   afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });

@@ -1,6 +1,6 @@
-// Contract assertions for the public docs deployment overlay (SPEC-171 tests 7-9,
-// updated by SPEC-182: the application host no longer carries an ingress Basic
-// Auth gate).
+// Contract assertions for the public docs deployment overlay: the
+// application host carries no ingress Basic Auth gate (identity is
+// delegated to Apo application auth).
 //
 // Reads the rendered tunnel+docs Compose JSON plus the raw Caddyfile and
 // cloudflared config, and asserts:
@@ -124,7 +124,7 @@ assert(
   !docsBlock.includes("backend:8000"),
   "docs host block must never reach the backend",
 );
-// SPEC-182: the application host block delegates identity to Apo application
+// The application host block delegates identity to Apo application
 // auth — no ingress Basic Auth gate remains anywhere in the Caddyfile.
 const appBlock = caddyfile.slice(appBlockIdx);
 assert(

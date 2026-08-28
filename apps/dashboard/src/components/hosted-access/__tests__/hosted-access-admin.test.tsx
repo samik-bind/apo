@@ -1,5 +1,5 @@
 /**
- * SPEC-179: the administrator Hosted access page lists invitations,
+ * The administrator Hosted access page lists invitations,
  * issues new ones with the one-time copy-link fallback, resends, and
  * revokes. Non-administrators never render the controls (server gate).
  */

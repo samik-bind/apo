@@ -3,7 +3,7 @@ import type { ProjectFirstRunSetup } from "@/lib/first-run"
 import { CopyCommand } from "./CopyCommand"
 
 /**
- * The virgin-Project onboarding panel (SPEC-180).
+ * The virgin-Project onboarding panel.
  *
  * Four concise stages from an accepted invitation to one recorded Task Run.
  * All commands are display-only structured strings; nothing executes here.

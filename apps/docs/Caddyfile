@@ -1,4 +1,4 @@
-# Static file server for the docs container (SPEC-171).
+# Static file server for the docs container.
 #
 # Serves the prebuilt Astro output at /srv. Markdown routes get the correct
 # text/markdown content type so coding agents fetch clean content. No TLS,

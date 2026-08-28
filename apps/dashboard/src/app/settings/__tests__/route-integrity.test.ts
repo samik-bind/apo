@@ -89,7 +89,7 @@ describe("settings route integrity", () => {
     expect(nonInstanceAdmin, "adminOnly should only appear on instance items").toEqual([]);
   });
 
-  // SPEC-179: Hosted access is a real Instance settings operation — the
+  // Hosted access is a real Instance settings operation — the
   // admission management page must stay reachable for administrators.
   it("hosted access is an admin-only instance entry", () => {
     const entry = INSTANCE_ITEMS.find((i) => i.segment === "hosted-access");

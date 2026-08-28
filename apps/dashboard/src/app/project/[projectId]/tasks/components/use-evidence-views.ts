@@ -21,7 +21,7 @@ import {
 import { MAIN_VIEW_ID, type ViewTab } from "./task-list-shared";
 
 /**
- * Evidence views state (SPEC-174), extracted from AgentTasksClient.
+ * Evidence views state, extracted from AgentTasksClient.
  *
  * Owns the tab strip (a permanent "Main" tab showing all-history plus
  * closable derived tabs narrowed by model / model-aware effort / date), the
@@ -39,10 +39,10 @@ export function useEvidenceViews({
   projectId: string;
   isDemoProject: boolean;
   tasks: AgentTaskSummary[];
-  /** `?view=` from the URL: re-select that tab on arrival (SPEC-187). */
+  /** `?view=` from the URL: re-select that tab on arrival. */
   initialViewId?: string | null;
 }) {
-  // ---- Evidence views (SPEC-174): a permanent "Main" tab (all-history) plus
+  // ---- Evidence views: a permanent "Main" tab (all-history) plus
   // closable derived tabs narrowed by model (+ model-aware effort). The stats
   // shown in the task table are scoped to the active tab's cohort.
   const [views, setViews] = useState<ViewTab[]>([{ id: MAIN_VIEW_ID, label: "Main", model: null, effort: null, since: null }]);

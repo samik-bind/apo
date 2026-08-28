@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Anonymous public-ingress smoke probe (SPEC-182).
+# Anonymous public-ingress smoke probe.
 #
 # Probes the real browser and CLI entry paths from any external machine:
 # the admission shells (/login, /join), the public auth route, the CLI
@@ -53,7 +53,7 @@ fetch() {
 }
 
 # An outer ingress Basic Auth gate is a failed entrypoint even when the
-# numeric status is otherwise acceptable (SPEC-182: no false-positive smoke).
+# numeric status is otherwise acceptable.
 assert_no_basic_challenge() {
   local description="$1"
   if echo "$HEADERS" | grep -qi '^www-authenticate: *basic'; then

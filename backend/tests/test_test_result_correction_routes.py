@@ -1,4 +1,4 @@
-"""SPEC-185 scene tests: the corrections route end-to-end against the app.
+"""Scene tests: the corrections route end-to-end against the app.
 
 Covers the API contract (error kinds, status codes), the atomic Run/Batch
 scalar flip while the raw Check Report stays recorded, auth matrix rejections,

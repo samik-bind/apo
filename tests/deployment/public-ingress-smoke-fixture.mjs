@@ -1,10 +1,10 @@
-// Fixture server for the public-ingress smoke contract (SPEC-182 tests 5-6).
+// Fixture server for the public-ingress smoke contract.
 //
 // Two modes, selected by argv[2]:
 //   basic-gate — the former broken ingress: every route except public health
 //                answers 401 with `WWW-Authenticate: Basic realm="restricted"`.
 //                The smoke script must FAIL against this.
-//   app        — the SPEC-182 target: admission shells and public auth routes
+//   app        — the target: admission shells and public auth routes
 //                answer as Apo would; protected data answers Apo JSON 401
 //                without any Basic challenge. The smoke script must PASS.
 //
@@ -78,7 +78,7 @@ function appResponse(req, res) {
 
 const server = createServer((req, res) => {
   if (mode === "basic-gate" && req.url !== "/api/public/health") {
-    // The pre-SPEC-182 Caddy layer: one installation-wide password in front
+    // The legacy Caddy layer: one installation-wide password in front
     // of every browser and CLI admission path.
     res.writeHead(401, { "Content-Type": "text/plain", ...BASIC_CHALLENGE });
     res.end("401 Unauthorized");

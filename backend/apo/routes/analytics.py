@@ -329,7 +329,7 @@ async def search_traces(
     session: Session = Depends(get_session),
 ):
     """Search traces (runs) with structured filters."""
-    # SPEC-178: authorize before aggregate queries.
+    # Authorize before aggregate queries.
     enforce_project_read_from_request(request, session, f.project)
     statement = _apply_trace_filters(select(RunDB), f, session)
 
@@ -356,7 +356,7 @@ async def search_observations(
     session: Session = Depends(get_session),
 ):
     """Search observations (logged calls) with structured filters."""
-    # SPEC-178: authorize before aggregate queries.
+    # Authorize before aggregate queries.
     enforce_project_read_from_request(request, session, f.project)
     statement = _apply_observation_filters(select(LoggedCallDB), f)
 
@@ -406,7 +406,7 @@ async def query_metrics(
     session: Session = Depends(get_session),
 ):
     """Aggregate metrics query with optional dimension grouping."""
-    # SPEC-178: authorize before aggregate queries.
+    # Authorize before aggregate queries.
     enforce_project_read_from_request(request, session, query.project)
     if query.dimension is not None:
         return _query_metrics_with_dimension(query, session)
@@ -532,7 +532,7 @@ async def get_model_metrics(
     session: Session = Depends(get_session),
 ):
     """Per-model metrics summary."""
-    # SPEC-178: authorize before aggregate queries.
+    # Authorize before aggregate queries.
     enforce_project_read_from_request(request, session, project)
     base_where: list[Any] = [LoggedCallDB.project == project]
     if environment:
@@ -587,7 +587,7 @@ async def get_project_summary(
     session: Session = Depends(get_session),
 ):
     """Project-level metrics summary."""
-    # SPEC-178: authorize before aggregate queries.
+    # Authorize before aggregate queries.
     enforce_project_read_from_request(request, session, project)
     run_where: list[Any] = [RunDB.project == project]
     if environment:

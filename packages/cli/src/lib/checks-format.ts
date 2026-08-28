@@ -90,7 +90,7 @@ function groupChecks(checks: CheckResult[]): CheckSegment[] {
 
 function formatCheck(check: CheckResult, verbose: boolean): string {
   const lines: string[] = [];
-  // SPEC-185: corrected tests carry their effective verdict with the
+  // Corrected tests carry their effective verdict with the
   // recorded one and the correction provenance one line below.
   if (check.correction && check.recorded_pass !== undefined) {
     lines.push(

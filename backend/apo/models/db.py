@@ -492,8 +492,8 @@ class AgentTaskRunDB(SQLModel, table=True):
     trace_error_message: str | None = None
     # scalar verdict projection of the Check Report. The hot list/stats
     # path reads these and never touches the evidence document. The legacy
-    # inline ``checks_json`` copy was dropped in schema v28 (SPEC-180
-    # phase 4b) — the report table is the only evidence store.
+    # inline ``checks_json`` copy was dropped in schema v28 —
+    # the report table is the only evidence store.
     total_checks: int = Field(default=0)
     passed_checks: int = Field(default=0)
     failed_checks: int = Field(default=0)
@@ -523,11 +523,11 @@ class AgentTaskRunDB(SQLModel, table=True):
     # legacy runs (created before inventory existed) keep rendering.
     task_inventory_id: str | None = Field(default=None, index=True)
     task_source_commit_sha: str | None = None
-    # SPEC-169: pinned Task Definition Revision for this Run.
+    # Pinned Task Definition Revision for this Run.
     task_definition_revision_id: str | None = Field(
         default=None, foreign_key="task_definition_revisions.id", index=True
     )
-    # SPEC-185: number of Tests whose effective result differs from the
+    # Number of Tests whose effective result differs from the
     # recorded one (latest active correction per Test). Maintained by the
     # correction service in the same transaction as the verdict scalars.
     corrected_tests: int = Field(default=0)
@@ -671,7 +671,7 @@ class AgentTaskJudgmentDB(SQLModel, table=True):
 
 
 class AgentTaskTestResultCorrectionDB(SQLModel, table=True):
-    """SPEC-185: an append-only human decision about a recorded Test result.
+    """An append-only human decision about a recorded Test result.
 
     A correction sets one top-level Test of one Task Run to an effective
     PASS/FAIL (or clears back to the recorded result) without touching the
@@ -1156,7 +1156,7 @@ class ProjectInvitationDB(SQLModel, table=True):
 
 
 class HostedAccessInvitationDB(SQLModel, table=True):
-    """Installation-level admission invitation (SPEC-179).
+    """Installation-level admission invitation.
 
     Lets an Installation Administrator admit one person to the APO
     installation; acceptance creates or reuses the invited User and
@@ -1237,7 +1237,7 @@ class ProjectTaskSourceDB(SQLModel, table=True):
     demo_seed_id: str | None = None
 
     status: str = Field(index=True)  # "unconfigured" | "pending_sync" | "ready" | "error"
-    # SPEC-169: catalog schema version (1 = metadata-only, 2 = with definitions).
+    # Catalog schema version (1 = metadata-only, 2 = with definitions).
     catalog_schema_version: int = 1
     last_synced_at: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
     last_resolved_commit_sha: str | None = None
@@ -1289,7 +1289,7 @@ class ProjectTaskInventoryDB(SQLModel, table=True):
     source_ref: str | None = None
     source_commit_sha: str | None = None
     source_subpath: str | None = None
-    # SPEC-169: pointer to the current published Task Definition Revision.
+    # Pointer to the current published Task Definition Revision.
     task_definition_revision_id: str | None = Field(
         default=None, foreign_key="task_definition_revisions.id", index=True
     )
@@ -1300,7 +1300,7 @@ class ProjectTaskInventoryDB(SQLModel, table=True):
 
 
 class TaskDefinitionRevisionDB(SQLModel, table=True):
-    """SPEC-169: immutable, content-addressed Task Definition source.
+    """Immutable, content-addressed Task Definition source.
 
     Stores the exact canonical ``*.eval.ts`` text that defines a Task and
     its Tests. Private Project data (like traces and Deliverables); never
@@ -1374,7 +1374,7 @@ class TaskRevisionDB(SQLModel, table=True):
 
 
 class TaskViewComparisonDB(SQLModel, table=True):
-    """SPEC-174: an immutable, selection-scoped view-vs-view comparison snapshot.
+    """An immutable, selection-scoped view-vs-view comparison snapshot.
 
     Created when a user picks a set of tasks on the Tasks page and hits Compare.
     The resolved run-id-per-task-per-side + the def/exec revisions actually used
@@ -1402,7 +1402,7 @@ class TaskViewComparisonDB(SQLModel, table=True):
 
 
 class TaskViewDB(SQLModel, table=True):
-    """SPEC-174: a user's saved evidence-view tab for a project.
+    """A user's saved evidence-view tab for a project.
 
     Derived tabs created on the Tasks page are persisted here so they survive
     refresh / cross-device. The permanent Main tab (model=null, effort=null,

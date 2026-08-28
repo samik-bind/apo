@@ -208,7 +208,7 @@ async def list_models(
 ) -> list[ModelDocument]:
     """List models for a project. With ``effective=true``, merge globals + project
     overrides (project rows shadow globals per match_pattern)."""
-    # SPEC-178: global bundled pricing is authenticated-readable; per-project
+    # Global bundled pricing is authenticated-readable; per-project
     # overrides require member read.
     if project != GLOBAL_PROJECT:
         _ = enforce_project_read_from_request(request, session, project)
@@ -249,7 +249,7 @@ async def match_model_route(
     (dict query params are not supported by FastAPI, so the map is passed as a
     JSON string).
     """
-    # SPEC-178: per-project overrides require member read; globals are open.
+    # Per-project overrides require member read; globals are open.
     if project != GLOBAL_PROJECT:
         _ = enforce_project_read_from_request(request, session, project)
     try:
@@ -281,7 +281,7 @@ async def get_model(
     model = session.get(ModelRowDB, model_id)
     if model is None:
         raise HTTPException(status_code=404, detail="model not found")
-    # SPEC-178: per-project overrides require member read.
+    # Per-project overrides require member read.
     if model.project != GLOBAL_PROJECT:
         _ = enforce_project_read_from_request(request, session, model.project)
     return _build_document(session, model)
@@ -300,7 +300,7 @@ async def create_model(
     """
     if request.project == GLOBAL_PROJECT:
         raise HTTPException(status_code=409, detail=_GLOBAL_WRITE_DETAIL)
-    # SPEC-178: per-project overrides require admin write.
+    # Per-project overrides require admin write.
     _ = enforce_project_role_from_request(
         http_request, session, request.project, minimum_role="admin"
     )
@@ -335,14 +335,14 @@ async def replace_model(
         raise HTTPException(status_code=404, detail="model not found")
     if existing.project == GLOBAL_PROJECT or request.project == GLOBAL_PROJECT:
         raise HTTPException(status_code=409, detail=_GLOBAL_WRITE_DETAIL)
-    # SPEC-178: a replacement cannot move the row into another Project —
+    # A replacement cannot move the row into another Project —
     # that would let an A-admin inject pricing overrides into B.
     if request.project != existing.project:
         raise HTTPException(
             status_code=409,
             detail="A model's project cannot be changed; delete and recreate it in the target project",
         )
-    # SPEC-178: per-project overrides require admin write.
+    # Per-project overrides require admin write.
     _ = enforce_project_role_from_request(
         http_request, session, existing.project, minimum_role="admin"
     )
@@ -376,7 +376,7 @@ async def delete_model(
         raise HTTPException(status_code=404, detail="model not found")
     if model.project == GLOBAL_PROJECT:
         raise HTTPException(status_code=409, detail=_GLOBAL_WRITE_DETAIL)
-    # SPEC-178: per-project overrides require admin write.
+    # Per-project overrides require admin write.
     _ = enforce_project_role_from_request(
         http_request, session, model.project, minimum_role="admin"
     )

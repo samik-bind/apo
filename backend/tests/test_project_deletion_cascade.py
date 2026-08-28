@@ -2,7 +2,7 @@
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
-"""SPEC-169 #96: project deletion survives caller-created execution state.
+"""Project deletion survives caller-created execution state.
 
 Two defects:
 1. agent_task_runs deleted before task_execution_attempts (FK violation).
@@ -54,7 +54,7 @@ def _seed_project_with_caller_run(session):
         project_id="p1", user_id=u.id, role="owner", created_at=now, updated_at=now,
     ))
 
-    # Definition Revision (SPEC-169)
+    # Definition Revision
     rev = TaskDefinitionRevisionDB(
         project="p1", task_id="demo",
         schema_version=1,

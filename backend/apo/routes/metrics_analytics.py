@@ -78,7 +78,7 @@ def get_metric_trends(
         metric_name: Name of the metric to analyze
         days: Number of days to look back (1-365)
     """
-    # SPEC-178: require readable Project membership before aggregate queries.
+    # Require readable Project membership before aggregate queries.
     enforce_project_read_from_request(request, session, project)
     cutoff_date = datetime.utcnow() - timedelta(days=days)
 
@@ -132,7 +132,7 @@ def get_metrics_summary(
     Args:
         project: Project identifier
     """
-    # SPEC-178: require readable Project membership.
+    # Require readable Project membership.
     enforce_project_read_from_request(request, session, project)
     # Get all unique metric names for this project
     subquery = (
@@ -206,7 +206,7 @@ def get_metrics_by_source(
         metric_name: Optional metric filter
         days: Number of days to look back
     """
-    # SPEC-178: require readable Project membership.
+    # Require readable Project membership.
     enforce_project_read_from_request(request, session, project)
     cutoff_date = datetime.utcnow() - timedelta(days=days)
 

@@ -25,7 +25,7 @@ export default async function CompareViewsPage({
   ]);
   const isCrawler = CRAWLER_UA.test(headerList.get("user-agent") ?? "");
 
-  // SPEC-177: fetch only the lightweight overview (snapshot + scalar
+  // Fetch only the lightweight overview (snapshot + scalar
   // summaries). Check Reports, Task Definition bodies, transcripts, and
   // Deliverable JSON are loaded progressively when a task is expanded.
   let overview: Awaited<ReturnType<typeof getTaskViewComparisonOverview>> | null = null;

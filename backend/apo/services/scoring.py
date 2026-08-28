@@ -23,7 +23,7 @@ def validate_score_against_config(
 
     Returns an error message if validation fails, or None if valid.
 
-    SPEC-178: when ``project`` is given, the config must live in that
+    When ``project`` is given, the config must live in that
     Project — another Project's config id is treated as not found, so its
     bounds/categories cannot be probed through validation errors and no
     dangling cross-Project reference is persisted.
@@ -74,7 +74,7 @@ def _coerce_score_value(
 def _load_config_for_project(
     session: Session, config_id: int, project: str | None
 ) -> ScoreConfigDB | None:
-    """Load a ScoreConfig, scoped to ``project`` when given (SPEC-178)."""
+    """Load a ScoreConfig, scoped to ``project`` when given."""
     statement = select(ScoreConfigDB).where(ScoreConfigDB.id == config_id)
     if project is not None:
         statement = statement.where(ScoreConfigDB.project == project)

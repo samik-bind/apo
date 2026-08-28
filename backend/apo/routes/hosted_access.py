@@ -1,6 +1,6 @@
 # pyright: reportCallInDefaultInitializer=false, reportUnusedCallResult=false
 
-"""Hosted access invitation routes (SPEC-179).
+"""Hosted access invitation routes.
 
 Two explicitly separated route groups on one router:
 
@@ -88,7 +88,7 @@ async def create_invitation(
     request: Request,
     session: Session = Depends(get_session),
 ) -> CreateHostedAccessInvitationResponse:
-    """Invite one person to this apo installation (SPEC-179).
+    """Invite one person to this apo installation.
 
     Creates no User, Project, or membership. When email delivery is not
     configured the response carries a one-time ``invite_url`` to share

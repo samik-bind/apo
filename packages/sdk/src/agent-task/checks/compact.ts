@@ -1,5 +1,5 @@
 /**
- * Check submission compaction (issue #175 / SPEC-186).
+ * Check submission compaction (issue #175).
  *
  * The backend's ``check_report_storage.normalize_check_report`` truncates
  * every ``received`` over 4 KiB and every judge prompt/response segment over

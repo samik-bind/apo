@@ -1,5 +1,5 @@
 /**
- * SPEC-169: Canonical Task Definition source.
+ * Canonical Task Definition source.
  *
  * The exact `*.eval.ts` text that defines a Task and its Tests. Normalized,
  * digested, and stored privately by Apo so the dashboard can show CodeMirror

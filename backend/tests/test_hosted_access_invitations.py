@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnusedCallResult=false, reportUnusedParameter=false, reportUnusedVariable=false, reportAttributeAccessIssue=false, reportUntypedFunctionDecorator=false, reportUnknownParameterType=false, reportUnusedImport=false, reportUnknownVariableType=false, reportCallIssue=false
 
-"""SPEC-179: invite-only hosted access provisioning.
+"""Invite-only hosted access provisioning.
 
 One invitation admits one person to the installation; acceptance
 materializes exactly one invitee-owned Project. Admission never touches
@@ -656,7 +656,7 @@ class TestPublicAcceptanceRoutes:
 
 
 # ---------------------------------------------------------------------------
-# Cross-Project isolation (SPEC-178 matrix lite)
+# Cross-Project isolation
 # ---------------------------------------------------------------------------
 
 

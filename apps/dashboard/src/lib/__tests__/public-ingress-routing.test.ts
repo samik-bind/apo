@@ -22,7 +22,7 @@ describe("public ingress routing", () => {
   });
 });
 
-describe("public origin serves the CLI (SPEC-180)", () => {
+describe("public origin serves the CLI", () => {
   it("routes /v1/* and /auth/* to the backend", async () => {
     vi.stubEnv("BACKEND_URL", "http://backend:8000");
     const { default: nextConfig } = await import("../../../next.config.mjs");

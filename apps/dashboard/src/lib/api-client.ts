@@ -24,7 +24,7 @@ export interface RequestOptions {
   /**
    * Query params; null/undefined/"" entries are skipped. A `string[]` value
    * becomes repeated keys (`?k=a&k=b`) — the backend's repeatable-filter
-   * vocabulary (SPEC-187 `status`), never a comma-joined single value.
+   * vocabulary, never a comma-joined single value.
    */
   query?: Record<string, string | number | boolean | string[] | null | undefined>;
   /** JSON-serialized and sent with `Content-Type: application/json`. */

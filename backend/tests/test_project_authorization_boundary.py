@@ -1,4 +1,4 @@
-"""SPEC-178: Project Authorization Boundary Closure.
+"""Project Authorization Boundary Closure.
 
 Red-first tests for the canonical Project authorization policy. The policy
 intersects request Credential Authority (session / API key / capability token)
@@ -280,7 +280,7 @@ def test_release_profile_rejects_synthetic_legacy_owner(
         authorize_project_request(
             _session_request(_USER_ALICE), session, nonexistent
         )
-    # SPEC-178 §API Contract: nonexistent cross-Project target returns 404
+    # Nonexistent cross-Project target returns 404
     # where revealing existence is unnecessary.
     assert exc_info.value.status_code == 404
 
@@ -673,7 +673,7 @@ def test_trace_bookmark_denies_cross_project(
 
 
 def test_project_deletion_removes_all_dependent_models(session: Session) -> None:
-    """SPEC-178 §11: deletion leaves no Project-owned row behind.
+    """Deletion leaves no Project-owned row behind.
 
     Seeds one row in each of the five models that were missing from the
     original deletion code, then calls ``delete_project_data`` and asserts
@@ -786,7 +786,7 @@ def test_project_deletion_removes_all_dependent_models(session: Session) -> None
 def test_trace_channel_identity_is_project_qualified() -> None:
     """Two Projects sharing one public OTel Trace ID stream only their own.
 
-    SPEC-178 §SSE channel identity: publish/subscribe is keyed by
+    Publish/subscribe is keyed by
     ``(project_id, trace_id)`` — an event published to Project A's channel
     must never reach a subscriber of Project B's channel for the same
     trace ID.
@@ -1101,7 +1101,7 @@ def test_model_replace_cannot_move_row_to_other_project(
 ) -> None:
     """An A-admin replacing an A model row cannot re-target it at Project B.
 
-    SPEC-178 scene 27: A and B overrides never cross. The PUT body's
+    A and B overrides never cross. The PUT body's
     ``project`` is not allowed to move ownership of an existing row.
     """
     from collections.abc import Callable
@@ -1156,7 +1156,7 @@ def test_comment_create_cannot_lie_about_project(
 ) -> None:
     """Bob (B member) comments on A's trace with body ``project_id=B``.
 
-    SPEC-178 scene 25: the target's ownership resolves to A — the body
+    The target's ownership resolves to A — the body
     value cannot authorize, and the comment must not be created.
     """
     _seed_comment_world(session)
@@ -1289,7 +1289,7 @@ def test_task_definition_source_denies_cross_project(
 # ---------------------------------------------------------------------------
 
 # Every apo.routes.* module that registers routes on the real FastAPI app,
-# classified by authorization category (SPEC-178 scene 31):
+# classified by authorization category:
 #
 # - "project":   Project-owned data — requires canonical guard + at least one
 #                cross-Project scene test (named here; verified to exist).
@@ -1385,7 +1385,7 @@ _ROUTE_MODULE_AUDIT: dict[str, tuple[str, list[tuple[str, str]]]] = {
         ],
     ),
     "demo": ("public", []),
-    # Dev-only sign-in (SPEC-181): an authentication surface gated by an
+    # Dev-only sign-in: an authentication surface gated by an
     # explicit opt-in flag enforced in the backend, with its own suite
     # (tests/test_dev_signin.py). Not a Project-owned surface.
     "dev_signin": ("public", []),
@@ -1513,7 +1513,7 @@ def test_registered_route_modules_are_fully_audited() -> None:
             registered.add(parts[2])
 
     assert registered == set(_ROUTE_MODULE_AUDIT.keys()), (
-        "Registered route modules and the SPEC-178 audit inventory differ.\n"
+        "Registered route modules and the route audit inventory differ.\n"
         f"  unclassified (must classify + add scene tests): {sorted(registered - set(_ROUTE_MODULE_AUDIT))}\n"
         f"  stale entries (module no longer registers routes): {sorted(set(_ROUTE_MODULE_AUDIT) - registered)}"
     )
@@ -1543,7 +1543,7 @@ def test_project_owned_modules_have_cross_project_scene_tests() -> None:
             source = test_file.read_text()
             assert f"def {test_name}(" in source, (
                 f"Scene test {test_name} not found in {file_name} — "
-                "update the SPEC-178 route audit inventory."
+                "update the route audit inventory."
             )
 
 
@@ -2076,7 +2076,7 @@ def test_session_score_create_derives_project_from_target(
 
 
 # ---------------------------------------------------------------------------
-# SPEC-179 phase 1: caller result deliverables persist as rows
+# Caller result deliverables persist as rows
 # ---------------------------------------------------------------------------
 
 
@@ -2127,7 +2127,7 @@ def test_result_submission_persists_inline_json_as_rows(
 def test_result_deliverables_response_derived_from_rows(
     session: Session, make_authed_client: Callable[..., TestClient]
 ) -> None:
-    """SPEC-179 phase 2: after a caller result, the detail response's
+    """After a caller result, the detail response's
     ``deliverables_json`` field is derived from the persisted rows while
     the legacy column stays NULL; historical rows with the column set
     keep returning the column value."""

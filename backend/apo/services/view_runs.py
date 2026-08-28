@@ -71,7 +71,7 @@ class ViewRun:
     pass_result: bool | None
     total_checks: int
     passed_checks: int
-    # SPEC-185: effective-projection correction count (hot run scalar).
+    # Effective-projection correction count (hot run scalar).
     corrected_tests: int
     task_definition_revision_id: str | None
 

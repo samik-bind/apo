@@ -589,7 +589,7 @@ type CheckPairResult =
 
 /**
  * Fetch both sides' check details for an expanded comparison row.
- * SPEC-177: prefer the frozen-pair evidence loader (comparison views) over
+ * Prefer the frozen-pair evidence loader (comparison views) over
  * individual run fetches. The evidence loader resolves the exact frozen pair
  * server-side and never accepts arbitrary run IDs from the browser.
  *
@@ -730,7 +730,7 @@ function CheckDiff({
     load();
   }, [load]);
 
-  // SPEC-169: the pinned Task Definition is the authoritative source and — unlike
+  // The pinned Task Definition is the authoritative source and — unlike
   // the filesystem resolver — resolves wherever the task executed. Both sides are
   // offered because either run's revision renders the same source; two runs of one
   // task normally pin the same digest. Memoized so the per-check source effect

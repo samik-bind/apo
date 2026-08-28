@@ -89,7 +89,7 @@ export function useTaskRunActions({
     }
   };
 
-  // SPEC-174 Phase 2: build an immutable snapshot of the selection under two
+  // Build an immutable snapshot of the selection under two
   // views and navigate to the comparison page. Side A = the active tab's view;
   // side B defaults to a contrasting model (the first one that differs), or to
   // Main if the active tab is already a model view with no alternative.

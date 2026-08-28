@@ -53,7 +53,7 @@ export function TaskRunDetailBody({
   sourceType?: string | null;
   taskDefinition?: TaskDefinitionRevisionSummary | null;
   taskRunId?: string | null;
-  /** SPEC-185: terminal verdict-bearing run with recorded checks. */
+  /** Terminal verdict-bearing run with recorded checks. */
   correctable?: boolean;
 }) {
   // Active tab lives in the URL (?tab=) so a shared link lands the reader on
@@ -137,7 +137,7 @@ export function TaskRunDetailBody({
     if (checks.length === 0) return;
     // Already holding a successful result for this exact request.
     if (sourceState.key === sourceRequestKey && sourceState.data !== null) return;
-    // SPEC-169: when a Task Definition is pinned, load source through the
+    // When a Task Definition is pinned, load source through the
     // Run-bound endpoint instead of the retired project-source resolver.
     if (taskDefinition && taskRunId && taskDefinition.files[0]) {
       const controller = new AbortController();

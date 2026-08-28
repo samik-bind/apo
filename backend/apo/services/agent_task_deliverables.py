@@ -54,7 +54,7 @@ _UPLOAD_INTENT_TTL = timedelta(seconds=86_400)
 
 def lock_task_run(session: Session, task_run_id: str) -> AgentTaskRunDB | None:
     """Serialize intent creation, PUT completion, and result finalization on
-    one Task Run row (SPEC-172 fence).
+    one Task Run row.
 
     PostgreSQL's row lock prevents two operations from observing an
     inconsistent intermediate state. SQLite serializes writes at the database
@@ -93,7 +93,7 @@ async def persist_json_deliverable(
     size = len(body)
     sha = _sha256_hex(body)
 
-    # SPEC-172 invariant #6: a JSON deliverable name cannot collide with an
+    # A JSON deliverable name cannot collide with an
     # existing Artifact (or another JSON deliverable) on the same Task Run.
     existing = _find_deliverable(session, project, task_run_id, name)
     if existing is not None:
@@ -273,7 +273,7 @@ def derive_deliverables_json_for_runs(
 
 
 def backfill_deliverable_rows_from_column(session: Session) -> int:
-    """SPEC-180 phase 4a: convert legacy ``deliverables_json`` blobs into rows.
+    """Convert legacy ``deliverables_json`` blobs into rows.
 
     Runs from the v26 startup migration. Raw-SQL reads keep it working after
     the ORM field was removed in phase 4b: on databases upgrading from
@@ -354,7 +354,7 @@ def backfill_deliverable_rows_from_column(session: Session) -> int:
 def derive_deliverables_json_sync(
     session: Session, task_run: AgentTaskRunDB
 ) -> dict[str, object] | None:
-    """SPEC-179 phase 2: the detail-response ``deliverables_json`` field.
+    """The detail-response ``deliverables_json`` field.
 
     Historical rows still carry the legacy column and return it verbatim;
     new rows derive the field from ready JSON deliverables. Sync paths
@@ -566,7 +566,7 @@ async def complete_artifact_upload(
         expected_sha256=row.sha256,
     )
 
-    # SPEC-172 fence: lock the Task Run before promoting to ready. If the run
+    # Fence: lock the Task Run before promoting to ready. If the run
     # became terminal while bytes were streaming, compensate by deleting the
     # just-written object and reject.
     task_run = _lock_task_run(session, row.task_run_id)

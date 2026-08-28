@@ -210,7 +210,7 @@ describe("task run --executor caller dispatch", () => {
     expect(code).toBe(0);
   });
 
-  // SPEC-172: recorded Caller execution must upload file artifacts after checks
+  // Recorded Caller execution must upload file artifacts after checks
   // and submit only JSON deliverables in the result body.
   it("uploads file artifacts automatically and submits JSON-only deliverables", async () => {
     const { fileArtifact } = await import("@apo-ai/sdk/agent-task");

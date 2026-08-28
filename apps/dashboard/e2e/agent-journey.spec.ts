@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * SPEC-181 agent journey — the spec's proof.
+ * Agent journey — the spec's proof.
  *
  * Simulates exactly what a browser-using AI agent does: open a deep link
  * with no session, get redirected to login, click the one-click dev button,

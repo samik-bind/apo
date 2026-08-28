@@ -153,7 +153,7 @@ def _load_project_for_request(
 ) -> tuple[ProjectDB, str | None]:
     """Load a project through the canonical credential-aware read guard.
 
-    SPEC-178: the caller's Credential Authority is intersected with
+    The caller's Credential Authority is intersected with
     membership — an API key is limited to its bound Project even when its
     creator is a member elsewhere. The demo project stays world-readable
     (read-only semantics are enforced by the mutation endpoints); returns
@@ -197,7 +197,7 @@ async def list_projects(
 ):
     """List the caller's readable projects (memberships, or the key's bound
     Project for API-key callers), plus the demo project."""
-    # SPEC-178: the readable set is credential-derived — a Project-A key
+    # The readable set is credential-derived — a Project-A key
     # lists exactly A, never every project its creator belongs to.
     # ``None`` (open-dev) behaves as before: nothing but demo.
     readable = readable_project_ids_for_request(request, session)
@@ -552,7 +552,7 @@ async def get_project_onboarding_status(
     request: Request,
     session: Session = Depends(get_session),
 ) -> dict[str, object]:
-    """Bounded first-run projection for the Tasks page (SPEC-180).
+    """Bounded first-run projection for the Tasks page.
 
     Answers "has this Project published Tasks or recorded Runs" with two
     scalar counts and carries the installation's validated public origin so
@@ -685,7 +685,7 @@ def get_task_catalog(
     from ..services.project_memberships import enforce_project_role_from_request
     from ..services.task_catalog import get_catalog_status
 
-    # SPEC-178: member read — the catalog is Project-owned inventory.
+    # Member read — the catalog is Project-owned inventory.
     enforce_project_role_from_request(
         request, session, project_id, minimum_role="member"
     )
@@ -702,7 +702,7 @@ async def publish_task_catalog(
     from ..services.project_memberships import enforce_project_role_from_request
     from ..services.task_catalog import publish_catalog, validate_catalog_request
 
-    # SPEC-178: publication is an admin operation on Project-owned inventory.
+    # Publication is an admin operation on Project-owned inventory.
     enforce_project_role_from_request(
         request, session, project_id, minimum_role="admin"
     )

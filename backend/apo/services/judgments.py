@@ -125,7 +125,7 @@ def synthesize_original_judgment(
     best-effort from the stored check evidence's judge metadata.
     """
     checks = load_check_report(session, task_run.id) or []
-    # SPEC-185: the original judgment is recorded machine evidence — counts
+    # The original judgment is recorded machine evidence — counts
     # and verdict derive from the RAW report, never from the run's effective
     # scalars (which a later human correction may have flipped).
     recorded_pass = sum(1 for c in checks if c.get("pass") is True)

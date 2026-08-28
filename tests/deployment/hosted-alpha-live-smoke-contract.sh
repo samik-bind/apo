@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fixture-backed contract for the hosted-alpha live-smoke preflight
-# (SPEC-183 acceptance tests 1-3).
+#.
 #
 # 1. The preflight must FAIL (and name the application entrypoint) against a
 #    fixture that answers /login with a Basic challenge.

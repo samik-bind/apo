@@ -414,7 +414,7 @@ def finalize_task_run_with_result(
     # validate before mutating terminal state.
     normalized_config = normalize_run_configuration(run_configuration)
 
-    # SPEC-172: no Artifact may still be pending or failed when the run
+    # No Artifact may still be pending or failed when the run
     # terminalizes. Checks finish and uploads complete before result submission.
     _reject_non_ready_artifacts(session, task_run.id)
 
@@ -501,7 +501,7 @@ def _generation_execution_error_message(summary: dict[str, object]) -> str:
 
 
 def _reject_non_ready_artifacts(session: Session, task_run_id: str) -> None:
-    """SPEC-172 invariant #5: a result cannot terminalize while an Artifact
+    """A result cannot terminalize while an Artifact
     is still pending or failed. Returns silently when all Artifacts are ready
     or there are none.
 

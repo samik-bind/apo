@@ -24,7 +24,7 @@ async function devSigninEnabled(): Promise<boolean> {
 export default async function Home() {
   const session = await auth();
 
-  // Dev sign-in deployments (SPEC-181): an unauthenticated visitor goes to
+  // Dev sign-in deployments: an unauthenticated visitor goes to
   // the login page where the one-click dev button waits, instead of the
   // empty state that assumes human onboarding.
   if (!session && (await devSigninEnabled())) {

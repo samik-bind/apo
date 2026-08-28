@@ -359,7 +359,7 @@ class RunConfigModelFacet(SQLModel):
     archived: bool = False
 
 
-# SPEC-174 Phase 2 — selection-scoped view comparison.
+# — selection-scoped view comparison.
 
 class TaskViewConfig(SQLModel):
     """A model/effort/date filter — one side of a comparison. ``model=None`` = Main."""
@@ -416,7 +416,7 @@ class ResolvedComparisonCell(SQLModel):
     a_status: str | None  # passed | failed | error | None (not run)
     b_status: str | None
     state: Literal["aligned", "different_definition", "not_run"]
-    # SPEC-185: frozen effective verdict/count scalars at snapshot creation.
+    # Frozen effective verdict/count scalars at snapshot creation.
     # Nullable so pre-correction snapshot JSON stays readable; hydrated from
     # the run's effective projection when the comparison is created.
     a_pass_result: bool | None = None
@@ -697,7 +697,7 @@ class AgentTaskRunSummary(SQLModel):
     # the adapter does not report configuration. Distinct from the trace's
     # observed ``primary_model``.
     run_configuration: AgentTaskRunConfiguration | None = None
-    # SPEC-185: Tests whose effective result differs from the recorded one.
+    # Tests whose effective result differs from the recorded one.
     corrected_tests: int = 0
 
 
@@ -738,12 +738,12 @@ class AgentTaskRunDetail(SQLModel):
     # render without loading any Deliverable body. Legacy rows with only
     # ``deliverables_json`` synthesize a manifest on read.
     deliverables: list[DeliverableSummary] = Field(default_factory=list)
-    # SPEC-169: Task Definition summary for CodeMirror source display.
+    # Task Definition summary for CodeMirror source display.
     task_definition: dict[str, object] | None = None
     # Issue #159: number of recorded rejudge judgments. The original verdict
     # is synthesized on read and not counted.
     judgments_count: int = 0
-    # SPEC-185: Tests whose effective result differs from the recorded one.
+    # Tests whose effective result differs from the recorded one.
     corrected_tests: int = 0
     # Issue #176: the run's attempt lease heartbeat — the run's live
     # liveness signal. Null when no attempt exists; historical once the
@@ -807,7 +807,7 @@ class TaskViewComparisonOverview(SQLModel):
     runs: list[AgentTaskRunSummary] = Field(default_factory=list)
 
 
-# ── SPEC-185: manual test result corrections ──────────────────────────────
+# ── Manual test result corrections ──────────────────────────────────
 
 CorrectionAction = Literal["set_pass", "set_fail", "clear"]
 
@@ -1527,7 +1527,7 @@ class AcceptInvitationExistingAccountRequest(SQLModel):
 
 
 class CreateHostedAccessInvitationRequest(SQLModel):
-    """Body of ``POST /v1/admin/hosted-access-invitations`` (SPEC-179)."""
+    """Body of ``POST /v1/admin/hosted-access-invitations``."""
 
     email: str
 

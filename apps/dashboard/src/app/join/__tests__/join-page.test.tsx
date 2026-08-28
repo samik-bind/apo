@@ -1,5 +1,5 @@
 /**
- * SPEC-179: the public /join page renders from a valid admission preview,
+ * The public /join page renders from a valid admission preview,
  * preserves the token through the sign-in redirect for existing accounts,
  * accepts atomically, and never renders account data for dead tokens.
  */

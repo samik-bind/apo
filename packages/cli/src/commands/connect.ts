@@ -333,7 +333,7 @@ async function executeAssignment(
       // use the configured backend base URL, not the server's
       // trace_endpoint (which is a full path that the SDK would double).
       traceEndpoint: backendUrl,
-      // SPEC-172: explicit API base for artifact uploads.
+      // Explicit API base for artifact uploads.
       backendUrl,
       project: assignment.project,
       taskRunId: assignment.task_run_id,
@@ -379,7 +379,7 @@ async function executeAssignment(
       transcript?: Record<string, unknown>;
       runConfiguration?: { model: string; effort?: string };
     };
-    // SPEC-186 (issue #175): ship only what the server keeps. Oversized
+    // Issue #175: ship only what the server keeps. Oversized
     // received values / judge segments become the backend's truncation
     // markers here, so judging one large document N times doesn't upload N
     // copies of it. Compaction is an optimization — if the SDK module
@@ -395,7 +395,7 @@ async function executeAssignment(
     } catch {
       // fall through with the raw checks
     }
-    // SPEC-172: once result submission begins, the server may commit before we
+    // Once result submission begins, the server may commit before we
     // see the response. Do not send a contradictory failure on a dropped response.
     finalized = true;
     await submitResult({

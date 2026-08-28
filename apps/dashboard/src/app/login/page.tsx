@@ -2,7 +2,7 @@ import { getServerBackendBaseUrl } from "@/lib/config.server"
 import { LoginPage } from "./login-form"
 
 export default async function LoginPageServer() {
-  // SPEC-179: the page passes both flags through instead of reducing to
+  // The page passes both flags through instead of reducing to
   // ``noUsers`` — ``setup_available`` is the durable first-user signal
   // (the /setup link shows only while it is true), while ``has_users``
   // distinguishes a fresh install from an initialized invitation-only
@@ -27,7 +27,7 @@ export default async function LoginPageServer() {
     // Backend unreachable — show login form anyway (graceful degradation)
   }
 
-  // Dev sign-in (SPEC-181): availability is decided by the backend
+  // Dev sign-in: availability is decided by the backend
   // (DEV_SIGNIN_ENABLED / deployment profile), never guessed client-side.
   let devSignin: { enabled: boolean; landingPath: string } = {
     enabled: false,

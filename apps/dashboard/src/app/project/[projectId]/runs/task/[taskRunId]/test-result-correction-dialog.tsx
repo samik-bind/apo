@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * SPEC-185: set / change / restore a recorded Test result.
+ * Set / change / restore a recorded Test result.
  *
  * Opens with the recorded and current effective result, a PASS/FAIL choice,
  * and a required reason (3–1000 chars). Saving posts one correction, toasts,

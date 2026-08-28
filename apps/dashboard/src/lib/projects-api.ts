@@ -86,7 +86,7 @@ export const syncProjectTaskSource = (
     method: "POST",
   });
 
-/** Bounded first-run signal (SPEC-180): scalar progress counts + public origin. */
+/** Bounded first-run signal: scalar progress counts + public origin. */
 export interface ProjectOnboardingStatus {
   published_task_count: number;
   recorded_run_count: number;

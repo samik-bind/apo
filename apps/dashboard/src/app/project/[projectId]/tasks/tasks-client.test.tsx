@@ -16,7 +16,7 @@ vi.mock("@/lib/agent-task-api", async () => {
   return { ...actual, createAgentTaskBatchRun: vi.fn() };
 });
 
-// Evidence-view endpoints (SPEC-174): the client fetches the model/effort
+// Evidence-view endpoints: the client fetches the model/effort
 // palette on mount and view-scoped stats on tab switch. Stub them so the mount
 // effect doesn't hit the network and so derived-tab stats are deterministic.
 vi.mock("@/lib/agent-task-view-api", async () => {
@@ -132,7 +132,7 @@ describe("AgentTasksClient — native source-owned Run", () => {
   });
 });
 
-describe("AgentTasksClient — evidence views (SPEC-174)", () => {
+describe("AgentTasksClient — evidence views", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

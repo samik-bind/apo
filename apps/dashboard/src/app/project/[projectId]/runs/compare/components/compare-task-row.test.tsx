@@ -46,7 +46,7 @@ const noopToggle = vi.fn();
 
 // ─── tests ────────────────────────────────────────────────────────────────
 
-describe("CompareTaskRow evidence loading (SPEC-177)", () => {
+describe("CompareTaskRow evidence loading", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

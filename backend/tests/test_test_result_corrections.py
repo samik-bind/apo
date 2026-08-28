@@ -1,4 +1,4 @@
-"""SPEC-185: manual test result corrections — service unit tests.
+"""Manual test result corrections — service unit tests.
 
 The correction layer overlays human decisions on top of the immutable Check
 Report. These tests pin the projection semantics (latest-wins, clear restores

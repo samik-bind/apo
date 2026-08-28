@@ -1,4 +1,4 @@
-// SPEC-180 documentation contract: the hosted onboarding path must stay
+// Documentation contract: the hosted onboarding path must stay
 // truthful. This verifier fails when hosted copy tells adopters to
 // self-host first, leaks localhost/internal hostnames into hosted
 // commands, suggests `apo project create` after admission, or drifts
@@ -116,8 +116,8 @@ check(
 );
 
 if (failures.length > 0) {
-  console.error("SPEC-180 docs contract violations:");
+  console.error("Docs contract violations:");
   for (const f of failures) console.error(`  ✗ ${f}`);
   process.exit(1);
 }
-console.log("SPEC-180 docs contract: ok");
+console.log("Docs contract: ok");

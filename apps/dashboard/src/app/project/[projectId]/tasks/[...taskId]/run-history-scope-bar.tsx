@@ -14,7 +14,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 /**
- * The task detail page's run-history scope (SPEC-187, pattern A).
+ * The task detail page's run-history scope.
  *
  * The URL is the source of truth: the bar reads `?model=&effort=&since=&status=&view=`,
  * and every control change replaces the search params (never pushes — back must

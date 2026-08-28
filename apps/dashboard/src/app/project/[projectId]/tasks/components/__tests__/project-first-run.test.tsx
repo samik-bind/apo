@@ -1,5 +1,5 @@
 /**
- * SPEC-180: the first-run panel renders the exact hosted setup — public
+ * The first-run panel renders the exact hosted setup — public
  * URL only, never internal/localhost — and disappears once the Project
  * has published Tasks or recorded Runs.
  */
@@ -20,7 +20,7 @@ const setup = (overrides: Partial<Parameters<typeof ProjectFirstRun>[0]["setup"]
   ...overrides,
 });
 
-describe("ProjectFirstRun (SPEC-180)", () => {
+describe("ProjectFirstRun", () => {
   const clipboardWrite = vi.fn().mockResolvedValue(undefined);
   beforeEach(() => {
     clipboardWrite.mockClear();
@@ -81,7 +81,7 @@ describe("ProjectFirstRun (SPEC-180)", () => {
     expect(screen.getByText(/maintained example/i)).toBeDefined();
   });
 
-  it("links the own-agent path to the canonical absolute docs origin (SPEC-182)", () => {
+  it("links the own-agent path to the canonical absolute docs origin", () => {
     render(<ProjectFirstRun setup={setup()} />);
 
     // The docs link is an ordinary external link to the central docs host —
@@ -92,7 +92,7 @@ describe("ProjectFirstRun (SPEC-180)", () => {
     expect(link).not.toBeNull();
   });
 
-  it("ships the canonical absolute docs URL as the constant (SPEC-182)", () => {
+  it("ships the canonical absolute docs URL as the constant", () => {
     // The constant must be absolute and point at the central docs host, so a
     // dashboard on any application origin links out to the same docs.
     expect(HOSTED_DOCS_URL).toBe("https://docs.test-apo.online/hosted-alpha/");

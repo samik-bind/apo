@@ -1,4 +1,4 @@
-"""Hosted access invitation service (SPEC-179).
+"""Hosted access invitation service.
 
 Owns every state transition for ``HostedAccessInvitationDB`` rows so
 routes stay thin. Admission is installation-level: issuing an invitation
@@ -311,7 +311,7 @@ def _resolve_token(
 def _require_acceptable(
     invitation: HostedAccessInvitationDB | None,
 ) -> HostedAccessInvitationDB:
-    """Map a resolved row to the SPEC-179 accept-error contract.
+    """Map a resolved row to the accept-error contract.
 
     Unknown and expired tokens are opaque 404s; revoked and accepted
     rows are explicit 409s. Neither response reveals the invited email.

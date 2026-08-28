@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fixture-backed contract for the public-ingress smoke probe (SPEC-182 tests 5-6).
+# Fixture-backed contract for the public-ingress smoke probe.
 #
 # 5. The smoke script must FAIL (and name the Basic Auth gate) against a
 #    fixture that answers admission routes with 401 + WWW-Authenticate: Basic.

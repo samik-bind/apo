@@ -59,7 +59,7 @@ router = APIRouter(prefix="/v1/runs", tags=["runs"])
 def toggle_bookmark(run_id: str, http_request: Request, session: Session = Depends(get_session)):
     """Toggle bookmark state for a run."""
     run = require_run_not_demo(session, run_id)
-    # SPEC-178: require member on the derived Project.
+    # Require member on the derived Project.
     enforce_project_read_from_request(http_request, session, run.project)
     run.bookmarked = not run.bookmarked
     session.commit()
@@ -71,7 +71,7 @@ def toggle_bookmark(run_id: str, http_request: Request, session: Session = Depen
 @router.post("", response_model=Run)
 def create_run(request: CreateRunRequest, http_request: Request, session: Session = Depends(get_session)):
     require_project_not_demo(request.project)
-    # SPEC-178: require member on the target Project.
+    # Require member on the target Project.
     enforce_project_read_from_request(http_request, session, request.project)
     run_id = str(uuid4())
 
@@ -107,7 +107,7 @@ def update_run(
     run = require_run_not_demo(session, run_id)
 
     _validate_trace_write_access(http_request, session, run_id, run.project)
-    # SPEC-178: for non-service-token callers, require member on the derived Project.
+    # For non-service-token callers, require member on the derived Project.
     if getattr(http_request.state, "auth_method", None) != "service_token":
         enforce_project_read_from_request(http_request, session, run.project)
 
@@ -141,7 +141,7 @@ def _validate_trace_write_access(
     token_project = getattr(request.state, "project", None)
     if token_project != run_project:
         raise HTTPException(status_code=403, detail="Service token project mismatch")
-    # SPEC-178: the token is a capability for ONE task run, not a Project-wide
+    # The token is a capability for ONE task run, not a Project-wide
     # write pass. The run being patched must be the trace that task run
     # claimed at ingestion.
     token_task_run_id = getattr(request.state, "service_task_run_id", None)
@@ -432,7 +432,7 @@ async def post_custom_metrics(
     session: Session = Depends(get_session),
 ):
     _run = require_run_not_demo(session, run_id)
-    # SPEC-178: require member on the derived Project.
+    # Require member on the derived Project.
     enforce_project_read_from_request(http_request, session, _run.project)
 
     results_count = 0
@@ -441,7 +441,7 @@ async def post_custom_metrics(
         try:
             metric_db = RunMetricDB(
                 run_id=run_id,
-                # SPEC-178: stamp the derived Project — the column default
+                # Stamp the derived Project — the column default
                 # would silently file the metric under "default".
                 project=_run.project,
                 metric_name=metric_result.name,
@@ -481,7 +481,7 @@ def set_corrected_output(
     session: Session = Depends(get_session),
 ):
     """Set or clear the corrected output for a call."""
-    # SPEC-178: require member on the target Project.
+    # Require member on the target Project.
     enforce_project_read_from_request(http_request, session, project)
     _run = require_run_not_demo(session, run_id, project)
     call = session.exec(
@@ -512,7 +512,7 @@ def bulk_delete_runs(
     project: str = "default",
     session: Session = Depends(get_session),
 ):
-    # SPEC-178: require admin for bulk destructive operations.
+    # Require admin for bulk destructive operations.
     enforce_project_role_from_request(http_request, session, project, minimum_role="admin")
     if not request.run_ids:
         raise HTTPException(status_code=400, detail="No run IDs provided")
@@ -570,7 +570,7 @@ def bulk_export_runs(
     project: str = "default",
     session: Session = Depends(get_session),
 ):
-    # SPEC-178: require member on the target Project.
+    # Require member on the target Project.
     enforce_project_read_from_request(http_request, session, project)
     return export_runs(session, request.run_ids, project, request.format)
 
@@ -597,7 +597,7 @@ def reproject_run(
     The ``project`` query parameter specifies which project the trace belongs
     to (required because canonical spans are scoped by project).
     """
-    # SPEC-178: require member on the target Project.
+    # Require member on the target Project.
     enforce_project_read_from_request(http_request, session, project)
     from ...models.db import OtlpSpanDB as _OtlpSpanDB
     from ...services.reproject import reproject_trace

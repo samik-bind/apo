@@ -1,4 +1,4 @@
-"""SPEC-169: Task Definition Revision service.
+"""Task Definition Revision service.
 
 Ensures immutable, deduplicated Task Definition Revisions from publication
 and direct CLI runs. Source text is stored as private Project data and is

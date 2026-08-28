@@ -1,6 +1,6 @@
 "use client";
 
-// SPEC-174 comparison page — renders the SAME task-level comparison as
+// Comparison page — renders the SAME task-level comparison as
 // /runs/compare (useComparison + FlowSection), fed by the resolved run_ids
 // from the immutable view snapshot. The only structural difference is the
 // header: view configs (Model · Effort · Date) instead of batch summaries.
@@ -36,7 +36,7 @@ export function CompareViewsClient({
   rightRuns: AgentTaskRunSummary[];
   stateByTask?: Map<string, ComparisonState>;
 }) {
-  // SPEC-177: single active task — opening one task closes the previous so
+  // Single active task — opening one task closes the previous so
   // only one evidence pair is in memory at a time. The expand URL param holds
   // one task id; a legacy comma-separated value opens only the first and is
   // rewritten to the canonical single value on load.
@@ -60,7 +60,7 @@ export function CompareViewsClient({
   const comparison = useComparison(leftRuns, rightRuns, tasks, stateByTask);
   const [hideErrored, setHideErrored] = useState(false);
 
-  // SPEC-177: progressive evidence loader. Only one task is active at a time;
+  // Progressive evidence loader. Only one task is active at a time;
   // FlowSection passes it down so CompareTaskRow fetches details on expand.
   const evidenceLoader: TaskComparisonEvidenceLoader = useCallback(
     (taskId: string, signal: AbortSignal) =>

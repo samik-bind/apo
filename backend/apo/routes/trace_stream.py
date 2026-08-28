@@ -51,7 +51,7 @@ async def stream_trace_events(
     Returns:
         StreamingResponse with SSE content type
     """
-    # SPEC-178 invariant #7: authorize before any broadcaster access or
+    # Authorize before any broadcaster access or
     # initial-event construction. A cross-Project denial returns JSON
     # 403/404 before the text/event-stream response is created.
     _ = enforce_project_role_from_request(

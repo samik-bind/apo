@@ -9,7 +9,7 @@ import type { AddressInfo } from "node:net";
 
 /*
  * Issue #155 regression: `apo task run` on a FAIL verdict prints the checks
- * summary followed by the SPEC-180 Run:/Inspect: identity lines, then exits
+ * summary followed by the Run:/Inspect: identity lines, then exits
  * 1. Writes to a pipe are asynchronous — a bare `process.exit` can drop the
  * writes still queued in userspace, so every scripted/CI consumer (`| tail`,
  * `| grep`, logs) lost the run identity and had to recover it via
@@ -149,7 +149,7 @@ describe("task run piped output (issue #155)", () => {
       expect(code).toBe(1);
 
       const stdout = stripAnsi(rawStdout);
-      // SPEC-180: the recorded identity must survive the pipe.
+      // The recorded identity must survive the pipe.
       expect(stdout).toContain("Run:     run-flush");
       expect(stdout).toContain("Inspect: apo runs show run-flush");
       // ...and the checks summary itself must be complete, not just its head.

@@ -19,7 +19,7 @@ export function ChecksList({
 }: {
   checks: CheckResult[];
   checksSource?: TaskFileContentResponse | null;
-  /** SPEC-185: whether test-result corrections are allowed on this run. */
+  /** Whether test-result corrections are allowed on this run. */
   correctable?: boolean;
   taskRunId?: string;
 }) {

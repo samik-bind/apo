@@ -45,7 +45,7 @@ async def create_queue(
             detail="target_type must be TRACE or OBSERVATION",
         )
 
-    # SPEC-178: a queue's score config must belong to the queue's Project —
+    # A queue's score config must belong to the queue's Project —
     # a foreign config id is not found, and no dangling cross-Project
     # reference is persisted on the queue row.
     if body.score_config_id is not None:
@@ -98,7 +98,7 @@ async def list_queues(
         )
     else:
         # Unscoped: restrict to the Projects this CREDENTIAL can read.
-        # SPEC-178: an API key never widens to the creator's other Projects.
+        # An API key never widens to the creator's other Projects.
         from ..services.project_memberships import readable_project_ids_for_request
 
         readable = readable_project_ids_for_request(http_request, session)
@@ -161,7 +161,7 @@ async def complete_annotation(
 
     try:
         if queue.target_type == "TRACE" and trace_id:
-            # SPEC-178: the target must exist in the queue's Project — an
+            # The target must exist in the queue's Project — an
             # A queue can never attach scores to another Project's trace.
             run = session.exec(
                 select(RunDB).where(

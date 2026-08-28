@@ -142,7 +142,7 @@ def delete_agent_task_rows(session: Session, run_ids: list[str]) -> int:
             "DELETE FROM agent_task_check_reports WHERE run_id IN :ids",
             {"ids": run_ids},
         )
-    # Rejudge judgments and SPEC-185 corrections FK task_runs the same way.
+    # Rejudge judgments and corrected tests FK task_runs the same way.
     if table_exists(session, "agent_task_judgments"):
         deleted += _exec_in(
             session,
@@ -254,7 +254,7 @@ async def delete_deliverable_objects_for_project(
 ) -> None:
     """Delete Deliverable stored objects for every run in a project.
 
-    SPEC-178 §Project deletion: object cleanup happens while relational
+    Object cleanup happens while relational
     metadata still exists, so the manifest rows are readable when deciding
     which backend/key to delete. Missing objects are idempotent success
     (the ArtifactStore contract). A non-missing object that cannot be

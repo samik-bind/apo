@@ -163,7 +163,7 @@ describe("connector assignment execution", () => {
     // itself; a full-path value doubles it and drops every SDK span.
     expect(lastChildOpts!.traceEndpoint).toBe("http://cp");
     expect(lastChildOpts!.traceEndpoint).not.toContain("/api/public/otel");
-    // SPEC-172: backendUrl is passed separately for artifact uploads.
+    // BackendUrl is passed separately for artifact uploads.
     expect(lastChildOpts!.backendUrl).toBe("http://cp");
     expect(lastChildOpts!.project).toBe("acme");
     expect(lastChildOpts!.taskRunId).toBe("run-1");

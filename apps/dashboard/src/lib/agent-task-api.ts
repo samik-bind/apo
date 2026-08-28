@@ -135,7 +135,7 @@ export interface AgentTaskRunSummary {
   total_checks: number;
   passed_checks: number;
   failed_checks: number;
-  /** SPEC-185: tests whose effective result differs from the recorded one. */
+  /** Tests whose effective result differs from the recorded one. */
   corrected_tests?: number;
   trigger: AgentTaskRunTrigger | null;
   trace_persistence_status: TracePersistenceStatus;
@@ -210,7 +210,7 @@ export interface CheckResult {
   /** display name of the enclosing describe() group. */
   group_name?: string;
   /**
-   * SPEC-185: present only on corrected tests. `pass` is the effective
+   * Present only on corrected tests. `pass` is the effective
    * verdict; `recorded_pass` is what evaluation emitted; `correction`
    * carries the human decision's provenance. Uncorrected and legacy
    * results keep today's shape.
@@ -219,7 +219,7 @@ export interface CheckResult {
   correction?: TestResultCorrection;
 }
 
-/** SPEC-185: the active human correction on one test result. */
+/** The active human correction on one test result. */
 export interface TestResultCorrection {
   id: string;
   action: "set_pass" | "set_fail" | "clear";
@@ -231,7 +231,7 @@ export interface TestResultCorrection {
   created_at: string;
 }
 
-/** SPEC-185: response of POST …/test-result-corrections. */
+/** Response of POST …/test-result-corrections. */
 export interface CorrectedTestResult {
   test_id: string;
   recorded_pass: boolean;
@@ -265,7 +265,7 @@ export interface AgentTaskRunDetail extends AgentTaskRunSummary {
   deliverables_json: Record<string, unknown> | null;
   deliverables?: DeliverableSummary[];
   error_category: string | null;
-  /** SPEC-169: pinned Task Definition for CodeMirror source display. */
+  /** Pinned Task Definition for CodeMirror source display. */
   task_definition?: TaskDefinitionRevisionSummary | null;
   /** Issue #159: recorded rejudge judgments. The verdict above stays canonical. */
   judgments_count?: number;
@@ -617,7 +617,7 @@ export interface TaskRunCohortFilter {
   model?: string | null;
   effort?: string | null;
   since?: string | null;
-  /** OR'd run statuses (repeatable `?status=` — SPEC-187). */
+  /** OR'd run statuses (repeatable `?status=`). */
   status?: string[];
 }
 
@@ -769,7 +769,7 @@ export const getAdaptiveStates = (
     NO_CACHE,
   );
 
-/** SPEC-169: read the pinned Task Definition source for CodeMirror display.
+/** Read the pinned Task Definition source for CodeMirror display.
  * Run-bound: authorization resolves from task_run_id → batch.project. */
 export function readTaskDefinitionSource(
   taskRunId: string,
@@ -822,7 +822,7 @@ export const deleteAgentTaskBatchRun = (
     method: "DELETE",
   });
 
-/** SPEC-185: correct one recorded top-level test result on a Run.
+/** Correct one recorded top-level test result on a Run.
  * `action` sets the effective PASS/FAIL or clears back to the recorded
  * result. Evidence is never rewritten; the response carries the effective
  * Test + Run projection. */

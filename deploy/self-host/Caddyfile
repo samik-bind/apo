@@ -7,7 +7,7 @@
 # The exact route matrix (OTLP, public health, diagnostic denials, frontend
 # fallback) is identical in both modes.
 #
-# SPEC-182: the ingress owns transport, not identity. Admission shells
+# The ingress owns transport, not identity. Admission shells
 # (/login, /join) and CLI routes (/auth/*, /v1/*) reach the application
 # unauthenticated; Apo's session/API-key auth and Project authorization are
 # the only security boundary.
@@ -70,8 +70,8 @@
 		reverse_proxy backend:8000
 	}
 
-	# Backend-owned paths on the public origin (SPEC-180: `apo login --backend
-	# <origin>` calls /v1/* and /auth/* directly) — same rule as above: straight
+	# Backend-owned paths on the public origin: `apo login --backend
+	# <origin>` calls /v1/* and /auth/* directly — same rule as above: straight
 	# to the backend, no frontend hop, no 30 s timeout on heavy submissions.
 	handle /v1/* {
 		reverse_proxy backend:8000

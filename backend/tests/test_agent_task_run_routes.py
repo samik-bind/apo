@@ -56,8 +56,8 @@ def test_task_run_collection_filters_hierarchical_task_id(
 
 
 def test_legacy_task_discovery_routes_are_unregistered() -> None:
-    """The unscoped filesystem discovery routes were removed (SPEC-178
-    cleanup): task listing must go through the project-scoped inventory
+    """The unscoped filesystem discovery routes were removed: task
+    listing must go through the project-scoped inventory
     routes, never a client-named ``task_root``."""
     route_paths = {
         route.path for route in app.routes if isinstance(route, APIRoute)
@@ -221,7 +221,7 @@ def test_task_run_list_filter_is_exact_but_case_insensitive(
     client: TestClient,
     session: Session,
 ) -> None:
-    """SPEC-187: matching ignores case so a hand-edited URL never silently empties the list."""
+    """Matching ignores case so a hand-edited URL never silently empties the list."""
     now = datetime.now(timezone.utc)
     session.add_all([_batch("b", "proj-filter", now)])
     session.add_all([_configured_run("r", "b", "Terra", "High", now)])
@@ -239,7 +239,7 @@ def test_task_run_list_filters_status_repeated_with_or(
     client: TestClient,
     session: Session,
 ) -> None:
-    """SPEC-187: repeated ?status= values OR; a run matches if its status is any of them."""
+    """Repeated ?status= values OR; a run matches if its status is any of them."""
     now = datetime.now(timezone.utc)
     session.add_all([_batch("b", "proj-status", now)])
     runs = [
@@ -266,7 +266,7 @@ def test_task_run_list_single_status_param_still_filters(
     client: TestClient,
     session: Session,
 ) -> None:
-    """A single ?status= value (the pre-SPEC-187 URL shape) keeps working."""
+    """A single ?status= value (the legacy URL shape) keeps working."""
     now = datetime.now(timezone.utc)
     session.add_all([_batch("b", "proj-status", now)])
     runs = [_run("r-pass", "b", "task-1", now), _run("r-fail", "b", "task-1", now)]

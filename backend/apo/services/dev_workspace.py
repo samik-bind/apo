@@ -1,4 +1,4 @@
-"""Dev workspace provisioning for agent-facing dashboard access (SPEC-181).
+"""Dev workspace provisioning for agent-facing dashboard access.
 
 When dev sign-in is enabled, ``ensure_dev_workspace`` provisions everything an
 AI agent needs to use the dashboard productively:

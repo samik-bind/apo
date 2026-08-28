@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedParameter=false
 
-"""SPEC-177 backend scene + unit tests for comparison overview/evidence routes
+"""Backend scene + unit tests for comparison overview/evidence routes
 and the summary loader.
 
 Covers the acceptance tests from the spec:

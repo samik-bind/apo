@@ -22,7 +22,7 @@ interface FlowSectionProps {
   expanded: Set<string>;
   onToggleExpand: (value: string, open?: boolean) => void;
   projectId: string;
-  /** SPEC-177: optional progressive evidence loader. When provided,
+  /** Optional progressive evidence loader. When provided,
    * CompareTaskRow fetches full details lazily on expand instead of
    * receiving them in bulk from SSR. */
   evidenceLoader?: TaskComparisonEvidenceLoader;

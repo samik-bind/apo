@@ -124,7 +124,7 @@ export type CheckResult = {
   /** display name of the enclosing describe() group. */
   group_name?: string;
   /**
-   * SPEC-185: present only on corrected tests. `pass` is the effective
+   * Present only on corrected tests. `pass` is the effective
    * verdict; `recorded_pass` is what evaluation emitted; `correction`
    * carries the human decision's provenance.
    */

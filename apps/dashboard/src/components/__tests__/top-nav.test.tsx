@@ -1,7 +1,7 @@
 /**
  * TopNav identity: the logged-in user must be visible at the top of every
- * standard page (the avatar opens the account menu). SPEC-185 follow-up:
- * users could not tell they were logged in on run pages.
+ * standard page (the avatar opens the account menu). Follow-up: users
+ * could not tell they were logged in on run pages.
  */
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";

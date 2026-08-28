@@ -1,4 +1,4 @@
-"""SPEC-185: manual test result corrections — the single correction authority.
+"""Manual test result corrections — the single correction authority.
 
 A correction is an append-only human decision about one recorded top-level
 Test of one Task Run: set effective PASS/FAIL, or clear back to the recorded

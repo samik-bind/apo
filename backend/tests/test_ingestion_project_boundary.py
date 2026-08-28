@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnusedCallResult=false
 
-"""SPEC-178 boundary tests: legacy ingestion + Langfuse public surfaces.
+"""Boundary tests: legacy ingestion + Langfuse public surfaces.
 
 Red-first companion to ``test_project_authorization_boundary.py``. Before
 this closure, the payload ``project`` field was trusted as write authority
@@ -434,7 +434,7 @@ class TestLangfuseReadBoundary:
         self, session: Session, make_authed_client: Any
     ) -> None:
         """Same OTel trace id in A and B: A's response must contain only
-        A's observations and scores, never B's (SPEC-178 trace identity)."""
+        A's observations and scores, never B's."""
         _seed_world(session)
         shared = "shared-trace-id"
         _seed_run(session, trace_id=shared, project=_PROJECT_A)

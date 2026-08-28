@@ -82,7 +82,7 @@ case "$MODE" in
     set_env "APO_DEPLOYMENT_PROFILE" "server"
     set_env "APO_PUBLIC_URL" "$TUNNEL_URL"
     set_env "APO_INGRESS_MODE" "cloudflare-tunnel"
-    # Default the public docs hostname only when absent (SPEC-171).
+    # Default the public docs hostname only when absent.
     if [[ -z "$(get_env "APO_DOCS_HOST")" ]]; then
       set_env "APO_DOCS_HOST" "docs.test-apo.online"
     fi

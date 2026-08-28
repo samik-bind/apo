@@ -92,7 +92,7 @@ export default async function TaskRunDetailPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const [{ projectId, taskRunId }, query] = await Promise.all([params, searchParams]);
-  // SPEC-187 scope loop: a cohort handed in by the Runs page keeps flowing —
+  // Scope loop: a cohort handed in by the Runs page keeps flowing —
   // the task back-links below forward it into the task detail page.
   const cohort = parseDrilldownCohort(query);
 
@@ -154,7 +154,7 @@ export default async function TaskRunDetailPage({
     taskRun.pass_result === null &&
     generationErrors > 0;
   const costIsPartial = generationErrors > 0 || (taskRun.unpriced_call_count ?? 0) > 0;
-  // SPEC-185: corrections apply to terminal verdict-bearing runs with
+  // Corrections apply to terminal verdict-bearing runs with
   // recorded checks. Running/error/no-verdict runs render read-only.
   const correctable =
     (taskRun.status === "passed" || taskRun.status === "failed") &&

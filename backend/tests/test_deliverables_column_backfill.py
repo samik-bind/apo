@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportDeprecated=false, reportImplicitStringConcatenation=false, reportMissingParameterType=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownLambdaType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false
 
-"""SPEC-179 phase 4a: backfill legacy deliverables_json columns into rows."""
+"""Backfill legacy deliverables_json columns into rows."""
 
 from __future__ import annotations
 

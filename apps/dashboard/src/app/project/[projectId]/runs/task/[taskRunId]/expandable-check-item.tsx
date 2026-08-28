@@ -31,7 +31,7 @@ export function ExpandableCheckItem({
   item: CheckResult;
   index: number;
   checksSource?: TaskFileContentResponse | null;
-  /** SPEC-185: terminal + verdict-bearing + evidence present. */
+  /** Terminal + verdict-bearing + evidence present. */
   correctable?: boolean;
   taskRunId?: string;
 }) {

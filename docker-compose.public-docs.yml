@@ -1,4 +1,4 @@
-# Public docs overlay (SPEC-171) — project-operated public documentation.
+# Public docs overlay — project-operated public documentation.
 #
 # Optional: only the project operator's public deployment uses this. Self-hosters
 # consume the central docs at https://docs.test-apo.online; they do not each

@@ -17,7 +17,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       authorize: async (credentials) => {
         const backendUrl = getServerBackendBaseUrl()
 
-        // Dev sign-in (SPEC-181): the login page's "Sign in as dev" button
+        // Dev sign-in: the login page's "Sign in as dev" button
         // sends this marker instead of credentials. The marker carries no
         // authority — the backend's DEV_SIGNIN_ENABLED / profile gate is the
         // only thing that grants a session.

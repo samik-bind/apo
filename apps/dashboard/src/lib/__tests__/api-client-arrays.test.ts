@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { apiClient } from "../api-client";
 
-describe("apiClient query arrays (SPEC-187 repeatable params)", () => {
+describe("apiClient query arrays", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });

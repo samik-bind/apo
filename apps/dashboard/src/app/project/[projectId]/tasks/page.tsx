@@ -23,7 +23,7 @@ export default async function AgentTasksPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const [{ projectId }, query] = await Promise.all([params, searchParams]);
-  // SPEC-187: arriving via <- Tasks with ?view= re-selects that saved tab.
+  // Arriving via <- Tasks with ?view= re-selects that saved tab.
   const viewRaw = query.view;
   const viewSingle = Array.isArray(viewRaw) ? viewRaw[0] : viewRaw;
   const initialViewId =
@@ -33,7 +33,7 @@ export default async function AgentTasksPage({
   let tasks: Awaited<ReturnType<typeof listProjectAgentTasks>> = [];
   let error: string | null = null;
   let taskSource = null;
-  // SPEC-180: first-run panel inputs — parallel-safe, best-effort. A
+  // First-run panel inputs — parallel-safe, best-effort. A
   // missing status never breaks the page; it only suppresses onboarding.
   let onboarding: Awaited<ReturnType<typeof getProjectOnboardingStatus>> | null =
     null;

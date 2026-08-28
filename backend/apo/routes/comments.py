@@ -31,7 +31,7 @@ async def list_comments(
     session: Session = Depends(get_session),
 ) -> list[dict[str, object]]:
     """List all comments for a given object (trace or observation)."""
-    # SPEC-178: scope by readable Projects so cross-Project object IDs
+    # Scope by readable Projects so cross-Project object IDs
     # do not leak comments from a Project the caller cannot read.
     readable = readable_project_ids_for_request(request, session)
     query = (
@@ -76,7 +76,7 @@ async def create_comment(
     if not isinstance(content, str) or not content.strip():
         raise HTTPException(status_code=400, detail="content must not be empty")
 
-    # SPEC-178 scene 25: the Project comes from the TARGET's durable
+    # The Project comes from the TARGET's durable
     # ownership, never from the body's ``project_id`` — the body value
     # cannot authorize and cannot re-home the comment into another Project.
     target_project = _resolve_comment_target_project(
@@ -147,7 +147,7 @@ async def delete_comment(
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
 
-    # SPEC-178: enforce membership on the comment's derived Project.
+    # Enforce membership on the comment's derived Project.
     try:
         membership = authorize_project_request(request, session, comment.project_id)
     except HTTPException as exc:
@@ -157,7 +157,7 @@ async def delete_comment(
 
     require_project_not_demo(comment.project_id)
 
-    # SPEC-178 scene 25: author/admin deletion policy. A plain member may
+    # Author/admin deletion policy. A plain member may
     # not delete another member's comment. Legacy rows without an author
     # and open-dev requests (no authenticated identity) stay permissive.
     request_user_id = getattr(request.state, "user_id", None)
@@ -202,7 +202,7 @@ async def toggle_reaction(
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
 
-    # SPEC-178: enforce membership on the comment's derived Project.
+    # Enforce membership on the comment's derived Project.
     try:
         _ = authorize_project_request(request, session, comment.project_id)
     except HTTPException as exc:
@@ -260,7 +260,7 @@ async def get_comment_counts(
     if not ids:
         return {}
 
-    # SPEC-178: scope by readable Projects.
+    # Scope by readable Projects.
     query = (
         select(CommentDB.object_id, func.count())
         .where(CommentDB.object_id.in_(ids))  # type: ignore[union-attr]
@@ -316,7 +316,7 @@ def _resolve_comment_target_project(
 ) -> str:
     """Derive a comment's Project from its target's durable ownership.
 
-    SPEC-178 scene 25: the body's ``project_id`` is never authority. A
+    The body's ``project_id`` is never authority. A
     ``trace`` comment resolves through ``RunDB``; an ``observation``
     comment through ``LoggedCallDB``. Unknown types and missing targets
     are denied (400/404) — fail closed rather than guessing a Project.

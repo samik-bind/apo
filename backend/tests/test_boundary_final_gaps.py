@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportUnusedCallResult=false
 
-"""SPEC-178 boundary tests: the final adversarial-pass gaps.
+"""Boundary tests: the final adversarial-pass gaps.
 
 Companion to ``test_project_authorization_boundary.py`` and
 ``test_ingestion_project_boundary.py``. Each test pins one hole found in

@@ -12,7 +12,7 @@ request JSON or query parameters.
 - service or Attempt token: ``request.state.project`` must equal the batch
   Project and ``service_task_run_id`` must equal the Task Run ID;
 - API key / dashboard cookie / open-dev: the canonical Project policy
-  (SPEC-178) authorizes the caller against the batch Project. Non-member
+  authorizes the caller against the batch Project. Non-member
   access is opaque (404) so an opaque ID does not reveal existence.
 """
 
@@ -40,7 +40,7 @@ def require_task_run_access(
     Capability tokens (service / Attempt) are exact-run-scoped: a mismatch
     raises 404 so a cross-run guess cannot infer the existence of another run.
     Session / API-key / open-dev callers go through the canonical Project
-    policy — non-member access is also 404 (opaque denial per SPEC-178 §6).
+    policy — non-member access is also 404 (opaque denial §6).
     Writes against the demo Project are rejected with 403.
     """
     batch = session.get(AgentTaskBatchRunDB, task_run.batch_run_id)
@@ -55,7 +55,7 @@ def require_task_run_access(
         if token_run_id != task_run.id or token_project != project:
             raise HTTPException(status_code=404, detail="Task run not found")
     else:
-        # SPEC-178: session / API key / open-dev callers must be authorized
+        # Session / API key / open-dev callers must be authorized
         # against the derived Project. Non-member → 404 (opaque), not 403,
         # so an opaque run ID cannot reveal the run's existence.
         try:

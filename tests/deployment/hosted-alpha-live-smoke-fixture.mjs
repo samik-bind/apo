@@ -1,4 +1,4 @@
-// Fixture server for the hosted-alpha live-smoke contract (SPEC-183 tests 1-3).
+// Fixture server for the hosted-alpha live-smoke contract.
 //
 // Four modes, selected by argv[2]:
 //   ok                — the healthy hosted alpha: readiness, admission

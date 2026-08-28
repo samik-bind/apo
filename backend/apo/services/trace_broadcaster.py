@@ -4,7 +4,7 @@ Thin wrapper around the generic Broadcaster that adds trace-specific event
 types and convenience methods. The SSE plumbing (queues, locks, listener
 management, disconnect cleanup) lives once in Broadcaster.
 
-SPEC-178 §SSE channel identity: channels are keyed by
+Channels are keyed by
 ``(project_id, trace_id)`` — public OTel trace IDs are client-generated and
 can collide across Projects, so the trace ID alone is never a channel key.
 """

@@ -1,11 +1,11 @@
 # pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnusedCallResult=false, reportUnusedParameter=false, reportAttributeAccessIssue=false, reportUntypedFunctionDecorator=false, reportUnknownParameterType=false, reportUnusedImport=false, reportUnknownVariableType=false, reportCallIssue=false
 
-"""SPEC-180: bounded Project onboarding-status projection.
+"""Bounded Project onboarding-status projection.
 
 Answers exactly one question — has this Project published Tasks or
 recorded Runs — with two scalars. Loads no Run, Trace, Check, Deliverable,
-or Task Definition bodies, and is guarded by the canonical SPEC-178
-Project authorizer.
+or Task Definition bodies, and is guarded by the canonical Project
+authorization policy.
 """
 
 from __future__ import annotations

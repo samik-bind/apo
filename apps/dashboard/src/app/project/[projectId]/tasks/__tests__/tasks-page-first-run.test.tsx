@@ -1,7 +1,7 @@
 /**
- * SPEC-180 real-page scene: the registered Tasks server page itself — not
+ * Real-page scene: the registered Tasks server page itself — not
  * just the isolated component — shows the exact hosted login command for a
- * virgin SPEC-179 Project and replaces it with normal product once a Run
+ * virgin onboarding Project and replaces it with normal product once a Run
  * or published Task exists.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -55,7 +55,7 @@ async function renderPage() {
   return render(ui);
 }
 
-describe("Tasks page first-run (SPEC-180 real-page scene)", () => {
+describe("Tasks page first-run", () => {
   beforeEach(() => {
     vi.mocked(getProject).mockResolvedValue({
       id: "abc123def456",

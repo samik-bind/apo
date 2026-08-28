@@ -159,7 +159,7 @@ def render_hosted_access_email(
     invite_url: str,
     inviter_name: str,
 ) -> tuple[str, str]:
-    """Returns (html, text) for the hosted access admission email (SPEC-179).
+    """Returns (html, text) for the hosted access admission email.
 
     Truthful about what the invitation is: the recipient creates their
     own apo Project on this installation. It must never claim they are

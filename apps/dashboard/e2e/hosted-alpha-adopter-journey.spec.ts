@@ -1,7 +1,7 @@
 import { expect, request, test } from "@playwright/test";
 
 /**
- * SPEC-183 hosted-alpha adopter journey — the automated layer of the
+ * Hosted-alpha adopter journey — the automated layer of the
  * first-adopter rehearsal.
  *
  * Runs against a dedicated production-shaped local stack (Caddy ingress,

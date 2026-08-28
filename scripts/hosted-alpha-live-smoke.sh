@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Read-only hosted-alpha preflight (SPEC-183).
+# Read-only hosted-alpha preflight.
 #
 # Checks the two public origins an invited adopter depends on before the
 # operator starts a rehearsal: application readiness, the browser admission

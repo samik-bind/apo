@@ -17,7 +17,7 @@ Test cases:
 13. Get comment counts with empty IDs returns empty
 14. Delete comment also deletes its reactions
 
-SPEC-178: a comment's Project is derived from its target, so every test
+A comment's Project is derived from its target, so every test
 target below is seeded as a real run/observation row in ``proj-1``.
 """
 

@@ -1,4 +1,4 @@
-# Hosted Alpha Agent-Adopter Rehearsal (SPEC-183)
+# Hosted Alpha Agent-Adopter Rehearsal
 
 Three isolated agent roles exercise the real hosted boundary. The question
 this runbook answers: **can an agent without private repository context reach a
@@ -169,8 +169,7 @@ Tasks, compare the two explicit model views, then:
 
 ## 11. `[reviewer-agent]` Audit and record the result
 
-Append a dated entry under `## Log` in
-`specs/183-hosted-alpha-first-adopter-rehearsal.md` using exactly this shape —
+Append a dated entry under `## Log` in the rehearsal spec using exactly this shape —
 no credentials, invitation URLs, cookies, API keys, private Task contents, or
 company Project/run IDs:
 

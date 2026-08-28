@@ -1,4 +1,4 @@
-"""Dev sign-in and dev-workspace provisioning tests (SPEC-181)."""
+"""Dev sign-in and dev-workspace provisioning tests."""
 
 # pyright: reportAny=false, reportUnusedParameter=false
 

@@ -40,7 +40,7 @@ type RunDetail = {
   run_configuration?: { model: string; effort?: string | null } | null;
   task_definition?: { id?: string } | null;
   judgments_count?: number;
-  /** SPEC-185: tests whose effective result differs from the recorded one. */
+  /** Tests whose effective result differs from the recorded one. */
   corrected_tests?: number;
   /** Issue #176: the attempt's last lease heartbeat (null for terminal-only detail). */
   heartbeat_at?: string | null;

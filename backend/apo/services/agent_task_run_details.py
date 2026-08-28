@@ -158,7 +158,7 @@ def load_task_run_details(
     definitions = _load_definitions(session, runs)
     check_reports = load_check_reports(session, runs)
 
-    # SPEC-185: one bulk corrections query for all runs, then in-memory
+    # One bulk corrections query for all runs, then in-memory
     # overlay per run — no N+1.
     corrections_by_run = load_corrections(session, unique_ids)
     labels = resolve_actor_labels(

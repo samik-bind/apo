@@ -1,6 +1,6 @@
 # pyright: reportAny=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 
-"""SPEC-177 Check Report normalization tests.
+"""Check Report normalization tests.
 
 Verifies the per-field hygiene boundary at both legacy top-level and current
 nested SDK shapes: oversized ``received`` and judge segments become markers

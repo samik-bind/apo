@@ -39,7 +39,7 @@ export async function run(argv: string[]): Promise<number> {
     return 2;
   }
 
-  // 2. Map to publication allowlist + prepare Task Definition source (SPEC-169)
+  // 2. Map to publication allowlist + prepare Task Definition source
   const published = tasks
     .map((meta) => {
       const task = toPublishedTask(meta);

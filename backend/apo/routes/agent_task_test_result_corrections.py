@@ -1,4 +1,4 @@
-"""SPEC-185 route: manual test result corrections.
+"""Route: manual test result corrections.
 
 ``POST /v1/agent-task-runs/{task_run_id}/test-result-corrections`` — a
 project member records a human decision about one recorded top-level Test:

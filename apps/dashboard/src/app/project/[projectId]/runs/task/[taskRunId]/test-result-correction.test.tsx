@@ -1,5 +1,5 @@
 /**
- * SPEC-185 scene tests: test-result correction UI.
+ * Scene tests: test-result correction UI.
  *
  * 1. A corrected check renders the Corrected badge, recorded/effective
  *    explanation, actor/reason/time, with original evidence intact.

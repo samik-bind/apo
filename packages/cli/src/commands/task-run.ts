@@ -155,7 +155,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   const git = readGitProvenance(config.taskRoot);
   const identity = buildCallerIdentity({ clientVersion: "0.1.0" });
 
-  // SPEC-169: every recorded run carries its canonical local Task Definition.
+  // Every recorded run carries its canonical local Task Definition.
   // Fail before creating the Run if source cannot be prepared: a source-less
   // recorded Run cannot render its Tests and violates the caller contract.
   let taskDefinition;
@@ -280,7 +280,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   try {
     summary = await runTaskDirImpl(taskDir) as LocalRunSummary;
 
-    // SPEC-172: upload file artifacts after checks, before result submission.
+    // Upload file artifacts after checks, before result submission.
     // Issue #176: the heartbeat stays alive through this and the /result
     // POST below — both are slow (multi-MB uploads + SQLite finalize) and
     // used to happen after `heartbeat.stop()`, so anything slower than the
@@ -302,7 +302,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
     }
 
     resultStarted = true;
-    // SPEC-186 (issue #175): submit only what the server keeps. The backend
+    // Issue #175: submit only what the server keeps. The backend
     // truncates oversized received values and judge segments into markers at
     // persist time anyway; compacting here means a task judging one large
     // document N times ships N tiny markers instead of N copies of the
@@ -329,7 +329,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (resultStarted) {
-      // SPEC-172: ambiguous result — the server may have committed before the
+      // Ambiguous result — the server may have committed before the
       // connection failed. Do NOT send a contradictory failure.
       // Issue #174: the transport giving up on a multi-MB body (ingress
       // timeout, dropped connection) says nothing about the backend — it may
@@ -357,7 +357,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
           failure_kind: artifactPhase ? "driver" : "task_runtime",
           error_message: message,
         });
-        // SPEC-180: the failure was still recorded — hand the user the
+        // The failure was still recorded — hand the user the
         // exact Run identity so onboarding can continue from the evidence.
         console.error(
           dim(`Recorded run ${created.taskRunId} (apo runs show ${created.taskRunId})`),
@@ -405,7 +405,7 @@ function renderRecordedResult(
     console.log(JSON.stringify({ ...summary, deliverables: jsonDeliverables }));
   } else {
     printLocalRunSummary(summary);
-    // SPEC-180: hand over the exact recorded identity — onboarding copy
+    // Hand over the exact recorded identity — onboarding copy
     // must never rely on "latest run" lookup.
     console.log(`\nRun:     ${bold(taskRunId)}`);
     console.log(`Inspect: ${dim(`apo runs show ${taskRunId}`)}`);

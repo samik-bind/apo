@@ -1,5 +1,5 @@
 /**
- * SPEC-179: admission is invitation-only once initialized. The login page
+ * Admission is invitation-only once initialized. The login page
  * links to /setup only while first-user setup is actually available, and
  * says invitation-only otherwise. No permanent "Create account" link.
  */

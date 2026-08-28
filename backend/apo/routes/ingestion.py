@@ -117,7 +117,7 @@ def _declared_project(body: dict[str, object]) -> str | None:
     """The Project an event body claims to target, if any.
 
     A declared Project narrows the write; it never authorizes it
-    (SPEC-178 invariant 2).
+   .
     """
     return _optional_str(body.get("project"))
 

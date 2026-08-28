@@ -1,4 +1,4 @@
-"""Scene tests for the Tasks page evidence-view endpoints (SPEC-174, Phase 1).
+"""Scene tests for the Tasks page evidence-view endpoints.
 
 Exercises the registered routes end-to-end via the test client: the view-scoped
 per-task stats (model/effort filtered) and the run-config facets that populate

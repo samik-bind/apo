@@ -1,6 +1,6 @@
 /**
  * `apo runs correct <run-id> <test-id> (--pass | --fail | --clear)` —
- * SPEC-185 manual test result corrections.
+ * Manual test result corrections.
  *
  * Records a human decision about one recorded top-level Test: effective
  * PASS/FAIL, or clear back to the recorded result. The Check Report,

@@ -3,7 +3,7 @@
  *
  * Two resolvers exist, and the order matters:
  *
- * 1. **The pinned Task Definition (SPEC-169)** — the exact `*.eval.ts` text
+ * 1. **The pinned Task Definition** — the exact `*.eval.ts` text
  *    captured at run time and stored server-side, addressed per-run. This is
  *    authoritative: it is the source that produced the stored Check evidence,
  *    and it works regardless of where the Task executed.
@@ -34,7 +34,7 @@ export interface DefinitionRef {
 }
 
 export interface LoadCheckSourceDeps {
-  /** SPEC-169 run-bound read of the pinned Task Definition source. */
+  /** Run-bound read of the pinned Task Definition source. */
   readDefinitionSource: (runId: string, filePath: string) => Promise<CheckSource>;
   /** Legacy filesystem-backed read; `commitSha` pins a published revision. */
   readTaskFile: (taskId: string, candidate: string, commitSha?: string) => Promise<CheckSource>;

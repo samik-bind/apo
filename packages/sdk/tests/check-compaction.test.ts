@@ -24,7 +24,7 @@ function judgedCheck(received: unknown): EvaluationItemResult {
   };
 }
 
-describe("compactChecksForSubmission (SPEC-186 / issue #175)", () => {
+describe("compactChecksForSubmission (issue #175)", () => {
   it("replaces an oversized received with the backend's truncation marker", () => {
     const value = "x".repeat(RECEIVED_VALUE_LIMIT + 1);
     const { checks, truncatedValues } = compactChecksForSubmission([judgedCheck(value)]);

@@ -227,7 +227,7 @@ def enforce_project_role_from_request(
 ) -> ProjectMembershipDB:
     """Compatibility wrapper: delegate to the canonical policy.
 
-    SPEC-178 §Interface: existing ``enforce_*_from_request`` helpers remain
+    Existing ``enforce_*_from_request`` helpers remain
     as thin wrappers over :func:`authorize_project_request` so routes that
     already call them pick up Credential Authority semantics without a
     per-call rewrite.
@@ -255,7 +255,7 @@ def list_readable_projects_from_request(
 
 
 # ---------------------------------------------------------------------------
-# Canonical Project authorization policy (SPEC-178)
+# Canonical Project authorization policy
 # ---------------------------------------------------------------------------
 
 _RELEASE_PROFILES: Final[frozenset[str]] = frozenset({"local", "server"})
@@ -301,7 +301,7 @@ def authorize_project_request(
 ) -> ProjectMembershipDB:
     """Intersect request Credential Authority with current Project role.
 
-    SPEC-178 §Interface. The single canonical Project authorization policy.
+    Authorization policy.
     Every Project-owned route goes through this (or a resource-derived
     authorizer that calls it).
 
@@ -339,7 +339,7 @@ def authorize_project_request(
     user_id = _request_user_id(request)
 
     if not user_id:
-        # No credential. SPEC-178 §10: the legacy/open-dev owner fallback is
+        # No credential. The legacy/open-dev owner fallback is
         # allowed only in the explicit development profile. A release profile
         # requires real authority — missing identity is 401.
         if not _is_release_profile():
@@ -426,7 +426,7 @@ def readable_project_ids_for_request(
 ) -> list[str] | None:
     """Return the exact readable Project IDs for this request's credential.
 
-    SPEC-178 §Interface. The canonical readable-Project derivation:
+    T derivation:
 
     - **session**: all current memberships;
     - **API key**: exactly its bound Project, IF the creator still has

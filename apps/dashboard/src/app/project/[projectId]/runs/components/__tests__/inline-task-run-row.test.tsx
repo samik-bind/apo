@@ -1,5 +1,5 @@
 /**
- * SPEC-187 scope loop, Runs-page side: run-row links forward the page's URL
+ * Scope loop, Runs-page side: run-row links forward the page's URL
  * cohort into run detail, using the drill-down vocabulary (single model only).
  */
 

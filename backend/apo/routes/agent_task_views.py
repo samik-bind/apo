@@ -1,4 +1,4 @@
-"""SPEC-174 — evidence view comparison + saved-view routes.
+"""— evidence view comparison + saved-view routes.
 
 Comparison: POST creates an immutable snapshot (resolves both sides, freezes
 run ids + revisions + coverage); GET reads one by its short opaque id.
@@ -46,7 +46,7 @@ def _get_user_id(request: Request) -> str:
 def _authorize(session: Session, project_id: str, request: Request) -> None:
     """404 if the project is missing, 403 if the caller is not a member.
 
-    SPEC-178: the canonical credential-aware guard also confines API keys
+    The canonical credential-aware guard also confines API keys
     to their bound Project — a B-bound key cannot read A's views or
     comparison evidence even when its creator is a member of A.
     """
@@ -123,7 +123,7 @@ async def get_task_view_comparison_overview(
         )
     )
     summaries = load_task_run_summaries(session, run_ids, project_id=project_id)
-    # SPEC-185: overlay the frozen verdict/count scalars from the snapshot
+    # Overlay the frozen verdict/count scalars from the snapshot
     # onto the live-run summaries. Summaries read the *current* effective
     # projection; corrections made after this snapshot must not leak into it.
     # Load-bearing fields that are not frozen (cost, tokens, model) stay live.
@@ -193,7 +193,7 @@ async def get_task_comparison_evidence(
             rid for rid in (cell.a_run_id, cell.b_run_id) if rid is not None
         )
     )
-    # SPEC-185: evidence renders the run as it was effective when the
+    # Evidence renders the run as it was effective when the
     # snapshot was frozen — corrections made later must not leak in.
     details = load_task_run_details(
         session, pair_ids, project_id=project_id, corrections_as_of=row.created_at

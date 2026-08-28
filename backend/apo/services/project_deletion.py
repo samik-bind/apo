@@ -126,7 +126,7 @@ def delete_project_data(
             AgentTaskScheduleDB.project == project_id
         ),
     )
-    # SPEC-178: schedule occurrences are transitive through schedules.
+    # Schedule occurrences are transitive through schedules.
     deleted["schedule_occurrences"] = _delete_transitive(
         session,
         AgentTaskScheduleOccurrenceDB,
@@ -135,13 +135,13 @@ def delete_project_data(
             AgentTaskScheduleDB.project == project_id
         ),
     )
-    # SPEC-166 #96: Attempts must be deleted BEFORE their parent task runs
+    # Attempts must be deleted BEFORE their parent task runs
     # (task_execution_attempts.task_run_id → agent_task_runs.id).
     # Previously runs were deleted first, which FK-violated on attempts.
     deleted["task_execution_attempts"] = _delete_by_column(
         session, TaskExecutionAttemptDB, TaskExecutionAttemptDB.project == project_id
     )
-    # SPEC-178: check reports are transitive through task runs
+    # Check reports are transitive through task runs
     # (FK CASCADE, but explicit delete works on schemas where the FK was
     # added after table creation).
     deleted["agent_task_check_reports"] = _delete_transitive(
@@ -155,7 +155,7 @@ def delete_project_data(
     deleted["agent_task_judgments"] = _delete_by_column(
         session, AgentTaskJudgmentDB, AgentTaskJudgmentDB.project == project_id
     )
-    # SPEC-185: corrections are project-scoped like judgments, but also FK
+    # Corrections are project-scoped like judgments, but also FK
     # agent_task_runs — delete before the runs go.
     deleted["agent_task_test_result_corrections"] = _delete_transitive(
         session,
@@ -165,7 +165,7 @@ def delete_project_data(
             AgentTaskBatchRunDB.project == project_id
         ),
     )
-    # SPEC-178: deliverables are direct (have a ``project`` column) but FK
+    # Deliverables are direct (have a ``project`` column) but FK
     # agent_task_runs, so they must be deleted before runs. Their stored
     # objects are cleaned up by the async route pre-pass.
     deleted["agent_task_deliverables"] = _delete_by_column(
@@ -215,7 +215,7 @@ def delete_project_data(
     deleted["sessions"] = _delete_by_column(
         session, SessionDB, SessionDB.project == project_id
     )
-    # SPEC-178: saved Task Views and Task View Comparisons.
+    # Saved Task Views and Task View Comparisons.
     deleted["task_views"] = _delete_by_column(
         session, TaskViewDB, TaskViewDB.project_id == project_id
     )
@@ -234,7 +234,7 @@ def delete_project_data(
     deleted["agent_task_batch_runs"] = _delete_by_column(
         session, AgentTaskBatchRunDB, AgentTaskBatchRunDB.project == project_id
     )
-    # SPEC-169 #96: task_definition_revisions FK projects, and
+    # Task_definition_revisions FK projects, and
     # agent_task_runs.task_definition_revision_id FKs them. Runs are already
     # gone above, so this is safe.
     deleted["task_definition_revisions"] = _delete_by_column(

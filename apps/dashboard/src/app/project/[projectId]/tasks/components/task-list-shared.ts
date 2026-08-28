@@ -5,7 +5,7 @@ export type FolderNode = {
   tasks: AgentTaskSummary[];
 };
 
-// SPEC-174 evidence views: a tab is a model/effort filter. The Main tab
+// Evidence views: a tab is a model/effort filter. The Main tab
 // (model=null) is permanent and shows all-history; every other tab is a
 // closable copy narrowed by model (+ model-aware effort).
 export const MAIN_VIEW_ID = "main";

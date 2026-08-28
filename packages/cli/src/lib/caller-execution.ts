@@ -49,7 +49,7 @@ export interface CreateCallerRunInput {
   runMetadata: Record<string, unknown> | null;
   attestation: CallerSourceAttestation;
   identity: CallerIdentity;
-  /** SPEC-169: canonical Task Definition document. */
+  /** Canonical Task Definition document. */
   taskDefinition: TaskDefinitionDocument;
 }
 

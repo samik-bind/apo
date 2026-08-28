@@ -67,7 +67,7 @@ def create_caller_batch_run(
     """Atomically create one Batch + Task Run + attested Revision + leased caller
     Attempt, and mint the Attempt JWT. Supports exactly one Task.
 
-    SPEC-169: ensures an immutable run-only Definition Revision and pins it on
+    Ensures an immutable run-only Definition Revision and pins it on
     the Run. Does not move the published Catalog inventory pointer. Recorded
     caller Runs never exist without their canonical Task definition.
 
@@ -109,7 +109,7 @@ def create_caller_batch_run(
         sequence_index=0,
         status="pending",
     )
-    # SPEC-169: pin the Task Definition Revision (run-only, does not publish).
+    # Pin the Task Definition Revision (run-only, does not publish).
     from apo.services.task_definition_revisions import ensure_task_definition_revision
 
     def_rev = ensure_task_definition_revision(
@@ -491,7 +491,7 @@ def create_source_owned_batch_run(
             task_id=inventory.task_id,
             task_path=inventory.task_path,
             task_inventory_id=inventory.id,
-            # SPEC-169: pin the published Definition Revision from inventory.
+            # Pin the published Definition Revision from inventory.
             task_definition_revision_id=inventory.task_definition_revision_id,
             sequence_index=index,
             adapter_name=inventory.adapter_name,

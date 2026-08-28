@@ -233,7 +233,7 @@ class TestPersistCheckReport:
 
 
 # ---------------------------------------------------------------------------
-# SPEC-177: nested Check Report normalization
+# Nested Check Report normalization
 # ---------------------------------------------------------------------------
 
 

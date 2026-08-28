@@ -81,7 +81,7 @@ export function EvidenceViewsBar({
   const active = views.find((v) => v.id === activeViewId) ?? views[0]!;
   const activeModelFacet = facets.find((f) => f.model === active.model);
   // Effort is model-aware: only reveal the control for a specific model that
-  // has 2+ distinct effort tiers in the data (SPEC-174 / option B).
+  // has 2+ distinct effort tiers in the data (option B).
   const effortOptions =
     active.model !== null && activeModelFacet && activeModelFacet.efforts.length > 1
       ? activeModelFacet.efforts

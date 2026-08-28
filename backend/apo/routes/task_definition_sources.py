@@ -1,4 +1,4 @@
-"""SPEC-169: Task Definition source reader route.
+"""Task Definition source reader route.
 
 Reads the pinned canonical ``*.eval.ts`` source for a Run so the dashboard
 can render CodeMirror with the historical definition that produced stored

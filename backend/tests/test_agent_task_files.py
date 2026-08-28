@@ -3,7 +3,7 @@
 """Unit tests for the project-scoped task-file listing/reading helpers.
 
 The legacy unscoped ``/v1/agent-tasks/{id}/files`` routes were removed
-(SPEC-178 cleanup); these tests pin the behavior of the helpers the
+; these tests pin the behavior of the helpers the
 canonical ``/v1/projects/{pid}/agent-tasks/{id}/files`` routes share.
 """
 

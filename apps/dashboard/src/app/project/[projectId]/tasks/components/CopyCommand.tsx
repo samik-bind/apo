@@ -5,7 +5,7 @@ import { Check, Copy } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 /**
- * A code line with an accessible copy control (SPEC-180).
+ * A code line with an accessible copy control.
  *
  * The command is displayed as selectable text — if the Clipboard API is
  * unavailable or fails, the user can still select and copy it manually.

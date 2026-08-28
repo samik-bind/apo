@@ -8,7 +8,7 @@ import { loadCheckSource, type DefinitionRef, type LoadCheckSourceDeps } from ".
  * discovers tasks on the *backend's* filesystem, so tasks executing on a
  * developer machine could never be found.
  *
- * The pinned Task Definition (SPEC-169) is the authoritative source and is
+ * The pinned Task Definition is the authoritative source and is
  * already stored per-run. These tests pin the precedence the run detail view
  * established — definition first, the retired filesystem resolver only as a
  * legacy fallback — as a pure function, because the vitest JSX transform in

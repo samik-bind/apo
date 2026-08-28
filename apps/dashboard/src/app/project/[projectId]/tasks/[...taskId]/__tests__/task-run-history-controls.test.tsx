@@ -1,5 +1,5 @@
 /**
- * SPEC-187: the task detail page's run-history scope controls.
+ * The task detail page's run-history scope controls.
  *
  * TaskRunHistoryControls is the presentational surface (pickers + status
  * chips + view chip + escape); RunHistoryScopeBar owns the URL: scope changes

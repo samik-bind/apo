@@ -622,7 +622,7 @@ function printHelp(): void {
 
 // Flush piped stdout/stderr before the forced exit (#155): writes to a pipe
 // are asynchronous on Linux, so process.exit can truncate the final lines —
-// including the SPEC-180 Run:/Inspect: handover after a FAIL verdict. An
+// including the Run:/Inspect: handover after a FAIL verdict. An
 // empty write's callback fires once previously queued writes have drained.
 async function flushAndExit(code: number): Promise<never> {
   await new Promise<void>((resolve) =>

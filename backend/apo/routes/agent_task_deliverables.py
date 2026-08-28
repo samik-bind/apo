@@ -52,7 +52,7 @@ def _get_store_for_row(row: AgentTaskDeliverableDB) -> Any:
 
 
 def _require_running_attempt(request: Request, session: Session) -> None:
-    """Artifact uploads require a currently running Attempt (SPEC-172 invariant #3).
+    """Artifact uploads require a currently running Attempt.
 
     A leased (pre-start) attempt has not begun task code, so no artifact can
     exist yet. Service tokens bypass this check (backend-spawned runner).

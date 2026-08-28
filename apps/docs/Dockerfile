@@ -1,4 +1,4 @@
-# Multi-stage static docs image (SPEC-171).
+# Multi-stage static docs image.
 #
 # Build stage compiles the Astro site + publishes versioned schemas behind the
 # publication gate. Runtime stage contains only the built static output and a

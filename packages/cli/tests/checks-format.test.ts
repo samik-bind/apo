@@ -28,7 +28,7 @@ describe("formatChecks", () => {
     });
   });
 
-  describe("corrected checks (SPEC-185)", () => {
+  describe("corrected checks", () => {
     it("marks corrected tests and shows recorded result + provenance", () => {
       const checks: CheckResult[] = [
         {

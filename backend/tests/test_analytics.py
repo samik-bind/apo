@@ -35,8 +35,8 @@ def _direct_request() -> Any:
     """A minimal starlette Request for direct handler calls (no credential).
 
     An empty ``scope["state"]`` means no ``user_id`` — the dev-profile
-    legacy-owner fallback applies, matching the original pre-SPEC-178
-    direct-call semantics of these tests.
+    legacy-owner fallback applies, matching the original direct-call
+    semantics of these tests.
     """
     from starlette.requests import Request as StarletteRequest
 

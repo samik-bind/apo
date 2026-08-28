@@ -310,7 +310,7 @@ def precheck_result_replay(
     lease: CurrentAttemptLease,
     body: AttemptResultBody,
 ) -> bool:
-    """Check completion idempotency before deliverable persistence (SPEC-172 step 7).
+    """Check completion idempotency before deliverable persistence.
 
     Returns True if this is an idempotent replay — the caller should return
     early without persisting deliverables.

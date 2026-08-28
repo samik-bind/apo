@@ -1,4 +1,4 @@
-"""Scene tests for selection-scoped view comparison (SPEC-174, Phase 2).
+"""Scene tests for selection-scoped view comparison.
 
 Exercises POST (resolve + freeze) and GET (immutable read) through the
 registered routes, and the comparison state across the four cases that matter:
@@ -300,7 +300,7 @@ def test_bulk_run_evidence_uses_a_fixed_number_of_queries(session: Session) -> N
         event.remove(bind, "before_cursor_execute", _record_statement)
 
     assert len(details) == 7
-    # runs + batches/triggers + definitions + checks + corrections (SPEC-185)
+    # runs + batches/triggers + definitions + checks + corrections
     # + deliverables — the corrections overlay is one bulk query, not per-run.
     assert len(statements) == 6
 
@@ -327,7 +327,7 @@ def test_overview_response_is_independent_of_check_report_size(
     cmp_client: TestClient,
     session: Session,
 ) -> None:
-    """SPEC-177 acceptance test: the production incident that caused the OOM
+    """Acceptance test: the production incident that caused the OOM
     had ~69 MiB of Check Report JSON behind 53 runs. The overview response
     must stay bounded regardless of report size."""
     import json

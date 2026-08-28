@@ -1,4 +1,4 @@
-// Client for the Tasks page "evidence views" endpoints (SPEC-174, Phase 1).
+// Client for the Tasks page "evidence views" endpoints.
 //
 // A "view" is a model/effort filter over a project's runs. The Tasks page has a
 // permanent Main view (no filter = all-history) plus closable derived tabs that
@@ -77,7 +77,7 @@ export const setModelArchived = (
   });
 
 // ----------------------------------------------------------------------------
-// SPEC-174 Phase 2 — selection-scoped view comparison (immutable snapshot)
+// — selection-scoped view comparison (immutable snapshot)
 // ----------------------------------------------------------------------------
 
 export interface TaskViewConfig {
@@ -179,7 +179,7 @@ export const getTaskComparisonEvidence = (
   );
 
 // ----------------------------------------------------------------------------
-// Saved evidence views (persistent tabs — SPEC-174)
+// Saved evidence views (persistent tabs)
 // ----------------------------------------------------------------------------
 
 export interface SavedView {

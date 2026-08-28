@@ -662,7 +662,7 @@ def _migrate_to_baseline():
 # Schema evolution is tracked by a tiny ``schema_migrations`` table holding
 # the versions applied. Each migration is a numbered, idempotent function
 def _migrate_to_v26() -> None:
-    """Version 26 (SPEC-179 phase 4a): backfill legacy deliverables columns.
+    """Version 26: backfill legacy deliverables columns.
 
     Every run whose ``deliverables_json`` column is non-NULL and has no
     deliverable rows gets its blob converted through the canonical
@@ -692,7 +692,7 @@ def _migrate_to_v26() -> None:
 
 
 def _migrate_to_v28() -> None:
-    """Version 28 (SPEC-180 phase 4b): drop the legacy evidence columns.
+    """Version 28: drop the legacy evidence columns.
 
     ``deliverables_json`` was backfilled into ``agent_task_deliverables``
     rows by v26 and stopped being written in phase 2; ``checks_json`` was
@@ -779,7 +779,7 @@ def _migrate_judgment_schema(conn: Connection) -> None:
 
 
 def _migrate_to_v32() -> None:
-    """Version 32 (SPEC-185): manual test result corrections.
+    """Version 32: manual test result corrections.
 
     Existing DBs gain the append-only
     ``agent_task_test_result_corrections`` table plus the
@@ -1479,13 +1479,13 @@ def _make_attempt_task_revision_nullable(conn: Connection) -> None:
 
 
 def _migrate_to_v19() -> None:
-    """Version 19: make Attempt task_revision_id nullable (SPEC-166, issues #83/#84)."""
+    """Version 19: make Attempt task_revision_id nullable (issues #83/#84)."""
     with engine.begin() as conn:
         _make_attempt_task_revision_nullable(conn)
 
 
 def _migrate_task_definition_revisions(conn: Connection) -> None:
-    """SPEC-169: Task Definition Revisions table + nullable FK pointers."""
+    """Task Definition Revisions table + nullable FK pointers."""
     ts = "DATETIME" if is_sqlite() else "TIMESTAMPTZ"
     conn.exec_driver_sql(
         f"""
@@ -1518,13 +1518,13 @@ def _migrate_task_definition_revisions(conn: Connection) -> None:
 
 
 def _migrate_to_v21() -> None:
-    """Version 21: store immutable task definition revisions (SPEC-169)."""
+    """Version 21: store immutable task definition revisions."""
     with engine.begin() as conn:
         _migrate_task_definition_revisions(conn)
 
 
 def _migrate_to_v20() -> None:
-    """Version 20 (SPEC-167): move check evidence off the hot run row."""
+    """Version 20: move check evidence off the hot run row."""
     with engine.begin() as conn:
         _migrate_check_report_schema(conn)
 
@@ -1554,7 +1554,7 @@ def _migrate_to_v23() -> None:
 
 
 def _migrate_to_v24() -> None:
-    """Version 24 (SPEC-174): ``task_view_comparison`` snapshot table + ``task_view`` saved views.
+    """Version 24: ``task_view_comparison`` snapshot table + ``task_view`` saved views.
 
     Stores immutable selection-scoped comparisons and per-user saved evidence
     views. New tables are created by ``SQLModel.metadata.create_all`` on fresh
@@ -2191,7 +2191,7 @@ def _add_metric_project_column(conn: Connection, table_name: str, id_column: str
 
 
 def _migrate_to_v25() -> None:
-    """Version 25 (SPEC-179): ``hosted_access_invitations`` admission table.
+    """Version 25: ``hosted_access_invitations`` admission table.
 
     Installation-level admission invitations. Fresh DBs already have the
     table via ``SQLModel.metadata.create_all``; this brings existing

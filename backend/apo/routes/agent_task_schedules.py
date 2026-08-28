@@ -227,7 +227,7 @@ async def list_agent_task_schedules(
     project: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ) -> list[AgentTaskScheduleSummary]:
-    # SPEC-178: scope by readable Projects.
+    # Scope by readable Projects.
     if project:
         enforce_project_role_from_request(
             request, session, project, minimum_role="member"
@@ -256,7 +256,7 @@ async def get_agent_task_schedule(
     schedule = session.get(AgentTaskScheduleDB, schedule_id)
     if schedule is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
-    # SPEC-178: authorize after load — deny cross-Project access with 404.
+    # Authorize after load — deny cross-Project access with 404.
     try:
         enforce_project_role_from_request(
             request, session, schedule.project, minimum_role="member"
@@ -281,7 +281,7 @@ async def get_adaptive_states(
     schedule = session.get(AgentTaskScheduleDB, schedule_id)
     if schedule is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
-    # SPEC-178: authorize after load — deny cross-Project access with 404.
+    # Authorize after load — deny cross-Project access with 404.
     try:
         enforce_project_role_from_request(
             request, session, schedule.project, minimum_role="member"

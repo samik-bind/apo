@@ -81,7 +81,7 @@ const tasks = [task("evals/alpha", "Alpha", "evals"), task("evals/beta", "Beta",
 const leftRuns = [run("ra", "evals/alpha", "passed", true), run("rc", "evals/beta", "passed", true)];
 const rightRuns = [run("rb", "evals/alpha", "failed", false, 5, 0), run("rd", "evals/beta", "passed", true)];
 
-describe("CompareViewsClient (SPEC-174)", () => {
+describe("CompareViewsClient", () => {
   it("renders both view configs in the header and the differs summary", () => {
     render(
       <CompareViewsClient
@@ -102,7 +102,7 @@ describe("CompareViewsClient (SPEC-174)", () => {
   });
 });
 
-describe("CompareViewsClient single-task expansion (SPEC-177)", () => {
+describe("CompareViewsClient single-task expansion", () => {
   beforeEach(() => {
     setActiveTaskId.mockReset();
     onToggleExpand.mockReset();

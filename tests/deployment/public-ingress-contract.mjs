@@ -1,4 +1,4 @@
-// SPEC-182 contract: the public origin delegates identity to Apo application
+// Contract: the public origin delegates identity to Apo application
 // auth. The ingress (Caddy) must not mount or import an installation-wide
 // Basic Auth gate on any supported profile.
 import { readFileSync } from "node:fs";
@@ -46,7 +46,7 @@ assertPublishedPort(rendered.services.caddy, 443, "udp");
 assertLoopbackOnly(rendered.services.frontend, 3000);
 assertLoopbackOnly(rendered.services.backend, 8000);
 
-// SPEC-182: no supported profile mounts the ingress Basic Auth fragment —
+// No supported profile mounts the ingress Basic Auth fragment —
 // every supported rendered profile must be free of it.
 assertNoAuthFragmentMount(rendered.services.caddy, "direct profile");
 assertNoAuthFragmentMount(
@@ -69,7 +69,7 @@ assertRouteBefore(
   "Caddy must deny diagnostic aliases before the broad backend proxy",
 );
 
-// SPEC-182: the application host block owns no identity — no basic_auth
+// The application host block owns no identity — no basic_auth
 // directive, no imported fragment. Apo's auth middleware is the boundary.
 const appBlockIdx = caddyfile.indexOf("{$APO_CADDY_SITE_ADDRESS}");
 assert(appBlockIdx !== -1, "Caddyfile must define the app site block");
@@ -107,7 +107,7 @@ assert(
 );
 assert(
   appBlock.includes("handle /v1/*") && appBlock.includes("handle /auth/*"),
-  "application block must route backend-owned CLI paths directly (SPEC-180)",
+  "application block must route backend-owned CLI paths directly",
 );
 const fallbackIdx = appBlock.lastIndexOf("handle {");
 assert(
@@ -141,7 +141,7 @@ function assertNoAuthFragmentMount(service, profileName) {
   );
   assert(
     !found,
-    `${profileName}: caddy must not mount /etc/caddy/auth.fragment — the ingress does not own identity (SPEC-182)`,
+    `${profileName}: caddy must not mount /etc/caddy/auth.fragment — the ingress does not own identity`,
   );
 }
 

@@ -30,7 +30,7 @@ interface AgentTasksClientProps {
   taskSource: ProjectTaskSource | null;
   isDemo: boolean;
   firstRunSetup?: ProjectFirstRunSetup | null;
-  /** `?view=` from the URL: re-select that saved tab on arrival (SPEC-187). */
+  /** `?view=` from the URL: re-select that saved tab on arrival. */
   initialViewId?: string | null;
 }
 
@@ -142,7 +142,7 @@ export function AgentTasksClient({
   // task list visible so routine resyncs do not hide valid tasks.
   const sourceNeedsAttention =
     taskSource?.inventory_stale === true;
-  // SPEC-180: a virgin Project gets the full first-run journey instead
+  // A virgin Project gets the full first-run journey instead
   // of the one-line publish hint; it disappears on durable progress.
   const showFirstRun = firstRunSetup !== null;
   const showSetupCard =

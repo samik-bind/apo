@@ -1,4 +1,4 @@
-"""Installation Administrator guard (SPEC-179).
+"""Installation Administrator guard.
 
 Extracts the private ``auth.py::_require_admin`` semantics into a shared
 request-aware helper: only an authenticated, active ``UserDB.is_admin``

@@ -134,7 +134,7 @@ class TestSetup:
         self, client: TestClient, session: Session
     ) -> None:
         # #152: /auth/setup is first-installation only. Once claimed,
-        # admission is invite-only (SPEC-179) — an open setup route would
+        # admission is invite-only — an open setup route would
         # let anyone create an account without an invitation.
         client.post(
             "/auth/setup",

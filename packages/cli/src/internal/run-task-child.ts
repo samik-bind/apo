@@ -46,7 +46,7 @@ async function main(): Promise<number> {
   try {
     const summary = await runTaskDir(taskDir);
 
-    // SPEC-172: upload file artifacts after checks, before fd-3 result.
+    // Upload file artifacts after checks, before fd-3 result.
     const deliverables = (summary as { deliverables?: Record<string, unknown> }).deliverables;
     if (deliverables && Object.values(deliverables).some(isFileArtifact)) {
       try {

@@ -1,4 +1,4 @@
-"""Dev sign-in endpoints (SPEC-181).
+"""Dev sign-in endpoints.
 
 One-click dashboard access for AI agents (and local developers) on
 deployments that opt in. ``GET /auth/dev-signin/available`` tells the login

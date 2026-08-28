@@ -86,7 +86,7 @@ The system has three distinct authentication modes. They should not be mixed.
      Attempt, Run, lease generation, and permissions
    - neither credential ever reuses a browser session cookie
 
-### Admission (SPEC-179)
+### Admission
 
 Admission to an installation is **not** Project membership. A Hosted Access
 Invitation is a single-use bearer capability issued by an Installation
@@ -121,7 +121,7 @@ This keeps the auth model clean:
 
 ### OTel-Native Trace Ingestion
 
-### Project Boundary (SPEC-178)
+### Project Boundary
 
 **Project** is apo's authorization boundary. Every Project-owned read, write,
 stream, and deletion goes through one canonical credential-aware policy:
@@ -501,7 +501,7 @@ The recommended cleanup strategy is:
 3. delete obsolete product-facing legacy code in stages,
 4. remove backend/domain compatibility only after active UI migration is complete.
 
-See `specs/171-public-docs-on-existing-vps.md` for the full contract. The optimizer-era code has already been removed from source; the historical cleanup intent is documented above.
+The optimizer-era code has already been removed from source; the historical cleanup intent is documented above.
 
 ## Data Flow
 
@@ -598,7 +598,7 @@ terminates HTTPS and forwards every request to the frontend; browser API calls
 use the same-origin `/backend-proxy/*` bridge, the canonical public OTLP route
 `/api/public/otel/v1/traces` and the CLI's `/v1/*` + `/auth/*` routes are
 rewritten by Next.js to the backend. The ingress owns transport, not identity
-(SPEC-182): admission shells render Apo's own login/join UI, and every
+: admission shells render Apo's own login/join UI, and every
 protected route is guarded by Apo's session/API-key authentication and Project
 authorization — there is no installation-wide ingress password.
 Frontend and backend diagnostic ports bind to `127.0.0.1`, and the database is
@@ -624,7 +624,7 @@ project operator's tunnel deployment.
 - **Host-terminal routing**: Caddy routes every request whose `Host` is the docs
   hostname to the docs container and stops. Docs-host requests can never reach
   the backend, OTLP, or readiness paths. The application hostname delegates
-  identity entirely to Apo's application authentication (SPEC-182) — the
+  identity entirely to Apo's application authentication — the
   ingress carries no Basic Auth gate of its own.
 - **Agent-readable first-class**: `/start.md` and every `*.md` route are
   published and tested, not incidental Astro output. The landing-page Copy
@@ -633,4 +633,3 @@ project operator's tunnel deployment.
   reference, a broken same-origin link, a missing schema artifact, or a
   Copy Prompt/origin disagreement.
 
-See `specs/171-public-docs-on-existing-vps.md` for the full contract.

@@ -44,7 +44,7 @@ PUBLIC_PATHS: tuple[str, ...] = (
     "/auth/verify-password",
     "/auth/setup",
     "/auth/has-users",
-    # dev sign-in (SPEC-181): the DEV_SIGNIN_ENABLED / deployment-profile
+    # dev sign-in: the DEV_SIGNIN_ENABLED / deployment-profile
     # gate is enforced inside the handlers; the frontend button is cosmetic.
     "/auth/dev-signin",
     "/auth/dev-signin/available",
@@ -57,7 +57,7 @@ PUBLIC_PATHS: tuple[str, ...] = (
     # acceptance path stays authenticated.
     "/auth/invitations/preview",
     "/auth/invitations/accept/create-account",
-    # hosted access admission (SPEC-179): the bearer token is the
+    # hosted access admission: the bearer token is the
     # authority for preview and new-account acceptance. Existing-account
     # acceptance requires the session before its route runs.
     "/auth/hosted-access/preview",

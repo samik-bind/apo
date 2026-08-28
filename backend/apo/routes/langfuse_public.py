@@ -176,7 +176,7 @@ async def langfuse_ingestion(
     Maps each event type to our internal format and processes
     using existing ingestion processors. Every event is written to the
     route-authorized Project (credential binding or session membership) —
-    a body Project never authorizes the write (SPEC-178).
+    a body Project never authorizes the write.
     """
     results: list[LangfuseIngestionResult] = []
 
@@ -242,7 +242,7 @@ async def list_traces(
     """List traces with optional filters, returns Langfuse format.
 
     The result is constrained to the caller's readable Projects; an
-    unscoped request never returns every tenant's rows (SPEC-178).
+    unscoped request never returns every tenant's rows.
     """
     allowed = _langfuse_list_scope(http_request, db, project)
     if allowed is not None and not allowed:
@@ -503,7 +503,7 @@ def _build_trace_response(
 
     Observations and scores are fetched with a Project predicate: OTel ids
     collide across Projects, so an unpinned ``run_id`` lookup would merge
-    another tenant's rows into this trace (SPEC-178).
+    another tenant's rows into this trace.
     """
     trace = run_to_langfuse_trace(run)
 

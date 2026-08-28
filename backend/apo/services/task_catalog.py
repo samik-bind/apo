@@ -131,7 +131,7 @@ def publish_catalog(
 ) -> dict[str, Any]:
     """Atomically replace a Project's task catalog.
 
-    SPEC-169: when tasks carry a ``definition`` document (schema v2), the
+    When tasks carry a ``definition`` document (schema v2), the
     canonical source is validated, deduplicated into immutable
     TaskDefinitionRevisionDB rows, and pinned on the inventory pointer.
     The catalog digest commits to the definition digest.

@@ -343,7 +343,7 @@ async def process_score_create(
 
     ``project`` is the route-authorized Project. The target trace/observation
     must exist inside it, so a caller cannot attach scores to another
-    Project's ids (SPEC-178).
+    Project's ids.
     """
     trace_id = _get_optional_str(body, "trace_id")
     observation_id = _get_optional_str(body, "observation_id")

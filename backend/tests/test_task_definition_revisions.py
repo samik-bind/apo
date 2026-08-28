@@ -2,7 +2,7 @@
 # pyright: reportAttributeAccessIssue=false, reportUnknownArgumentType=false
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 
-"""SPEC-169: Task Definition Revision service + source route tests."""
+"""Task Definition Revision service + source route tests."""
 
 from __future__ import annotations
 

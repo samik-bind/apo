@@ -431,7 +431,7 @@ async def delete_task_revision_bundles_for_project(
 ) -> int:
     """Delete bundle objects for all revisions in a project BEFORE their rows.
 
-    SPEC-178 §Project deletion: strict — a store failure raises a retryable
+    Strict — a store failure raises a retryable
     503 before any row is removed, so Project deletion can be retried and
     bundle bytes are never orphaned.
     """

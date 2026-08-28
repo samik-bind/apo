@@ -1,4 +1,4 @@
-"""SPEC-174 Phase 2 — selection-scoped view-vs-view comparison.
+"""— selection-scoped view-vs-view comparison.
 
 A comparison snapshot freezes, for a chosen set of tasks and two model/effort
 views, the resolved run on each side plus the task-definition revision each
@@ -41,7 +41,7 @@ class _ResolvedRun:
     run_id: str
     status: str | None
     task_definition_revision_id: str | None
-    # SPEC-185: effective verdict/count scalars frozen at snapshot creation.
+    # Effective verdict/count scalars frozen at snapshot creation.
     pass_result: bool | None
     total_checks: int | None
     passed_checks: int | None
@@ -170,7 +170,7 @@ def create_comparison(
                 a_status=a.status if a else None,
                 b_status=b.status if b else None,
                 state=state,
-                # SPEC-185: freeze the current effective scalars so the
+                # Freeze the current effective scalars so the
                 # snapshot renders identically even after later corrections.
                 a_pass_result=a.pass_result if a else None,
                 a_total_checks=a.total_checks if a else None,

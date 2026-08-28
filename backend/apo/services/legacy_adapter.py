@@ -40,7 +40,7 @@ def ingest_run_create_to_canonical(
     truth. The root span is NOT projected as a LoggedCallDB — only call-create
     events become calls.
 
-    ``project`` is the route-authorized Project (SPEC-178: credential-derived,
+    ``project`` is the route-authorized Project — credential-derived,
     never ``body["project"]``).
     """
     from ..models.db import RunDB

@@ -160,7 +160,7 @@ def create_api_key(
     expires_at = _parse_expires_at(body.expires_at)
 
     require_project_not_demo(body.project)
-    # SPEC-178: API-key creation requires admin role on the target Project
+    # API-key creation requires admin role on the target Project
     # through the canonical credential-aware guard (Issue #11 strictness is
     # preserved by the explicit existence check — no ghost-scoped keys, and
     # a key bound to Project A can never mint keys for Project B).
@@ -223,7 +223,7 @@ def list_api_keys(
 
     if project:
         # Project-scoped query: caller must be admin/owner of that exact
-        # Project. SPEC-178: the canonical guard also enforces API-key
+        # Project. The canonical guard also enforces API-key
         # Project binding — an A-bound key never lists B's keys.
         _ = enforce_project_role_from_request(
             request, session, project, minimum_role="admin"
@@ -233,7 +233,7 @@ def list_api_keys(
         )
     else:
         # Unscoped query: only Projects where the CREDENTIAL has admin
-        # authority. SPEC-178: an API key is limited to its bound Project
+        # authority. An API key is limited to its bound Project
         # (never the creator's other Projects), and a demoted creator
         # stops seeing keys because membership is intersected.
         readable = readable_project_ids_for_request(request, session)
@@ -300,8 +300,8 @@ def revoke_api_key(
     require_project_not_demo(api_key.project)
 
     # API key revocation requires admin role on the key's Project through
-    # the canonical credential-aware guard (SPEC-178: an A-bound key can
-    # never revoke B's keys even when its creator is a B admin).
+    # the canonical credential-aware guard (an A-bound key can never
+    # revoke B's keys even when its creator is a B admin).
     # Legacy projects (no ProjectDB row) tolerate the creator as implicit
     # owner via the dev-profile fallback inside the guard.
     membership = enforce_project_role_from_request(
@@ -342,7 +342,7 @@ def rotate_api_key(
     require_project_not_demo(api_key.project)
 
     # API key rotation requires admin role on the key's Project through
-    # the canonical credential-aware guard (SPEC-178 key binding).
+    # the canonical credential-aware guard.
     membership = enforce_project_role_from_request(
         request, session, api_key.project, minimum_role="admin"
     )

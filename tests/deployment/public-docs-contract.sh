@@ -3,7 +3,7 @@
 #
 # Renders the full tunnel + public-docs Compose stack and asserts the docs
 # service, Caddy host routing, and Cloudflare Tunnel ingress match the
-# SPEC-171 public HTTP contract — without needing live DNS or the VPS.
+# Public HTTP contract — without needing live DNS or the VPS.
 #
 # Run: bash tests/deployment/public-docs-contract.sh
 

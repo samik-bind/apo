@@ -40,8 +40,8 @@ def _credential_project(http_request: Request) -> str | None:
     """The Project bound to a credential (API key / service / Attempt token).
 
     Cookie sessions carry no Project — ``None`` tells the caller to derive
-    the Project from the target instead (SPEC-178: the literal ``default``
-    fallback was never authority).
+    the Project from the target instead (the literal ``default`` fallback
+    was never authority).
     """
     state = getattr(http_request, "state", None)
     if state is None:
@@ -103,7 +103,7 @@ async def create_trace_score_endpoint(
         _run = require_run_not_demo(session, trace_id, project)
     else:
         # Session / open-dev: the Project comes from the target run's
-        # durable ownership and the caller must be a member (SPEC-178).
+        # durable ownership and the caller must be a member.
         project = _session_score_project(
             http_request, session, _run_candidate_projects(session, trace_id)
         )
@@ -144,7 +144,7 @@ async def create_observation_score_endpoint(
         _call = require_call_not_demo(session, obs_id, project)
     else:
         # Session / open-dev: the Project comes from the target call's
-        # durable ownership and the caller must be a member (SPEC-178).
+        # durable ownership and the caller must be a member.
         project = _session_score_project(
             http_request, session, _call_candidate_projects(session, obs_id)
         )
@@ -178,7 +178,7 @@ async def get_trace_scores(
 
     Returns both quality and aggregate metrics.
     """
-    # SPEC-178: require readable Project membership.
+    # Require readable Project membership.
     enforce_project_read_from_request(request, session, project)
     metrics = get_scores_for_trace(session, trace_id, project)
     return [_metric_to_score_response(m, trace_id=trace_id) for m in metrics]
@@ -202,7 +202,7 @@ async def create_bulk_scores(
         project = credential_project
     else:
         # Session / open-dev: derive the Project from the target's durable
-        # ownership and require membership (SPEC-178).
+        # ownership and require membership.
         if request.observation_id:
             candidates = _call_candidate_projects(session, request.observation_id)
         else:
@@ -263,7 +263,7 @@ async def list_score_configs(
 
     Returns non-archived score configs, optionally filtered by project.
     """
-    # SPEC-178: scope by readable Projects.
+    # Scope by readable Projects.
     if project:
         enforce_project_read_from_request(request, session, project)
         project_ids: list[str] | None = [project]

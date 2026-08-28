@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { SourceOwnedAssignment } from "../src/lib/connected-executor.ts";
 
 /*
- * Result-submission compaction scene test (SPEC-186 / issue #175).
+ * Result-submission compaction scene test (issue #175).
  *
  * Drives connect.ts::executeAssignment against a mocked Control Plane and a
  * stubbed child spawner whose summary carries judged checks with a large
@@ -114,7 +114,7 @@ function capturedResult(): Record<string, unknown> {
   return fetchCalls.find((c) => c.url.endsWith("/result"))!.body as Record<string, unknown>;
 }
 
-describe("result submission compaction (SPEC-186)", () => {
+describe("result submission compaction", () => {
   beforeEach(() => {
     fetchCalls.length = 0;
     childOutcome = { ok: true, summary: { pass: true, adapterName: "claude-code" } };

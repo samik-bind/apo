@@ -89,7 +89,7 @@ def _load_project_for_request(
         raise HTTPException(status_code=404, detail="Project not found")
     if project_id == DEMO_PROJECT_ID:
         return project
-    # SPEC-178: canonical credential-aware guard — an API key is limited
+    # Canonical credential-aware guard — an API key is limited
     # to its bound Project even when its creator is a member elsewhere.
     _ = enforce_project_read_from_request(request, session, project_id)
     return project

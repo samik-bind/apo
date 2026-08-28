@@ -251,7 +251,7 @@ function LoginCredentialsForm({
           </>
         )}
 
-        {/* SPEC-179: admission is invitation-only once initialized — the
+        {/* Admission is invitation-only once initialized — the
             /setup link exists only while first-user setup is available. */}
         {setupAvailable ? (
           <p className="text-center text-xs text-muted-foreground">
