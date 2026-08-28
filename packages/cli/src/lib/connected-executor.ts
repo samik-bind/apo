@@ -292,11 +292,23 @@ export async function startAttempt(opts: {
   return await resp.json();
 }
 
+/** A non-ok /attempts/{id}/heartbeat, carrying the status (issue #176). */
+export class AttemptHeartbeatHttpError extends Error {
+  readonly status: number;
+  constructor(status: number, detail: string) {
+    super(`Attempt heartbeat failed: ${status} ${detail}`);
+    this.name = "AttemptHeartbeatHttpError";
+    this.status = status;
+  }
+}
+
 export async function heartbeatAttempt(opts: {
   backendUrl: string;
   attemptJwt: string;
   attemptId: string;
   phase: string;
+  /** Per-beat bound; default 25s leaves headroom under the 30s interval. */
+  timeoutMs?: number;
 }): Promise<{ cancel_requested: boolean }> {
   const resp = await fetch(`${v2Base(opts.backendUrl)}/attempts/${opts.attemptId}/heartbeat`, {
     method: "POST",
@@ -305,10 +317,11 @@ export async function heartbeatAttempt(opts: {
       "Authorization": `Bearer ${opts.attemptJwt}`,
     },
     body: JSON.stringify({ phase: opts.phase }),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 25_000),
   });
 
   if (!resp.ok) {
-    throw new Error(`Attempt heartbeat failed: ${resp.status}`);
+    throw new AttemptHeartbeatHttpError(resp.status, await resp.text());
   }
 
   return await resp.json();

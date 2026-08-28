@@ -16,6 +16,7 @@ import { walkWorkspaceForRevision } from "../lib/task-revision.ts";
 import { readGitProvenance } from "../lib/git-provenance.ts";
 import { runTaskChild } from "../lib/local-task-child.ts";
 import {
+  AttemptHeartbeatHttpError,
   bootstrapAndEnroll,
   heartbeat,
   claimWorkStructured,
@@ -27,6 +28,7 @@ import {
   type SourceOwnedFailureKind,
   type SourceOwnedAssignment,
 } from "../lib/connected-executor.ts";
+import { heartbeatTimeoutMs } from "../lib/caller-execution.ts";
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -234,6 +236,7 @@ async function executeAssignment(
   taskRoot: string,
   assignment: SourceOwnedAssignment,
   cancelSignal: AbortSignal,
+  heartbeatIntervalMs: number = 30_000,
 ): Promise<void> {
   const completionId = `${assignment.attempt_id}-${Date.now()}`;
   // track finalization explicitly so the catch block never
@@ -306,15 +309,21 @@ async function executeAssignment(
     attemptId: assignment.attempt_id,
   });
 
-  // 6. Heartbeat while the isolated child runs.
-  const heartbeatInterval = setInterval(() => {
-    heartbeatAttempt({
-      backendUrl,
-      attemptJwt: assignment.attempt_jwt,
-      attemptId: assignment.attempt_id,
-      phase: "running",
-    }).catch(() => {});
-  }, 30_000);
+  // 6. Heartbeat while the isolated child runs — and through the terminal
+  // /result or /failure POST (issue #176, the connect path's version of the
+  // caller-path fix): every beat renews the lease, so the interval must not
+  // be cleared before those submissions complete. Cancellation requests and
+  // lease loss abort the child through a composed controller so a dead
+  // attempt stops spending.
+  const taskCancel = new AbortController();
+  const onOuterCancel = (): void => taskCancel.abort();
+  cancelSignal.addEventListener("abort", onOuterCancel);
+  const heartbeatInterval = startAssignmentHeartbeat(
+    backendUrl,
+    assignment,
+    () => taskCancel.abort(),
+    heartbeatIntervalMs,
+  );
 
   try {
     // 7. Run the Task in a spawned child with timeout + cancellation.
@@ -331,10 +340,8 @@ async function executeAssignment(
       traceRequired: true,
       attemptJwt: assignment.attempt_jwt,
       timeoutSeconds: assignment.timeout_seconds,
-      cancelSignal,
+      cancelSignal: taskCancel.signal,
     });
-
-    clearInterval(heartbeatInterval);
 
     if (!outcome.ok) {
       const isArtifactError = outcome.error?.startsWith("artifact_persistence:");
@@ -411,13 +418,79 @@ async function executeAssignment(
       },
     });
   } catch (err) {
-    clearInterval(heartbeatInterval);
     // only submit a failure if no finalization has happened.
     if (!finalized) {
       await fail("task_runtime", (err as Error).message);
     }
     throw err;
+  } finally {
+    // The heartbeat outlives the child on purpose (issue #176): cleared
+    // here — after the terminal /result or /failure POST resolved.
+    clearInterval(heartbeatInterval);
+    cancelSignal.removeEventListener("abort", onOuterCancel);
   }
+}
+
+/**
+ * Beats for one source-owned assignment: renews the lease, honors
+ * cancellation, and reports problems loudly instead of swallowing them
+ * (issue #176 — a silently dead beat stream loses the run as `lost`, and a
+ * dropped cancel_requested keeps a cancelled Task spending).
+ */
+function startAssignmentHeartbeat(
+  backendUrl: string,
+  assignment: SourceOwnedAssignment,
+  abortChild: () => void,
+  intervalMs: number,
+): ReturnType<typeof setInterval> {
+  let consecutiveFailures = 0;
+  let aborted = false;
+  let leaseLostAnnounced = false;
+  const cancelOnce = (): void => {
+    if (aborted) return;
+    aborted = true;
+    abortChild();
+  };
+  const beat = async (): Promise<void> => {
+    try {
+      const { cancel_requested } = await heartbeatAttempt({
+        backendUrl,
+        attemptJwt: assignment.attempt_jwt,
+        attemptId: assignment.attempt_id,
+        phase: "running",
+        timeoutMs: heartbeatTimeoutMs(intervalMs),
+      });
+      consecutiveFailures = 0;
+      if (cancel_requested && !aborted) {
+        console.error(red("Warning: backend requested cancellation — stopping the Task"));
+      }
+      if (cancel_requested) cancelOnce();
+    } catch (err) {
+      if (err instanceof AttemptHeartbeatHttpError && err.status === 409) {
+        // Terminal: no result can be submitted against a lost lease. Stop
+        // the Task instead of finishing work the backend will discard.
+        if (!leaseLostAnnounced) {
+          leaseLostAnnounced = true;
+          console.error(
+            red(
+              "Warning: lease lost (backend returned 409 for the heartbeat) — " +
+                "this attempt can no longer be finalized",
+            ),
+          );
+        }
+        cancelOnce();
+        return;
+      }
+      consecutiveFailures += 1;
+      console.error(
+        `Warning: heartbeat failed (${consecutiveFailures} in a row): ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+    }
+  };
+  // Beat immediately after /start, then on the interval.
+  void beat();
+  return setInterval(() => void beat(), intervalMs);
 }
 
 // Test-only export: executeAssignment is otherwise module-private. Exposed so

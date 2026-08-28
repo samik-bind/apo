@@ -191,3 +191,85 @@ describe("connector assignment execution", () => {
     expect(fetchCalls.find((c) => c.url.endsWith("/result"))).toBeUndefined();
   });
 });
+
+describe("assignment heartbeat liveness (issue #176)", () => {
+  beforeEach(() => {
+    childOutcome = { ok: true, summary: { pass: true, adapterName: "claude-code", traceRunId: "tr-1" } };
+    lastChildOpts = undefined;
+    fetchCalls.length = 0;
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  function installFetch(overrides: {
+    heartbeat?: () => Response;
+    result?: () => Promise<Response> | Response;
+    onBeat?: () => void;
+  }): void {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: URL | Request | string) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/heartbeat")) {
+        overrides.onBeat?.();
+        return overrides.heartbeat ? overrides.heartbeat() : jsonResp({ cancel_requested: false });
+      }
+      if (url.endsWith("/result")) {
+        return overrides.result ? overrides.result() : jsonResp({ ok: true });
+      }
+      if (url.endsWith("/source-attestation")) return jsonResp({ task_revision_id: "rev-1", content_sha256: "x" });
+      if (url.endsWith("/start")) return jsonResp({ attempt_id: "att-1", status: "running", phase: "running" });
+      if (url.endsWith("/failure")) return jsonResp({ ok: true });
+      return jsonResp({});
+    });
+  }
+
+  it("keeps beating while the result POST is in flight", async () => {
+    let resultInFlight = false;
+    let beatsDuringResult = 0;
+    installFetch({
+      onBeat: () => { if (resultInFlight) beatsDuringResult += 1; },
+      result: async () => {
+        resultInFlight = true;
+        await new Promise((r) => setTimeout(r, 120));
+        resultInFlight = false;
+        return jsonResp({ ok: true });
+      },
+    });
+
+    await exec!("http://cp", "/ws", { ...assignment }, new AbortController().signal, 10);
+
+    expect(beatsDuringResult).toBeGreaterThan(0);
+  });
+
+  it("aborts the child and warns when the heartbeat reports cancellation", async () => {
+    installFetch({ heartbeat: () => jsonResp({ cancel_requested: true }) });
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => { errors.push(a.join(" ")); });
+
+    await exec!("http://cp", "/ws", { ...assignment }, new AbortController().signal, 10);
+
+    const cancelSignal = (lastChildOpts as { cancelSignal?: AbortSignal } | undefined)?.cancelSignal;
+    expect(cancelSignal?.aborted).toBe(true);
+    expect(errors.some((e) => e.toLowerCase().includes("cancel"))).toBe(true);
+  });
+
+  it("warns loudly and aborts when the lease is lost (409)", async () => {
+    installFetch({ heartbeat: () => jsonResp({ detail: { kind: "lease_stale" } }, 409) });
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => { errors.push(a.join(" ")); });
+
+    await exec!("http://cp", "/ws", { ...assignment }, new AbortController().signal, 10);
+
+    const cancelSignal = (lastChildOpts as { cancelSignal?: AbortSignal } | undefined)?.cancelSignal;
+    expect(cancelSignal?.aborted).toBe(true);
+    expect(errors.some((e) => e.includes("lease lost"))).toBe(true);
+  });
+
+  it("warns on failed beats instead of swallowing them", async () => {
+    installFetch({ heartbeat: () => jsonResp({}, 500) });
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => { errors.push(a.join(" ")); });
+
+    await exec!("http://cp", "/ws", { ...assignment }, new AbortController().signal, 10);
+
+    expect(errors.some((e) => /heartbeat failed \(\d+ in a row\)/.test(e))).toBe(true);
+  });
+});
