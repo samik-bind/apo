@@ -5,6 +5,7 @@ import { ChevronDown } from "lucide-react";
 
 import { ModelFilterMenu } from "@/components/model-filter-menu";
 import { FilterPicker } from "@/app/project/[projectId]/tasks/components/FilterPicker";
+import { PrototypeFilterRow } from "@/components/prototype-unified-filters";
 import { fetchSavedViews } from "@/lib/agent-task-view-api";
 import type { RunConfigModelFacet } from "@/lib/agent-task-view-api";
 import { parseRunCohort, type RunCohort } from "@/lib/run-cohort";
@@ -216,6 +217,58 @@ export function RunHistoryScopeBar({
     since: patch.since !== undefined ? patch.since : scope.since,
     status: patch.status !== undefined ? patch.status : scope.status,
   });
+
+  // PROTOTYPE: ?variant= swaps this scope bar for the unified-filter study.
+  // Everything stays URL-backed here, so the prototype row filters for real.
+  const variant = searchParams.get("variant");
+  if (variant) {
+    const tiers = facets.find((f) => f.model === scope.model)?.efforts ?? [];
+    return (
+      <PrototypeFilterRow
+        variant={variant}
+        statusOptions={RUN_STATUS_CHIPS.map((c) => ({
+          value: c.value,
+          label: c.label,
+          dot: c.dot,
+        }))}
+        status={scope.status}
+        onStatusChange={(status) => writeParams(merged({ status }), true)}
+        modelOptions={facets}
+        model={scope.model}
+        onModelChange={(model) => writeParams(merged({ model, effort: null }), true)}
+        effortOptions={tiers.length >= 2 ? tiers.map((t) => ({ value: t.effort, label: t.effort })) : []}
+        effort={scope.effort}
+        onEffortChange={(effort) => writeParams(merged({ effort }), true)}
+        since={scope.since}
+        onSinceChange={(since) => writeParams(merged({ since }), true)}
+        onClearAll={() =>
+          writeParams(
+            { ...scope, model: null, effort: null, since: null, status: new Set() },
+            true,
+          )
+        }
+        trailing={
+          <>
+            {viewLabel && (
+              <span className="text-[11px] text-muted-foreground">{`scoped to view: ${viewLabel}`}</span>
+            )}
+            <button
+              type="button"
+              onClick={() =>
+                writeParams(
+                  { ...scope, model: null, effort: null, since: null, status: new Set() },
+                  true,
+                )
+              }
+              className="text-[11px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
+            >
+              All history
+            </button>
+          </>
+        }
+      />
+    );
+  }
 
   return (
     <TaskRunHistoryControls

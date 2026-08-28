@@ -12,11 +12,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  PrototypeFilterRow,
+  type PrototypeStatusOption,
+} from "@/components/prototype-unified-filters";
 import { shortModel } from "@/lib/run-configuration";
 import { ALL_SINCE_VALUE, sinceOptionsFor } from "@/lib/since-window";
 import { ModelFilterMenu } from "@/components/model-filter-menu";
 
 import { type ModelOption } from "../runs-model-filter";
+
+// PROTOTYPE: the statuses batch runs actually have. The current toolbar offers
+// "Passed", which no batch ever carries (they are completed/partial/…), so that
+// option silently filters everything out.
+const BATCH_STATUS_OPTIONS: PrototypeStatusOption[] = [
+  { value: "queued", label: "Queued", dot: "bg-muted-foreground/30" },
+  { value: "running", label: "Running", dot: "bg-foreground/50" },
+  { value: "completed", label: "Completed", dot: "bg-success" },
+  { value: "partial", label: "Partial", dot: "bg-warning" },
+  { value: "failed", label: "Failed", dot: "bg-destructive" },
+  { value: "error", label: "Error", dot: "bg-destructive/70" },
+];
 
 interface RunsToolbarProps {
   /** Current `?q` value — the search box follows it (see sync note below). */
@@ -34,6 +50,8 @@ interface RunsToolbarProps {
   onClearFilters: () => void;
   /** Retire a model from the palette, or bring it back. */
   onSetArchived: (model: string, archived: boolean) => void;
+  /** PROTOTYPE: ?variant= swaps this toolbar for the unified-filter study. */
+  prototypeVariant?: string | null;
 }
 
 /**
@@ -54,6 +72,7 @@ export function RunsToolbar({
   updateUrl,
   onClearFilters,
   onSetArchived,
+  prototypeVariant = null,
 }: RunsToolbarProps) {
   const [searchInput, setSearchInput] = useState(urlQ);
   // Follow ?q changes that did not come from our own typing (initial load,
@@ -83,6 +102,70 @@ export function RunsToolbar({
     },
     [updateUrl],
   );
+
+  // PROTOTYPE: local status state for the unified row. The runs API accepts a
+  // single status value, so a multi-select here cannot drive the table yet —
+  // the readout under the row shows the URL a multi-status world would write.
+  const [protoStatus, setProtoStatus] = useState<Set<string>>(() => new Set());
+
+  if (prototypeVariant) {
+    return (
+      <div className="shrink-0 border-b border-border bg-background">
+        <div className="flex flex-col gap-3 px-6 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            <span>Agent Testing</span>
+            <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
+            <span className="text-foreground">Runs</span>
+          </div>
+        </div>
+        <div className="border-t border-border px-6 py-2.5">
+          <PrototypeFilterRow
+            variant={prototypeVariant}
+            statusOptions={BATCH_STATUS_OPTIONS}
+            status={protoStatus}
+            onStatusChange={setProtoStatus}
+            modelOptions={modelOptions}
+            model={selectedModels.size === 1 ? Array.from(selectedModels)[0] ?? null : null}
+            onModelChange={(model) => updateUrl({ model, effort: null, page: null })}
+            onSetArchived={onSetArchived}
+            effortOptions={effortOptions.map((e) => ({
+              value: e.effort,
+              label: e.count > 0 ? `${e.effort} (${e.count})` : e.effort,
+            }))}
+            effort={selectedEfforts.size === 1 ? Array.from(selectedEfforts)[0] ?? null : null}
+            onEffortChange={(effort) => updateUrl({ effort, page: null })}
+            since={urlSince}
+            onSinceChange={(since) => updateUrl({ since, page: null })}
+            query={searchInput}
+            onQueryChange={handleSearchChange}
+            searchPlaceholder="Filter by ID, selection, environment..."
+            onClearAll={() => {
+              setProtoStatus(new Set());
+              onClearFilters();
+            }}
+            readoutNote="status display-only here: the runs API takes one status value today"
+            trailing={
+              <>
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    data-testid="runs-clear-filters"
+                    onClick={onClearFilters}
+                    className="underline-offset-2 hover:text-foreground/70 hover:underline"
+                  >
+                    Clear Filters
+                  </button>
+                )}
+                <span>
+                  <span className="font-medium text-foreground">{totalCount}</span> runs
+                </span>
+              </>
+            }
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="shrink-0 border-b border-border bg-background">

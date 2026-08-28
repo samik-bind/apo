@@ -32,6 +32,8 @@ interface AgentTasksClientProps {
   firstRunSetup?: ProjectFirstRunSetup | null;
   /** `?view=` from the URL: re-select that saved tab on arrival. */
   initialViewId?: string | null;
+  /** `?variant=` from the URL: mount the unified-filter prototype row. */
+  prototypeVariant?: string | null;
 }
 
 export function AgentTasksClient({
@@ -41,6 +43,7 @@ export function AgentTasksClient({
   isDemo,
   firstRunSetup = null,
   initialViewId = null,
+  prototypeVariant = null,
 }: AgentTasksClientProps) {
   const projectId = useProjectId();
   const clientIsDemo = useIsDemo();
@@ -85,6 +88,16 @@ export function AgentTasksClient({
     if (statusFilter.size === STATUS_FILTER_KEYS.length) return effectiveTasks;
     return effectiveTasks.filter((t) => statusFilter.has(taskFilterStatus(t)));
   }, [effectiveTasks, statusFilter]);
+
+  // PROTOTYPE: per-status counts for the unified filter row's chips.
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const task of effectiveTasks) {
+      const key = taskFilterStatus(task);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, [effectiveTasks]);
 
   const folders = useMemo(() => groupByFolder(statusFilteredTasks), [statusFilteredTasks]);
 
@@ -198,6 +211,8 @@ export function AgentTasksClient({
               isDerived={activeView.model !== null || activeView.effort !== null}
               viewsActive={!isDemoProject}
               addingTab={addingTab}
+              prototypeVariant={prototypeVariant}
+              statusCounts={statusCounts}
               query={query}
               onQueryChange={setQuery}
               selectedCount={selected.size}

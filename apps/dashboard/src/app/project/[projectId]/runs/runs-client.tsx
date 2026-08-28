@@ -38,6 +38,7 @@ export function RunsClient({
   totalPages,
   modelFacets,
   canDeleteRuns,
+  prototypeVariant = null,
 }: {
   batchRuns: AgentTaskBatchRunSummary[];
   error: string | null;
@@ -49,6 +50,8 @@ export function RunsClient({
   modelFacets: ModelFacetOption[];
   /** Caller's project role allows run deletion (owner/admin). */
   canDeleteRuns: boolean;
+  /** PROTOTYPE: ?variant= swaps the toolbar for the unified-filter study. */
+  prototypeVariant?: string | null;
 }) {
   const projectId = useProjectId();
   const router = useRouter();
@@ -211,6 +214,7 @@ export function RunsClient({
         updateUrl={updateUrl}
         onClearFilters={clearFilters}
         onSetArchived={setModelArchivedState}
+        prototypeVariant={prototypeVariant}
       />
 
       <div className="flex-1 overflow-auto">

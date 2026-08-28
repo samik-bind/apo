@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { ModelFilterMenu } from "@/components/model-filter-menu";
+import { PrototypeFilterRow } from "@/components/prototype-unified-filters";
 import { shortModel } from "@/lib/run-configuration";
 import { ALL_SINCE_VALUE, sinceOptionsFor } from "@/lib/since-window";
 
@@ -42,6 +43,8 @@ export function EvidenceViewsBar({
   isDerived,
   viewsActive,
   addingTab,
+  prototypeVariant,
+  statusCounts,
   query,
   onQueryChange,
   selectedCount,
@@ -63,6 +66,10 @@ export function EvidenceViewsBar({
   isDerived: boolean;
   viewsActive: boolean;
   addingTab: boolean;
+  /** PROTOTYPE: swap the filter row for the unified-filter study (?variant=). */
+  prototypeVariant?: string | null;
+  /** PROTOTYPE: per-status task counts for the unified row's chips. */
+  statusCounts?: Record<string, number>;
   query: string;
   onQueryChange: (value: string) => void;
   selectedCount: number;
@@ -95,6 +102,26 @@ export function EvidenceViewsBar({
     const keepsEffort = facet ? facet.efforts.some((e) => e.effort === active.effort) : false;
     onChange({ model, effort: keepsEffort ? active.effort : null });
   }
+
+  const trailingNode = (
+    <div className="ml-auto flex items-center gap-3 text-[12px] text-muted-foreground">
+      {selectedCount > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={onClearSelection}
+            className="underline-offset-2 hover:text-foreground/70 hover:underline"
+          >
+            <span className="font-medium text-foreground/70">{selectedCount}</span> selected
+          </button>
+          <div className="h-4 w-px bg-border" />
+        </>
+      )}
+      <button type="button" onClick={onToggleExpandAll} className="hover:text-foreground/70">
+        {allExpanded ? "Collapse all" : "Expand all"}
+      </button>
+    </div>
+  );
 
   return (
     <div className="border-b border-border bg-muted/10">
@@ -166,8 +193,41 @@ export function EvidenceViewsBar({
         </div>
       )}
 
-      {/* One unified filter row: text search + (Model + model-aware Effort when
-          views are active) + selection + expand. */}
+      {/* PROTOTYPE: the unified-filter study replaces this page's filter row
+          (search included) while the tabs and trailing controls stay real. */}
+      {prototypeVariant ? (
+        <div className="border-t border-border px-6 py-2.5">
+          <PrototypeFilterRow
+            variant={prototypeVariant}
+            statusOptions={STATUS_FILTERS.map((s) => ({
+              value: s.key,
+              label: s.label,
+              dot: s.dot,
+              count: statusCounts?.[s.key],
+            }))}
+            status={statusFilter}
+            onStatusChange={(next) => {
+              // Differencing against onToggleStatus keeps the page's own
+              // "toggling the last status off resets to all" rule in charge.
+              for (const key of statusFilter) if (!next.has(key)) onToggleStatus(key);
+              for (const key of next) if (!statusFilter.has(key)) onToggleStatus(key);
+            }}
+            modelOptions={facets}
+            model={active.model}
+            onModelChange={(model) => changeModel(model === null ? ALL_MODELS_VALUE : model)}
+            onSetArchived={onSetArchived}
+            effortOptions={effortOptions.map((e) => ({ value: e.effort, label: e.effort }))}
+            effort={active.effort}
+            onEffortChange={(effort) => onChange({ effort })}
+            since={active.since}
+            onSinceChange={(since) => onChange({ since })}
+            query={query}
+            onQueryChange={onQueryChange}
+            searchPlaceholder="Filter tasks..."
+            trailing={trailingNode}
+          />
+        </div>
+      ) : (
       <div className="flex flex-wrap items-center gap-2 px-6 py-2">
         <div className="relative min-w-[200px] flex-1 max-w-sm">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
@@ -257,24 +317,9 @@ export function EvidenceViewsBar({
             )}
           </>
         )}
-        <div className="ml-auto flex items-center gap-3 text-[12px] text-muted-foreground">
-          {selectedCount > 0 && (
-            <>
-              <button
-                type="button"
-                onClick={onClearSelection}
-                className="underline-offset-2 hover:text-foreground/70 hover:underline"
-              >
-                <span className="font-medium text-foreground/70">{selectedCount}</span> selected
-              </button>
-              <div className="h-4 w-px bg-border" />
-            </>
-          )}
-          <button type="button" onClick={onToggleExpandAll} className="hover:text-foreground/70">
-            {allExpanded ? "Collapse all" : "Expand all"}
-          </button>
-        </div>
+        {trailingNode}
       </div>
+      )}
     </div>
   );
 }

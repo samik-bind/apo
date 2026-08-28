@@ -29,6 +29,10 @@ export default async function RunsPage({
   const models = modelParam ? modelParam.split(",").filter(Boolean) : undefined;
   const effortParam = typeof query.effort === "string" ? query.effort : undefined;
   const efforts = effortParam ? effortParam.split(",").filter(Boolean) : undefined;
+  // PROTOTYPE: ?variant= mounts the unified-filter study on this page.
+  const variantRaw = query.variant;
+  const prototypeVariant =
+    typeof variantRaw === "string" && variantRaw ? variantRaw : null;
 
   let batchRuns: AgentTaskBatchRunSummary[] = [];
   let totalCount = 0;
@@ -77,6 +81,7 @@ export default async function RunsPage({
           totalPages={totalPages}
           modelFacets={modelFacets}
           canDeleteRuns={canDeleteRuns}
+          prototypeVariant={prototypeVariant}
         />
       </Suspense>
     </main>
