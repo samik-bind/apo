@@ -36,3 +36,29 @@ export function hrefWithRunCohort(href: string, cohort: RunCohort): string {
   if (!query) return href;
   return `${href}${href.includes("?") ? "&" : "?"}${query}`;
 }
+
+/**
+ * The shape `useSearchParams`/RSC `searchParams` hand to a page: each key maps
+ * to one value, several values, or nothing at all.
+ */
+export type SearchParamQuery = Record<string, string | string[] | undefined>;
+
+/** Parse the cohort vocabulary (`?model=&effort=&since=`) from page search params. */
+export function parseRunCohort(query: SearchParamQuery): RunCohort {
+  const first = (key: string): string | null => {
+    const value = query[key];
+    const single = Array.isArray(value) ? value[0] : value;
+    return typeof single === "string" && single ? single : null;
+  };
+  return { model: first("model"), effort: first("effort"), since: first("since") };
+}
+
+/**
+ * Append the saved-view identity param (`?view=`). It is informational — the
+ * tasks page uses it to re-select the tab, the task detail page to name the
+ * scope's origin — and degrades to a plain link when absent.
+ */
+export function withViewId(href: string, viewId: string | null | undefined): string {
+  if (!viewId) return href;
+  return `${href}${href.includes("?") ? "&" : "?"}view=${encodeURIComponent(viewId)}`;
+}

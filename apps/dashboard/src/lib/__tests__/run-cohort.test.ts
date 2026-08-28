@@ -1,0 +1,61 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  hrefWithRunCohort,
+  parseRunCohort,
+  withViewId,
+} from "../run-cohort";
+
+describe("parseRunCohort", () => {
+  it("parses single model/effort/since values", () => {
+    expect(
+      parseRunCohort({ model: "claude-opus-4.5", effort: "high", since: "7d" }),
+    ).toEqual({ model: "claude-opus-4.5", effort: "high", since: "7d" });
+  });
+
+  it("empty and missing values mean all-history (null cohort)", () => {
+    expect(parseRunCohort({})).toEqual({ model: null, effort: null, since: null });
+    expect(parseRunCohort({ model: "", since: undefined })).toEqual({
+      model: null,
+      effort: null,
+      since: null,
+    });
+  });
+
+  it("takes the first value when a param repeats", () => {
+    expect(parseRunCohort({ model: ["a", "b"] })).toEqual({
+      model: "a",
+      effort: null,
+      since: null,
+    });
+  });
+});
+
+describe("withViewId", () => {
+  it("appends the view param to a plain href", () => {
+    expect(withViewId("/project/p/tasks", "v1")).toBe("/project/p/tasks?view=v1");
+  });
+
+  it("appends after existing query params", () => {
+    expect(withViewId("/project/p/tasks?model=opus", "v1")).toBe(
+      "/project/p/tasks?model=opus&view=v1",
+    );
+  });
+
+  it("leaves the href untouched without a view id", () => {
+    expect(withViewId("/project/p/tasks?model=opus", null)).toBe(
+      "/project/p/tasks?model=opus",
+    );
+  });
+});
+
+describe("hrefWithRunCohort (regression)", () => {
+  it("still appends cohort params and leaves empty cohorts plain", () => {
+    expect(hrefWithRunCohort("/x", { model: "opus", effort: null, since: "7d" })).toBe(
+      "/x?model=opus&since=7d",
+    );
+    expect(
+      hrefWithRunCohort("/x", { model: null, effort: null, since: null }),
+    ).toBe("/x");
+  });
+});

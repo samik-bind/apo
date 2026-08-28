@@ -21,8 +21,12 @@ import { getBrowserBackendBaseUrl } from "./config";
 
 export interface RequestOptions {
   method?: string;
-  /** Query params; null/undefined/"" entries are skipped. */
-  query?: Record<string, string | number | boolean | null | undefined>;
+  /**
+   * Query params; null/undefined/"" entries are skipped. A `string[]` value
+   * becomes repeated keys (`?k=a&k=b`) — the backend's repeatable-filter
+   * vocabulary (SPEC-187 `status`), never a comma-joined single value.
+   */
+  query?: Record<string, string | number | boolean | string[] | null | undefined>;
   /** JSON-serialized and sent with `Content-Type: application/json`. */
   body?: unknown;
   cache?: RequestCache;
@@ -36,7 +40,11 @@ function buildUrl(path: string, query?: RequestOptions["query"]): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value === null || value === undefined || value === "") continue;
-    params.set(key, String(value));
+    if (Array.isArray(value)) {
+      for (const item of value) params.append(key, item);
+    } else {
+      params.set(key, String(value));
+    }
   }
   const qs = params.toString();
   return qs ? `${url}?${qs}` : url;

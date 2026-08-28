@@ -616,6 +616,8 @@ export interface TaskRunCohortFilter {
   model?: string;
   effort?: string;
   since?: string;
+  /** OR'd run statuses (repeatable `?status=` — SPEC-187). */
+  status?: string[];
 }
 
 export const listTaskRuns = (
@@ -631,6 +633,7 @@ export const listTaskRuns = (
       model: cohort?.model,
       effort: cohort?.effort,
       since: cohort?.since,
+      status: cohort?.status,
     },
   });
 
