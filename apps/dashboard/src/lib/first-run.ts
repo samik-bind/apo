@@ -31,7 +31,7 @@ export function isValidPublicOrigin(raw: string | null | undefined): raw is stri
 /** Quote a value for safe display inside a POSIX-flavored shell command. */
 export function shellQuote(value: string): string {
   if (value === "") return "''";
-  if (/^[A-Za-z0-9._~:\/?#\[\]@!$&'()*+,;=%-]+$/.test(value) && !value.includes("'")) {
+  if (/^[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+$/.test(value) && !value.includes("'")) {
     return value;
   }
   return `'${value.replaceAll("'", `'\\''`)}'`;

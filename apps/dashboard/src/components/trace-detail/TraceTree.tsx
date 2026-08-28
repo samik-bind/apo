@@ -208,7 +208,6 @@ function SpanContent({
   }
 
   const c = call!;
-  const semanticType = getSemanticType(c);
   const latency = formatDuration(c.latency_ms);
   const modelLabel = getModelLabel(c.model);
   const displayName = getDisplayName(c);
@@ -725,13 +724,5 @@ export function TraceTree({
       </div>
     </div>
     </div>
-  );
-}
-
-function NodeTypeBadge({ label, color, bg }: { label: string; color?: string; bg?: string }) {
-  return (
-    <span className={`inline-flex items-center border border-current/20 px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide ${color ?? "text-muted-foreground"} ${bg ?? "bg-muted/10"}`}>
-      {label}
-    </span>
   );
 }

@@ -17,10 +17,17 @@ export const metadata = { title: "Tasks" };
 
 export default async function AgentTasksPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ projectId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { projectId } = await params;
+  const [{ projectId }, query] = await Promise.all([params, searchParams]);
+  // SPEC-187: arriving via <- Tasks with ?view= re-selects that saved tab.
+  const viewRaw = query.view;
+  const viewSingle = Array.isArray(viewRaw) ? viewRaw[0] : viewRaw;
+  const initialViewId =
+    typeof viewSingle === "string" && viewSingle ? viewSingle : null;
   const isDemo = projectId === DEMO_PROJECT;
 
   let tasks: Awaited<ReturnType<typeof listProjectAgentTasks>> = [];
@@ -88,6 +95,7 @@ export default async function AgentTasksPage({
       taskSource={taskSource}
       isDemo={isDemo}
       firstRunSetup={firstRunSetup}
+      initialViewId={initialViewId}
     />
   );
 }

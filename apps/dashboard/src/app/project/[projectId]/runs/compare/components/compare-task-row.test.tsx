@@ -1,11 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { AgentTaskRunDetail } from "@/lib/agent-task-api";
 
 // Mock the heavy code viewer (pulled in via next/dynamic) so the test stays fast.
 vi.mock("next/dynamic", () => ({
   __esModule: true,
-  default: (loader: () => Promise<unknown>) => {
+  default: () => {
     const Comp = () => null;
     Comp.displayName = "DynamicComponent";
     return Comp;

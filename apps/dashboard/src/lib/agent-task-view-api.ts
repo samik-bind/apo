@@ -7,7 +7,7 @@
 // that populates the Model / Effort filter dropdowns.
 
 import { apiClient } from "./api-client";
-import type { AgentTaskRunDetail, AgentTaskRunSummary, AgentTaskRunStats, AgentTaskSummary } from "./agent-task-api";
+import type { AgentTaskRunDetail, AgentTaskRunSummary, AgentTaskRunStats } from "./agent-task-api";
 
 const NO_CACHE = { cache: "no-store" } as const;
 

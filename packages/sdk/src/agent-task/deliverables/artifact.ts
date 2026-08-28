@@ -83,11 +83,3 @@ export function isFileArtifact(value: unknown): value is FileArtifact {
     typeof (value as { path?: unknown }).path === "string"
   );
 }
-
-// ENOENT shows up as a thrown error; narrow it without depending on the node
-// error code constant at module scope.
-function existsLike(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const code = (error as NodeJS.ErrnoException).code;
-  return code === "ENOENT";
-}

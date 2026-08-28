@@ -34,16 +34,19 @@ export function useEvidenceViews({
   projectId,
   isDemoProject,
   tasks,
+  initialViewId = null,
 }: {
   projectId: string;
   isDemoProject: boolean;
   tasks: AgentTaskSummary[];
+  /** `?view=` from the URL: re-select that tab on arrival (SPEC-187). */
+  initialViewId?: string | null;
 }) {
   // ---- Evidence views (SPEC-174): a permanent "Main" tab (all-history) plus
   // closable derived tabs narrowed by model (+ model-aware effort). The stats
   // shown in the task table are scoped to the active tab's cohort.
   const [views, setViews] = useState<ViewTab[]>([{ id: MAIN_VIEW_ID, label: "Main", model: null, effort: null, since: null }]);
-  const [activeViewId, setActiveViewId] = useState<string>(MAIN_VIEW_ID);
+  const [activeViewId, setActiveViewId] = useState<string>(initialViewId ?? MAIN_VIEW_ID);
   const [facets, setFacets] = useState<RunConfigModelFacet[]>([]);
   // Per-view stats overlays keyed by the view's filter content, so switching
   // tabs shows cached stats instantly and never flashes another view's data.
@@ -63,14 +66,20 @@ export function useEvidenceViews({
     fetchSavedViews(projectId)
       .then((saved) => {
         if (cancelled) return;
-        setViews([
+        const loaded = [
           { id: MAIN_VIEW_ID, label: "Main", model: null, effort: null, since: null },
           ...saved.map((v) => ({ id: v.id, label: v.label, model: v.model, effort: v.effort, since: v.since })),
-        ]);
+        ];
+        setViews(loaded);
+        // A ?view= that no longer exists (deleted view, stale bookmark) falls
+        // back to Main instead of highlighting a ghost tab.
+        if (initialViewId && !loaded.some((v) => v.id === initialViewId)) {
+          setActiveViewId(MAIN_VIEW_ID);
+        }
       })
       .catch(() => { /* saved views are best-effort; fall back to Main only */ });
     return () => { cancelled = true; };
-  }, [projectId, isDemoProject]);
+  }, [projectId, isDemoProject, initialViewId]);
 
   // When the active tab is a derived view, fetch its scoped stats and overlay
   // them. Main reuses the server-provided all-history stats (viewStats = null).

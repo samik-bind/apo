@@ -6,8 +6,6 @@ import {
   prepareTaskDefinition,
   computeTaskDefinitionDigest,
   TaskDefinitionError,
-  MAX_DEFINITION_BYTES,
-  type TaskDefinitionDocument,
 } from "../src/lib/task-definition.ts";
 import type { TaskMeta } from "../src/lib/task-meta.ts";
 

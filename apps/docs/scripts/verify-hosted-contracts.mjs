@@ -65,7 +65,7 @@ check(
 check(
   "hosted-alpha must not use bare `apo runs show` without an id",
   !/apo runs show(\s|$|`)(?![^`]*run_)/.test(hosted) ||
-    !/\`apo runs show\`/.test(hosted),
+    !/`apo runs show`/.test(hosted),
 );
 check(
   "hosted-alpha must print exact run identity in examples",

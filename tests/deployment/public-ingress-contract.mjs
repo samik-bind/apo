@@ -61,11 +61,11 @@ assertNoAuthFragmentMount(
 
 const caddyfile = readFileSync("deploy/self-host/Caddyfile", "utf8");
 assert(caddyfile.includes("{$APO_CADDY_SITE_ADDRESS}"), "Caddy must use APO_CADDY_SITE_ADDRESS");
-assert(caddyfile.includes("reverse_proxy frontend:3000"), "Caddy must proxy only to the frontend");
+assert(caddyfile.includes("reverse_proxy frontend:3000"), "Caddy must fall back to the frontend");
 assertRouteBefore(
   caddyfile,
   "handle @raw_diagnostics",
-  "handle /backend-proxy/*",
+  "handle_path /backend-proxy/*",
   "Caddy must deny diagnostic aliases before the broad backend proxy",
 );
 
@@ -88,7 +88,10 @@ assert(
 );
 
 // The application block still routes everything it must: canonical OTLP,
-// detail-free readiness, the API proxy, and the frontend fallback.
+// detail-free readiness, the API proxies, and the frontend fallback.
+// Issue #174: /backend-proxy/* (handle_path — prefix stripped, matching the
+// Next rewrite it replaced), /v1/*, and /auth/* go straight to the backend so
+// heavy CLI submissions never cross the frontend's proxy timeout.
 assert(
   appBlock.includes("handle /api/public/otel/v1/traces"),
   "application block must keep the canonical OTLP route",
@@ -98,8 +101,13 @@ assert(
   "application block must keep the public readiness route",
 );
 assert(
-  appBlock.includes("handle /backend-proxy/*"),
-  "application block must keep the API proxy route",
+  appBlock.includes("handle_path /backend-proxy/*") &&
+    appBlock.includes("reverse_proxy backend:8000"),
+  "application block must keep the direct API proxy routes (issue #174)",
+);
+assert(
+  appBlock.includes("handle /v1/*") && appBlock.includes("handle /auth/*"),
+  "application block must route backend-owned CLI paths directly (SPEC-180)",
 );
 const fallbackIdx = appBlock.lastIndexOf("handle {");
 assert(

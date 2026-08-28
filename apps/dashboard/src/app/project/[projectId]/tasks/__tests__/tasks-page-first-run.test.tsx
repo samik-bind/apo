@@ -50,6 +50,7 @@ import AgentTasksPage from "../page";
 async function renderPage() {
   const ui = await AgentTasksPage({
     params: Promise.resolve({ projectId: "abc123def456" }),
+    searchParams: Promise.resolve({}),
   });
   return render(ui);
 }

@@ -19,6 +19,7 @@ import { useTaskSelection } from "./components/use-task-selection";
 import { useTaskRunActions } from "./components/use-task-run-actions";
 import {
   groupByFolder,
+  MAIN_VIEW_ID,
   STATUS_FILTER_KEYS,
   taskFilterStatus,
 } from "./components/task-list-shared";
@@ -29,6 +30,8 @@ interface AgentTasksClientProps {
   taskSource: ProjectTaskSource | null;
   isDemo: boolean;
   firstRunSetup?: ProjectFirstRunSetup | null;
+  /** `?view=` from the URL: re-select that saved tab on arrival (SPEC-187). */
+  initialViewId?: string | null;
 }
 
 export function AgentTasksClient({
@@ -37,6 +40,7 @@ export function AgentTasksClient({
   taskSource,
   isDemo,
   firstRunSetup = null,
+  initialViewId = null,
 }: AgentTasksClientProps) {
   const projectId = useProjectId();
   const clientIsDemo = useIsDemo();
@@ -62,16 +66,20 @@ export function AgentTasksClient({
     duplicateActive,
     closeView,
     setModelArchivedState,
-  } = useEvidenceViews({ projectId, isDemoProject, tasks });
+  } = useEvidenceViews({ projectId, isDemoProject, tasks, initialViewId });
 
   // The active tab is a model/effort/date cohort. Publish it so the Runs nav
   // link opens the same cohort instead of the unfiltered run list; Main
-  // publishes an empty cohort, which leaves the link plain.
-  usePublishRunCohort({
-    model: activeView.model,
-    effort: activeView.effort,
-    since: activeView.since,
-  });
+  // publishes an empty cohort, which leaves the link plain. The saved-view
+  // identity rides along so task cards can carry ?view= into the detail page.
+  usePublishRunCohort(
+    {
+      model: activeView.model,
+      effort: activeView.effort,
+      since: activeView.since,
+    },
+    activeViewId !== MAIN_VIEW_ID ? activeViewId : null,
+  );
 
   const statusFilteredTasks = useMemo<AgentTaskSummary[]>(() => {
     if (statusFilter.size === STATUS_FILTER_KEYS.length) return effectiveTasks;

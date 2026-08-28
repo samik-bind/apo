@@ -1,17 +1,19 @@
 import {
   getProjectAgentTask,
   listTaskRuns,
+  type TaskRunCohortFilter,
 } from "@/lib/agent-task-api";
+import { fetchTaskViewConfigFacets } from "@/lib/agent-task-view-api";
 import { getProject } from "@/lib/projects-api";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TaskFileBrowser } from "@/components/agent-task-files/task-file-browser";
 import { TaskRunHistory } from "./task-run-history";
+import { RunHistoryScopeBar } from "./run-history-scope-bar";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { FolderOpen } from "lucide-react";
-import { sinceLabel } from "@/lib/since-window";
-import { taskDetailHref } from "@/lib/task-routes";
+import { parseRunCohort, withViewId } from "@/lib/run-cohort";
 
 export const dynamic = "force-dynamic";
 
@@ -20,23 +22,33 @@ export const dynamic = "force-dynamic";
 // Join the captured segments back into the slash-delimited id the API expects.
 const joinTaskId = (segments: string[]): string => segments.join("/");
 
-// The run-history cohort, carried from the Tasks page's active evidence view
-// (`?model=&effort=&since=`, the same vocabulary the Runs page reads). Absent
-// params mean all-history. See `lib/run-cohort`.
-interface CohortSearchParams {
-  model?: string;
-  effort?: string;
-  since?: string;
-}
-
-function parseCohort(
-  query: Record<string, string | string[] | undefined>,
-): CohortSearchParams {
-  const first = (key: string): string | undefined => {
-    const value = query[key];
-    return typeof value === "string" && value ? value : undefined;
+// The run-history scope, carried from the Tasks page's active evidence view
+// (`?model=&effort=&since=`, the same vocabulary the Runs page reads) plus
+// the detail page's own run-status chips and the informational `?view=`.
+// Absent params mean all-history. See `lib/run-cohort`.
+function parseScope(query: Record<string, string | string[] | undefined>): {
+  cohort: TaskRunCohortFilter;
+  scopeActive: boolean;
+  viewId: string | null;
+} {
+  const cohort = parseRunCohort(query);
+  const statusRaw = query.status;
+  const statusList = (Array.isArray(statusRaw) ? statusRaw : [statusRaw]).filter(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+  const viewRaw = query.view;
+  const viewSingle = Array.isArray(viewRaw) ? viewRaw[0] : viewRaw;
+  const viewId = typeof viewSingle === "string" && viewSingle ? viewSingle : null;
+  const scopeActive =
+    cohort.model !== null ||
+    cohort.effort !== null ||
+    cohort.since !== null ||
+    statusList.length > 0;
+  return {
+    cohort: statusList.length > 0 ? { ...cohort, status: statusList } : cohort,
+    scopeActive,
+    viewId,
   };
-  return { model: first("model"), effort: first("effort"), since: first("since") };
 }
 
 // Tab title: "Task: <display_name>". Falls back to "Task" on any failure.
@@ -69,24 +81,31 @@ export default async function TaskDetailPage({
     searchParams,
   ]);
   const taskId = joinTaskId(taskIdSegments);
-  const cohort = parseCohort(query);
-  const cohortActive = cohort.model !== undefined || cohort.effort !== undefined || cohort.since !== undefined;
+  const { cohort, scopeActive, viewId } = parseScope(query);
 
   let task: Awaited<ReturnType<typeof getProjectAgentTask>> | null = null;
   let taskRuns = EMPTY_TASK_RUNS;
+  let totalRuns = 0;
+  let facets: Awaited<ReturnType<typeof fetchTaskViewConfigFacets>> = [];
   let error: string | null = null;
   let canDeleteRuns = false;
 
   try {
-    // The project read feeds the run-delete role gate (best-effort — a
-    // failure degrades to no delete button, not a broken page).
-    const [resolved, runs, project] = await Promise.all([
+    // The scoped list is what renders; the unscoped twin exists only to give
+    // the count line its "N of M" denominator. Facets feed the control menus
+    // and are best-effort (a facets failure must not blank the run history).
+    // The project read feeds the run-delete role gate (best-effort too).
+    const [resolved, scoped, all, facetResult, project] = await Promise.all([
       getProjectAgentTask(projectId, taskId),
       listTaskRuns(taskId, projectId, cohort),
+      scopeActive ? listTaskRuns(taskId, projectId) : Promise.resolve(null),
+      fetchTaskViewConfigFacets(projectId).catch(() => []),
       getProject(projectId).catch(() => null),
     ]);
     task = resolved;
-    taskRuns = runs;
+    taskRuns = scoped;
+    totalRuns = scopeActive ? (all ?? scoped).length : scoped.length;
+    facets = facetResult;
     canDeleteRuns =
       project?.current_user_role === "owner" ||
       project?.current_user_role === "admin";
@@ -121,7 +140,7 @@ export default async function TaskDetailPage({
       {/* Page header */}
       <div className="border-b border-border px-6 py-5">
         <Link
-          href={`/project/${projectId}/tasks`}
+          href={withViewId(`/project/${projectId}/tasks`, viewId)}
           className="text-[12px] text-muted-foreground hover:text-foreground"
         >
           &larr; Tasks
@@ -135,29 +154,14 @@ export default async function TaskDetailPage({
           <Badge variant="outline" className="font-mono text-[10px]">{task.folder_path || "(root)"}</Badge>
           <Badge variant="outline" className="text-[10px]">{fileCount} files</Badge>
           <Badge variant="outline" className="text-[10px]">
-            {taskRuns.length} task runs{cohortActive ? " in view" : ""}
+            {scopeActive
+              ? `${taskRuns.length} of ${totalRuns} task runs in view`
+              : `${taskRuns.length} task runs`}
           </Badge>
         </div>
-        {cohortActive && (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-            <span>Run history scoped to:</span>
-            {cohort.model && (
-              <Badge variant="outline" className="font-mono text-[10px]">{cohort.model}</Badge>
-            )}
-            {cohort.effort && (
-              <Badge variant="outline" className="text-[10px]">effort: {cohort.effort}</Badge>
-            )}
-            {cohort.since && (
-              <Badge variant="outline" className="text-[10px]">last {sinceLabel(cohort.since)}</Badge>
-            )}
-            <Link
-              href={taskDetailHref(projectId, taskId)}
-              className="ml-1 underline underline-offset-4 hover:text-foreground"
-            >
-              All history
-            </Link>
-          </div>
-        )}
+        <div className="mt-2.5">
+          <RunHistoryScopeBar projectId={projectId} facets={facets} />
+        </div>
 
       </div>
 
@@ -186,98 +190,5 @@ export default async function TaskDetailPage({
         </TabsContent>
       </Tabs>
     </div>
-  );
-}
-import { listProjectAgentTasks } from "@/lib/agent-task-api";
-import { getProject } from "@/lib/projects-api";
-import { getProjectOnboardingStatus } from "@/lib/projects-api";
-import {
-  buildCliLoginCommand,
-  EXAMPLE_URL,
-  HOSTED_DOCS_URL,
-  isValidPublicOrigin,
-  type ProjectFirstRunSetup,
-} from "@/lib/first-run";
-import { DEMO_PROJECT } from "@/lib/project-router";
-import { AgentTasksClient } from "./tasks-client";
-
-export const dynamic = "force-dynamic";
-
-export const metadata = { title: "Tasks" };
-
-export default async function AgentTasksPage({
-  params,
-}: {
-  params: Promise<{ projectId: string }>;
-}) {
-  const { projectId } = await params;
-  const isDemo = projectId === DEMO_PROJECT;
-
-  let tasks: Awaited<ReturnType<typeof listProjectAgentTasks>> = [];
-  let error: string | null = null;
-  let taskSource = null;
-  // SPEC-180: first-run panel inputs — parallel-safe, best-effort. A
-  // missing status never breaks the page; it only suppresses onboarding.
-  let onboarding: Awaited<ReturnType<typeof getProjectOnboardingStatus>> | null =
-    null;
-
-  const [projectResult, statusResult] = await Promise.allSettled([
-    getProject(projectId),
-    isDemo ? Promise.resolve(null) : getProjectOnboardingStatus(projectId),
-  ]);
-  if (projectResult.status === "fulfilled") {
-    taskSource = projectResult.value.task_source;
-  } else {
-    error =
-      projectResult.reason instanceof Error
-        ? projectResult.reason.message
-        : "Failed to load project";
-  }
-  if (statusResult.status === "fulfilled") {
-    onboarding = statusResult.value;
-  }
-
-  // Every project — demo included — resolves tasks through its
-  // configured source inventory. Demo is provisioned with a bundled
-  // `demo` source at startup, so it needs no special case.
-  if (taskSource !== null && !taskSource.inventory_stale) {
-    try {
-      tasks = await listProjectAgentTasks(projectId);
-    } catch (e: unknown) {
-      error = e instanceof Error ? e.message : "Failed to fetch agent tasks";
-    }
-  }
-
-  // The full first-run journey shows only for a genuinely virgin,
-  // non-demo Project: nothing published, nothing recorded, no load error.
-  // `welcome=1` may highlight it but durable emptiness is the real gate.
-  let firstRunSetup: ProjectFirstRunSetup | null = null;
-  if (
-    !isDemo &&
-    !error &&
-    onboarding !== null &&
-    onboarding.published_task_count === 0 &&
-    onboarding.recorded_run_count === 0
-  ) {
-    const publicUrl = isValidPublicOrigin(onboarding.public_url)
-      ? onboarding.public_url
-      : "";
-    firstRunSetup = {
-      publicUrl,
-      projectId,
-      cliLoginCommand: publicUrl ? buildCliLoginCommand(publicUrl, projectId) : "",
-      docsUrl: HOSTED_DOCS_URL,
-      exampleUrl: EXAMPLE_URL,
-    };
-  }
-
-  return (
-    <AgentTasksClient
-      tasks={tasks}
-      error={error}
-      taskSource={taskSource}
-      isDemo={isDemo}
-      firstRunSetup={firstRunSetup}
-    />
   );
 }

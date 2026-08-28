@@ -148,4 +148,60 @@ describe("Tasks page cohort handoff", () => {
       ),
     );
   });
+
+  it("carries the saved-view identity into the task detail link", async () => {
+    const viewApi = await import("@/lib/agent-task-view-api");
+    vi.mocked(viewApi.fetchSavedViews).mockResolvedValue([
+      { id: "v1", label: "View 1", model: "claude-opus-5", effort: null, since: null },
+    ]);
+    const user = userEvent.setup();
+    render(
+      <DashboardShell projectId="acme">
+        <AgentTasksClient
+          tasks={tasks}
+          error={null}
+          taskSource={taskSource}
+          isDemo={false}
+        />
+      </DashboardShell>,
+    );
+
+    // Anchored so the tab button ("View 1 …") is matched, not its inline
+    // "Close View 1 tab" affordance.
+    await user.click(await screen.findByRole("button", { name: /^View 1/ }));
+
+    // The detail page uses ?view= to name the scope's origin and to restore
+    // the tab on the way back — so it must travel with the cohort.
+    await waitFor(() =>
+      expect(taskHref()).toBe(
+        "/project/acme/tasks/support/refund?model=claude-opus-5&view=v1",
+      ),
+    );
+  });
+
+  it("restores the saved tab on mount from initialViewId", async () => {
+    const viewApi = await import("@/lib/agent-task-view-api");
+    vi.mocked(viewApi.fetchSavedViews).mockResolvedValue([
+      { id: "v1", label: "View 1", model: "claude-opus-5", effort: null, since: null },
+    ]);
+    render(
+      <DashboardShell projectId="acme">
+        <AgentTasksClient
+          tasks={tasks}
+          error={null}
+          taskSource={taskSource}
+          isDemo={false}
+          initialViewId="v1"
+        />
+      </DashboardShell>,
+    );
+
+    // No clicks: arriving via <- Tasks with ?view=v1 re-selects the tab, so
+    // cards immediately carry that view's cohort and identity.
+    await waitFor(() =>
+      expect(taskHref()).toBe(
+        "/project/acme/tasks/support/refund?model=claude-opus-5&view=v1",
+      ),
+    );
+  });
 });

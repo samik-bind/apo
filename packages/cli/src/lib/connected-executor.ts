@@ -74,7 +74,7 @@ export async function bootstrapAndEnroll(opts: {
   taskRoot: string;
   concurrency: number;
 }): Promise<StoredExecutorState> {
-  const { backendUrl, projectId, userAuthToken, name, taskRoot, concurrency } = opts;
+  const { backendUrl, projectId, userAuthToken, name, concurrency } = opts;
 
   // 1. Bootstrap
   const bootResp = await fetch(`${backendUrl}/v1/projects/${projectId}/connected-executor-bootstrap`, {

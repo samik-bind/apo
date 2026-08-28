@@ -9,7 +9,7 @@
  *
  * No provider credentials, no backend, no model calls.
  */
-import { mkdtempSync, rmSync, cpSync, writeFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, cpSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
@@ -18,7 +18,6 @@ import { fileURLToPath } from "node:url";
 const scriptDir = fileURLToPath(new URL(".", import.meta.url));
 const EXAMPLE_ROOT = join(scriptDir, "..");
 const REPO_ROOT = join(scriptDir, "../../..");
-const DEMO_ROOT = join(EXAMPLE_ROOT, "e2e/agent-task-demo");
 
 // ── Explicit dependency closure ──
 // Preserves the original directory structure so relative imports resolve.

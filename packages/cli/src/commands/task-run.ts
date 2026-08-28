@@ -116,44 +116,6 @@ function resolveTask(ref: string, taskRoot: string): ResolvedTask | null {
   };
 }
 
-function resolveCiTrigger(flags: Record<string, string | boolean>): Record<string, unknown> | null {
-  const ciFlag = flags.ci === true || process.env.CI === "true";
-  if (!ciFlag) return null;
-
-  return {
-    source: "ci",
-    actor: resolveFlagOrEnv(flags, "ci-actor", "APO_CI_ACTOR") ?? "ci",
-    hostname: resolveFlagOrEnv(flags, "ci-hostname", "APO_CI_HOSTNAME") ?? null,
-    entrypoint: "apo task run --ci",
-    initiated_at: new Date().toISOString(),
-    ci_system: resolveFlagOrEnv(flags, "ci-system", "APO_CI_SYSTEM") ?? detectCiSystem(),
-    ci_run_id: resolveFlagOrEnv(flags, "ci-run-id", "APO_CI_RUN_ID") ?? process.env.GITHUB_RUN_ID ?? null,
-    ci_run_url: resolveFlagOrEnv(flags, "ci-run-url", "APO_CI_RUN_URL") ?? null,
-    repository: resolveFlagOrEnv(flags, "repo", "APO_GITHUB_REPO") ?? process.env.GITHUB_REPOSITORY ?? null,
-    branch: resolveFlagOrEnv(flags, "branch", "APO_GITHUB_BRANCH") ?? process.env.GITHUB_HEAD_REF ?? process.env.GITHUB_REF_NAME ?? null,
-    commit_sha: resolveFlagOrEnv(flags, "sha", "APO_GITHUB_SHA") ?? process.env.GITHUB_SHA ?? null,
-    pr_number: resolveFlagOrEnv(flags, "pr", "APO_GITHUB_PR") ?? process.env.GITHUB_EVENT_NUMBER ?? null,
-  };
-}
-
-function detectCiSystem(): string | null {
-  if (process.env.GITHUB_ACTIONS === "true") return "github-actions";
-  if (process.env.GITLAB_CI === "true") return "gitlab-ci";
-  if (process.env.CIRCLECI === "true") return "circleci";
-  if (process.env.JENKINS_URL) return "jenkins";
-  return null;
-}
-
-function resolveFlagOrEnv(
-  flags: Record<string, string | boolean>,
-  flagName: string,
-  envVar: string,
-): string | null {
-  const flagVal = flags[flagName];
-  if (typeof flagVal === "string" && flagVal) return flagVal;
-  return process.env[envVar] ?? null;
-}
-
 async function runLocally(config: Config, taskDir: string): Promise<number> {
   loadEnvFiles(taskDir);
   const { runTaskDir } = await import("@apo-ai/sdk/agent-task");

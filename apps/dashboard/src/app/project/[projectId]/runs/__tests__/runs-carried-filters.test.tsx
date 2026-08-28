@@ -56,6 +56,7 @@ function renderRuns(query: string, modelFacets: ModelFacetOption[] = facets) {
       pageSize={20}
       totalPages={0}
       modelFacets={modelFacets}
+      canDeleteRuns={false}
     />,
   );
 }

@@ -61,7 +61,7 @@ function h(
 	props: (Record<string, unknown> & { style?: Record<string, unknown> }) | null,
 	...children: SatoriChild[]
 ): SatoriElement {
-	return { type, props: { ...(props ?? {}), children } };
+	return { type, props: { ...props, children } };
 }
 
 // --- Signal sphere: the canonical static asset, rendered by resvg ---
