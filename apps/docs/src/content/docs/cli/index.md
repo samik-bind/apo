@@ -33,6 +33,7 @@ The core loop: run a task, read its verdict, open its trace when something fails
 | [`apo runs rejudge`](/cli/runs-rejudge/) | Re-judge a completed run against its stored deliverables — swap the judge, sample for stability, without re-running the agent. |
 | [`apo runs judgments`](/cli/runs-judgments/) | List a run's verdict history — the original plus every re-judge. |
 | [`apo runs delete`](/cli/runs-delete/) | Permanently delete garbage runs (harness failures, wrong environment). `--yes` required; admin only. |
+| [`apo runs export`](/cli/runs-export/) | Dump a run as a self-contained JSON bundle — the backup before evidence expires or a run is deleted. |
 | [`apo traces list`](/cli/traces-list/) | List recent traces. |
 | [`apo traces show`](/cli/traces-show/) | Show a trace's call tree, timing, tokens, cost. |
 | [`apo traces import langfuse`](/cli/traces-import-langfuse/) | Import one Langfuse-captured trace into apo. |

@@ -832,6 +832,56 @@ async def get_agent_task_run(
     )
 
 
+@router.get("/agent-task-runs/{task_run_id}/export")
+async def export_agent_task_run(
+    request: Request,
+    task_run_id: str,
+    include: str | None = Query(default=None),
+    session: Session = Depends(get_session),
+):
+    """Export one Task Run as a self-contained JSON bundle.
+
+    The backup side of evidence retention: everything the run holds —
+    verdict, recorded + projected checks, corrections, judgment evidence,
+    deliverables (inline values and artifact bytes base64), attempt
+    diagnostics, the pinned eval source, and the trace's calls — embedded
+    in one versioned document. ``?include=spans`` adds the raw OTel spans
+    (the largest section). Project members only, like the detail read.
+    """
+    task_run = session.get(AgentTaskRunDB, task_run_id)
+    if task_run is None:
+        raise HTTPException(status_code=404, detail="Task run not found")
+    batch = session.get(AgentTaskBatchRunDB, task_run.batch_run_id)
+    if batch is not None:
+        try:
+            authorize_project_request(request, session, batch.project, minimum_role="member")
+        except HTTPException as exc:
+            if exc.status_code == 403:
+                raise HTTPException(status_code=404, detail="Task run not found") from exc
+            raise
+
+    from apo.services.run_export import build_run_export_bundle
+
+    bundle = await build_run_export_bundle(
+        session,
+        task_run,
+        include_spans=bool(include and "spans" in include),
+    )
+    # The verdict section reuses the detail projection so exports and the
+    # dashboard can never disagree about what a run's verdict was.
+    trigger = _load_batch_triggers(session, [task_run.batch_run_id]).get(
+        task_run.batch_run_id
+    )
+    bundle["run"] = _build_task_run_detail(
+        session,
+        task_run,
+        trigger=trigger,
+        include_transcript=True,
+        deliverables_json=await derive_deliverables_json(session, task_run),
+    ).model_dump(mode="json")
+    return bundle
+
+
 @router.post(
     "/agent-task-runs/{task_run_id}/result",
     response_model=AgentTaskRunDetail,

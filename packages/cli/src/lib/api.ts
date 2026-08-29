@@ -97,8 +97,9 @@ export function apiGet<T>(
   path: string,
   params?: Record<string, string | string[]>,
   config?: Config,
+  timeoutMs?: number,
 ): Promise<T> {
-  return apiRequest<T>("GET", baseUrl, path, { params, config });
+  return apiRequest<T>("GET", baseUrl, path, { params, config, timeoutMs });
 }
 
 export function apiPost<T>(

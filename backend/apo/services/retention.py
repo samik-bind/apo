@@ -242,6 +242,38 @@ def reap_expired_credentials(session: Session) -> int:
     return deleted
 
 
+# Grace window before an unreferenced Task Definition Revision is reaped.
+# Revisions are content-addressed and shared; one still referenced by any
+# run (verdict provenance), judgment (judgment provenance), or the task
+# inventory (currently published) never goes. Unreferenced ones are
+# superseded content — a republish recreates them on demand.
+UNREFERENCED_REVISION_GRACE_DAYS = 30
+
+
+def reap_unreferenced_task_definition_revisions(
+    session: Session, cutoff: datetime
+) -> int:
+    """Delete eval revisions nothing points at, older than ``cutoff``."""
+    if not table_exists(session, "task_definition_revisions"):
+        return 0
+    result = cast(
+        CursorResult[Any],
+        session.execute(
+            text(
+                "DELETE FROM task_definition_revisions WHERE created_at < :c "
+                "AND NOT EXISTS (SELECT 1 FROM agent_task_runs a "
+                "  WHERE a.task_definition_revision_id = task_definition_revisions.id) "
+                "AND NOT EXISTS (SELECT 1 FROM agent_task_judgments j "
+                "  WHERE j.task_definition_revision_id = task_definition_revisions.id) "
+                "AND NOT EXISTS (SELECT 1 FROM project_task_inventory i "
+                "  WHERE i.task_definition_revision_id = task_definition_revisions.id)"
+            ),
+            {"c": cutoff},
+        ),
+    )
+    return result.rowcount or 0
+
+
 # How long run EVIDENCE stays inspectable after the batch completed:
 # transcripts, traces (calls/metrics/spans), check-report documents,
 # rejudge check evidence, deliverables (rows and stored objects), and
@@ -725,6 +757,9 @@ def run_maintenance_cleanup() -> dict[str, int]:
             cleanup_expired_artifact_uploads(session)
         ).get("failed_uploads", 0)
         summary["expired_tokens"] = reap_expired_credentials(session)
+        summary["unreferenced_revisions"] = reap_unreferenced_task_definition_revisions(
+            session, now - timedelta(days=UNREFERENCED_REVISION_GRACE_DAYS)
+        )
         session.commit()
 
         evidence_days = evidence_retention_days()

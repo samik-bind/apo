@@ -290,6 +290,23 @@ const commands: Record<string, CommandEntry> = {
     ],
     note: "Destructive: removes the run's checks, judgments, corrections, deliverables (rows and stored objects), attempt, and trace; the batch's rollups are recomputed and an emptied batch is removed. Terminal or cancelled runs only — cancel a live run first. Requires project admin. Without --yes, prints what would be deleted and exits 2. Exit 0 on success, 2 on usage/API failure. Never prompts — safe for agents and CI.",
   },
+  "runs export": {
+    handler: loadCommand("runs-export"),
+    help: "Export a run as a self-contained JSON bundle (verdict, checks, evidence, trace)",
+    args: [
+      ["<run-id>", "Run ID, unique prefix, or 'last'"],
+    ],
+    options: [
+      ["--out <file>", "Output path (default: run-<id>-<timestamp>.json in the cwd)"],
+      ["--spans", "Include the raw OTel spans (largest section; calls are always included)"],
+    ],
+    examples: [
+      "apo runs export de89cab",
+      "apo runs export last --out bad-run.json",
+      "apo runs export de89cab --spans",
+    ],
+    note: "The backup side of evidence retention: everything the run holds is embedded — verdict + projected checks, corrections, judgment evidence, deliverables (inline values and artifact bytes base64), attempt diagnostics, the pinned eval source, and the trace's calls. Export BEFORE evidence expires or the run is deleted; a bundle of an already-expired run carries the verdict but its trace/checks read empty. Requires backend auth. Never prompts — safe for agents and CI.",
+  },
   "runs judgments": {
     handler: loadCommand("runs-judgments"),
     help: "List a run's judgments (original + re-judges), or show one judgment's checks",

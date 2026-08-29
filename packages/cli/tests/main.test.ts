@@ -79,7 +79,7 @@ describe("global help", () => {
     for (const cmd of [
       "task list", "task run", "task publish", "runs list", "runs show",
       "traces list", "traces show", "batch list", "batch show",
-      "runs delete", "batch delete",
+      "runs delete", "batch delete", "runs export",
     ]) {
       expect(output).toContain(cmd);
     }

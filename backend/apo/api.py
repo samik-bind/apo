@@ -204,6 +204,30 @@ def create_app() -> FastAPI:
     app.include_router(executor_pools.router)
     app.include_router(hosted_access.router)
 
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+    from sqlalchemy.exc import OperationalError
+
+    @app.exception_handler(OperationalError)
+    async def db_full_handler(request: Request, exc: OperationalError) -> JSONResponse:
+        """SQLITE_FULL (APO_MAX_DB_PAGES hit or disk full) must read as a
+        storage-policy problem, not a generic 500 — tell the operator which
+        knob fixes it. Any other OperationalError passes through as 500."""
+        message = str(getattr(exc, "orig", exc))
+        if "database or disk is full" not in message.lower():
+            return JSONResponse(status_code=500, content={"detail": "database error"})
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": (
+                    "storage is full — the database cannot accept writes. "
+                    "Raise APO_MAX_DB_PAGES (or free disk), or bound growth via "
+                    "APO_EVIDENCE_RETENTION_DAYS / APO_RETENTION_DAYS and run "
+                    "the maintenance cleanup."
+                )
+            },
+        )
+
     return app
 
 

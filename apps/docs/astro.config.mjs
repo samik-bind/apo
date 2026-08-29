@@ -118,6 +118,7 @@ export default defineConfig({
 							{ label: 'runs correct', slug: 'cli/runs-correct' },
 							{ label: 'runs judgments', slug: 'cli/runs-judgments' },
 							{ label: 'runs delete', slug: 'cli/runs-delete' },
+							{ label: 'runs export', slug: 'cli/runs-export' },
 						],
 					},
 				{
