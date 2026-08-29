@@ -77,6 +77,8 @@ interface TracesTablePanelProps {
   traces: TraceSummary[];
   error?: string | null;
   pagination?: PaginationData;
+  /** Member-tier trace writes (bookmark/delete/export) render only when allowed. */
+  canWrite?: boolean;
 }
 
 const autoRefreshOptions = [
@@ -426,8 +428,10 @@ function TracesTableContent({
   );
 }
 
-export function TracesTablePanel({ projectId, traces, error, pagination }: TracesTablePanelProps) {
+export function TracesTablePanel({ projectId, traces, error, pagination, canWrite = true }: TracesTablePanelProps) {
   const isDemo = useIsDemo();
+  // Read-only visitors (demo, viewer role) get no write affordances at all.
+  const readOnlyVisitor = isDemo || !canWrite;
   const { selectRun } = useSelection();
   const handleSelectRun = useCallback((id: string) => selectRun(id), [selectRun]);
   const router = useRouter();
@@ -545,7 +549,7 @@ export function TracesTablePanel({ projectId, traces, error, pagination }: Trace
     projectId: "default",
     tableName: "traces",
     setSelectedRows: setRowSelection,
-    disabled: isDemo,
+    disabled: readOnlyVisitor,
   });
 
   const handleActionSelect = (action: TableAction) => {
@@ -601,14 +605,14 @@ export function TracesTablePanel({ projectId, traces, error, pagination }: Trace
   }, []);
 
   const columns = useMemo(
-    () => createTraceColumns(selectActionColumn, handleToggleBookmark, projectId, isDemo),
-    [selectActionColumn, handleToggleBookmark, projectId, isDemo],
+    () => createTraceColumns(selectActionColumn, handleToggleBookmark, projectId, readOnlyVisitor),
+    [selectActionColumn, handleToggleBookmark, projectId, readOnlyVisitor],
   );
 
   const actions = useMemo(() => {
-    if (isDemo) return [];
+    if (readOnlyVisitor) return [];
     return bulkActions;
-  }, [isDemo]);
+  }, [readOnlyVisitor]);
 
   const table = useReactTable({
     data: displayedTraces,

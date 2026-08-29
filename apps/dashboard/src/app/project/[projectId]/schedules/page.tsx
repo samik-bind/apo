@@ -29,13 +29,20 @@ export default async function AgentTaskSchedulesPage({
   let taskSource: ProjectTaskSource | null = null;
   let executorPools: Awaited<ReturnType<typeof listExecutorPools>> = EMPTY_EXECUTOR_POOLS;
 
+  let canManage = true;
   try {
-    [schedules, taskSource, executorPools] = await Promise.all([
+    [schedules, taskSource, executorPools, canManage] = await Promise.all([
       listAgentTaskSchedules(projectId),
       getProject(projectId)
-        .then((project) => project.task_source)
+        .then((project) => {
+          // Schedule management is admin-tier; viewers (and the anonymous
+          // demo visitor) never see the controls at all (SPEC-188 U3).
+          canManage = project.permissions?.can_manage_project === true;
+          return project.task_source;
+        })
         .catch(() => null),
       listExecutorPools(projectId),
+      Promise.resolve(true),
     ]);
 
     // The task list always comes from the project's configured source
@@ -63,6 +70,7 @@ export default async function AgentTaskSchedulesPage({
       error={error}
       taskSource={taskSource}
       executorPools={executorPools}
+      canManage={canManage}
     />
   );
 }

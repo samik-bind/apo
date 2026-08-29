@@ -47,9 +47,23 @@ SPAN_CHILD = "cab000000000000b"
 
 
 @pytest.fixture(name="capture_world")
-def capture_world_fixture(session: Session) -> Session:
+def capture_world_fixture(tmp_path_factory: pytest.TempPathFactory) -> Session:
     """A capture project with one batch, one failed run (check report,
     judgment), and a real ingested OTLP trace claiming that run."""
+    # Private scratch DB: the OTLP ingest nests savepoints inside one long
+    # transaction; sharing the suite engine let savepoint state bleed into
+    # unrelated tests (same isolation as tests/test_demo_fixture.py).
+    engine = sa_create_engine(f"sqlite:///{tmp_path_factory.mktemp('cap')}/capture.db")
+    SQLModel.metadata.create_all(engine)
+    session = Session(engine)
+    try:
+        yield _seed_capture_world(session)
+    finally:
+        session.close()
+        engine.dispose()
+
+
+def _seed_capture_world(session: Session) -> Session:
     session.add(ProjectDB(id=CAPTURE_PROJECT_ID, name="Demo capture"))
     session.add(
         UserDB(

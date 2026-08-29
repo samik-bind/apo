@@ -28,6 +28,8 @@ interface AgentTaskSchedulesClientProps {
   error: string | null;
   taskSource: ProjectTaskSource | null;
   executorPools: ExecutorPoolSummary[];
+  /** Admin-tier controls render only for roles that can manage them. */
+  canManage?: boolean;
 }
 
 export function AgentTaskSchedulesClient({
@@ -37,6 +39,7 @@ export function AgentTaskSchedulesClient({
   error: serverError,
   taskSource,
   executorPools,
+  canManage = true,
 }: AgentTaskSchedulesClientProps) {
   const projectId = useProjectId();
   const {
@@ -89,6 +92,7 @@ export function AgentTaskSchedulesClient({
             <h1 className="text-[18px] font-semibold">Schedules</h1>
           </div>
         </div>
+        {canManage ? (
         <Button
           size="sm"
           onClick={() => setShowCreate(true)}
@@ -97,6 +101,7 @@ export function AgentTaskSchedulesClient({
           <Plus size={14} className="mr-1.5" />
           New Schedule
         </Button>
+        ) : null}
       </div>
 
       {actionError && (
@@ -156,18 +161,19 @@ export function AgentTaskSchedulesClient({
               {!search && filter === "all" && "Create a schedule to automate recurring task validation."}
             </p>
           </div>
-          {!search && filter === "all" && (
+          {!search && filter === "all" && canManage ? (
             <Button variant="outline" size="sm" onClick={() => setShowCreate(true)}>
               <Plus size={13} className="mr-1.5" />
               New Schedule
             </Button>
-          )}
+          ) : null}
         </div>
       ) : (
         <div className="space-y-3">
           {filtered.map((schedule) => (
             <ScheduleCard
               key={schedule.id}
+              manageable={canManage}
               schedule={schedule}
               executorPoolName={
                 executorPools.find((pool) => pool.id === schedule.executor_pool_id)?.name ?? null

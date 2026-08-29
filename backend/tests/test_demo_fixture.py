@@ -16,7 +16,8 @@ from pathlib import Path
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
-from sqlmodel import Session, col, select
+from sqlalchemy import create_engine as sa_create_engine
+from sqlmodel import Session, SQLModel, col, select
 
 from apo.models.db import (
     AgentTaskBatchRunDB,
@@ -43,11 +44,25 @@ from apo.services.demo_workspace import (
 from apo.services.task_definition_revisions import ensure_task_definition_revision
 
 
-@pytest.fixture(name="demo_ready")
-def demo_ready_fixture(session: Session, monkeypatch: MonkeyPatch) -> Session:
+@pytest.fixture(name="session")
+def scratch_session_fixture(tmp_path: Path, monkeypatch: MonkeyPatch) -> Session:
+    """A private scratch DB per test.
+
+    The loader replays OTLP synchronously — per-span SAVEPOINTs nested in
+    one long transaction. Sharing the suite-wide engine let savepoint
+    state bleed into unrelated tests' teardown; a scratch engine keeps the
+    fixture tests hermetic.
+    """
     monkeypatch.setenv("APO_DEMO_ENABLED", "true")
-    assert ensure_demo_project_exists(session) is True
-    return session
+    engine = sa_create_engine(f"sqlite:///{tmp_path}/demo.db")
+    SQLModel.metadata.create_all(engine)
+    assert ensure_demo_project_exists(Session(engine)) is True
+    session = Session(engine)
+    try:
+        yield session
+    finally:
+        session.close()
+        engine.dispose()
 
 
 def _load(session: Session, path: Path | None = None) -> bool:
@@ -55,18 +70,18 @@ def _load(session: Session, path: Path | None = None) -> bool:
 
 
 class TestFixtureLoads:
-    def test_load_returns_true_first_time(self, demo_ready: Session) -> None:
-        assert _load(demo_ready) is True
+    def test_load_returns_true_first_time(self, session: Session) -> None:
+        assert _load(session) is True
 
-    def test_catalog_and_definitions(self, demo_ready: Session) -> None:
-        assert _load(demo_ready)
-        inventory = session_exec_ids(demo_ready)
+    def test_catalog_and_definitions(self, session: Session) -> None:
+        assert _load(session)
+        inventory = session_exec_ids(session)
         assert "real-agent/documents/document-qa" in inventory
         assert "harbor/terminal-bench/count-dataset-tokens" in inventory
         assert "judge-flip-probe" in inventory
 
         revision = ensure_task_definition_revision(
-            demo_ready,
+            session,
             project_id=DEMO_PROJECT_ID,
             task_id="real-agent/documents/document-qa",
             document={
@@ -81,9 +96,9 @@ class TestFixtureLoads:
         )
         assert revision.id is not None  # dedupe on content digest returned a row
 
-    def test_batches_runs_and_evidence(self, demo_ready: Session) -> None:
-        assert _load(demo_ready)
-        batches = demo_ready.exec(
+    def test_batches_runs_and_evidence(self, session: Session) -> None:
+        assert _load(session)
+        batches = session.exec(
             select(AgentTaskBatchRunDB).where(
                 AgentTaskBatchRunDB.project == DEMO_PROJECT_ID
             )
@@ -92,13 +107,13 @@ class TestFixtureLoads:
         assert len(batches) >= 30
         assert {"demo-batch-001", "demo-batch-002"} <= {b.id for b in batches}
 
-        run = demo_ready.get(AgentTaskRunDB, "demo-run-001")
+        run = session.get(AgentTaskRunDB, "demo-run-001")
         assert run is not None
         assert run.status == "failed"
         assert run.configured_model == "anthropic/claude-sonnet-4.5"
         assert run.task_id == "real-agent/documents/document-qa"
 
-        deliverable = demo_ready.exec(
+        deliverable = session.exec(
             select(AgentTaskDeliverableDB).where(
                 AgentTaskDeliverableDB.task_run_id == "demo-run-001"
             )
@@ -106,7 +121,7 @@ class TestFixtureLoads:
         assert deliverable is not None
         assert deliverable.inline_value_json is not None
 
-        judgment = demo_ready.exec(
+        judgment = session.exec(
             select(AgentTaskJudgmentDB).where(
                 AgentTaskJudgmentDB.task_run_id == "demo-run-probe"
             )
@@ -115,15 +130,15 @@ class TestFixtureLoads:
         assert judgment.label in ("reasoning-first", "verdict-first")
         assert judgment.samples == 3
 
-    def test_schedule_and_occurrences(self, demo_ready: Session) -> None:
-        assert _load(demo_ready)
-        schedule = demo_ready.get(AgentTaskScheduleDB, "demo-schedule-weekly")
+    def test_schedule_and_occurrences(self, session: Session) -> None:
+        assert _load(session)
+        schedule = session.get(AgentTaskScheduleDB, "demo-schedule-weekly")
         assert schedule is not None
         # The demo is read-only: schedules always load disabled.
         assert schedule.enabled is False
         assert schedule.next_run_at is None
 
-        occurrences = demo_ready.exec(
+        occurrences = session.exec(
             select(AgentTaskScheduleOccurrenceDB).where(
                 AgentTaskScheduleOccurrenceDB.schedule_id == "demo-schedule-weekly"
             )
@@ -132,18 +147,18 @@ class TestFixtureLoads:
         assert "delivered" in statuses
         assert "missed" in statuses
 
-    def test_views(self, demo_ready: Session) -> None:
-        assert _load(demo_ready)
-        views = demo_ready.exec(
+    def test_views(self, session: Session) -> None:
+        assert _load(session)
+        views = session.exec(
             select(TaskViewDB).where(TaskViewDB.project_id == DEMO_PROJECT_ID)
         ).all()
         assert {v.id for v in views} >= {
             "demo-view-mini", "demo-view-haiku", "demo-view-sonnet",
         }
 
-    def test_otel_replay_claims_and_projects(self, demo_ready: Session) -> None:
-        assert _load(demo_ready)
-        run = demo_ready.get(AgentTaskRunDB, "demo-run-001")
+    def test_otel_replay_claims_and_projects(self, session: Session) -> None:
+        assert _load(session)
+        run = session.get(AgentTaskRunDB, "demo-run-001")
         assert run is not None
         # The atomic claim filled the trace link during replay.
         assert run.trace_run_id is not None
@@ -151,7 +166,7 @@ class TestFixtureLoads:
 
         # RunDB's PK is the row_id surrogate — resolve the trace by its
         # OTel id column, not session.get().
-        trace = demo_ready.exec(
+        trace = session.exec(
             select(RunDB).where(
                 RunDB.id == run.trace_run_id,
                 RunDB.project == DEMO_PROJECT_ID,
@@ -160,7 +175,7 @@ class TestFixtureLoads:
         assert trace is not None
         assert trace.task_run_id == "demo-run-001"
 
-        calls = demo_ready.exec(
+        calls = session.exec(
             select(LoggedCallDB).where(
                 LoggedCallDB.run_id == run.trace_run_id,
                 LoggedCallDB.project == DEMO_PROJECT_ID,
@@ -173,14 +188,14 @@ class TestFixtureLoads:
 
 
 class TestReconcileSemantics:
-    def test_second_load_is_a_no_op(self, demo_ready: Session) -> None:
-        assert _load(demo_ready) is True
-        before = _count_demo_rows(demo_ready)
-        assert _load(demo_ready) is False
-        assert _count_demo_rows(demo_ready) == before
+    def test_second_load_is_a_no_op(self, session: Session) -> None:
+        assert _load(session) is True
+        before = _count_demo_rows(session)
+        assert _load(session) is False
+        assert _count_demo_rows(session) == before
 
-    def test_digest_change_reloads(self, demo_ready: Session, tmp_path: Path) -> None:
-        assert _load(demo_ready)
+    def test_digest_change_reloads(self, session: Session, tmp_path: Path) -> None:
+        assert _load(session)
         document = json.loads(_read_fixture_bytes(Path(
             __import__("apo.services.demo_fixture", fromlist=["DEFAULTS_PATH"]).DEFAULTS_PATH
         )))
@@ -188,30 +203,30 @@ class TestReconcileSemantics:
         variant = tmp_path / "variant.json"
         variant.write_text(json.dumps(document))
 
-        assert _load(demo_ready, path=variant) is True
-        run = demo_ready.get(AgentTaskRunDB, "demo-run-001")
+        assert _load(session, path=variant) is True
+        run = session.get(AgentTaskRunDB, "demo-run-001")
         assert run is not None
         assert run.status == "passed"
 
         # The original file reloads back just as cleanly (full replace).
-        assert _load(demo_ready) is True
-        run = demo_ready.get(AgentTaskRunDB, "demo-run-001")
+        assert _load(session) is True
+        run = session.get(AgentTaskRunDB, "demo-run-001")
         assert run is not None
         assert run.status == "failed"
 
-    def test_malformed_fixture_fails_hard(self, demo_ready: Session, tmp_path: Path) -> None:
+    def test_malformed_fixture_fails_hard(self, session: Session, tmp_path: Path) -> None:
         bad = tmp_path / "bad.json"
         bad.write_text("{not json")
         with pytest.raises(DemoFixtureError):
-            _load(demo_ready, path=bad)
+            _load(session, path=bad)
 
     def test_wrong_schema_version_fails_hard(
-        self, demo_ready: Session, tmp_path: Path
+        self, session: Session, tmp_path: Path
     ) -> None:
         bad = tmp_path / "wrong-version.json"
         bad.write_text(json.dumps({"schema_version": 99}))
         with pytest.raises(DemoFixtureError):
-            _load(demo_ready, path=bad)
+            _load(session, path=bad)
 
 
 class TestKillSwitch:

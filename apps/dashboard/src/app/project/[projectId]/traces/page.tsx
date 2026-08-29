@@ -1,3 +1,4 @@
+import { getProject } from "@/lib/projects-api";
 import {
   getTraceFilterOptions,
   listTraces,
@@ -64,6 +65,7 @@ export default async function TracesPage({
     return null;
   });
 
+  let canWrite = true;
   try {
     const [listResult, filterOptions, sessionsData] = await Promise.all([
       listPromise,
@@ -74,6 +76,11 @@ export default async function TracesPage({
         pageSize,
       ) : Promise.resolve(null),
     ]);
+    // Bookmark/delete/export are member-tier writes: viewers never see
+    // them (SPEC-188 U3). Best-effort — a failed fetch keeps the affordances.
+    canWrite = await getProject(projectId)
+      .then((project) => project.permissions?.can_run_tasks !== false)
+      .catch(() => true);
     paginatedData = listResult;
     return (
       <main className="h-full flex flex-col">
@@ -89,6 +96,7 @@ export default async function TracesPage({
           } : undefined}
           filterOptions={filterOptions}
           sessions={sessionsData?.data ?? undefined}
+          canWrite={canWrite}
           sessionsPagination={sessionsData ? {
             totalCount: sessionsData.totalCount,
             page: sessionsData.page,

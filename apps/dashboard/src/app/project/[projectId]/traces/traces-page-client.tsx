@@ -39,6 +39,8 @@ interface TracesPageClientProps {
   sessions?: TraceSessionSummary[];
   sessionsPagination?: PaginationData;
   view?: string;
+  /** Member-tier trace writes (bookmark/delete/export) render only when allowed. */
+  canWrite?: boolean;
 }
 
 /**
@@ -84,6 +86,7 @@ export function TracesPageClient({
   sessions,
   sessionsPagination,
   view = "list",
+  canWrite = true,
 }: TracesPageClientProps) {
   return (
     <SelectionProvider projectId={projectId}>
@@ -116,6 +119,7 @@ export function TracesPageClient({
                   traces={traces}
                   error={error}
                   pagination={pagination}
+                  canWrite={canWrite}
                 />
               </Suspense>
             )}

@@ -38,6 +38,8 @@ interface ScheduleCardProps {
   clientNow: number | null;
   onToggle: (schedule: AgentTaskScheduleSummary) => void;
   onDelete: (id: string) => void;
+  /** Admin-tier controls (trigger/pause/delete) render only for managers. */
+  manageable?: boolean;
   onTrigger: (schedule: AgentTaskScheduleSummary) => void;
 }
 
@@ -47,6 +49,7 @@ export default function ScheduleCard({
   clientNow,
   onToggle,
   onDelete,
+  manageable = true,
   onTrigger,
 }: ScheduleCardProps) {
   const projectId = useProjectId();
@@ -101,6 +104,8 @@ export default function ScheduleCard({
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
+            {manageable ? (
+            <>
             <Button
               type="button"
               variant="outline"
@@ -138,6 +143,8 @@ export default function ScheduleCard({
             >
               <Trash2 size={13} />
             </Button>
+            </>
+            ) : null}
           </div>
         </div>
       </div>

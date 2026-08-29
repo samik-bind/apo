@@ -156,10 +156,14 @@ export default async function TaskRunDetailPage({
   const costIsPartial = generationErrors > 0 || (taskRun.unpriced_call_count ?? 0) > 0;
   // Corrections apply to terminal verdict-bearing runs with
   // recorded checks. Running/error/no-verdict runs render read-only.
+  // Corrections apply to terminal verdict-bearing runs with recorded
+  // checks — and only for roles that may edit scores: viewers (and the
+  // anonymous demo visitor) never see the affordance at all.
   const correctable =
     (taskRun.status === "passed" || taskRun.status === "failed") &&
     taskRun.pass_result !== null &&
-    checks.length > 0;
+    checks.length > 0 &&
+    project?.permissions?.can_edit_scores === true;
 
   return (
     <div className="mx-auto max-w-6xl">

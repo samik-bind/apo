@@ -208,6 +208,11 @@ def init_db():
     assert models_db is not None
     assert models_pricing is not None
 
+    # Dispose first so create_all's checkfirst reflection cannot run through
+    # a recycled connection pinning a stale schema snapshot (see
+    # reset_apo_file_db for the full failure mode). Harmless at startup,
+    # where the pool is cold anyway.
+    engine.dispose()
     SQLModel.metadata.create_all(engine)
     _run_migrations()
     _migrate_task_catalog_columns()
@@ -228,9 +233,24 @@ def reset_apo_file_db() -> None:
     files/runs and causes UNIQUE/FK violations (e.g. a stale ``batch-run-1``).
     Dropping all tables first gives each test a clean schema. Safe to call
     repeatedly; intended for the test suite, not production request paths.
+
+    The reset also checkpoints the WAL to the main file first. The engine
+    uses WAL journalling and NullPool, so a reset is a rapid sequence of
+    short-lived connections doing drop-all/create-all DDL; folding the -wal
+    into the main file before and after that sequence keeps every fresh
+    connection's schema view anchored to one file state instead of
+    reconciling a mid-reset WAL.
     """
+    if is_sqlite():
+        with engine.connect() as conn:
+            _ = conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+    engine.dispose()
     SQLModel.metadata.drop_all(engine)
     init_db()
+    if is_sqlite():
+        with engine.connect() as conn:
+            _ = conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+    engine.dispose()
 
 
 def _migrate_to_baseline():
