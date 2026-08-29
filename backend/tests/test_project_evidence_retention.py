@@ -236,3 +236,28 @@ class TestMaintenanceWiring:
 
         assert summary["runs_affected"] == 1
         assert session.get(AgentTaskCheckReportDB, "r-maint") is None
+
+
+class TestPreview:
+    def test_preview_names_exactly_what_would_expire(
+        self, session: Session
+    ) -> None:
+        owner = _make_user(session, "prev@t.dev")
+        _seed_project(session, "p-prev", owner=owner)
+        project = session.get(ProjectDB, "p-prev")
+        assert project is not None
+        project.evidence_retention_days = 7
+        session.add(project)
+        session.commit()
+        _seed_old_run(session, "p-prev", "r-prev")
+
+        from apo.services.retention import preview_run_evidence_expiry
+
+        preview = preview_run_evidence_expiry(session, NOW)
+
+        entry = next(p for p in preview if p["project"] == "p-prev")
+        assert entry["window_days"] == 7
+        assert entry["runs_eligible"] == 1
+        assert entry["sample_run_ids"] == ["r-prev"]
+        # Preview deletes nothing.
+        assert session.get(AgentTaskCheckReportDB, "r-prev") is not None

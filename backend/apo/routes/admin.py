@@ -175,6 +175,35 @@ async def get_retention_info(
     }
 
 
+@router.get("/retention/preview")
+async def preview_retention_effects(
+    request: Request,
+    _: object = Depends(require_api_key_scope("full")),
+):
+    """Dry run of evidence expiry: what the next pass would delete, per project.
+
+    The safety check before enabling or tightening a window — run this
+    first, confirm the run list is what you expect, then let maintenance
+    act. Deletes nothing.
+    """
+    if not verify_admin(request):
+        raise HTTPException(
+            status_code=401, detail="Unauthorized: Admin access required"
+        )
+    from datetime import datetime, timezone
+
+    from ..db import engine
+    from ..services.retention import preview_run_evidence_expiry
+
+    with Session(engine) as session:
+        return {
+            "status": "success",
+            "preview": preview_run_evidence_expiry(
+                session, datetime.now(timezone.utc)
+            ),
+        }
+
+
 @router.post("/retention/cleanup")
 async def trigger_retention_cleanup(
     request: Request,

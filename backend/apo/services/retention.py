@@ -335,6 +335,66 @@ def project_evidence_windows(session: Session) -> dict[str, int]:
     return windows
 
 
+_EVIDENCE_CANDIDATES_SQL = text(
+    "SELECT atr.id, atr.trace_run_id "
+    "FROM agent_task_runs atr "
+    "JOIN agent_task_batch_runs b ON atr.batch_run_id = b.id "
+    "WHERE b.created_at < :c "
+    "AND b.project = :p "
+    "AND ("
+    "  atr.transcript_json IS NOT NULL"
+    "  OR atr.trace_run_id IS NOT NULL"
+    "  OR EXISTS (SELECT 1 FROM agent_task_check_reports cr"
+    "             WHERE cr.run_id = atr.id)"
+    "  OR EXISTS (SELECT 1 FROM agent_task_deliverables d"
+    "             WHERE d.task_run_id = atr.id)"
+    "  OR EXISTS (SELECT 1 FROM agent_task_judgments j"
+    "             WHERE j.task_run_id = atr.id AND j.checks_json IS NOT NULL)"
+    ") "
+    "AND NOT EXISTS ("
+    "  SELECT 1 FROM runs r WHERE r.task_run_id = atr.id AND r.bookmarked = 1"
+    ")"
+)
+
+
+def _evidence_candidates(
+    session: Session, project: str, cutoff: datetime
+) -> list[tuple[str, str | None]]:
+    """Runs in ``project`` older than ``cutoff`` whose evidence would expire:
+    still holding evidence, not bookmark-protected."""
+    raw = cast(
+        "list[tuple[object, ...]]",
+        cast(object, session.execute(_EVIDENCE_CANDIDATES_SQL, {"c": cutoff, "p": project}).all()),
+    )
+    return [
+        (str(row[0]), str(row[1]) if row[1] is not None else None) for row in raw
+    ]
+
+
+def preview_run_evidence_expiry(session: Session, now: datetime) -> list[dict[str, object]]:
+    """Dry run of evidence expiry: what the NEXT maintenance pass would expire.
+
+    The safety check to run before enabling or tightening a window: per
+    project, how many runs would lose evidence right now and which ones
+    (first 10 ids). Deletes nothing.
+    """
+    preview: list[dict[str, object]] = []
+    demo = _demo_project_id()
+    for project, days in project_evidence_windows(session).items():
+        if project == demo:
+            continue
+        candidates = _evidence_candidates(session, project, now - timedelta(days=days))
+        preview.append(
+            {
+                "project": project,
+                "window_days": days,
+                "runs_eligible": len(candidates),
+                "sample_run_ids": [run_id for run_id, _ in candidates[:10]],
+            }
+        )
+    return preview
+
+
 async def expire_run_evidence(
     session: Session,
     now: datetime,
@@ -368,39 +428,7 @@ async def expire_run_evidence(
         if project == demo:
             continue
         cutoff = now - timedelta(days=days)
-        raw = cast(
-            "list[tuple[object, ...]]",
-            cast(
-                object,
-                session.execute(
-                    text(
-                        "SELECT atr.id, atr.trace_run_id "
-                        "FROM agent_task_runs atr "
-                        "JOIN agent_task_batch_runs b ON atr.batch_run_id = b.id "
-                        "WHERE b.created_at < :c "
-                        "AND b.project = :p "
-                        "AND ("
-                        "  atr.transcript_json IS NOT NULL"
-                        "  OR atr.trace_run_id IS NOT NULL"
-                        "  OR EXISTS (SELECT 1 FROM agent_task_check_reports cr"
-                        "             WHERE cr.run_id = atr.id)"
-                        "  OR EXISTS (SELECT 1 FROM agent_task_deliverables d"
-                        "             WHERE d.task_run_id = atr.id)"
-                        "  OR EXISTS (SELECT 1 FROM agent_task_judgments j"
-                        "             WHERE j.task_run_id = atr.id AND j.checks_json IS NOT NULL)"
-                        ") "
-                        "AND NOT EXISTS ("
-                        "  SELECT 1 FROM runs r WHERE r.task_run_id = atr.id AND r.bookmarked = 1"
-                        ")"
-                    ),
-                    {"c": cutoff, "p": project},
-                ).all(),
-            ),
-        )
-        candidates = [
-            (str(row[0]), str(row[1]) if row[1] is not None else None)
-            for row in raw
-        ]
+        candidates = _evidence_candidates(session, project, cutoff)
         if not candidates:
             continue
         summary["runs_affected"] += len(candidates)

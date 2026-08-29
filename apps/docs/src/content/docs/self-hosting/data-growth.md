@@ -21,6 +21,14 @@ The **evidence** behind those verdicts is most of the bytes and has decaying deb
 
 After evidence expires, a run still shows its verdict everywhere — lists, stats, comparisons, the run detail header — but its checks read empty, the transcript and trace links are gone, and deliverables no longer resolve. **Bookmarking a trace keeps every byte of that run forever**: bookmarks are the escape hatch for runs you know you'll revisit.
 
+:::tip[Preview before enabling or tightening a window]
+`GET /v1/admin/retention/preview` (admin key) dry-runs evidence expiry:
+per project, the window and exactly which runs would lose evidence right
+now. Check it before enabling a window on a deployment with existing
+data — an N-day window applies to everything already older than N days,
+not just to future runs.
+:::
+
 :::caution[Evidence expiry is irreversible]
 There is no undo. Export what you care about first — [`apo runs export`](/cli/runs-export/) writes a run's complete bundle (verdict, checks, judgment evidence, deliverables, trace) to one file — or bookmark the trace.
 :::
