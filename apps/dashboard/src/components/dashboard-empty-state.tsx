@@ -1,23 +1,100 @@
 "use client";
 
-import { AnimatedSignalSphere } from "@/components/brand/AnimatedSignalSphere";
-import { DemoWorkspaceChoice } from "@/components/demo-workspace-choice";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { Loader2, Plus } from "lucide-react";
+import { toast } from "sonner";
+import { createProject } from "@/lib/projects-api";
+import { isApiError } from "@/lib/api-error";
 
+/**
+ * The authenticated-empty home state (SPEC-188 U1): the demo choice is
+ * gone — signed-in visitors create their first project; the demo lives on
+ * the anonymous landing and /demo.
+ */
 export function DashboardEmptyState() {
+  const router = useRouter();
+  const { status } = useSession();
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  async function handleCreate() {
+    if (!newName.trim()) return;
+    setCreating(true);
+    try {
+      const project = await createProject(newName.trim());
+      router.push(`/project/${project.id}/tasks`);
+    } catch (error) {
+      setCreating(false);
+      // Surface the real failure instead of silently stopping the spinner.
+      toast.error(
+        isApiError(error)
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Failed to create project",
+      );
+    }
+  }
+
+  if (status === "loading") {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-background px-6 py-10">
-      <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-5xl flex-col items-center justify-center gap-10">
-        <div className="relative flex flex-col items-center gap-5 text-center">
-          <div className="pointer-events-none absolute inset-x-0 top-1/2 -z-10 h-64 -translate-y-1/2 rounded-full bg-[radial-gradient(circle_at_center,rgba(74,222,128,0.18),transparent_68%)] blur-3xl" />
-          <AnimatedSignalSphere
-            size={280}
-            preset="sequence"
-            className="drop-shadow-[0_0_42px_rgba(74,222,128,0.12)]"
-          />
-        </div>
-
-        <div className="w-full max-w-[520px]">
-          <DemoWorkspaceChoice />
+      <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-[520px] flex-col items-center justify-center">
+        <div className="w-full border border-border bg-card p-4">
+          {showCreate ? (
+            <div className="space-y-2">
+              <label
+                htmlFor="demo-project-name"
+                className="block text-xs text-muted-foreground"
+              >
+                Project name
+              </label>
+              <input
+                id="demo-project-name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+                placeholder="Project name"
+                className="h-9 w-full border border-border bg-input/30 px-3 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={creating || !newName.trim()}
+                className="h-9 w-full bg-foreground px-3 text-sm font-medium text-background disabled:opacity-50"
+              >
+                {creating ? "Creating…" : "Create project"}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="flex w-full items-center gap-3 text-left"
+            >
+              <span className="flex size-9 shrink-0 items-center justify-center bg-muted">
+                <Plus className="size-4" />
+              </span>
+              <span className="flex-1">
+                <span className="block text-sm font-semibold">
+                  Create your first project
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Start running agent tasks and collecting traces.
+                </span>
+              </span>
+            </button>
+          )}
         </div>
       </div>
     </main>

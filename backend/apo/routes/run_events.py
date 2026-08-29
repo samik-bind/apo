@@ -49,7 +49,7 @@ async def stream_run_events(
     # initial-event construction. A cross-Project denial returns JSON
     # 403/404 before the text/event-stream response is created.
     enforce_project_role_from_request(
-        request, session, project, minimum_role="member"
+        request, session, project, minimum_role="viewer"
     )
 
     broadcaster = await get_run_event_broadcaster()

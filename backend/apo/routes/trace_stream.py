@@ -55,7 +55,7 @@ async def stream_trace_events(
     # initial-event construction. A cross-Project denial returns JSON
     # 403/404 before the text/event-stream response is created.
     _ = enforce_project_role_from_request(
-        request, session, project, minimum_role="member"
+        request, session, project, minimum_role="viewer"
     )
 
     broadcaster = await get_trace_broadcaster()

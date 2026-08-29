@@ -348,7 +348,7 @@ async def cancel_agent_task_run(
     if batch is None:
         raise HTTPException(status_code=404, detail="Batch run not found")
     _ = enforce_project_role_from_request(
-        http_request, session, batch.project, minimum_role="member"
+        http_request, session, batch.project, minimum_role="viewer"
     )
     attempt = session.exec(
         select(TaskExecutionAttemptDB).where(TaskExecutionAttemptDB.task_run_id == task_run_id)
@@ -376,7 +376,7 @@ async def cancel_agent_task_batch_run(
     if batch is None:
         raise HTTPException(status_code=404, detail="Batch run not found")
     _ = enforce_project_role_from_request(
-        http_request, session, batch.project, minimum_role="member"
+        http_request, session, batch.project, minimum_role="viewer"
     )
     attempts = session.exec(
         select(TaskExecutionAttemptDB).where(TaskExecutionAttemptDB.batch_run_id == batch_run_id)
@@ -656,7 +656,7 @@ async def get_agent_task_batch_run(
 
     # Authorize after load — deny cross-Project access with 404.
     try:
-        authorize_project_request(request, session, batch.project, minimum_role="member")
+        authorize_project_request(request, session, batch.project, minimum_role="viewer")
     except HTTPException as exc:
         if exc.status_code == 403:
             raise HTTPException(status_code=404, detail="Batch run not found") from exc
@@ -804,7 +804,7 @@ async def get_agent_task_run(
     batch = session.get(AgentTaskBatchRunDB, task_run.batch_run_id)
     if batch is not None:
         try:
-            authorize_project_request(request, session, batch.project, minimum_role="member")
+            authorize_project_request(request, session, batch.project, minimum_role="viewer")
         except HTTPException as exc:
             if exc.status_code == 403:
                 raise HTTPException(status_code=404, detail="Task run not found") from exc
@@ -854,7 +854,7 @@ async def export_agent_task_run(
     batch = session.get(AgentTaskBatchRunDB, task_run.batch_run_id)
     if batch is not None:
         try:
-            authorize_project_request(request, session, batch.project, minimum_role="member")
+            authorize_project_request(request, session, batch.project, minimum_role="viewer")
         except HTTPException as exc:
             if exc.status_code == 403:
                 raise HTTPException(status_code=404, detail="Task run not found") from exc

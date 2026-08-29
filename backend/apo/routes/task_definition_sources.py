@@ -48,7 +48,7 @@ async def get_task_definition_source(
 
     # Enforce Project membership through the Run's Batch.
     _ = enforce_project_role_from_request(
-        request, session, batch.project, minimum_role="member"
+        request, session, batch.project, minimum_role="viewer"
     )
 
     result = read_definition_source(session, task_run_id=task_run_id, file_path=file_path)

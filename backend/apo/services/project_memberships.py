@@ -27,9 +27,9 @@ from ..models.schemas import (
 
 DEMO_PROJECT_ID: Final[str] = "demo"
 
-ProjectRole = Literal["member", "admin", "owner"]
+ProjectRole = Literal["viewer", "member", "admin", "owner"]
 
-_ROLE_RANK: Final[dict[str, int]] = {"member": 1, "admin": 2, "owner": 3}
+_ROLE_RANK: Final[dict[str, int]] = {"viewer": 0, "member": 1, "admin": 2, "owner": 3}
 
 _VALID_ROLES: Final[frozenset[str]] = frozenset(_ROLE_RANK.keys())
 
@@ -147,13 +147,13 @@ def require_project_role(
 
 
 def _synthetic_demo_membership(user_id: str) -> ProjectMembershipDB:
-    """Construct an in-memory membership for the world-readable demo project."""
+    """Construct an in-memory viewer membership for the world-readable demo project."""
     now = datetime.now(timezone.utc)
     return ProjectMembershipDB(
         id=f"demo-{user_id}",
         project_id=DEMO_PROJECT_ID,
         user_id=user_id,
-        role="member",
+        role="viewer",
         created_at=now,
         updated_at=now,
     )
@@ -242,8 +242,8 @@ def enforce_project_read_from_request(
     session: Session,
     project_id: str,
 ) -> ProjectMembershipDB:
-    """Compatibility wrapper: canonical policy at member role."""
-    return authorize_project_request(request, session, project_id, minimum_role="member")
+    """Compatibility wrapper: canonical policy at viewer role (the read floor)."""
+    return authorize_project_request(request, session, project_id, minimum_role="viewer")
 
 
 def list_readable_projects_from_request(
@@ -366,7 +366,14 @@ def authorize_project_request(
 
 
 def _authorize_demo_project(request: object) -> ProjectMembershipDB:
-    """The demo project is world-readable: synthetic ``member`` row."""
+    """The demo project is world-readable: synthetic ``viewer`` row.
+
+    Anonymous demo visitors (the middleware-minted GET-only credential,
+    SPEC-188) read as viewer in every profile. Authenticated users also
+    get viewer — the demo never grants management or mutation rights.
+    """
+    if _request_auth_method(request) == "anonymous":
+        return _synthetic_demo_membership("anonymous")
     user_id = _request_user_id(request)
     if not user_id:
         if not _is_release_profile():
@@ -442,6 +449,12 @@ def readable_project_ids_for_request(
     """
     auth_method = _request_auth_method(request)
 
+    # Anonymous demo visitors read exactly the demo project (SPEC-188).
+    # This branch must precede the no-identity handling below: the anonymous
+    # credential carries no user_id by design.
+    if auth_method == "anonymous":
+        return [DEMO_PROJECT_ID]
+
     if auth_method == "api_key":
         credential_project = _request_credential_project(request)
         if not credential_project:
@@ -474,15 +487,26 @@ def readable_project_ids_for_request(
 def compute_permissions(role: str | None) -> ProjectPermissionSummary:
     """Derive a permission summary from a project role.
 
-    The demo project passes ``role=None`` and still allows viewing and
-    running read-only tasks, but no management actions.
+    ``viewer`` is the read-only role (SPEC-188): no mutations, no
+    management, no per-user writes. The demo project hands every visitor
+    (including anonymous) a viewer membership, so the old ``role=None``
+    ``can_run_tasks=True`` fiction is gone — the None branch remains only
+    as the unknown-role fallback.
     """
+    if role == "viewer":
+        return ProjectPermissionSummary(
+            role="viewer",
+            can_manage_project=False,
+            can_manage_members=False,
+            can_run_tasks=False,
+            can_edit_scores=False,
+        )
     if role is None:
         return ProjectPermissionSummary(
             role=None,
             can_manage_project=False,
             can_manage_members=False,
-            can_run_tasks=True,
+            can_run_tasks=False,
             can_edit_scores=False,
         )
     if role == "member":
@@ -528,7 +552,21 @@ def _validate_role(role: str) -> None:
     if role not in _VALID_ROLES:
         raise HTTPException(
             status_code=422,
-            detail=f"Invalid role '{role}'. Expected one of: owner, admin, member.",
+            detail=f"Invalid role '{role}'. Expected one of: owner, admin, member, viewer.",
+        )
+
+
+def _reject_grant_above_actor_rank(role: str, actor_role: str) -> None:
+    """SPEC-188 grant-rank rule: an actor may grant at most their own rank.
+
+    Admins can grant admin/member/viewer; only owners grant owner. The
+    owner-specific checks at call sites keep their clearer messages and
+    run first; this is the general floor beneath them.
+    """
+    if _ROLE_RANK.get(role, 0) > _ROLE_RANK.get(actor_role, 0):
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot grant a role above your own",
         )
 
 
@@ -573,6 +611,7 @@ def add_member(
             status_code=403,
             detail="Only owners can add new owners to a project",
         )
+    _reject_grant_above_actor_rank(role, actor_role)
 
     user = session.exec(select(UserDB).where(UserDB.email == email)).first()
     if user is None:
@@ -638,6 +677,7 @@ def update_member_role(
             status_code=403,
             detail="Only owners can promote members to owner",
         )
+    _reject_grant_above_actor_rank(new_role, actor_role)
 
     # Only owners can demote another owner (other than themselves, which
     # is allowed under last-owner protection below).
@@ -753,7 +793,7 @@ def serialize_members(
         if user is None:
             continue
         summaries.append(to_member_summary(membership, user))
-    summaries.sort(key=lambda m: (m.role != "owner", m.role != "admin", m.email))
+    summaries.sort(key=lambda m: (m.role != "owner", m.role != "admin", m.role == "viewer", m.email))
     return summaries
 
 

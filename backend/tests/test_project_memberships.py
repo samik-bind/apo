@@ -127,13 +127,20 @@ class TestRequireProjectRole:
         # layer we just see no membership.
         assert exc.value.status_code == 403  # pyright: ignore[reportAttributeAccessIssue]
 
-    def test_demo_returns_synthetic_member(self, session: Session) -> None:
+    def test_demo_returns_synthetic_viewer(self, session: Session) -> None:
         user = _make_user(session, "demo-user@test.com")
         membership = require_project_member(
             session, DEMO_PROJECT_ID, user.id
         )
-        assert membership.role == "member"
+        assert membership.role == "viewer"
         assert membership.project_id == DEMO_PROJECT_ID
+
+    def test_demo_read_floor_accepts_viewer(self, session: Session) -> None:
+        user = _make_user(session, "demo-viewer@test.com")
+        membership = require_project_role(
+            session, DEMO_PROJECT_ID, user.id, minimum_role="viewer"
+        )
+        assert membership.role == "viewer"
 
     def test_demo_rejects_admin_role(self, session: Session) -> None:
         user = _make_user(session, "demo-admin@test.com")
@@ -171,11 +178,43 @@ class TestComputePermissions:
         assert perms.can_edit_scores
 
     def test_demo_role_is_none(self) -> None:
+        # None is now only the unknown-role fallback: nothing allowed.
         perms = compute_permissions(None)
         assert perms.role is None
         assert not perms.can_manage_project
         assert perms.can_manage_members is False
-        assert perms.can_run_tasks  # demo is readable
+        assert not perms.can_run_tasks
+        assert not perms.can_edit_scores
+
+    def test_viewer_is_read_only(self) -> None:
+        perms = compute_permissions("viewer")
+        assert perms.role == "viewer"
+        assert not perms.can_manage_project
+        assert not perms.can_manage_members
+        assert not perms.can_run_tasks
+        assert not perms.can_edit_scores
+
+    def test_viewer_passes_viewer_floor_but_not_member(self, session: Session) -> None:
+        owner = _make_user(session, "owner@test.com")
+        project = _make_project(session, owner)
+        viewer = _make_user(session, "viewer@test.com")
+        add_member(
+            session,
+            project_id=project.id,
+            email="viewer@test.com",
+            role="viewer",
+            actor_role="owner",
+        )
+        membership = require_project_role(
+            session, project.id, viewer.id, minimum_role="viewer"
+        )
+        assert membership.role == "viewer"
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc:
+            require_project_role(session, project.id, viewer.id, minimum_role="member")
+        assert exc.value.status_code == 403  # pyright: ignore[reportAttributeAccessIssue]
 
 
 class TestLastOwnerProtection:

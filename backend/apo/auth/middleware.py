@@ -29,6 +29,8 @@ from .api_key_auth import (
     validate_legacy_bearer,
 )
 from .api_key_tracker import api_key_usage_tracker
+from .rate_limit import LoginRateLimiter
+from ..services.installation_secrets import auth_secret_problem
 from .service_tokens import decode_service_token
 from ..services.executor_auth import validate_current_attempt_jwt
 
@@ -98,9 +100,58 @@ _TASK_RUN_RESULT_RE = re.compile(r"^/v1/agent-task-runs/[^/]+/result$")
 _COMPARISON_CARD_RE = re.compile(
     r"^/v1/projects/[^/]+/task-view-comparisons/[^/]+/card$"
 )
+
 _warned_no_secret = False
 AuthContextValue: TypeAlias = str | bool | int
 AuthContext: TypeAlias = dict[str, AuthContextValue]
+
+# Anonymous demo visitors (SPEC-188): when no credential is present and the
+# request is a safe read, the middleware mints a synthetic GET-only
+# "anonymous" credential. Per-route authorization (viewer-on-demo, 401
+# everywhere else) is the real boundary — this is only the outer gate, and
+# it stays deliberately dumb: method + kill switch + per-IP rate budget.
+_anonymous_demo_limiter = LoginRateLimiter(
+    max_attempts=int(os.environ.get("DEMO_ANON_RATE_LIMIT_MAX", "120")),
+    window_seconds=int(os.environ.get("DEMO_ANON_RATE_LIMIT_WINDOW_SECONDS", "60")),
+)
+
+
+def _is_demo_enabled() -> bool:
+    """APO_DEMO_ENABLED=false removes the demo (and anonymous access) entirely."""
+    return os.environ.get("APO_DEMO_ENABLED", "true").strip().lower() not in (
+        "false",
+        "0",
+        "no",
+    )
+
+
+def _authenticate_anonymous_demo(request: Request) -> AuthContext | JSONResponse | None:
+    """Mint the anonymous demo credential, a 429 response, or ``None``.
+
+    ``None`` means "not an anonymous demo request" — the caller answers 401
+    exactly like any other no-credential request (fail-closed, byte-identical).
+    GET/HEAD only; a per-IP sliding window keeps anonymous traffic bounded.
+    """
+    if request.method.upper() not in ("GET", "HEAD"):
+        return None
+    if not _is_demo_enabled():
+        return None
+    # A misconfigured deployment (missing/placeholder/short AUTH_SECRET)
+    # fails closed everywhere — the anonymous path must not become the
+    # crack that SPEC-153 sealed. Read the secret from the environment
+    # live (like the profile check) — never from the import-time binding.
+    if auth_secret_problem(os.environ.get("AUTH_SECRET", ""), required=True) is not None:
+        return None
+    client_ip = request.client.host if request.client else "unknown"
+    if not _anonymous_demo_limiter.is_allowed(client_ip):
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests"},
+            headers={"Retry-After": "60"},
+        )
+    _anonymous_demo_limiter.record_attempt(client_ip)
+    return {"auth_method": "anonymous"}
+
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -128,7 +179,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         user_info = _authenticate(request)
         if user_info is None:
-            return _unauthorized()
+            anonymous = _authenticate_anonymous_demo(request)
+            if isinstance(anonymous, JSONResponse):
+                return anonymous
+            user_info = anonymous
+            if user_info is None:
+                return _unauthorized()
 
         auth_method = user_info.get("auth_method")
         if auth_method == "service_token" and not _service_token_allows_request(request):
@@ -141,6 +197,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
         _add_no_cache_headers(response, path)
+        # Anonymous demo responses are never cacheable (shared caches must
+        # not pin demo state that a fixture refresh can replace).
+        if auth_method == "anonymous":
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
         return response
 
 

@@ -19,7 +19,7 @@ from sqlmodel import Session, SQLModel
 from ..db import get_session
 from ..models.db import ProjectDB
 from ..services.archived_models import set_model_archived
-from ..services.project_memberships import require_project_member
+from ..services.project_memberships import require_project_role
 
 router = APIRouter(prefix="/v1/projects/{project_id}", tags=["model-prefs"])
 SessionDependency = Annotated[Session, Depends(get_session)]
@@ -50,7 +50,7 @@ def _authorize(session: Session, project_id: str, request: Request) -> str:
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     user_id = _get_user_id(request)
-    _ = require_project_member(session, project_id, user_id)
+    _ = require_project_role(session, project_id, user_id, minimum_role="member")
     return user_id
 
 

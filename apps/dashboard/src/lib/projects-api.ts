@@ -1,6 +1,6 @@
 import { apiClient } from "./api-client";
 
-export type ProjectRole = "owner" | "admin" | "member";
+export type ProjectRole = "owner" | "admin" | "member" | "viewer";
 
 export interface ProjectPermissionSummary {
   role: ProjectRole | null;

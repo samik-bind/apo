@@ -58,6 +58,7 @@ from .invitation_tokens import (
 )
 from .project_memberships import (
     DEMO_PROJECT_ID,
+    _ROLE_RANK,
     create_owner_membership,
     get_project_membership,
 )
@@ -70,7 +71,7 @@ PROJECT_INVITATION_TTL_HOURS: Final[int] = int(
 
 # Valid invitation roles. ``owner`` is special-cased at the route layer
 # because only owners may invite owners.
-_INVITATION_ROLES: Final[frozenset[str]] = frozenset({"owner", "admin", "member"})
+_INVITATION_ROLES: Final[frozenset[str]] = frozenset({"owner", "admin", "member", "viewer"})
 
 _ACCEPT_PATH = "/accept-invitation"
 
@@ -219,6 +220,13 @@ async def create_or_refresh_invitation(
         raise HTTPException(
             status_code=403,
             detail="Only owners can invite new owners to a project",
+        )
+    # SPEC-188 grant-rank rule: invite at most at your own rank.
+    inviter_rank = _ROLE_RANK.get(invited_by_role, 0)
+    if _ROLE_RANK.get(role, 0) > inviter_rank:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot invite at a role above your own",
         )
 
     normalized = normalize_email(body.email)

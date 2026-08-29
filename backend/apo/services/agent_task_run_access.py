@@ -59,7 +59,7 @@ def require_task_run_access(
         # against the derived Project. Non-member → 404 (opaque), not 403,
         # so an opaque run ID cannot reveal the run's existence.
         try:
-            authorize_project_request(request, session, project, minimum_role="member")
+            authorize_project_request(request, session, project, minimum_role="member" if write else "viewer")
         except HTTPException as exc:
             if exc.status_code == 403:
                 raise HTTPException(status_code=404, detail="Task run not found") from exc

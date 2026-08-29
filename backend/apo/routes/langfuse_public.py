@@ -82,7 +82,7 @@ def _langfuse_list_scope(
             raise HTTPException(status_code=403, detail="Project mismatch")
         return [bound]
     if project is not None:
-        _ = authorize_project_request(http_request, db, project, minimum_role="member")
+        _ = authorize_project_request(http_request, db, project, minimum_role="viewer")
         return [project]
     return readable_project_ids_for_request(http_request, db)
 
@@ -106,11 +106,11 @@ def _langfuse_read_project(
             raise HTTPException(status_code=403, detail="Project mismatch")
         return bound
     if project_param is not None:
-        _ = authorize_project_request(http_request, db, project_param, minimum_role="member")
+        _ = authorize_project_request(http_request, db, project_param, minimum_role="viewer")
         return project_param
     for owner in _trace_owner_projects(db, trace_id):
         try:
-            _ = authorize_project_request(http_request, db, owner, minimum_role="member")
+            _ = authorize_project_request(http_request, db, owner, minimum_role="viewer")
         except HTTPException:
             continue
         return owner

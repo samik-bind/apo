@@ -230,7 +230,7 @@ async def list_agent_task_schedules(
     # Scope by readable Projects.
     if project:
         enforce_project_role_from_request(
-            request, session, project, minimum_role="member"
+            request, session, project, minimum_role="viewer"
         )
         project_ids: list[str] | None = [project]
     else:
@@ -259,7 +259,7 @@ async def get_agent_task_schedule(
     # Authorize after load — deny cross-Project access with 404.
     try:
         enforce_project_role_from_request(
-            request, session, schedule.project, minimum_role="member"
+            request, session, schedule.project, minimum_role="viewer"
         )
     except HTTPException as exc:
         if exc.status_code == 403:
@@ -284,7 +284,7 @@ async def get_adaptive_states(
     # Authorize after load — deny cross-Project access with 404.
     try:
         enforce_project_role_from_request(
-            request, session, schedule.project, minimum_role="member"
+            request, session, schedule.project, minimum_role="viewer"
         )
     except HTTPException as exc:
         if exc.status_code == 403:
@@ -876,7 +876,7 @@ async def list_schedule_occurrences(
     if schedule is None:
         raise HTTPException(status_code=404, detail="Schedule not found")
     _ = enforce_project_role_from_request(
-        http_request, session, schedule.project, minimum_role="member"
+        http_request, session, schedule.project, minimum_role="viewer"
     )
     rows = session.exec(
         select(AgentTaskScheduleOccurrenceDB)

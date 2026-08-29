@@ -175,7 +175,7 @@ def _load_project_for_request(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     if project_id == DEMO_PROJECT_ID:
-        return project, None
+        return project, "viewer"
     membership = enforce_project_read_from_request(request, session, project_id)
     return project, membership.role
 
@@ -223,13 +223,20 @@ async def list_projects(
     projects = session.exec(statement).all()
 
     # For role display: the acting user (session user or key creator).
-    user_id = _get_user_id(request)
+    # Anonymous demo visitors carry no user_id by design — their readable
+    # set is exactly ["demo"], so the per-membership lookup below never
+    # runs for them (SPEC-188 audit G1).
+    user_id = (
+        _get_user_id(request)
+        if getattr(request.state, "user_id", None)
+        else None
+    )
     summaries: list[ProjectSummary] = []
     for p in projects:
         if p.id == DEMO_PROJECT_ID:
-            summaries.append(_format_project_summary(p, current_user_role=None))
+            summaries.append(_format_project_summary(p, current_user_role="viewer"))
             continue
-        membership = get_project_membership(session, p.id, user_id)
+        membership = get_project_membership(session, p.id, user_id) if user_id else None
         role = membership.role if membership else None
         summaries.append(_format_project_summary(p, current_user_role=role))
     return summaries
@@ -714,7 +721,7 @@ def get_task_catalog(
 
     # Member read — the catalog is Project-owned inventory.
     enforce_project_role_from_request(
-        request, session, project_id, minimum_role="member"
+        request, session, project_id, minimum_role="viewer"
     )
     return get_catalog_status(session, project_id)
 

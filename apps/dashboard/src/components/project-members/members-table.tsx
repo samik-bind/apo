@@ -27,8 +27,8 @@ export type Row =
   | { kind: "member"; member: ProjectMemberSummary }
   | { kind: "invitation"; invitation: ProjectInvitationSummary }
 
-/** Owners first, then admins, then members — the table's default order. */
-export const ROLE_RANK: Record<ProjectRole, number> = { owner: 0, admin: 1, member: 2 }
+/** Owners first, then admins, then members, then viewers — default order. */
+export const ROLE_RANK: Record<ProjectRole, number> = { owner: 0, admin: 1, member: 2, viewer: 3 }
 
 function initialOf(text: string): string {
   const c = text.trim().charAt(0)
@@ -59,6 +59,9 @@ function RoleBadge({ role }: { role: ProjectRole }) {
         Admin
       </span>
     )
+  }
+  if (role === "viewer") {
+    return <span className="px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground/70">Viewer</span>
   }
   return <span className="px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">Member</span>
 }
@@ -146,6 +149,7 @@ export function MembersTable({
                           <SelectItem value="owner">Owner</SelectItem>
                           <SelectItem value="admin">Admin</SelectItem>
                           <SelectItem value="member">Member</SelectItem>
+                          <SelectItem value="viewer">Viewer</SelectItem>
                         </SelectContent>
                       </Select>
                     ) : (

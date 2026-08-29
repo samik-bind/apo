@@ -15,6 +15,12 @@ import { AgentTasksClient } from "@/app/project/[projectId]/tasks/tasks-client";
 import type { AgentTaskSummary } from "@/lib/agent-task-api";
 import type { ProjectTaskSource } from "@/lib/projects-api";
 
+// The shell reads the session to hide switcher chrome for anonymous demo
+// visitors; these tests exercise cohort handoff, not sessions.
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({ status: "authenticated", data: null }),
+}));
+
 vi.mock("@/lib/agent-task-view-api", async () => {
   const actual = await vi.importActual<
     typeof import("@/lib/agent-task-view-api")

@@ -1384,7 +1384,6 @@ _ROUTE_MODULE_AUDIT: dict[str, tuple[str, list[tuple[str, str]]]] = {
             ("tests/test_project_authorization_boundary.py", "test_comment_delete_is_author_or_admin"),
         ],
     ),
-    "demo": ("public", []),
     # Dev-only sign-in: an authentication surface gated by an
     # explicit opt-in flag enforced in the backend, with its own suite
     # (tests/test_dev_signin.py). Not a Project-owned surface.

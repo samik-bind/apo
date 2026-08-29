@@ -20,6 +20,8 @@ the 2026-08-14 adversarial re-review:
 
 from __future__ import annotations
 
+import pytest
+
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any, override
@@ -405,15 +407,19 @@ class TestRunPatchSubjectBinding:
 
 
 # ---------------------------------------------------------------------------
-# 7. Demo seed force guard
+# 7. Demo workspace stays read-only (the executor seed route was retired
+#    by SPEC-188; the permanent guard is require_project_not_demo)
 # ---------------------------------------------------------------------------
 
 
-class TestDemoSeedForceGuard:
-    def test_non_admin_cannot_force_reseed(self, session: Session) -> None:
-        _seed_world(session)
-        client = _session_client(session, _USER_BOB, is_admin=False)
+class TestDemoWorkspaceStaysReadOnly:
+    def test_mutation_on_demo_project_is_rejected(self, session: Session) -> None:
+        from apo.services.demo_workspace import (
+            DEMO_READ_ONLY_STATUS,
+            require_project_not_demo,
+        )
+        from fastapi import HTTPException
 
-        response = client.post("/v1/demo/seed?force=true")
-
-        assert response.status_code == 403
+        with pytest.raises(HTTPException) as exc:
+            require_project_not_demo("demo")
+        assert exc.value.status_code == DEMO_READ_ONLY_STATUS  # pyright: ignore[reportAttributeAccessIssue]

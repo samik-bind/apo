@@ -43,7 +43,6 @@ from .routes import (
     comments,
     api_keys,
     auth,
-    demo,
     projects,
     project_members,
     project_model_prefs,
@@ -78,10 +77,14 @@ async def lifespan(app: FastAPI):
 
         retire_legacy_execution_rows(session, now=datetime.now(timezone.utc))
         await purge_legacy_bundle_objects(session)
-    # ensure the demo project exists at startup so it shows
-    # up in project lists and users can browse it read-only.
+    # Demo workspace (SPEC-188): ensure the project row (kill-switch
+    # gated), then reconcile its data to the shipped fixture. Synchronous
+    # OTLP replay — must complete before the ingestion worker starts.
     from .services.demo_workspace import ensure_demo_project_exists
-    ensure_demo_project_exists()
+    if ensure_demo_project_exists():
+        from .services.demo_fixture import load_demo_fixture
+        with Session(engine) as demo_session:
+            load_demo_fixture(demo_session)
     with Session(engine) as session:
         bootstrap_initial_user(session)
     from .services.agent_task_scheduler import start_schedule_dispatcher, stop_schedule_dispatcher
@@ -195,7 +198,6 @@ def create_app() -> FastAPI:
     app.include_router(api_keys.router)
     app.include_router(auth.router)
     app.include_router(dev_signin.router)
-    app.include_router(demo.router)
     app.include_router(projects.router)
     app.include_router(project_members.router)
     app.include_router(system_runtime.router)

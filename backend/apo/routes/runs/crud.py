@@ -59,8 +59,9 @@ router = APIRouter(prefix="/v1/runs", tags=["runs"])
 def toggle_bookmark(run_id: str, http_request: Request, session: Session = Depends(get_session)):
     """Toggle bookmark state for a run."""
     run = require_run_not_demo(session, run_id)
-    # Require member on the derived Project.
-    enforce_project_read_from_request(http_request, session, run.project)
+    _ = enforce_project_role_from_request(
+        http_request, session, run.project, minimum_role="member"
+    )
     run.bookmarked = not run.bookmarked
     session.commit()
     session.refresh(run)
@@ -71,8 +72,9 @@ def toggle_bookmark(run_id: str, http_request: Request, session: Session = Depen
 @router.post("", response_model=Run)
 def create_run(request: CreateRunRequest, http_request: Request, session: Session = Depends(get_session)):
     require_project_not_demo(request.project)
-    # Require member on the target Project.
-    enforce_project_read_from_request(http_request, session, request.project)
+    _ = enforce_project_role_from_request(
+        http_request, session, request.project, minimum_role="member"
+    )
     run_id = str(uuid4())
 
     run = RunDB(
@@ -432,8 +434,9 @@ async def post_custom_metrics(
     session: Session = Depends(get_session),
 ):
     _run = require_run_not_demo(session, run_id)
-    # Require member on the derived Project.
-    enforce_project_read_from_request(http_request, session, _run.project)
+    _ = enforce_project_role_from_request(
+        http_request, session, _run.project, minimum_role="member"
+    )
 
     results_count = 0
     errors: list[dict[str, str]] = []
@@ -481,8 +484,9 @@ def set_corrected_output(
     session: Session = Depends(get_session),
 ):
     """Set or clear the corrected output for a call."""
-    # Require member on the target Project.
-    enforce_project_read_from_request(http_request, session, project)
+    _ = enforce_project_role_from_request(
+        http_request, session, project, minimum_role="member"
+    )
     _run = require_run_not_demo(session, run_id, project)
     call = session.exec(
         select(LoggedCallDB).where(
@@ -597,8 +601,9 @@ def reproject_run(
     The ``project`` query parameter specifies which project the trace belongs
     to (required because canonical spans are scoped by project).
     """
-    # Require member on the target Project.
-    enforce_project_read_from_request(http_request, session, project)
+    _ = enforce_project_role_from_request(
+        http_request, session, project, minimum_role="member"
+    )
     from ...models.db import OtlpSpanDB as _OtlpSpanDB
     from ...services.reproject import reproject_trace
 

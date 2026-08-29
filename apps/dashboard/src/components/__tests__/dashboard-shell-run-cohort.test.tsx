@@ -14,6 +14,12 @@ import { DashboardShell } from "../dashboard-shell";
 import type { RunCohort } from "@/lib/run-cohort";
 import { usePublishRunCohort } from "@/lib/run-cohort-context";
 
+// The shell reads the session to hide switcher chrome for anonymous demo
+// visitors; these tests exercise cohort handoff, not sessions.
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({ status: "authenticated", data: null }),
+}));
+
 vi.mock("next/navigation", () => ({
   usePathname: () => "/project/acme/tasks",
 }));

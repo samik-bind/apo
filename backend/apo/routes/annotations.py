@@ -91,7 +91,7 @@ async def list_queues(
     """
     if project:
         _ = enforce_project_role_from_request(
-            http_request, session, project, minimum_role="member"
+            http_request, session, project, minimum_role="viewer"
         )
         statement = select(AnnotationQueueDB).where(
             AnnotationQueueDB.project == project

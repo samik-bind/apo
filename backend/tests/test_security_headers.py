@@ -60,8 +60,13 @@ class TestSecurityHeaders:
         assert resp.headers.get("x-frame-options") == "DENY"
 
     def test_headers_on_auth_error(self, client: TestClient) -> None:
-        """Security headers should be present on 401 unauthorized responses."""
-        resp = client.get("/v1/datasets")
+        """Security headers should be present on 401 unauthorized responses.
+
+        POST, not GET: anonymous GETs may pass the middleware as the demo
+        credential (SPEC-188) and 404 at routing; a credential-less POST
+        always gets the middleware's 401.
+        """
+        resp = client.post("/v1/datasets")
         assert resp.status_code == 401
         assert resp.headers.get("x-content-type-options") == "nosniff"
         assert resp.headers.get("x-frame-options") == "DENY"
