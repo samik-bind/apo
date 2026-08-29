@@ -1335,12 +1335,21 @@ class ProjectSummary(SQLModel):
     created_by: str | None = None
     created_at: datetime | None = None
     current_user_role: str | None = None  # "owner" | "admin" | "member"
+    # Per-project evidence-retention override: NULL = inherit the
+    # APO_EVIDENCE_RETENTION_DAYS default, 0 = keep evidence forever.
+    evidence_retention_days: int | None = None
+    # What the daily maintenance pass actually uses for this project
+    # (override if set, else the env default). 0 = evidence never expires.
+    effective_evidence_retention_days: int = 0
 
 
 class UpdateProjectRequest(SQLModel):
     """Mutable Project settings. Trace Content is always stored in full."""
 
     name: str | None = None
+    # Tri-state: absent = leave unchanged (detected via exclude_unset),
+    # null = inherit the env default, 0 = keep evidence forever, N = days.
+    evidence_retention_days: int | None = None
 
 
 class ProjectBootstrapRequest(SQLModel):

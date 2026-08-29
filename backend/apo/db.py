@@ -792,6 +792,19 @@ def _migrate_to_v32() -> None:
         _migrate_test_result_correction_schema(conn)
 
 
+def _migrate_to_v33() -> None:
+    """Version 33: per-project evidence-retention override.
+
+    ``projects.evidence_retention_days`` (nullable INTEGER). NULL inherits
+    the ``APO_EVIDENCE_RETENTION_DAYS`` default; 0 keeps the project's
+    evidence forever. No backfill — NULL is the inherit semantic itself.
+    New DBs already have the column (``create_all`` runs before
+    migrations), so the ALTER is a guarded no-op there.
+    """
+    with engine.begin() as conn:
+        _add_column_if_missing(conn, "projects", "evidence_retention_days", "INTEGER")
+
+
 def _migrate_test_result_correction_schema(conn: Connection) -> None:
     if "agent_task_test_result_corrections" not in _get_table_names(conn):
         id_type = "TEXT" if is_sqlite() else "VARCHAR"
@@ -2236,7 +2249,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 32
+LATEST_SCHEMA_VERSION = 33
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2271,6 +2284,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     30: _migrate_to_v30,
     31: _migrate_to_v31,
     32: _migrate_to_v32,
+    33: _migrate_to_v33,
 }
 
 

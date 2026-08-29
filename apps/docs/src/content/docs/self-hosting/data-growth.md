@@ -48,6 +48,23 @@ Nothing is deleted silently by default: both retention windows default to keep-f
 | Verdict rows | every run/batch | ~hundreds of bytes — never expires |
 | Task definition revisions | every task-source edit | full `*.eval.ts` text per revision (kept: shared, content-addressed) |
 
+## Per-project overrides
+
+The deployment default is a blunt instrument — a scratch project and a
+regression project rarely want the same window. **Settings → Retention**
+(project admins) sets a per-project evidence window with three states:
+
+- **Inherit deployment default** — whatever `APO_EVIDENCE_RETENTION_DAYS` says.
+- **Keep evidence forever** — `0`, which *overrides* a shorter default for a precious project.
+- **Expire after N days** — a per-project window (1–3650).
+
+The setting is re-read on every maintenance pass, so a change applies the
+next day. `GET /v1/projects/{id}` reports both the override
+(`evidence_retention_days`) and the effective window
+(`effective_evidence_retention_days`). Full deletion
+(`APO_RETENTION_DAYS`) stays deployment-wide by design — it removes
+verdicts, which is an operator decision rather than a per-project one.
+
 ## Choosing settings
 
 - **Single box, regular use, occasionally debug old failures**: leave everything at defaults, or set `APO_EVIDENCE_RETENTION_DAYS=90`. Verdict history stays complete; the disk holds ~90 days of evidence.

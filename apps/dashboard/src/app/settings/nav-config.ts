@@ -7,7 +7,7 @@
  * `app/settings/<segment>/page.tsx` to exist — which prevents the
  * "click Settings → 404" regression this module was introduced to guard.
  */
-import { KeyRound, LucideIcon, MailPlus, MonitorSmartphone, Settings, User, Users } from "lucide-react";
+import { Hourglass, KeyRound, LucideIcon, MailPlus, MonitorSmartphone, Settings, User, Users } from "lucide-react";
 
 export type SettingsNavItem = {
   label: string;
@@ -33,6 +33,9 @@ export const PERSONAL_ITEMS: SettingsNavItem[] = [
 export const PROJECT_ITEMS: SettingsNavItem[] = [
   { label: "API Keys", segment: "api-keys", icon: KeyRound },
   { label: "Members", segment: "members", icon: Users },
+  // Gating is per-project (owner/admin), not instance-admin: the section
+  // disables editing for members and shows the read-only view instead.
+  { label: "Retention", segment: "retention", icon: Hourglass },
 ];
 
 export const INSTANCE_ITEMS: SettingsNavItem[] = [

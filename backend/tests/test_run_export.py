@@ -270,7 +270,7 @@ class TestRunExport:
         # Expire the evidence tier, then export.
         from apo.services.retention import expire_run_evidence
 
-        asyncio.run(expire_run_evidence(session, NOW - timedelta(days=1)))
+        asyncio.run(expire_run_evidence(session, NOW, windows={"p-ex": 1}))
         session.commit()
 
         resp = client.get("/v1/agent-task-runs/r-ex/export")

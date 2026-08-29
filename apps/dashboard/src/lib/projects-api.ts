@@ -16,6 +16,11 @@ export interface Project {
   created_by: string;
   created_at: string | null;
   current_user_role: ProjectRole | null;
+  /** Per-project evidence-retention override: null = inherit env default, 0 = forever.
+   *  Optional for tolerance of older backends that predate the field. */
+  evidence_retention_days?: number | null;
+  /** What maintenance actually uses for this project (override, else env default). */
+  effective_evidence_retention_days?: number;
 }
 
 export type ProjectTaskSourceType = "git" | "filesystem" | "demo" | "published";
@@ -69,6 +74,16 @@ export const getProject = (
   signal?: AbortSignal,
 ): Promise<ProjectDetail> =>
   apiClient(`/v1/projects/${projectId}`, { cache: "no-store", signal });
+
+/** Tri-state: null = inherit the env default, 0 = keep evidence forever, N = days. */
+export const updateProjectEvidenceRetention = (
+  projectId: string,
+  days: number | null,
+): Promise<ProjectDetail> =>
+  apiClient(`/v1/projects/${projectId}`, {
+    method: "PATCH",
+    body: { evidence_retention_days: days },
+  });
 
 export const updateProjectTaskSource = (
   projectId: string,

@@ -294,64 +294,118 @@ def evidence_retention_days() -> int:
     return max(days, 0)
 
 
-async def expire_run_evidence(session: Session, cutoff: datetime) -> dict[str, int]:
-    """Drop the evidence tier of runs whose batch is older than ``cutoff``.
+def effective_evidence_days(project_override: int | None) -> int:
+    """Resolve one project's evidence window: its override, else the env default.
 
-    Two-tier retention: verdicts live forever, evidence expires. For every
-    non-bookmarked run that still holds evidence, this removes deliverable
-    objects then rows, check reports, trace projections (calls, metrics,
-    spans — project-scoped), blanks rejudge ``checks_json`` (the judgment
-    row keeps its verdict scalars), blanks attempt diagnostics and the
-    inline transcript, and clears the run's trace link. A store failure
-    during object cleanup raises before any row changes — the next pass
-    retries. Bookmarking a trace is the escape hatch: a bookmarked run
-    keeps all of its evidence forever. The read-only demo project is never
-    touched — its showcase content is managed by ``demo_workspace``.
+    ``None`` inherits ``APO_EVIDENCE_RETENTION_DAYS``; ``0`` explicitly
+    keeps the project's evidence forever even under a shorter default;
+    ``N`` expires after N days. Re-resolved on every maintenance pass so a
+    changed setting applies on the next run — no stale cutoffs.
     """
+    if project_override is None:
+        return evidence_retention_days()
+    return max(project_override, 0)
+
+
+def project_evidence_windows(session: Session) -> dict[str, int]:
+    """Effective evidence window per project, projects with a window > 0 only.
+
+    The read-only demo project is never included — its showcase content is
+    managed by ``demo_workspace`` reseeding.
+    """
+    if not table_exists(session, "projects"):
+        return {}
     raw = cast(
         "list[tuple[object, ...]]",
         cast(
             object,
             session.execute(
-                text(
-                    "SELECT atr.id, atr.trace_run_id, b.project "
-                    "FROM agent_task_runs atr "
-                    "JOIN agent_task_batch_runs b ON atr.batch_run_id = b.id "
-                    "WHERE b.created_at < :c "
-                    "AND b.project != :demo "
-                    "AND ("
-                    "  atr.transcript_json IS NOT NULL"
-                    "  OR atr.trace_run_id IS NOT NULL"
-                    "  OR EXISTS (SELECT 1 FROM agent_task_check_reports cr"
-                    "             WHERE cr.run_id = atr.id)"
-                    "  OR EXISTS (SELECT 1 FROM agent_task_deliverables d"
-                    "             WHERE d.task_run_id = atr.id)"
-                    "  OR EXISTS (SELECT 1 FROM agent_task_judgments j"
-                    "             WHERE j.task_run_id = atr.id AND j.checks_json IS NOT NULL)"
-                    ") "
-                    "AND NOT EXISTS ("
-                    "  SELECT 1 FROM runs r WHERE r.task_run_id = atr.id AND r.bookmarked = 1"
-                    ")"
-                ),
-                {"c": cutoff, "demo": _demo_project_id()},
+                text("SELECT id, evidence_retention_days FROM projects")
             ).all(),
         ),
     )
-    candidates = [
-        (str(row[0]), str(row[1]) if row[1] is not None else None, str(row[2]))
-        for row in raw
-    ]
-    if not candidates:
+    demo = _demo_project_id()
+    windows: dict[str, int] = {}
+    for row in raw:
+        project_id = str(row[0])
+        override = cast("int | None", row[1])
+        days = effective_evidence_days(override)
+        if days > 0 and project_id != demo:
+            windows[project_id] = days
+    return windows
+
+
+async def expire_run_evidence(
+    session: Session,
+    now: datetime,
+    *,
+    windows: dict[str, int] | None = None,
+) -> dict[str, int]:
+    """Drop the evidence tier of old runs, per project's effective window.
+
+    Two-tier retention: verdicts live forever, evidence expires. For each
+    project with a window (per-project override, else the env default;
+    see ``project_evidence_windows``), every non-bookmarked run whose batch
+    is older than the window and still holds evidence loses: deliverable
+    objects then rows, check reports, trace projections (calls, metrics,
+    spans — project-scoped), rejudge ``checks_json`` (the judgment row
+    keeps its verdict scalars), attempt diagnostics, and the inline
+    transcript, and its trace link is cleared. A store failure during
+    object cleanup raises before any row changes — the next pass retries.
+    Bookmarking a trace is the escape hatch: a bookmarked run keeps all of
+    its evidence forever. The read-only demo project is never touched.
+    """
+    if windows is None:
+        windows = project_evidence_windows(session)
+    if not windows:
         return {"runs_affected": 0, "deleted_traces": 0, "deleted_calls": 0}
 
-    summary: dict[str, int] = {"runs_affected": len(candidates)}
-    by_project: dict[str, list[tuple[str, str | None]]] = {}
-    for run_id, trace_run_id, project in candidates:
-        by_project.setdefault(project, []).append((run_id, trace_run_id))
-
-    for project, entries in by_project.items():
-        run_ids = [run_id for run_id, _ in entries]
-        trace_ids = [t for _, t in entries if t]
+    summary: dict[str, int] = {"runs_affected": 0, "deleted_traces": 0, "deleted_calls": 0}
+    demo = _demo_project_id()
+    for project, days in windows.items():
+        # Defense in depth: the demo project is never expired, even if a
+        # caller-supplied window map includes it.
+        if project == demo:
+            continue
+        cutoff = now - timedelta(days=days)
+        raw = cast(
+            "list[tuple[object, ...]]",
+            cast(
+                object,
+                session.execute(
+                    text(
+                        "SELECT atr.id, atr.trace_run_id "
+                        "FROM agent_task_runs atr "
+                        "JOIN agent_task_batch_runs b ON atr.batch_run_id = b.id "
+                        "WHERE b.created_at < :c "
+                        "AND b.project = :p "
+                        "AND ("
+                        "  atr.transcript_json IS NOT NULL"
+                        "  OR atr.trace_run_id IS NOT NULL"
+                        "  OR EXISTS (SELECT 1 FROM agent_task_check_reports cr"
+                        "             WHERE cr.run_id = atr.id)"
+                        "  OR EXISTS (SELECT 1 FROM agent_task_deliverables d"
+                        "             WHERE d.task_run_id = atr.id)"
+                        "  OR EXISTS (SELECT 1 FROM agent_task_judgments j"
+                        "             WHERE j.task_run_id = atr.id AND j.checks_json IS NOT NULL)"
+                        ") "
+                        "AND NOT EXISTS ("
+                        "  SELECT 1 FROM runs r WHERE r.task_run_id = atr.id AND r.bookmarked = 1"
+                        ")"
+                    ),
+                    {"c": cutoff, "p": project},
+                ).all(),
+            ),
+        )
+        candidates = [
+            (str(row[0]), str(row[1]) if row[1] is not None else None)
+            for row in raw
+        ]
+        if not candidates:
+            continue
+        summary["runs_affected"] += len(candidates)
+        run_ids = [run_id for run_id, _ in candidates]
+        trace_ids = [t for _, t in candidates if t]
 
         # Stored objects go first, while their manifest rows are readable.
         await delete_deliverable_objects_for_runs(session, run_ids)
@@ -395,8 +449,8 @@ async def expire_run_evidence(session: Session, cutoff: datetime) -> dict[str, i
             {"ids": run_ids},
         )
         counts = delete_trace_projection(session, project, run_ids, trace_ids)
-        summary["deleted_traces"] = summary.get("deleted_traces", 0) + counts["deleted_traces"]
-        summary["deleted_calls"] = summary.get("deleted_calls", 0) + counts["deleted_calls"]
+        summary["deleted_traces"] += counts["deleted_traces"]
+        summary["deleted_calls"] += counts["deleted_calls"]
 
     return summary
 
@@ -762,13 +816,9 @@ def run_maintenance_cleanup() -> dict[str, int]:
         )
         session.commit()
 
-        evidence_days = evidence_retention_days()
-        if evidence_days > 0:
-            summary.update(
-                asyncio.run(
-                    expire_run_evidence(session, now - timedelta(days=evidence_days))
-                )
-            )
+        evidence_windows = project_evidence_windows(session)
+        if evidence_windows:
+            summary.update(asyncio.run(expire_run_evidence(session, now)))
             session.commit()
 
         if RETENTION_DAYS > 0:

@@ -181,7 +181,7 @@ class TestExpireRunEvidence:
         store = _RecordingStore()
         _patch_store(monkeypatch, store)
 
-        summary = asyncio.run(expire_run_evidence(session, NOW - timedelta(days=7)))
+        summary = asyncio.run(expire_run_evidence(session, NOW, windows={"p-ev": 7}))
 
         assert summary["runs_affected"] == 1
         assert summary["deleted_traces"] == 1
@@ -239,7 +239,7 @@ class TestExpireRunEvidence:
     def test_bookmarked_run_keeps_everything(self, session: Session) -> None:
         _seed_old_run(session, run_id="r-bm", bookmarked=True)
 
-        summary = asyncio.run(expire_run_evidence(session, NOW - timedelta(days=7)))
+        summary = asyncio.run(expire_run_evidence(session, NOW, windows={"p-ev": 7}))
 
         assert summary["runs_affected"] == 0
         run = session.get(AgentTaskRunDB, "r-bm")
@@ -258,7 +258,7 @@ class TestExpireRunEvidence:
     def test_fresh_batches_untouched(self, session: Session) -> None:
         _seed_old_run(session, run_id="r-fresh", batch_age_days=2)
 
-        summary = asyncio.run(expire_run_evidence(session, NOW - timedelta(days=7)))
+        summary = asyncio.run(expire_run_evidence(session, NOW, windows={"p-ev": 7}))
 
         assert summary["runs_affected"] == 0
         assert session.get(AgentTaskCheckReportDB, "r-fresh") is not None
@@ -298,9 +298,9 @@ class TestExpireRunEvidence:
         session.add(RunDB(id="trace-r-demo-ev", project="demo", task_run_id="r-demo-ev", created_at=NOW - timedelta(days=30)))
         session.commit()
 
-        summary = asyncio.run(expire_run_evidence(session, NOW - timedelta(days=7)))
+        summary = asyncio.run(expire_run_evidence(session, NOW, windows={"demo": 7}))
 
-        assert summary["runs_affected"] == 0
+        assert summary == {"runs_affected": 0, "deleted_traces": 0, "deleted_calls": 0}
         run = session.get(AgentTaskRunDB, "r-demo-ev")
         assert run is not None
         assert run.transcript_json is not None
@@ -311,9 +311,9 @@ class TestExpireRunEvidence:
         store = _RecordingStore()
         _patch_store(monkeypatch, store)
 
-        _ = asyncio.run(expire_run_evidence(session, NOW - timedelta(days=7)))
+        _ = asyncio.run(expire_run_evidence(session, NOW, windows={"p-ev": 7}))
         session.commit()
-        summary = asyncio.run(expire_run_evidence(session, NOW - timedelta(days=7)))
+        summary = asyncio.run(expire_run_evidence(session, NOW, windows={"p-ev": 7}))
 
         # The has-evidence predicate no longer matches the expired run, so
         # the pass reports zero and never touches the store again.

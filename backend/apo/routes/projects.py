@@ -121,12 +121,18 @@ def create_project_for_owner(
 def _format_project_summary(
     p: ProjectDB, current_user_role: str | None = None
 ) -> ProjectSummary:
+    from apo.services.retention import effective_evidence_days
+
     return ProjectSummary(
         id=p.id,
         name=p.name,
         created_by=p.created_by,
         created_at=p.created_at,
         current_user_role=current_user_role,
+        evidence_retention_days=p.evidence_retention_days,
+        effective_evidence_retention_days=effective_evidence_days(
+            p.evidence_retention_days
+        ),
     )
 
 
@@ -137,12 +143,18 @@ def _format_project_detail(
     *,
     current_user_role: str | None = None,
 ) -> ProjectDetail:
+    from apo.services.retention import effective_evidence_days
+
     return ProjectDetail(
         id=p.id,
         name=p.name,
         created_by=p.created_by,
         created_at=p.created_at,
         current_user_role=current_user_role,
+        evidence_retention_days=p.evidence_retention_days,
+        effective_evidence_retention_days=effective_evidence_days(
+            p.evidence_retention_days
+        ),
         permissions=compute_permissions(current_user_role),
         task_source=serialize_task_source(task_source, session=session),
     )
@@ -348,7 +360,13 @@ async def update_project(
     request: Request,
     session: Session = Depends(get_session),
 ) -> ProjectDetail:
-    """Update Project settings. Requires an admin or owner membership."""
+    """Update Project settings. Requires an admin or owner membership.
+
+    ``evidence_retention_days`` is tri-state: absent leaves it unchanged,
+    ``null`` re-inherits the ``APO_EVIDENCE_RETENTION_DAYS`` default,
+    ``0`` keeps this project's evidence forever, and ``N`` (1-3650) expires
+    evidence after N days. Verdicts are never deleted automatically.
+    """
     _assert_not_demo(project_id)
     project, role = _load_project_with_role(
         session, project_id, request, minimum_role="admin"
@@ -358,6 +376,15 @@ async def update_project(
         if not name:
             raise HTTPException(status_code=400, detail="name cannot be empty")
         project.name = name
+    updates = body.model_dump(exclude_unset=True)
+    if "evidence_retention_days" in updates:
+        days = updates["evidence_retention_days"]
+        if days is not None and not (0 <= days <= 3650):
+            raise HTTPException(
+                status_code=400,
+                detail="evidence_retention_days must be null, 0 (forever), or 1-3650 days",
+            )
+        project.evidence_retention_days = days
     session.add(project)
     session.commit()
     session.refresh(project)

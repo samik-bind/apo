@@ -201,7 +201,7 @@ purges the OTLP spans of what it deletes.
 | `INIT_USER_PASSWORD` | — | First-run admin password. |
 | `INIT_USER_NAME` | — | First-run admin display name. |
 | `APO_RETENTION_DAYS` | `0` | Days to keep runs/traces entirely (verdicts and all). `0` disables automatic deletion. |
-| `APO_EVIDENCE_RETENTION_DAYS` | `0` | Days to keep run *evidence* (transcripts, traces, check reports, deliverables, attempt diagnostics). Verdicts stay forever; bookmarked runs keep their evidence. `0` keeps evidence forever. |
+| `APO_EVIDENCE_RETENTION_DAYS` | `0` | Default days to keep run *evidence* (transcripts, traces, check reports, deliverables, attempt diagnostics). Verdicts stay forever; bookmarked runs keep their evidence. `0` keeps evidence forever. Per-project overrides live in Settings → Retention (`0` there = keep that project's evidence forever despite a shorter default). |
 | `APO_INGEST_RETENTION_DAYS` | `7` | Days raw OTLP ingest payloads stay replayable. After the window the payload is blanked in place (the audit row with its accepted/rejected counts stays). `0` keeps payloads forever. |
 | `APO_MAX_DB_PAGES` | `0` | SQLite page cap. `0` disables the cap. |
 | `PROJECT_INVITATION_TTL_HOURS` | `168` | How long project invitations stay valid (7 days). |

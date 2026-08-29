@@ -1056,6 +1056,11 @@ class ProjectDB(SQLModel, table=True):
     id: str = Field(primary_key=True, default_factory=lambda: uuid4().hex[:12])
     name: str = Field(index=True)
     trace_content_policy: str = Field(default="full")
+    # Per-project evidence-retention override (days). NULL = inherit the
+    # APO_EVIDENCE_RETENTION_DAYS default; 0 = keep this project's evidence
+    # forever even when the default says otherwise. Verdicts are never
+    # deleted automatically, whatever this says.
+    evidence_retention_days: int | None = Field(default=None)
     # default Pool for dashboard/schedule runs. Deliberately NOT a
     # hard DB foreign key (that would form a projects <-> executor_pools cycle
     # that breaks CREATE/DROP ordering); the service validates that the Pool
