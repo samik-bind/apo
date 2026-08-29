@@ -86,6 +86,20 @@ The system has three distinct authentication modes. They should not be mixed.
      Attempt, Run, lease generation, and permissions
    - neither credential ever reuses a browser session cookie
 
+4. **Anonymous demo reads** (the one deliberate public-surface exception)
+   - a credential-less GET/HEAD is minted a synthetic `anonymous` credential
+     by the auth middleware — only when the auth secret is properly
+     configured and `APO_DEMO_ENABLED` is not `false` (the kill switch)
+   - per-route authorization remains the boundary: anonymous reads resolve
+     to a viewer-role membership on the `demo` project only; every other
+     project fails closed exactly like any unauthenticated request
+   - anonymous traffic is bounded by a per-IP sliding window
+     (`DEMO_ANON_RATE_LIMIT_MAX`/`_WINDOW_SECONDS`) and every anonymous
+     response carries `no-store`
+   - the demo project's data comes from a shipped, gzip fixture reconciled
+     at startup (digest-gated full reload); the project is permanently
+     read-only
+
 ### Admission
 
 Admission to an installation is **not** Project membership. A Hosted Access
@@ -327,7 +341,11 @@ never consults `UserDB.is_admin`.
   refreshes the existing active row in place (rotates token, extends
   expiry, updates role) instead of creating a duplicate. Revocation is
   a soft delete and is itself idempotent.
-- **Demo workspace** rejects every invitation operation with `403`.
+- **Demo workspace** rejects every invitation operation with `403`. Its data
+  ships as a fixture (`apo/data/demo-workspace-v1.json.gz`) reconciled to the
+  database at startup; it is world-readable at the viewer role — including
+  anonymously — and `APO_DEMO_ENABLED=false` removes it from an install
+  entirely.
 
 ## Product Architecture: Agent Testing First
 

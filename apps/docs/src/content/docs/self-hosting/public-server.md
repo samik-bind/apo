@@ -92,7 +92,15 @@ Use the same origin for every client, with the appropriate path:
 | Apo CLI | `APO_BACKEND_URL=https://apo.example.com` |
 | OTEL exporter | `APO_OTLP_ENDPOINT=https://apo.example.com/api/public/otel/v1/traces` |
 
-The CLI and OTEL exporter still require their normal API credentials. Publishing Apo does not enable anonymous access — admission to a hosted installation is invitation-only, and every protected route requires an Apo session, API key, or task token.
+The CLI and OTEL exporter still require their normal API credentials. Publishing Apo does not enable anonymous access to your data — admission to a hosted installation is invitation-only, and every protected route requires an Apo session, API key, or task token.
+
+One deliberate exception: the read-only **demo workspace** is browsable without an account, so visitors can see Apo in action before committing to anything. Anonymous visitors can only ever read the demo project (at the viewer role); every mutation and every other project behaves exactly like an unauthenticated request. The demo's data is a frozen, fixture-shipped snapshot — nothing a visitor does can change it, and nothing of yours is exposed.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `APO_DEMO_ENABLED` | `true` | Set `false` to remove the demo workspace — and anonymous access — from this installation entirely. |
+| `DEMO_ANON_RATE_LIMIT_MAX` | `120` | Anonymous requests per IP per window. |
+| `DEMO_ANON_RATE_LIMIT_WINDOW_SECONDS` | `60` | The rate-limit window in seconds. |
 
 :::note[One origin, one authentication boundary]
 The ingress (Caddy) owns TLS and routing only. It never asks for a password of its own: browsers get Apo's login and invitation pages directly, and `apo login --backend https://apo.example.com` works without any ingress credential. Apo's application authentication — sessions, API keys, and Project authorization — is the only security boundary in front of your data.

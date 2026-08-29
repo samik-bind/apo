@@ -29,6 +29,8 @@ interface AgentTasksClientProps {
   error: string | null;
   taskSource: ProjectTaskSource | null;
   isDemo: boolean;
+  /** Write affordances render only when the permission summary allows. */
+  canRunTasks?: boolean;
   firstRunSetup?: ProjectFirstRunSetup | null;
   /** `?view=` from the URL: re-select that saved tab on arrival. */
   initialViewId?: string | null;
@@ -41,6 +43,7 @@ export function AgentTasksClient({
   error,
   taskSource,
   isDemo,
+  canRunTasks = true,
   firstRunSetup = null,
   initialViewId = null,
   prototypeVariant = null,
@@ -194,6 +197,7 @@ export function AgentTasksClient({
           <TasksToolbar
             taskSource={taskSource}
             isDemoProject={isDemoProject}
+            canRunTasks={canRunTasks}
             editingSource={editingSource}
             syncing={syncing}
             selectedCount={selected.size}
@@ -279,6 +283,7 @@ export function AgentTasksClient({
           runRunning={runState.running}
           comparing={comparing}
           isDemoProject={isDemoProject}
+          canRunTasks={canRunTasks}
           compareOptions={[
             ...facets.flatMap((f) =>
               f.model !== activeView.model ? [{ model: f.model, label: f.model }] : [],

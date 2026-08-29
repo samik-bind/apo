@@ -1,6 +1,7 @@
-import { listProjectAgentTasks } from "@/lib/agent-task-api";
+import { listAgentTaskBatchRuns, listProjectAgentTasks } from "@/lib/agent-task-api";
 import { getProject } from "@/lib/projects-api";
 import { getProjectOnboardingStatus } from "@/lib/projects-api";
+import { StartHereRail } from "@/components/start-here-rail";
 import {
   buildCliLoginCommand,
   EXAMPLE_URL,
@@ -46,8 +47,12 @@ export default async function AgentTasksPage({
     getProject(projectId),
     isDemo ? Promise.resolve(null) : getProjectOnboardingStatus(projectId),
   ]);
+  let canRunTasks = true;
   if (projectResult.status === "fulfilled") {
     taskSource = projectResult.value.task_source;
+    // Viewers (and anonymous demo visitors) never see write affordances —
+    // the permission summary is the single source of truth (SPEC-188 U3).
+    canRunTasks = projectResult.value.permissions?.can_run_tasks !== false;
   } else {
     error =
       projectResult.reason instanceof Error
@@ -92,15 +97,39 @@ export default async function AgentTasksPage({
     };
   }
 
+  // The demo guide rail's honesty footer needs the capture date: the
+  // newest completed batch. Best-effort — an empty demo just hides the date.
+  let capturedOn = "";
+  if (isDemo) {
+    try {
+      const batches = await listAgentTaskBatchRuns(projectId, { page_size: 100 });
+      capturedOn =
+        (batches.data ?? [])
+          .map((b) => b.completed_at ?? b.created_at ?? "")
+          .filter(Boolean)
+          .sort()
+          .at(-1)
+          ?.slice(0, 10) ?? "";
+    } catch {
+      capturedOn = "";
+    }
+  }
+
   return (
-    <AgentTasksClient
-      tasks={tasks}
-      error={error}
-      taskSource={taskSource}
-      isDemo={isDemo}
-      firstRunSetup={firstRunSetup}
-      initialViewId={initialViewId}
-      prototypeVariant={prototypeVariant}
-    />
+    <div className="flex">
+      <div className="min-w-0 flex-1">
+        <AgentTasksClient
+          tasks={tasks}
+          error={error}
+          taskSource={taskSource}
+          isDemo={isDemo}
+          canRunTasks={canRunTasks}
+          firstRunSetup={firstRunSetup}
+          initialViewId={initialViewId}
+          prototypeVariant={prototypeVariant}
+        />
+      </div>
+      {isDemo && capturedOn ? <StartHereRail capturedOn={capturedOn} /> : null}
+    </div>
   );
 }

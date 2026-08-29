@@ -9,6 +9,7 @@ import type { ProjectTaskSource } from "@/lib/projects-api";
 export function TasksToolbar({
   taskSource,
   isDemoProject,
+  canRunTasks = true,
   editingSource,
   syncing,
   selectedCount,
@@ -19,6 +20,8 @@ export function TasksToolbar({
 }: {
   taskSource: ProjectTaskSource | null;
   isDemoProject: boolean;
+  /** Hide (not disable) write affordances for read-only visitors. */
+  canRunTasks?: boolean;
   editingSource: boolean;
   syncing: boolean;
   selectedCount: number;
@@ -56,16 +59,18 @@ export function TasksToolbar({
             </Button>
           </>
         )}
-        <Button type="button"
-          size="sm"
-          disabled={selectedCount === 0 || runRunning || isDemoProject}
-          onClick={onRun}
-          title={isDemoProject ? "Demo workspace is read-only" : undefined}
-          className="h-8 gap-1.5 text-[13px] font-medium disabled:opacity-40"
-        >
-          <Play className="h-3.5 w-3.5 fill-current" />
-          {runRunning ? "Starting..." : selectedCount > 0 ? `Run ${selectedCount} task${selectedCount > 1 ? "s" : ""}` : "Run selected"}
-        </Button>
+        {canRunTasks ? (
+          <Button type="button"
+            size="sm"
+            disabled={selectedCount === 0 || runRunning || isDemoProject}
+            onClick={onRun}
+            title={isDemoProject ? "Demo workspace is read-only" : undefined}
+            className="h-8 gap-1.5 text-[13px] font-medium disabled:opacity-40"
+          >
+            <Play className="h-3.5 w-3.5 fill-current" />
+            {runRunning ? "Starting..." : selectedCount > 0 ? `Run ${selectedCount} task${selectedCount > 1 ? "s" : ""}` : "Run selected"}
+          </Button>
+        ) : null}
       </div>
     </div>
   );

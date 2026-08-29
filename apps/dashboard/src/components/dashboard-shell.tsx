@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   Sidebar,
   SidebarContent,
@@ -53,6 +54,8 @@ function DashboardChrome({
 }) {
   const pathname = usePathname();
   const runCohort = useRunCohort();
+  const { status } = useSession();
+  const anonymous = status === "unauthenticated";
   const p = (path: string) => `/project/${projectId}${path}`;
   const activeNav =
     dashboardAllItems.find((item) => pathname.startsWith(p(item.href))) ??
@@ -111,7 +114,13 @@ function DashboardChrome({
               aria-label="Breadcrumb"
               className="flex min-w-0 items-center gap-1 text-sm"
             >
-              <ProjectSwitcher currentProjectId={projectId} />
+              {anonymous ? (
+                // The switcher is session chrome; anonymous demo visitors
+                // get a plain label instead (SPEC-188 U2).
+                <span className="truncate text-sm font-medium">Demo workspace</span>
+              ) : (
+                <ProjectSwitcher currentProjectId={projectId} />
+              )}
               <Separator orientation="vertical" className="mx-1 h-5!" />
               <span className="truncate font-medium text-muted-foreground">
                 {activeNav?.label}

@@ -182,6 +182,28 @@ probe_denied GET "/backend-proxy/hello" "dev hello route denied"
 probe_denied GET "/public/traces/legacy-canary" "anonymous trace route removed"
 probe_denied PATCH "/v1/runs/legacy-canary/visibility" "visibility toggle removed"
 
+# --- Anonymous demo surface (SPEC-188): readable, read-only, bounded ---
+fetch GET "/v1/projects/demo"
+if [[ "$STATUS" == "200" ]]; then
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: anonymous demo project read — expected 200, got $STATUS" >&2
+  FAIL=$((FAIL + 1))
+fi
+if echo "$HEADERS" | grep -qi '^cache-control:.*no-store'; then
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: anonymous demo responses must carry no-store" >&2
+  FAIL=$((FAIL + 1))
+fi
+fetch POST "/v1/agent-task-batch-runs" '{"project":"demo","selection_type":"all"}'
+if [[ "$STATUS" == "401" ]]; then
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: anonymous demo mutation — expected 401, got $STATUS" >&2
+  FAIL=$((FAIL + 1))
+fi
+
 # --- Security headers on dashboard ---
 dash_headers="$(curl -sS --max-time "$TIMEOUT" -D - -o /dev/null "$PUBLIC_URL/" 2>/dev/null || echo "")"
 if echo "$dash_headers" | grep -qi "strict-transport-security"; then

@@ -15,6 +15,7 @@ export function SelectionActionBar({
   runRunning,
   comparing,
   isDemoProject,
+  canRunTasks = true,
   compareOptions,
   onClear,
   onRun,
@@ -24,6 +25,8 @@ export function SelectionActionBar({
   runRunning: boolean;
   comparing: boolean;
   isDemoProject: boolean;
+  /** Hide write actions for read-only visitors. */
+  canRunTasks?: boolean;
   compareOptions: { model: string | null; label: string }[];
   onClear: () => void;
   onRun: () => void;
@@ -43,10 +46,12 @@ export function SelectionActionBar({
         <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[12px] font-normal text-muted-foreground hover:text-foreground/70" onClick={onClear}>
           Clear
         </Button>
-        <Button type="button" size="sm" className="h-7 gap-1.5 px-3 text-[12px] font-medium" onClick={onRun} disabled={runRunning || isDemoProject} title={isDemoProject ? "Demo workspace is read-only" : undefined}>
-          <Play className="h-3 w-3 fill-current" />
-          {runRunning ? "Starting..." : "Run selection"}
-        </Button>
+        {canRunTasks ? (
+          <Button type="button" size="sm" className="h-7 gap-1.5 px-3 text-[12px] font-medium" onClick={onRun} disabled={runRunning || isDemoProject} title={isDemoProject ? "Demo workspace is read-only" : undefined}>
+            <Play className="h-3 w-3 fill-current" />
+            {runRunning ? "Starting..." : "Run selection"}
+          </Button>
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button

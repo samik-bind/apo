@@ -194,7 +194,7 @@ export function ProjectSwitcher({ currentProjectId }: { currentProjectId: string
               "demo" === currentProjectId && "bg-muted/30 font-semibold",
             )}
           >
-            <span className="truncate">Demo Project</span>
+            <span className="truncate">Demo workspace</span>
             {"demo" === currentProjectId && <Check className="size-3 shrink-0 text-primary" />}
           </button>
         </div>
