@@ -1,4 +1,27 @@
-# pyright: reportAny=false, reportUnusedImport=false, reportExplicitAny=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedParameter=false, reportMissingTypeStubs=false
+# pyright: reportAny=false, reportUnusedFunction=false, reportUnusedImport=false, reportExplicitAny=false, reportUnknownParameterType=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedParameter=false, reportMissingTypeStubs=false
+
+import os
+import os as _os
+import tempfile as _tempfile
+
+# Every pytest process gets its own file-backed test database BEFORE apo.db
+# is imported (DATABASE_URL is read at import time). The file-engine modules
+# (trace projector/repository/reproject, deliverables, ...) used to share
+# backend/data/apo.db across processes: two concurrent pytest runs — a full
+# suite plus one targeted command — raced each other's drop_all/create_all
+# on that one file, tearing the schema and failing arbitrary downstream
+# tests ("table already exists" / "no such table" at setup, shifting
+# victims). A per-process file under tmp also stops test runs from
+# drop/recreating the developer's real backend/data/apo.db.
+_TEST_DB_PATH = _os.path.join(
+    _tempfile.gettempdir(), f"apo-test-{_os.getpid()}.db"
+)
+for _suffix in ("", "-wal", "-shm"):
+    try:
+        _os.unlink(_TEST_DB_PATH + _suffix)
+    except FileNotFoundError:
+        pass
+_os.environ["DATABASE_URL"] = f"sqlite:///{_TEST_DB_PATH}"
 
 import asyncio
 import inspect
@@ -26,6 +49,17 @@ from apo.models.db import ProjectDB, ProjectMembershipDB
 # mint paths to require a real ProjectDB row, so tests that mint keys must
 # seed this project (and make the caller its owner) before POSTing.
 TEST_PROJECT_ID = "example-service"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _remove_per_process_test_db():
+    """Unlink this process's file test DB when the session ends."""
+    yield
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            os.unlink(_TEST_DB_PATH + suffix)
+        except FileNotFoundError:
+            pass
 
 
 def seed_project_for_user(
@@ -83,7 +117,7 @@ engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, p
 # synchronous pragmas are production concurrency/perf hardening and are
 # irrelevant to a single-connection in-memory DB, so they're not mirrored.
 @event.listens_for(engine, "connect")
-def _enable_foreign_keys(dbapi_conn, _connection_record):  # pyright: ignore[reportUnusedFunction]
+def _enable_foreign_keys(dbapi_conn, _connection_record):
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
