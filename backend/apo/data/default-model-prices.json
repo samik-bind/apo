@@ -747,6 +747,75 @@
       ]
     },
     {
+      "_doc": "2026-08-30 refresh: the 3.5 flash family had no entries, so both tiers of Google's mid-generation flash arrived unpriced. OpenRouter lists flash at $1.50/$9.00 per MTok (cache read $0.15, explicit cache write $0.0833333). Anchored exactly so it cannot swallow the 5x-cheaper flash-lite sibling. Flash models are priced flat by Google: no long-context tier to model.",
+      "match_pattern": "(?i)^gemini-3\\.5-flash$",
+      "provider": "gemini",
+      "display_name": "Gemini 3.5 Flash",
+      "start_date": null,
+      "updated_at": "2026-08-30T00:00:00Z",
+      "last_reviewed": "2026-08",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 1.5,
+            "cache_read": 0.15,
+            "cache_write_5m": 0.0833333,
+            "output": 9.0
+          }
+        }
+      ]
+    },
+    {
+      "_doc": "2026-08-30 refresh: OpenRouter lists flash-lite at $0.30/$2.50 per MTok (cache read $0.03, explicit cache write $0.0833333 — the same write rate as flash, so writes are relatively costlier here). The pattern tolerates a -preview rotation suffix like the 3.1 flash-lite entry. Flash models are priced flat by Google: no long-context tier to model.",
+      "match_pattern": "(?i)^gemini-3\\.5-flash-lite.*$",
+      "provider": "gemini",
+      "display_name": "Gemini 3.5 Flash-Lite",
+      "start_date": null,
+      "updated_at": "2026-08-30T00:00:00Z",
+      "last_reviewed": "2026-08",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 0.3,
+            "cache_read": 0.03,
+            "cache_write_5m": 0.0833333,
+            "output": 2.5
+          }
+        }
+      ]
+    },
+    {
+      "_doc": "2026-08-30 refresh: grok-4.5 was arriving unpriced (xAI via OpenRouter, provider stays 'generic' — matching keys on pattern only). OpenRouter lists $2/$6 per MTok with a $0.30 cached input read (cheaper than 4.6's $0.50). xAI's beyond-200k doubling was not verified for 4.5, so long-context calls price at base rather than a guessed 2x tier. xAI charges no cache-write premium — writes bill as ordinary input, so cache_write_5m equals the input rate. Anchored to the exact id so a grok-4.5-fast does not silently inherit these prices.",
+      "match_pattern": "(?i)^grok-4\\.5$",
+      "provider": "generic",
+      "display_name": "Grok 4.5",
+      "start_date": null,
+      "updated_at": "2026-08-30T00:00:00Z",
+      "last_reviewed": "2026-08",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 2.0,
+            "cache_read": 0.3,
+            "cache_write_5m": 2.0,
+            "output": 6.0
+          }
+        }
+      ]
+    },
+    {
       "_doc": "Issue #146: grok-4.6 was arriving unpriced (xAI via OpenRouter, no gen_ai.system on the observation, so provider stays 'generic' — matching keys on pattern only). Rates verified 2026-08-14 against OpenRouter /api/v1/models and xAI's published pricing: $2/$6 per MTok, cached input $0.50; requests beyond 200k context double to $4/$12 (cached $1.00). xAI charges no cache-write premium — writes bill as ordinary input, so cache_write_5m equals the tier's input rate. Anchored to the exact id so a future grok-4.6-fast (2x rates) does not silently inherit these prices.",
       "match_pattern": "(?i)^grok-4\\.6$",
       "provider": "generic",
@@ -831,12 +900,12 @@
       ]
     },
     {
-      "_doc": "Issue #94: anchored to the exact dated revision so a later -0901 build does not silently inherit these rates. cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero.",
+      "_doc": "Issue #94: anchored to the exact dated revision so a later -0901 build does not silently inherit these rates. Re-verified 2026-08-30: the live listing moved to $0.065/$0.18 per MTok with a $0.016 cache read (was $0.14/$0.28/$0.0028 at the 2026-08-05 entry). cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero.",
       "match_pattern": "(?i)^deepseek-v4-flash-0731$",
       "provider": "generic",
       "display_name": "DeepSeek V4 Flash (0731)",
       "start_date": null,
-      "updated_at": "2026-08-05T00:00:00Z",
+      "updated_at": "2026-08-30T00:00:00Z",
       "last_reviewed": "2026-08",
       "pricing_tiers": [
         {
@@ -845,21 +914,21 @@
           "priority": 0,
           "conditions": [],
           "prices": {
-            "input": 0.14,
-            "cache_read": 0.0028,
-            "cache_write_5m": 0.14,
-            "output": 0.28
+            "input": 0.065,
+            "cache_read": 0.016,
+            "cache_write_5m": 0.065,
+            "output": 0.18
           }
         }
       ]
     },
     {
-      "_doc": "Issue #146: was arriving unpriced. OpenRouter rates verified 2026-08-14: $0.435/$0.87 per MTok with a $0.003625 cache read (explicitly dated slug, anchored like deepseek-v4-flash-0731 in issue #94 so a later build does not silently inherit these rates). DeepSeek charges no cache-write premium — writes bill as ordinary input, so cache_write_5m equals the input rate. Direct DeepSeek API peak/off-peak tiers differ; these are the flat OpenRouter rates the routed observations bill at.",
+      "_doc": "Issue #146: was arriving unpriced. OpenRouter rates verified 2026-08-14 ($0.435/$0.87, cache read $0.003625); re-verified 2026-08-30 after the listing moved to $0.66/$1.98 per MTok with a $0.022 cache read (explicitly dated slug, anchored like deepseek-v4-flash-0731 in issue #94 so a later build does not silently inherit these rates). DeepSeek charges no cache-write premium — writes bill as ordinary input, so cache_write_5m equals the input rate. Direct DeepSeek API peak/off-peak tiers differ; these are the flat OpenRouter rates the routed observations bill at.",
       "match_pattern": "(?i)^deepseek-v4-pro-0813$",
       "provider": "generic",
       "display_name": "DeepSeek V4 Pro (0813)",
       "start_date": null,
-      "updated_at": "2026-08-14T00:00:00Z",
+      "updated_at": "2026-08-30T00:00:00Z",
       "last_reviewed": "2026-08",
       "pricing_tiers": [
         {
@@ -868,10 +937,56 @@
           "priority": 0,
           "conditions": [],
           "prices": {
-            "input": 0.435,
-            "cache_read": 0.003625,
-            "cache_write_5m": 0.435,
-            "output": 0.87
+            "input": 0.66,
+            "cache_read": 0.022,
+            "cache_write_5m": 0.66,
+            "output": 1.98
+          }
+        }
+      ]
+    },
+    {
+      "_doc": "2026-08-30 refresh: the -latest rotation alias OpenRouter routes cheap flash traffic to, $0.03/$0.16 per MTok with a $0.01 cache read. OpenRouter marks this id with floor pricing (~ prefix), so a provider may charge up to these rates — pinning the floor under-charges worst-case, which beats arriving unpriced. The undated deepseek/deepseek-v4-flash alias carries dynamic multi-provider weighted rates and is deliberately not pinned. DeepSeek charges no cache-write premium — writes bill as ordinary input, so cache_write_5m equals the input rate.",
+      "match_pattern": "(?i)^deepseek-v4-flash-latest$",
+      "provider": "generic",
+      "display_name": "DeepSeek V4 Flash (latest)",
+      "start_date": null,
+      "updated_at": "2026-08-30T00:00:00Z",
+      "last_reviewed": "2026-08",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 0.03,
+            "cache_read": 0.01,
+            "cache_write_5m": 0.03,
+            "output": 0.16
+          }
+        }
+      ]
+    },
+    {
+      "_doc": "2026-08-30 refresh: the vision variant of the v4 flash family, $0.22/$0.66 per MTok with a $0.007 cache read — 3x the text flash rates on input. Anchored to the -exp suffix so the stable vision build does not silently inherit experimental rates. DeepSeek charges no cache-write premium — writes bill as ordinary input, so cache_write_5m equals the input rate.",
+      "match_pattern": "(?i)^deepseek-v4-flash-vision-exp$",
+      "provider": "generic",
+      "display_name": "DeepSeek V4 Flash Vision (exp)",
+      "start_date": null,
+      "updated_at": "2026-08-30T00:00:00Z",
+      "last_reviewed": "2026-08",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 0.22,
+            "cache_read": 0.007,
+            "cache_write_5m": 0.22,
+            "output": 0.66
           }
         }
       ]
@@ -881,7 +996,31 @@
       "provider": "generic",
       "display_name": "GLM 5.2",
       "start_date": null,
-      "updated_at": "2026-08-05T00:00:00Z",
+      "updated_at": "2026-08-30T00:00:00Z",
+      "last_reviewed": "2026-08",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 1.19,
+            "cache_read": 0.221,
+            "cache_write_5m": 1.19,
+            "output": 3.74
+          }
+        }
+      ],
+      "_doc": "Re-verified 2026-08-30: discounted to exactly 0.85x the launch list once GLM 5.3 shipped at the old rates ($1.19/$3.74 per MTok, cache read $0.221). cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero."
+    },
+    {
+      "_doc": "2026-08-30 refresh: the current Z.ai flagship was arriving unpriced. OpenRouter lists the 5.2 launch rates unchanged on 5.3: $1.40/$4.40 per MTok, cache read $0.26 (5.2 itself is discounted 0.85x, so the siblings must not share an entry). cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero.",
+      "match_pattern": "(?i)^glm-5\\.3$",
+      "provider": "generic",
+      "display_name": "GLM 5.3",
+      "start_date": null,
+      "updated_at": "2026-08-30T00:00:00Z",
       "last_reviewed": "2026-08",
       "pricing_tiers": [
         {
@@ -896,8 +1035,30 @@
             "output": 4.4
           }
         }
-      ],
-      "_doc": "cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero."
+      ]
+    },
+    {
+      "_doc": "2026-08-30 refresh: Z.ai's cheap tier, ~19x cheaper than the flagship on input. OpenRouter: $0.075/$0.25 per MTok, cache read $0.015. Anchored so a future glm-5.3-air does not silently inherit these rates. cache_write_5m equals the input rate: this provider charges no write premium, but the tokens that populate a cache are billed as input on the call that writes them. Callers that report usage in Anthropic buckets (input_cache_creation) land on cache_write_5m for every provider, so an absent price here silently bills those tokens at zero.",
+      "match_pattern": "(?i)^glm-5\\.3-flash$",
+      "provider": "generic",
+      "display_name": "GLM 5.3 Flash",
+      "start_date": null,
+      "updated_at": "2026-08-30T00:00:00Z",
+      "last_reviewed": "2026-08",
+      "pricing_tiers": [
+        {
+          "name": "default",
+          "is_default": true,
+          "priority": 0,
+          "conditions": [],
+          "prices": {
+            "input": 0.075,
+            "cache_read": 0.015,
+            "cache_write_5m": 0.075,
+            "output": 0.25
+          }
+        }
+      ]
     },
     {
       "match_pattern": "(?i)^kimi-k3$",

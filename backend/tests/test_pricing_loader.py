@@ -585,6 +585,147 @@ class TestCacheWriteIsPricedForEveryProvider:
         assert cost.total > cost.breakdown["output"]
 
 
+class TestCurrentGenerationPricing:
+    """2026-08-30 refresh: the generation callers actually route to had no
+    entries, so GLM 5.3 / 5.3 Flash, the current DeepSeek flash builds, Grok
+    4.5, and the Gemini 3.5 flash family all resolved ``unpriced`` and showed
+    $0 in every cost column. Rates verified 2026-08-30 against OpenRouter's
+    ``/api/v1/models`` listing (per-token x 1e6); pinned here so a regression
+    to stale or assumed rates fails loudly."""
+
+    # wire name -> USD per 1M tokens per dimension
+    RATES: ClassVar[dict[str, dict[str, float]]] = {
+        "glm-5.3": {"input": 1.4, "cache_read": 0.26, "cache_write_5m": 1.4, "output": 4.4},
+        "glm-5.3-flash": {
+            "input": 0.075,
+            "cache_read": 0.015,
+            "cache_write_5m": 0.075,
+            "output": 0.25,
+        },
+        "deepseek-v4-flash-latest": {
+            "input": 0.03,
+            "cache_read": 0.01,
+            "cache_write_5m": 0.03,
+            "output": 0.16,
+        },
+        "deepseek-v4-flash-vision-exp": {
+            "input": 0.22,
+            "cache_read": 0.007,
+            "cache_write_5m": 0.22,
+            "output": 0.66,
+        },
+        "grok-4.5": {"input": 2.0, "cache_read": 0.3, "cache_write_5m": 2.0, "output": 6.0},
+        "gemini-3.5-flash": {
+            "input": 1.5,
+            "cache_read": 0.15,
+            "cache_write_5m": 0.0833333,
+            "output": 9.0,
+        },
+        "gemini-3.5-flash-lite": {
+            "input": 0.3,
+            "cache_read": 0.03,
+            "cache_write_5m": 0.0833333,
+            "output": 2.5,
+        },
+    }
+
+    # OpenRouter-prefixed id -> bare id it must resolve against (the ~ marks
+    # OpenRouter floor pricing; the marker rides the provider slug, which
+    # compute_cost strips before matching).
+    ROUTER_IDS: ClassVar[dict[str, str]] = {
+        "z-ai/glm-5.3": "glm-5.3",
+        "z-ai/glm-5.3-flash": "glm-5.3-flash",
+        "~deepseek/deepseek-v4-flash-latest": "deepseek-v4-flash-latest",
+        "deepseek/deepseek-v4-flash-vision-exp": "deepseek-v4-flash-vision-exp",
+        "x-ai/grok-4.5": "grok-4.5",
+        "google/gemini-3.5-flash": "gemini-3.5-flash",
+        "google/gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+    }
+
+    def test_prices_every_current_generation_model(self, session: Session) -> None:
+        load_default_prices(session)
+        for name, dims in self.RATES.items():
+            for usage_key, usd_per_1m in dims.items():
+                cost = compute_cost(
+                    session, name, {usage_key: 1_000_000}, "__global__", NOW
+                )
+                assert cost is not None, f"{name} should be priced, not unpriced"
+                assert cost.total == round(usd_per_1m * 1_000_000), (
+                    f"{name} {usage_key}: expected ${usd_per_1m}/MTok, "
+                    f"got {cost.total} micro-USD"
+                )
+
+    def test_router_prefixed_ids_price_identically_to_bare_ids(self, session: Session) -> None:
+        load_default_prices(session)
+        usage = {"input": 1_000_000, "cache_read": 1_000_000, "output": 1_000_000}
+        for routed, bare in self.ROUTER_IDS.items():
+            routed_cost = compute_cost(session, routed, usage, "__global__", NOW)
+            bare_cost = compute_cost(session, bare, usage, "__global__", NOW)
+            assert routed_cost is not None, f"{routed} should resolve via slug stripping"
+            assert bare_cost is not None, bare
+            assert routed_cost.total == bare_cost.total, (
+                f"{routed} must bill identically to {bare}"
+            )
+
+    def test_glm_53_flash_does_not_inherit_flagship_rates(self, session: Session) -> None:
+        """glm-5.3-flash is ~19x cheaper than glm-5.3; the two anchored entries
+        must not shadow each other in either direction."""
+        load_default_prices(session)
+        usage = {"input": 1_000_000, "output": 1_000_000}
+        flagship = compute_cost(session, "glm-5.3", usage, "__global__", NOW)
+        flash = compute_cost(session, "glm-5.3-flash", usage, "__global__", NOW)
+        assert flagship is not None and flash is not None
+        assert flagship.total == 5_800_000  # $1.40 + $4.40
+        assert flash.total == 325_000  # $0.075 + $0.25
+
+    def test_gemini_35_flash_entry_does_not_swallow_flash_lite(self, session: Session) -> None:
+        """gemini-3.5-flash costs 5x gemini-3.5-flash-lite on input; a greedy
+        ``flash.*`` pattern would silently bill every lite call at flash rates."""
+        load_default_prices(session)
+        usage = {"input": 1_000_000, "output": 1_000_000}
+        flash = compute_cost(session, "gemini-3.5-flash", usage, "__global__", NOW)
+        lite = compute_cost(session, "gemini-3.5-flash-lite", usage, "__global__", NOW)
+        assert flash is not None and lite is not None
+        assert flash.total == 10_500_000  # $1.50 + $9.00
+        assert lite.total == 2_800_000  # $0.30 + $2.50
+
+
+class TestDatedEntryRateRefresh:
+    """2026-08-30 re-verification: OpenRouter's live listing moved off the
+    rates pinned at entry time for the dated DeepSeek builds and discounted
+    glm-5.2 after the 5.3 launch (exactly 0.85x the 5.3 rates). Stale rows
+    would mis-bill every routed call on those models."""
+
+    REFRESHED: ClassVar[dict[str, dict[str, float]]] = {
+        "deepseek-v4-flash-0731": {"input": 0.065, "cache_read": 0.016, "output": 0.18},
+        "deepseek-v4-pro-0813": {"input": 0.66, "cache_read": 0.022, "output": 1.98},
+        "glm-5.2": {"input": 1.19, "cache_read": 0.221, "output": 3.74},
+    }
+
+    def test_refreshed_rates_match_live_listing(self, session: Session) -> None:
+        load_default_prices(session)
+        for name, dims in self.REFRESHED.items():
+            for usage_key, usd_per_1m in dims.items():
+                cost = compute_cost(
+                    session, name, {usage_key: 1_000_000}, "__global__", NOW
+                )
+                assert cost is not None, name
+                assert cost.total == round(usd_per_1m * 1_000_000), (
+                    f"{name} {usage_key}: expected ${usd_per_1m}/MTok "
+                    f"(2026-08-30 listing), got {cost.total} micro-USD"
+                )
+
+    def test_glm_52_discount_does_not_leak_into_glm_53(self, session: Session) -> None:
+        """glm-5.2 was discounted to 0.85x when 5.3 launched; 5.3 must keep
+        the full $1.40/$4.40 list rates, not inherit its sibling's discount."""
+        load_default_prices(session)
+        usage = {"input": 1_000_000, "output": 1_000_000}
+        cost = compute_cost(session, "glm-5.3", usage, "__global__", NOW)
+        assert cost is not None
+        assert cost.breakdown["input"] == 1_400_000
+        assert cost.breakdown["output"] == 4_400_000
+
+
 class TestMultipleErasPerPattern:
     def test_two_eras_for_same_pattern_coexist(self, session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Regression: two time-windowed eras sharing a

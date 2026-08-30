@@ -117,6 +117,11 @@ def load_demo_fixture(session: Session, *, path: Path | None = None) -> bool:
     source.catalog_digest = digest
     source.task_count = len(document.get("catalog", {}).get("tasks", []))
     source.status = "ready"
+    # The fixture IS the demo seed: align the source row's ref with the
+    # inventory rows written below (source_ref="fixture-v1") so the derived
+    # inventory_stale never trips on rows provisioned by the retired
+    # seeding system (source_ref mismatch hides the whole catalog).
+    source.demo_seed_id = "fixture-v1"
     source.last_synced_at = datetime.now(timezone.utc)
     session.add(source)
     session.commit()

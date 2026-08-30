@@ -103,6 +103,25 @@ def test_match_default_tier_when_below_threshold(client) -> None:
     assert body["matched_tier_name"] == "default"
 
 
+def test_match_prices_router_prefixed_current_generation_model(client) -> None:
+    # glm-5.3-flash verified 2026-08-30: $0.075/MTok input, $0.25/MTok output.
+    # The OpenRouter slug must be stripped so the routed id prices like the
+    # bare one — the 2026-08 generation arrived unpriced before this entry.
+    resp = client.get(
+        "/api/v1/models/match",
+        params={
+            "model": "z-ai/glm-5.3-flash",
+            "usage": json.dumps({"input": 1_000_000, "output": 1_000_000}),
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["matched"] is True, "z-ai/glm-5.3-flash must resolve, not arrive unpriced"
+    assert body["cost_breakdown"] == {"input": 75_000, "output": 250_000}
+    assert body["total_cost"] == 325_000
+    assert body["matched_tier_name"] == "default"
+
+
 def test_match_invalid_usage_json_returns_422(client) -> None:
     resp = client.get(
         "/api/v1/models/match",
