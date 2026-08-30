@@ -8,7 +8,7 @@
   },
   "models": [
     {
-      "match_pattern": "(?i)^claude-sonnet-4-5.*$",
+      "match_pattern": "(?i)^claude-sonnet-4[.-]5.*$",
       "provider": "anthropic",
       "display_name": "Claude Sonnet 4.5",
       "start_date": null,
@@ -31,7 +31,7 @@
       ]
     },
     {
-      "match_pattern": "(?i)^claude-opus-4-5.*$",
+      "match_pattern": "(?i)^claude-opus-4[.-]5.*$",
       "provider": "anthropic",
       "display_name": "Claude Opus 4.5",
       "start_date": null,
@@ -55,7 +55,7 @@
     },
     {
       "_doc": "Issue #102: Opus 4.6+ cut per-dimension pricing 3x vs Opus 4.5 ($5/$25 per MTok, not $15/$75). Pattern allows a date suffix (e.g. claude-opus-4-6-20260701). The earlier 'reuse the 4.5 rates' heuristic inflated every Opus 4.6/5 run by exactly 3x.",
-      "match_pattern": "(?i)^claude-opus-4-6.*$",
+      "match_pattern": "(?i)^claude-opus-4[.-]6.*$",
       "provider": "anthropic",
       "display_name": "Claude Opus 4.6",
       "start_date": null,
@@ -148,7 +148,7 @@
     },
     {
       "_doc": "$1/$5 per MTok. Pattern allows a date suffix \u2014 the canonical id is dated (claude-haiku-4-5-20251001). Distinct from the Claude 3.5 Haiku entry below, which is a different model at $0.80/$4.",
-      "match_pattern": "(?i)^claude-haiku-4-5.*$",
+      "match_pattern": "(?i)^claude-haiku-4[.-]5.*$",
       "provider": "anthropic",
       "display_name": "Claude Haiku 4.5",
       "start_date": null,
@@ -172,7 +172,7 @@
     },
     {
       "_doc": "$3/$15 per MTok. Pattern allows a date suffix.",
-      "match_pattern": "(?i)^claude-sonnet-4-6.*$",
+      "match_pattern": "(?i)^claude-sonnet-4[.-]6.*$",
       "provider": "anthropic",
       "display_name": "Claude Sonnet 4.6",
       "start_date": null,
