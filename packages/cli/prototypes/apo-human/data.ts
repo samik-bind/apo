@@ -10,6 +10,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveConfig } from "../../src/lib/config.ts";
 import { discoverTaskMeta, type TaskMeta } from "../../src/lib/task-meta.ts";
+import type { TreeNode } from "./ui.ts";
 
 export type ModelOption = {
   /** A runnable-looking id synthesized from the pricing match_pattern. */
@@ -37,8 +38,12 @@ export type SharedState = {
   taskSource: string;
   models: ModelOption[];
   modelSource: string;
+  /** The collapsible task tree; folders open/close in the picker. */
+  tree: TreeNode<TaskCard>[];
+  /** Which folders are open — persists across steps and variant switches. */
+  treeExpanded: Set<string>;
   /** Survives variant switches — the whole point of Tab-ing between shells. */
-  selection: { group?: string; taskId?: string; model?: string };
+  selection: { taskId?: string; model?: string };
   cursor: number;
 };
 
@@ -93,6 +98,8 @@ export async function loadShared(): Promise<SharedState> {
     taskSource,
     models: models.models,
     modelSource: models.source,
+    tree: taskTree(tasks),
+    treeExpanded: new Set<string>(),
     selection: {},
     cursor: 0,
   };
@@ -286,9 +293,8 @@ export function checksHint(t: TaskCard): string {
 export type TaskGroup = { folder: string; tasks: TaskCard[] };
 
 /**
- * Group tasks by their folder path. Pickers drill down folder → task so no
- * single screen carries more than a handful of short, bare lines — the
- * density rule every readable TUI follows (k9s namespaces, lazygit panels).
+ * Group tasks by their folder path — the flat view the browser variant
+ * renders as section headers.
  */
 export function groupTasks(tasks: TaskCard[]): TaskGroup[] {
   const byFolder = new Map<string, TaskCard[]>();
@@ -304,6 +310,41 @@ export function groupTasks(tasks: TaskCard[]): TaskGroup[] {
       tasks: list.toSorted((a, b) => a.id.localeCompare(b.id)),
     }))
     .toSorted((a, b) => a.folder.localeCompare(b.folder));
+}
+
+/**
+ * The same hierarchy as a real tree: nested folders (real-agent →
+ * engineering → tasks) for the collapsible picker. Folder nodes count the
+ * tasks in their subtree; task nodes carry the check-count hint.
+ */
+export function taskTree(tasks: TaskCard[]): TreeNode<TaskCard>[] {
+  const root: TreeNode<TaskCard> = { name: "", key: "", children: [] };
+  for (const t of tasks) {
+    let node = root;
+    for (const segment of (t.folderPath || "").split("/").filter(Boolean)) {
+      node.children ??= [];
+      let next = node.children.find((c) => c.children !== undefined && c.name === segment);
+      if (!next) {
+        next = { name: segment, key: node.key ? `${node.key}/${segment}` : segment, children: [] };
+        node.children.push(next);
+      }
+      node = next;
+    }
+    node.children ??= [];
+    node.children.push({ name: shortName(t), key: t.id, value: t, hint: checksHint(t) });
+  }
+  const finalize = (n: TreeNode<TaskCard>): number => {
+    if (n.value !== undefined || !n.children) return 1;
+    n.children.sort((a, b) => {
+      const af = a.children !== undefined ? 0 : 1;
+      const bf = b.children !== undefined ? 0 : 1;
+      return af - bf || a.name.localeCompare(b.name);
+    });
+    n.count = n.children.reduce((sum, c) => sum + finalize(c), 0);
+    return n.count;
+  };
+  finalize(root);
+  return root.children ?? [];
 }
 
 /** The display name inside a group: the last path segment of the id. */

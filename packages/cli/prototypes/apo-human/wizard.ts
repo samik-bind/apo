@@ -4,8 +4,8 @@
  * switches. Answers: does step-by-step guidance kill the memorization tax?
  */
 import { bold, cyan, dim, formatTable, green, red, yellow } from "../../src/lib/format.ts";
-import { checksHint, effectiveModel, groupTasks, hasProviderKey, resolveEnvView, shortName, type SharedState } from "./data.ts";
-import { askText, bottomBar, pick, waitKey, type PickResult } from "./ui.ts";
+import { checksHint, effectiveModel, hasProviderKey, resolveEnvView, type SharedState, type TaskCard } from "./data.ts";
+import { askText, bottomBar, pick, pickTree, waitKey, type PickResult, type TreeNode } from "./ui.ts";
 
 export type VariantResult = "switch" | "quit";
 
@@ -14,56 +14,33 @@ const DEFAULT = "default";
 type ModelChoice = { kind: "catalog"; id: string } | { kind: typeof CUSTOM } | { kind: typeof DEFAULT };
 
 export async function runWizard(shared: SharedState): Promise<VariantResult> {
-  const groups = groupTasks(shared.tasks);
-  if (shared.selection.group === undefined && groups.length > 0) {
-    shared.selection.group = groups[0]!.folder;
-  }
   let step = 0;
   while (true) {
-    // step 0 → 0.5: drill down folder → task, so each screen is a handful of
-    // short bare lines instead of one long flat list.
+    // One screen, a collapsible tree: folders open with →/Enter, close with
+    // ←/h; Enter on a task proceeds. Expansion persists across steps.
     if (step === 0) {
-      const result = await pick(
-        bold("Run an eval — step 1/4: pick a group") + dim(`   (${shared.taskSource})`),
-        groups.map((g) => ({
-          label: g.folder,
-          hint: `${g.tasks.length} task${g.tasks.length === 1 ? "" : "s"}`,
-          value: g.folder,
-        })),
+      if (shared.selection.taskId) {
+        let prefix = "";
+        for (const segment of shared.selection.taskId.split("/").slice(0, -1)) {
+          prefix = prefix ? `${prefix}/${segment}` : segment;
+          shared.treeExpanded.add(prefix);
+        }
+      }
+      const result = await pickTree(
+        bold("Run an eval — step 1/4: pick a task") + dim(`   (${shared.taskSource})`) + dim("   [→] open [←] close"),
+        shared.tree,
+        shared.treeExpanded,
       );
       const next = applyPick(result);
       if (next === "switch" || next === "quit") return next;
       if (next !== "back") {
-        shared.selection.group = next;
+        shared.selection.taskId = next.id;
         step = 1;
       }
       continue;
     }
 
     if (step === 1) {
-      const group = groups.find((g) => g.folder === shared.selection.group) ?? groups[0]!;
-      shared.selection.group = group.folder;
-      const result = await pick(
-        bold("Run an eval — step 1/4: pick a task") + dim(`   ${group.folder}/`),
-        group.tasks.map((t) => ({
-          label: shortName(t),
-          hint: checksHint(t),
-          value: t.id,
-        })),
-        Math.max(0, group.tasks.findIndex((t) => t.id === shared.selection.taskId)),
-      );
-      const next = applyPick(result);
-      if (next === "switch" || next === "quit") return next;
-      if (next !== "back") {
-        shared.selection.taskId = next;
-        step = 2;
-      } else {
-        step = 0;
-      }
-      continue;
-    }
-
-    if (step === 2) {
       const current = effectiveModel(resolveEnvView(task(shared).path, process.env), shared.selection);
       const result = await pick(
         bold("step 2/4: model") + dim(`   currently resolves to: ${current ?? "nothing — no model set"}`),
@@ -91,14 +68,14 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
       continue;
     }
 
-    if (step === 3) {
+    if (step === 2) {
       console.clear();
       console.log(stepScreen(shared, 3));
       console.log(bottomBar(0) + dim("   [any key] continue · [b] back"));
       const key = await waitKey();
       if (key.name === "tab") return "switch";
       if (key.name === "q") return "quit";
-      step = key.name === "b" || key.name === "escape" ? 2 : 4;
+      step = key.name === "b" || key.name === "escape" ? 1 : 3;
       continue;
     }
 
@@ -108,7 +85,7 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
     const key = await waitKey();
     if (key.name === "tab") return "switch";
     if (key.name === "q") return "quit";
-    step = key.name === "b" || key.name === "escape" ? 3 : 0;
+    step = key.name === "b" || key.name === "escape" ? 2 : 0;
   }
 }
 
@@ -189,25 +166,31 @@ export function sourceLabel(source: string | null): string {
 
 /** Non-interactive render used by `--preview`: the whole journey at a glance. */
 export function renderWizardStatic(shared: SharedState): string {
-  const groups = groupTasks(shared.tasks);
-  const groupLines = groups.map((g, i) => {
-    const count = `${g.tasks.length} task${g.tasks.length === 1 ? "" : "s"}`;
-    return `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? g.folder : dim(g.folder)}  ${i === 0 ? count : dim(count)}`;
-  });
-  const first = groups[0] ?? { folder: "", tasks: [] };
-  const taskLines = first.tasks.map((t, i) =>
-    `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? shortName(t) : dim(shortName(t))}  ${i === 0 ? checksHint(t) : dim(checksHint(t))}`,
-  );
+  // The tree fully expanded, first task selected, one line per row.
+  const treeLines: string[] = [];
+  let marked = false;
+  const walk = (nodes: TreeNode<TaskCard>[], depth: number) => {
+    for (const n of nodes) {
+      const indent = "  ".repeat(depth);
+      if (n.children !== undefined) {
+        treeLines.push(`    ${indent}${dim(`▾ ${n.name}`)}  ${dim(String(n.count ?? ""))}`);
+        walk(n.children, depth + 1);
+      } else {
+        const selected = !marked;
+        marked = true;
+        const name = selected ? n.name : dim(n.name);
+        treeLines.push(`${selected ? "  ❯" : "   "} ${indent}  ${name}${n.hint && !selected ? `  ${dim(n.hint)}` : ""}`);
+      }
+    }
+  };
+  walk(shared.tree, 0);
   const modelLines = shared.models.slice(0, 5).flatMap((m, i) => [
     `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? m.display : dim(m.display)}`,
     `      ${dim(`$${m.input} in / $${m.output} out per 1M tokens · ${m.id}`)}`,
   ]);
   return [
-    bold("Run an eval — step 1/4: pick a group") + dim(`   (${shared.taskSource})`),
-    ...groupLines,
-    "",
-    bold(`step 1/4: pick a task`) + dim(`   ${first.folder}/`),
-    ...taskLines,
+    bold("Run an eval — step 1/4: pick a task") + dim(`   (${shared.taskSource})   [→] open [←] close`),
+    ...treeLines,
     "",
     bold("step 2/4: model"),
     ...modelLines,
