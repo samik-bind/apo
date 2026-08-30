@@ -3,8 +3,8 @@
  * shape). One stable frame, list left, detail right. Answers: is browsing
  * + inline detail worth a full-screen app, or overkill for eval running?
  */
-import { bold, cyan, dim, green, red, visibleLength, yellow } from "../../src/lib/format.ts";
-import { effectiveModel, hasProviderKey, resolveEnvView, type SharedState } from "./data.ts";
+import { bold, cyan, dim, green, red, yellow } from "../../src/lib/format.ts";
+import { checksHint, effectiveModel, hasProviderKey, resolveEnvView, type SharedState } from "./data.ts";
 import { bottomBar, waitKey } from "./ui.ts";
 import { envScreenText, runWizard, task as selectedTask, type VariantResult } from "./wizard.ts";
 
@@ -39,6 +39,8 @@ export async function runDashboard(shared: SharedState): Promise<VariantResult> 
 function frameText(shared: SharedState): string {
   const ids = shared.tasks.map((t) => t.id);
   const colWidth = Math.min(42, Math.max(...ids.map((id) => id.length), 10));
+  const snippetWidth = 30;
+  const leftWidth = 2 + colWidth + 1 + snippetWidth;
 
   const start = Math.max(0, Math.min(shared.cursor - Math.floor(VIEWPORT / 2), shared.tasks.length - VIEWPORT));
   const visible = shared.tasks.slice(start, start + VIEWPORT);
@@ -46,9 +48,9 @@ function frameText(shared: SharedState): string {
   const left = visible.map((t) => {
     const marker = t.id === shared.selection.taskId ? "\u276f " : "  ";
     const label = t.id === shared.selection.taskId ? bold(t.id.padEnd(colWidth)) : dim(t.id.padEnd(colWidth));
-    return `${marker}${label}`;
+    const snippet = t.description ? ` ${truncate(t.description, snippetWidth)}` : "";
+    return `${marker}${label}${dim(snippet.padEnd(1 + snippetWidth - snippet.length))}`;
   });
-  const leftWidth = colWidth + 2;
 
   const right = detailLines(shared);
 
@@ -58,20 +60,26 @@ function frameText(shared: SharedState): string {
   ];
   const rows = Math.max(left.length, right.length);
   for (let i = 0; i < rows; i++) {
-    const cell = left[i] ?? "";
-    const pad = " ".repeat(Math.max(0, leftWidth - visibleLength(cell)));
-    lines.push(`${cell}${pad}│ ${right[i] ?? ""}`);
+    lines.push(`${(left[i] ?? "").padEnd(leftWidth)}│ ${right[i] ?? ""}`);
   }
   return lines.join("\n");
+}
+
+function truncate(text: string, width: number): string {
+  return text.length > width ? `${text.slice(0, width - 1)}…` : text;
 }
 
 function detailLines(shared: SharedState): string[] {
   const t = selectedTask(shared);
   const view = resolveEnvView(t.path, process.env);
   const model = effectiveModel(view, shared.selection);
+  const what = t.description
+    ? wrap(t.description, 44).map((line) => dim(line))
+    : [dim("no description in the task file")];
   return [
     bold(t.id),
-    dim(`${t.adapter} · ${t.hasChecks ? "checks ✓" : "no checks"} · ${t.deliverables.length} deliverable(s) · ${t.files.length} file(s)`),
+    ...what,
+    dim([t.category, checksHint(t)].filter(Boolean).join(" · ")),
     "",
     bold("environment"),
     `  model   ${model ? cyan(model) : red("not set")}`,
@@ -82,6 +90,23 @@ function detailLines(shared: SharedState): string[] {
     "",
     dim("[e] full environment detail"),
   ];
+}
+
+/** Wrap text to a width the right pane can hold, honoring ANSI-free strings. */
+function wrap(text: string, width: number): string[] {
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    if (line.length + word.length + 1 > width && line !== "") {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line === "" ? word : `${line} ${word}`;
+    }
+  }
+  if (line !== "") lines.push(line);
+  return lines;
 }
 
 export function renderDashboardStatic(shared: SharedState): string {

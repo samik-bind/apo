@@ -20,8 +20,20 @@ export type ModelOption = {
   output: number;
 };
 
+/**
+ * A task plus the human-relevant facts the picker needs: what it tests
+ * (description), how it's grouped (category), and how thoroughly the run
+ * gets judged (check count). Adapter names are deliberately absent —
+ * they're wiring, not user information.
+ */
+export type TaskCard = TaskMeta & {
+  description: string | null;
+  category: string | null;
+  checkCount: number;
+};
+
 export type SharedState = {
-  tasks: TaskMeta[];
+  tasks: TaskCard[];
   taskSource: string;
   models: ModelOption[];
   modelSource: string;
@@ -61,11 +73,11 @@ export const KNOWN_VARS: { name: string; meaning: string }[] = [
 
 export async function loadShared(): Promise<SharedState> {
   const config = resolveConfig({});
-  let tasks: TaskMeta[] = [];
+  let tasks: TaskCard[] = [];
   let taskSource = `scanned ${config.taskRoot}`;
   if (existsSync(config.taskRoot)) {
     try {
-      tasks = discoverTaskMeta(config.taskRoot);
+      tasks = enrichTasks(discoverTaskMeta(config.taskRoot));
     } catch {
       tasks = [];
     }
@@ -197,26 +209,86 @@ export function hasProviderKey(view: EnvView): boolean {
   return view.known.some((v) => v.name.endsWith("_API_KEY") && v.set);
 }
 
-const SAMPLE_TASKS: TaskMeta[] = [
-  task("real-agent/engineering/code-review", "claudeAgent"),
-  task("real-agent/engineering/bug-triage", "claudeAgent"),
-  task("real-agent/security/security-audit", "claudeAgent"),
-  task("real-agent/research/research-synthesis", "claudeAgent"),
-  task("ai-sdk-agent/data-extraction", "aiSdkAgent"),
-  task("harbor/terminal-bench/count-dataset-tokens", "harbor"),
+const SAMPLE_TASKS: TaskCard[] = [
+  task("real-agent/engineering/code-review", "Review source code for bugs, style issues, and improvements.", "code-quality", 6),
+  task("real-agent/engineering/bug-triage", "Triage reported bugs by severity and root cause.", "debugging", 6),
+  task("real-agent/security/security-audit", "Audit a service for security weaknesses and misconfigurations.", "security", 7),
+  task("real-agent/research/research-synthesis", "Synthesize research notes into a grounded summary.", "research", 5),
+  task("ai-sdk-agent/data-extraction", "Extract structured data from an invoice.", "data-processing", 4),
+  task("harbor/terminal-bench/count-dataset-tokens", null, null, 3),
 ];
 
-function task(id: string, adapter: string): TaskMeta {
+function task(id: string, description: string | null, category: string | null, checkCount: number): TaskCard {
   return {
     id,
     folderPath: id.includes("/") ? id.slice(0, id.lastIndexOf("/")) : "",
-    adapter,
-    hasChecks: true,
+    adapter: "sample",
+    hasChecks: checkCount > 0,
     path: `/sample/${id}`,
     evalFileName: "task.eval.ts",
     deliverables: ["summary"],
     files: [],
+    description,
+    category,
+    checkCount,
   };
+}
+
+/**
+ * Statically read the eval file for the fields users pick tasks by:
+ * `description:` (may sit on its own line after the key) and
+ * `metadata.category`, plus a count of top-level check/test calls.
+ * Mirrors how task-meta.ts extracts — no module loading.
+ */
+export function enrichTasks(tasks: TaskMeta[]): TaskCard[] {
+  return tasks.map((t) => {
+    let content: string | null = null;
+    try {
+      content = readFileSync(resolve(t.path, t.evalFileName), "utf8");
+    } catch {
+      content = null;
+    }
+    return {
+      ...t,
+      description: content !== null ? extractDescription(content) : null,
+      category: content !== null ? extractStringField(content, "category") : null,
+      checkCount: content !== null ? countChecks(content) : t.hasChecks ? 1 : 0,
+    };
+  });
+}
+
+/** First line of the description field, truncated — enough to pick by. */
+function extractDescription(content: string): string | null {
+  const match = content.match(/description\s*:\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)/);
+  if (!match) return null;
+  const raw = match[1] ?? match[2] ?? match[3] ?? "";
+  const firstLine = raw.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
+  return firstLine.length > 72 ? `${firstLine.slice(0, 71)}…` : firstLine || null;
+}
+
+function extractStringField(content: string, field: string): string | null {
+  const match = content.match(new RegExp(`${field}\\s*:\\s*"([^"]*)"`));
+  return match ? match[1] ?? null : null;
+}
+
+/** Approximate but honest: every top-level `test(`/`check(` call is one judged assertion. */
+function countChecks(content: string): number {
+  const matches = content.match(/^[ \t]*(?:test|check)\s*\(/gm);
+  return matches ? matches.length : 0;
+}
+
+/** One-line hint for pickers: how this run gets judged. */
+export function checksHint(t: TaskCard): string {
+  if (t.checkCount === 0) return "run-only · no checks";
+  return `${t.checkCount} check${t.checkCount === 1 ? "" : "s"}`;
+}
+
+/** One-line label for pickers and lists: id, then what it tests, then grouping. */
+export function taskLabel(t: TaskCard): string {
+  const parts = [t.id];
+  if (t.description) parts.push(`— ${t.description}`);
+  if (t.category) parts.push(`[${t.category}]`);
+  return parts.join(" ");
 }
 
 const SAMPLE_MODELS: ModelOption[] = [

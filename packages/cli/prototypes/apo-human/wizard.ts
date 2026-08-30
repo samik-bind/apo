@@ -4,7 +4,7 @@
  * switches. Answers: does step-by-step guidance kill the memorization tax?
  */
 import { bold, cyan, dim, formatTable, green, red, yellow } from "../../src/lib/format.ts";
-import { effectiveModel, hasProviderKey, resolveEnvView, type SharedState } from "./data.ts";
+import { checksHint, effectiveModel, hasProviderKey, resolveEnvView, taskLabel, type SharedState } from "./data.ts";
 import { askText, bottomBar, pick, waitKey, type PickResult } from "./ui.ts";
 
 export type VariantResult = "switch" | "quit";
@@ -20,8 +20,8 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
       const result = await pick(
         bold("Run an eval — step 1/4: pick a task") + dim(`   (${shared.taskSource})`),
         shared.tasks.map((t) => ({
-          label: t.id,
-          hint: `${t.adapter}${t.hasChecks ? " · checks ✓" : ""}`,
+          label: taskLabel(t),
+          hint: checksHint(t),
           value: t.id,
         })),
       );
@@ -138,13 +138,15 @@ export function summaryText(shared: SharedState): string {
   const command = model ? `OPENROUTER_MODEL='${model}' apo task run ${t.id}` : `apo task run ${t.id}`;
   return [
     `${bold("task")}   ${t.id}`,
+    t.description ? `${dim("what")}    ${t.description}` : "",
     `${bold("model")}  ${model ? cyan(model) : dim(effectiveModel(view, shared.selection) ?? "from .env (nothing set!)")}`,
+    `${bold("judge")}  ${checksHint(t)}`,
     "",
     `  ${dim("$")} ${bold(command)}`,
     "",
     dim("PROTOTYPE — would exec this now. The judge reads the same model var;"),
     dim("the run records to your project like any `task run`."),
-  ].join("\n");
+  ].filter((line) => line !== "").join("\n");
 }
 
 export function shortPath(path: string): string {
@@ -159,7 +161,7 @@ export function sourceLabel(source: string | null): string {
 /** Non-interactive render used by `--preview`: the whole journey at a glance. */
 export function renderWizardStatic(shared: SharedState): string {
   const taskLines = shared.tasks.slice(0, 6).map((t, i) =>
-    `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? t.id : dim(t.id)}`,
+    `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? taskLabel(t) : dim(taskLabel(t))}  ${i === 0 ? checksHint(t) : dim(checksHint(t))}`,
   );
   const modelLines = shared.models.slice(0, 5).map((m, i) =>
     `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? m.display : dim(m.display)}  ${dim(`$${m.input}/$${m.output} per 1M · ${m.id}`)}`,
