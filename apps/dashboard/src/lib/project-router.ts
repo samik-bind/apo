@@ -2,8 +2,8 @@
 
 import { useParams } from "next/navigation";
 
-export const DEFAULT_PROJECT = "example-service";
-export const DEMO_PROJECT = "demo";
+import { DEFAULT_PROJECT, DEMO_PROJECT } from "./project-ids";
+export { DEFAULT_PROJECT, DEMO_PROJECT };
 
 /** Get the current project ID from the URL params (client-side). */
 export function useProjectId(): string {

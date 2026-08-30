@@ -4,6 +4,7 @@ import { listProjects } from "@/lib/projects-api";
 import { isApiError } from "@/lib/api-error";
 import { getServerBackendBaseUrl } from "@/lib/config.server";
 import { DashboardEmptyState } from "@/components/dashboard-empty-state";
+import { DemoLanding } from "@/components/demo-landing";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,12 @@ export default async function Home() {
   // empty state that assumes human onboarding.
   if (!session && (await devSigninEnabled())) {
     redirect("/login");
+  }
+
+  // Anonymous visitors get the demo-forward landing (SPEC-188 U1): stat
+  // cards from the fixture, one CTA, no account, no seed call.
+  if (!session) {
+    return <DemoLanding />;
   }
 
   if (session) {
