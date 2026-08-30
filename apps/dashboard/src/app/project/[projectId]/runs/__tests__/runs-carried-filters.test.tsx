@@ -104,18 +104,18 @@ describe("Runs page with filters carried in", () => {
 
   it("displays a date window that is not one of its own presets", () => {
     renderRuns("since=5d");
-    expect(screen.getByTestId("runs-date-filter")).toHaveTextContent("5 days");
+    expect(screen.getByRole("combobox", { name: "Date filter" })).toHaveTextContent("5 days");
   });
 
   it("shows the effort control for a carried effort with a single tier", () => {
     // The facets hold one tier, which normally hides the control — but the URL
     // selects an effort, so it has to stay on screen to be undone.
     renderRuns("model=claude-opus-5&effort=high");
-    expect(screen.getByTestId("runs-effort-filter")).toHaveTextContent("high");
+    expect(screen.getByRole("combobox", { name: "Effort filter" })).toHaveTextContent("high");
   });
 
   it("shows the effort control even when the facets know nothing of it", () => {
     renderRuns("model=claude-opus-5&effort=medium", []);
-    expect(screen.getByTestId("runs-effort-filter")).toHaveTextContent("medium");
+    expect(screen.getByRole("combobox", { name: "Effort filter" })).toHaveTextContent("medium");
   });
 });

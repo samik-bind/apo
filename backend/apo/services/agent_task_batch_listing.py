@@ -62,7 +62,7 @@ class PaginatedBatchRunSummary(BaseModel):
 class BatchRunListFilters:
     project: str | None = None
     project_ids: list[str] | None = None  # readable-Project scope
-    status: str | None = None
+    statuses: list[str] = field(default_factory=list)
     search: str | None = None
     since: str | None = None
     models: list[str] = field(default_factory=list)
@@ -147,8 +147,8 @@ def _apply_base_filters(
         base = base.where(col(AgentTaskBatchRunDB.project).in_(filters.project_ids))
     elif filters.project:
         base = base.where(AgentTaskBatchRunDB.project == filters.project)
-    if filters.status:
-        base = base.where(AgentTaskBatchRunDB.status == filters.status)
+    if filters.statuses:
+        base = base.where(col(AgentTaskBatchRunDB.status).in_(filters.statuses))
     # Same ``Nh``/``Nd`` vocabulary the evidence-view cohort uses, so a date
     # window carried over from the Tasks page filters here instead of being
     # silently dropped (a fixed preset table read "5d" as all-time).

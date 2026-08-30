@@ -625,12 +625,18 @@ async def list_agent_task_batch_runs(
 
     model_list = [m.strip() for m in model.split(",") if m.strip()] if model else []
     effort_list = [e.strip() for e in effort.split(",") if e.strip()] if effort else []
+    # Comma-separated, like ``model``/``effort``. Values are lowered to match
+    # the task-runs filter: a hand-typed "Completed" must not silently empty
+    # the list.
+    status_list = (
+        [s.strip().lower() for s in status.split(",") if s.strip()] if status else []
+    )
 
     return list_batch_run_summaries(
         session,
         BatchRunListFilters(
             project_ids=project_ids,
-            status=status,
+            statuses=status_list,
             search=q,
             since=since,
             models=model_list,
@@ -760,7 +766,11 @@ async def list_agent_task_runs(
             AgentTaskBatchRunDB.project == project
         )
     if status:
-        query = query.where(col(AgentTaskRunDB.status).in_([s.lower() for s in status]))
+        # Accept both encodings — repeated params (`?status=a&status=b`) and
+        # the comma-joined form every other multi-value dimension uses — so
+        # the unified filter bar can write one convention everywhere.
+        statuses = [s.strip().lower() for raw in status for s in raw.split(",") if s.strip()]
+        query = query.where(col(AgentTaskRunDB.status).in_(statuses))
     if task_id:
         query = query.where(AgentTaskRunDB.task_id == task_id)
     if batch_run_id:

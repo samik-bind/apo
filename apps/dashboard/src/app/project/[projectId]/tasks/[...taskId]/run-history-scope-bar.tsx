@@ -1,37 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ModelFilterMenu } from "@/components/model-filter-menu";
-import { FilterPicker } from "@/app/project/[projectId]/tasks/components/FilterPicker";
-import { PrototypeFilterRow } from "@/components/prototype-unified-filters";
+import { FilterBar } from "@/components/filter-bar";
 import { fetchSavedViews } from "@/lib/agent-task-view-api";
 import type { RunConfigModelFacet } from "@/lib/agent-task-view-api";
+import { TASK_RUN_STATUS_FILTERS } from "@/lib/filter-status";
 import { parseRunCohort, type RunCohort } from "@/lib/run-cohort";
-import { shortModel } from "@/lib/run-configuration";
-import { ALL_SINCE_VALUE, sinceOptionsFor } from "@/lib/since-window";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { cn } from "@/lib/utils";
 
 /**
- * The task detail page's run-history scope.
+ * The task detail page's run-history scope — the shared FilterBar over this
+ * page's run-level status vocabulary.
  *
  * The URL is the source of truth: the bar reads `?model=&effort=&since=&status=&view=`,
  * and every control change replaces the search params (never pushes — back must
- * leave the task page, not step through filter states). The `view` param is
- * informational only: it names the saved view the user arrived from and hides
- * itself once the scope diverges from that view.
+ * leave the task page, not step through filter states). Status is comma-joined
+ * (`?status=passed,error`), the same encoding every other multi-value
+ * dimension uses; repeated params from old links still parse. The `view`
+ * param is informational only: it names the saved view the user arrived from
+ * and hides itself once the scope diverges from that view.
  */
-
-const ANY_EFFORT_VALUE = "__any__";
-
-/** Run-level statuses — "idle" is a task-list concept and deliberately absent. */
-const RUN_STATUS_CHIPS = [
-  { value: "passed", label: "Passed", dot: "bg-success" },
-  { value: "failed", label: "Failed", dot: "bg-destructive" },
-  { value: "error", label: "Errored", dot: "bg-warning" },
-] as const;
 
 export interface TaskRunHistoryScope extends RunCohort {
   status: Set<string>;
@@ -53,96 +42,38 @@ export function TaskRunHistoryControls({
   const effortTiers = facets.find((f) => f.model === scope.model)?.efforts ?? [];
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-      <div className="flex shrink-0 items-center gap-1.5">
-        <span className="text-[11px] uppercase tracking-wide text-foreground/50">Model</span>
-        <ModelFilterMenu
-          options={facets}
-          selected={scope.model ? new Set([scope.model]) : new Set()}
-          onSelect={(model) => onScopeChange({ model, effort: null })}
-          onClear={() => onScopeChange({ model: null, effort: null })}
-          trigger={
-            <button
-              type="button"
-              aria-label="Model filter"
-              className="flex h-7 min-w-[140px] items-center justify-between gap-1 border border-input bg-muted/40 px-2 text-[12px] text-foreground hover:bg-muted/60"
-            >
-              <span className="truncate font-mono">
-                {scope.model ? shortModel(scope.model) : "All models"}
-              </span>
-              <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
-            </button>
-          }
-        />
-      </div>
-
-      {effortTiers.length >= 2 && (
-        <FilterPicker
-          label="Effort"
-          value={scope.effort ?? ANY_EFFORT_VALUE}
-          options={[
-            { value: ANY_EFFORT_VALUE, label: "Any effort" },
-            ...effortTiers.map((tier) => ({
-              value: tier.effort,
-              label: tier.effort,
-            })),
-          ]}
-          onChange={(value) =>
-            onScopeChange({ effort: value === ANY_EFFORT_VALUE ? null : value })
-          }
-        />
-      )}
-
-      <FilterPicker
-        label="Date"
-        value={scope.since ?? ALL_SINCE_VALUE}
-        options={sinceOptionsFor(scope.since)}
-        onChange={(value) => onScopeChange({ since: value === ALL_SINCE_VALUE ? null : value })}
-      />
-
-      <div className="flex shrink-0 items-center gap-1.5">
-        <span className="text-[11px] uppercase tracking-wide text-foreground/50">Status</span>
-        <div className="flex items-center gap-1">
-          {RUN_STATUS_CHIPS.map((chip) => {
-            const active = scope.status.has(chip.value);
-            return (
-              <button
-                key={chip.value}
-                type="button"
-                aria-pressed={active}
-                onClick={() => {
-                  const next = new Set(scope.status);
-                  if (active) next.delete(chip.value);
-                  else next.add(chip.value);
-                  onScopeChange({ status: next });
-                }}
-                className={cn(
-                  "flex h-7 items-center gap-1.5 border px-2 text-[12px] transition-colors",
-                  active
-                    ? "border-foreground/30 bg-muted/60 text-foreground"
-                    : "border-input bg-muted/40 text-muted-foreground hover:bg-muted/60",
-                )}
-              >
-                <span className={cn("h-2 w-2 rounded-full", chip.dot)} aria-hidden />
-                {chip.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {viewLabel && (
-        <span className="text-[11px] text-muted-foreground">{`scoped to view: ${viewLabel}`}</span>
-      )}
-
-      <button
-        type="button"
-        onClick={onReset}
-        className="text-[11px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
-      >
-        All history
-      </button>
-    </div>
+    <FilterBar
+      statusOptions={TASK_RUN_STATUS_FILTERS}
+      status={scope.status}
+      onStatusChange={(status) => onScopeChange({ status })}
+      modelOptions={facets}
+      selectedModels={scope.model ? new Set([scope.model]) : new Set()}
+      onSelectModel={(model) => onScopeChange({ model, effort: null })}
+      effortOptions={
+        effortTiers.length >= 2
+          ? effortTiers.map((tier) => ({ value: tier.effort, label: tier.effort }))
+          : []
+      }
+      effort={scope.effort}
+      onEffortChange={(effort) => onScopeChange({ effort })}
+      since={scope.since}
+      onSinceChange={(since) => onScopeChange({ since })}
+      onClearAll={onReset}
+      trailing={
+        <>
+          {viewLabel && (
+            <span className="text-[11px] text-muted-foreground">{`scoped to view: ${viewLabel}`}</span>
+          )}
+          <button
+            type="button"
+            onClick={onReset}
+            className="text-[11px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
+          >
+            All history
+          </button>
+        </>
+      }
+    />
   );
 }
 
@@ -152,6 +83,18 @@ interface SavedViewShape {
   model: string | null;
   effort: string | null;
   since: string | null;
+}
+
+/** Parse `?status=` accepting both the comma-joined and repeated encodings. */
+function parseStatusParam(searchParams: URLSearchParams): Set<string> {
+  const values: string[] = [];
+  for (const raw of searchParams.getAll("status")) {
+    for (const part of raw.split(",")) {
+      const value = part.trim();
+      if (value) values.push(value);
+    }
+  }
+  return new Set(values);
 }
 
 export function RunHistoryScopeBar({
@@ -168,7 +111,7 @@ export function RunHistoryScopeBar({
   const viewId = searchParams.get("view");
   const scope = useMemo<TaskRunHistoryScope>(() => {
     const cohort = parseRunCohort(Object.fromEntries(searchParams.entries()));
-    return { ...cohort, status: new Set(searchParams.getAll("status")) };
+    return { ...cohort, status: parseStatusParam(searchParams) };
   }, [searchParams]);
 
   const [view, setView] = useState<SavedViewShape | null>(null);
@@ -205,7 +148,9 @@ export function RunHistoryScopeBar({
     if (next.model) params.set("model", next.model);
     if (next.effort) params.set("effort", next.effort);
     if (next.since) params.set("since", next.since);
-    for (const status of next.status) params.append("status", status);
+    if (next.status.size > 0) {
+      params.set("status", Array.from(next.status).join(","));
+    }
     if (keepView && viewId) params.set("view", viewId);
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname);
@@ -218,65 +163,60 @@ export function RunHistoryScopeBar({
     status: patch.status !== undefined ? patch.status : scope.status,
   });
 
-  // PROTOTYPE: ?variant= swaps this scope bar for the unified-filter study.
-  // Everything stays URL-backed here, so the prototype row filters for real.
-  const variant = searchParams.get("variant");
-  if (variant) {
-    const tiers = facets.find((f) => f.model === scope.model)?.efforts ?? [];
-    return (
-      <PrototypeFilterRow
-        variant={variant}
-        statusOptions={RUN_STATUS_CHIPS.map((c) => ({
-          value: c.value,
-          label: c.label,
-          dot: c.dot,
-        }))}
-        status={scope.status}
-        onStatusChange={(status) => writeParams(merged({ status }), true)}
-        modelOptions={facets}
-        model={scope.model}
-        onModelChange={(model) => writeParams(merged({ model, effort: null }), true)}
-        effortOptions={tiers.length >= 2 ? tiers.map((t) => ({ value: t.effort, label: t.effort })) : []}
-        effort={scope.effort}
-        onEffortChange={(effort) => writeParams(merged({ effort }), true)}
-        since={scope.since}
-        onSinceChange={(since) => writeParams(merged({ since }), true)}
-        onClearAll={() =>
-          writeParams(
-            { ...scope, model: null, effort: null, since: null, status: new Set() },
-            true,
-          )
-        }
-        trailing={
-          <>
-            {viewLabel && (
-              <span className="text-[11px] text-muted-foreground">{`scoped to view: ${viewLabel}`}</span>
-            )}
-            <button
-              type="button"
-              onClick={() =>
-                writeParams(
-                  { ...scope, model: null, effort: null, since: null, status: new Set() },
-                  true,
-                )
-              }
-              className="text-[11px] text-muted-foreground underline underline-offset-4 hover:text-foreground"
-            >
-              All history
-            </button>
-          </>
-        }
-      />
-    );
+  // Status picks are mirrored locally and committed to the URL debounced:
+  // every URL write is a server round-trip that remounts the page (closing
+  // the menu mid-selection), so a burst of checkbox picks must land as one
+  // navigation. External ?status changes (back/forward) re-sync the mirror
+  // during render via a prev-value compare; our own committed writes sync it
+  // to the same value, so there is no loop.
+  const statusKey = Array.from(scope.status).sort().join(",");
+  const [statusMirror, setStatusMirror] = useState(scope.status);
+  const statusRef = useRef(statusMirror);
+  statusRef.current = statusMirror;
+  const [prevStatusKey, setPrevStatusKey] = useState(statusKey);
+  if (statusKey !== prevStatusKey) {
+    setPrevStatusKey(statusKey);
+    setStatusMirror(new Set(scope.status));
   }
+  const statusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const handleScopeChange = useCallback(
+    (patch: Partial<TaskRunHistoryScope>) => {
+      const statusOnly =
+        patch.status !== undefined &&
+        patch.model === undefined &&
+        patch.effort === undefined &&
+        patch.since === undefined;
+      if (statusOnly && patch.status) {
+        setStatusMirror(patch.status);
+        const next = patch.status;
+        clearTimeout(statusTimer.current);
+        statusTimer.current = setTimeout(() => {
+          writeParams({ ...scope, status: next }, true);
+        }, 300);
+        return;
+      }
+      // Any other dimension commits immediately, flushing a pending status
+      // selection along (dropping it would silently undo the user's picks).
+      clearTimeout(statusTimer.current);
+      writeParams(merged({ ...patch, status: patch.status ?? statusRef.current }), true);
+    },
+    // scope/merged/writeParams are re-created every render; the callback must
+    // see the latest closures, so it is recreated with them.
+    [scope, merged, writeParams],
+  );
 
   return (
     <TaskRunHistoryControls
-      scope={scope}
+      scope={{ ...scope, status: statusMirror }}
       facets={facets}
       viewLabel={viewLabel}
-      onScopeChange={(patch) => writeParams(merged(patch), true)}
-      onReset={() => writeParams({ ...scope, model: null, effort: null, since: null, status: new Set() }, true)}
+      onScopeChange={handleScopeChange}
+      onReset={() => {
+        clearTimeout(statusTimer.current);
+        setStatusMirror(new Set());
+        writeParams({ ...scope, model: null, effort: null, since: null, status: new Set() }, true);
+      }}
     />
   );
 }

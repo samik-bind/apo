@@ -18,6 +18,7 @@ vi.mock("@/lib/agent-task-view-api", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(""),
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   useParams: () => ({ projectId: "abc123def456" }),
 }));

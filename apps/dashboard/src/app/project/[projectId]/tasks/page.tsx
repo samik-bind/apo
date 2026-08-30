@@ -29,10 +29,6 @@ export default async function AgentTasksPage({
   const viewSingle = Array.isArray(viewRaw) ? viewRaw[0] : viewRaw;
   const initialViewId =
     typeof viewSingle === "string" && viewSingle ? viewSingle : null;
-  // PROTOTYPE: ?variant= mounts the unified-filter study on this page.
-  const variantRaw = query.variant;
-  const prototypeVariant =
-    typeof variantRaw === "string" && variantRaw ? variantRaw : null;
   const isDemo = projectId === DEMO_PROJECT;
 
   let tasks: Awaited<ReturnType<typeof listProjectAgentTasks>> = [];
@@ -126,7 +122,6 @@ export default async function AgentTasksPage({
           canRunTasks={canRunTasks}
           firstRunSetup={firstRunSetup}
           initialViewId={initialViewId}
-          prototypeVariant={prototypeVariant}
         />
       </div>
       {isDemo && capturedOn ? <StartHereRail capturedOn={capturedOn} /> : null}

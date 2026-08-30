@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: process.env.NEXT_STANDALONE_OUTPUT ? 'standalone' : undefined,
+  // The dev server binds all interfaces and both loopback names must work:
+  // without 127.0.0.1 here, Next blocks its own dev resources (HMR — and with
+  // them hydration) for browsers that address the server as 127.0.0.1.
+  allowedDevOrigins: ['localhost', '127.0.0.1'],
   // Next.js applies gzip/brotli compression to route-handler responses by
   // default. That buffers Server-Sent Events (the /backend-proxy/* streams for
   // run events and trace spans): the browser's EventSource connects but never

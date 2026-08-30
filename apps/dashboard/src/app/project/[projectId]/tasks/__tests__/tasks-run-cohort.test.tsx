@@ -44,6 +44,7 @@ vi.mock("@/lib/agent-task-view-api", async () => {
 });
 
 vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(""),
   usePathname: () => "/project/acme/tasks",
   useParams: () => ({ projectId: "acme" }),
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }),

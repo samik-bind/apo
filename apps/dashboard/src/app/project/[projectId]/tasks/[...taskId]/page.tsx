@@ -150,7 +150,7 @@ export default async function TaskDetailPage({
           <h1 className="min-w-0 truncate text-[20px] font-semibold tracking-tight">{task.display_name}</h1>
           <Badge variant="outline" className="text-[10px]">{task.adapter_name}</Badge>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
           <Badge variant="outline" className="font-mono text-[10px]">{task.folder_path || "(root)"}</Badge>
           <Badge variant="outline" className="text-[10px]">{fileCount} files</Badge>
           <Badge variant="outline" className="text-[10px]">
@@ -159,10 +159,12 @@ export default async function TaskDetailPage({
               : `${taskRuns.length} task runs`}
           </Badge>
         </div>
-        <div className="mt-2.5">
-          <RunHistoryScopeBar projectId={projectId} facets={facets} />
-        </div>
+      </div>
 
+      {/* Run-history scope: the shared filter bar in its own strip, hosted the
+          same way the Tasks and Runs pages host it. */}
+      <div className="border-b border-border bg-muted/10 px-6 py-2.5">
+        <RunHistoryScopeBar projectId={projectId} facets={facets} />
       </div>
 
       <Tabs defaultValue="runs" className="flex flex-col">

@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { type AgentTaskSummary } from "@/lib/agent-task-api";
 import { Button } from "@/components/ui/button";
 
 import { useProjectId, useIsDemo } from "@/lib/project-router";
 import { usePublishRunCohort } from "@/lib/run-cohort-context";
+import { setSearchParamShallow } from "@/lib/shallow-search-params";
 import type { ProjectTaskSource } from "@/lib/projects-api";
 import type { ProjectFirstRunSetup } from "@/lib/first-run";
 
@@ -34,8 +36,6 @@ interface AgentTasksClientProps {
   firstRunSetup?: ProjectFirstRunSetup | null;
   /** `?view=` from the URL: re-select that saved tab on arrival. */
   initialViewId?: string | null;
-  /** `?variant=` from the URL: mount the unified-filter prototype row. */
-  prototypeVariant?: string | null;
 }
 
 export function AgentTasksClient({
@@ -46,18 +46,43 @@ export function AgentTasksClient({
   canRunTasks = true,
   firstRunSetup = null,
   initialViewId = null,
-  prototypeVariant = null,
 }: AgentTasksClientProps) {
   const projectId = useProjectId();
   const clientIsDemo = useIsDemo();
   const isDemoProject = isDemo || clientIsDemo;
+  const searchParams = useSearchParams();
   const [editingSource, setEditingSource] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const folders = groupByFolder(tasks);
     return new Set(folders.map((f) => f.id));
   });
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<Set<string>>(() => new Set(STATUS_FILTER_KEYS));
+  // Search and status persist in the URL (shallow — no server refetch) so a
+  // filtered view is shareable and survives reload, like Runs/Task-detail.
+  // The local mirror drives re-renders; the shallow write keeps the address
+  // bar in sync without depending on Next's history integration.
+  const [query, setQueryState] = useState(() => searchParams.get("q") ?? "");
+  const [statusParam, setStatusParamState] = useState(
+    () => searchParams.get("status") ?? "",
+  );
+  const setQuery = useCallback((value: string) => {
+    setQueryState(value);
+    setSearchParamShallow("q", value || null);
+  }, []);
+  const statusFilter = useMemo(
+    () => new Set(statusParam.split(",").filter(Boolean)),
+    [statusParam],
+  );
+  // Empty or all-selected means "no status filter": drop the param entirely
+  // so the URL stays clean and reloads show everything.
+  const handleStatusChange = useCallback(
+    (next: Set<string>) => {
+      const isAll = next.size === 0 || next.size === STATUS_FILTER_KEYS.length;
+      const joined = isAll ? "" : Array.from(next).join(",");
+      setStatusParamState(joined);
+      setSearchParamShallow("status", joined || null);
+    },
+    [],
+  );
 
   const {
     views,
@@ -88,11 +113,16 @@ export function AgentTasksClient({
   );
 
   const statusFilteredTasks = useMemo<AgentTaskSummary[]>(() => {
-    if (statusFilter.size === STATUS_FILTER_KEYS.length) return effectiveTasks;
+    // No param = all statuses; an explicitly-complete selection is also "all"
+    // (and covers taskFilterStatus's transient "running", which is not a
+    // filterable vocabulary value).
+    if (statusFilter.size === 0 || statusFilter.size === STATUS_FILTER_KEYS.length) {
+      return effectiveTasks;
+    }
     return effectiveTasks.filter((t) => statusFilter.has(taskFilterStatus(t)));
   }, [effectiveTasks, statusFilter]);
 
-  // PROTOTYPE: per-status counts for the unified filter row's chips.
+  // Per-status counts for the status menu rows.
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const task of effectiveTasks) {
@@ -215,7 +245,6 @@ export function AgentTasksClient({
               isDerived={activeView.model !== null || activeView.effort !== null}
               viewsActive={!isDemoProject}
               addingTab={addingTab}
-              prototypeVariant={prototypeVariant}
               statusCounts={statusCounts}
               query={query}
               onQueryChange={setQuery}
@@ -223,19 +252,8 @@ export function AgentTasksClient({
               onClearSelection={() => setSelected(new Set())}
               onToggleExpandAll={() => setExpanded(allExpanded ? new Set() : new Set(allFolderIds))}
               allExpanded={allExpanded}
-              statusFilter={statusFilter}
-              onToggleStatus={(key) =>
-                setStatusFilter((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(key)) {
-                    next.delete(key);
-                    if (next.size === 0) return new Set(STATUS_FILTER_KEYS); // don't allow empty
-                  } else {
-                    next.add(key);
-                  }
-                  return next;
-                })
-              }
+              status={statusFilter}
+              onStatusChange={handleStatusChange}
               onSelect={setActiveViewId}
               onChange={updateActiveView}
               onSetArchived={setModelArchivedState}

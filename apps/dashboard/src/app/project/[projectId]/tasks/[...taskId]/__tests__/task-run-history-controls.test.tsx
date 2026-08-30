@@ -106,7 +106,7 @@ describe("TaskRunHistoryControls (presentational)", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("reflects active status chips and reports toggles as the next set", async () => {
+  it("reflects the status selection in the menu and reports toggles as the next set", async () => {
     const onScopeChange = vi.fn();
     render(
       <TaskRunHistoryControls
@@ -117,14 +117,20 @@ describe("TaskRunHistoryControls (presentational)", () => {
         onReset={() => {}}
       />,
     );
-    const failed = screen.getByRole("button", { name: /failed/i });
-    expect(failed).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /passed/i })).toHaveAttribute(
-      "aria-pressed",
+    // The closed trigger summarizes the selection instead of showing chips.
+    expect(screen.getByRole("button", { name: "Status filter" })).toHaveTextContent("Failed");
+
+    await userEvent.click(screen.getByRole("button", { name: "Status filter" }));
+    expect(screen.getByRole("menuitemcheckbox", { name: /failed/i })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(screen.getByRole("menuitemcheckbox", { name: /passed/i })).toHaveAttribute(
+      "aria-checked",
       "false",
     );
 
-    await userEvent.click(screen.getByRole("button", { name: /passed/i }));
+    await userEvent.click(screen.getByRole("menuitemcheckbox", { name: /passed/i }));
     expect(onScopeChange).toHaveBeenCalledWith({
       status: new Set(["failed", "passed"]),
     });
@@ -164,21 +170,35 @@ describe("TaskRunHistoryControls (presentational)", () => {
 });
 
 describe("RunHistoryScopeBar (URL ownership)", () => {
-  it("replaces the URL with scope params, repeated for status, omitting empties", async () => {
+  it("replaces the URL with scope params, comma-joined for status, omitting empties", async () => {
     searchParamsHolder = new URLSearchParams("model=claude-opus-5");
     const { rerender } = render(<RunHistoryScopeBar projectId="acme" facets={FACETS} />);
 
-    await userEvent.click(screen.getByRole("button", { name: /passed/i }));
+    // Status writes are debounced (a burst of picks lands as one URL write),
+    // so each pick is awaited via the replace it eventually triggers.
+    await userEvent.click(screen.getByRole("button", { name: "Status filter" }));
+    await userEvent.click(screen.getByRole("menuitemcheckbox", { name: /passed/i }));
+    await waitFor(
+      () => expect(replaceMock).toHaveBeenCalledTimes(1),
+      { timeout: 1500 },
+    );
+    await userEvent.keyboard("{Escape}");
     rerender(<RunHistoryScopeBar projectId="acme" facets={FACETS} />);
-    await userEvent.click(screen.getByRole("button", { name: /errored/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Status filter" }));
+    await userEvent.click(screen.getByRole("menuitemcheckbox", { name: /errored/i }));
+    await waitFor(
+      () => expect(replaceMock).toHaveBeenCalledTimes(2),
+      { timeout: 1500 },
+    );
     rerender(<RunHistoryScopeBar projectId="acme" facets={FACETS} />);
 
-    expect(replaceMock).toHaveBeenCalledTimes(2);
     const first = replaceMock.mock.calls[0]?.[0] as string;
+    const second = replaceMock.mock.calls[1]?.[0] as string;
     expect(first).toContain("model=claude-opus-5");
     expect(first).toContain("status=passed");
-    const second = replaceMock.mock.calls[1]?.[0] as string;
-    expect(second).toContain("status=passed&status=error");
+    // URLSearchParams encodes the comma join as %2C (same encoding the Runs
+    // page has always used for multi-model); the backend decodes it back.
+    expect(second).toContain("status=passed%2Cerror");
     expect(second).not.toContain("effort=");
     expect(second).not.toContain("since=");
   });

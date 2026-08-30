@@ -392,6 +392,34 @@ def test_batch_run_list_filter_matches_only_when_one_child_satisfies_all_dimensi
     assert ids == {"b-real"}
 
 
+def test_batch_run_list_status_filter_ors_comma_joined_values(
+    client: TestClient,
+    session: Session,
+) -> None:
+    """?status=completed,failed ORs the statuses, like model/effort.
+
+    The old single-equality filter made the dashboard's "Passed" option a
+    silent no-op (batches are never "passed"), and multi-select needs OR.
+    Input is case-insensitive so a hand-typed "Completed" still filters.
+    """
+    now = datetime.now(timezone.utc)
+    session.add_all(
+        [
+            _batch("b-done", "proj-status-multi", now, status="completed"),
+            _batch("b-fail", "proj-status-multi", now, status="failed"),
+            _batch("b-live", "proj-status-multi", now, status="running"),
+        ]
+    )
+    session.commit()
+
+    resp = client.get(
+        "/v1/agent-task-batch-runs",
+        params={"project": "proj-status-multi", "status": "Completed,failed"},
+    )
+    assert resp.status_code == 200
+    assert {b["id"] for b in resp.json()["data"]} == {"b-done", "b-fail"}
+
+
 def test_batch_list_backfills_task_selection_from_children(
     client: TestClient,
     session: Session,
@@ -462,6 +490,7 @@ def _batch(
     created_at: datetime,
     selection_type: str = "task",
     selection_query: dict[str, object] | None = None,
+    status: str = "completed",
 ) -> AgentTaskBatchRunDB:
     return AgentTaskBatchRunDB(
         id=batch_id,
@@ -470,7 +499,7 @@ def _batch(
         selection_query=selection_query,
         task_root="/tmp/tasks",
         environment="default",
-        status="completed",
+        status=status,
         total_tasks=1,
         created_at=created_at,
     )

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { History } from "lucide-react";
 import {
   type AgentTaskBatchRunSummary,
@@ -19,6 +19,7 @@ import {
 
 import { useProjectId } from "@/lib/project-router";
 import { useClientNow } from "@/hooks/use-client-now";
+import { BATCH_RUN_STATUS_FILTERS } from "@/lib/filter-status";
 import { RunsModelFilter, type ModelOption } from "./runs-model-filter";
 import { RunsCompareBar } from "./components/RunsCompareBar";
 import { ListPagination } from "@/components/table";
@@ -38,7 +39,6 @@ export function RunsClient({
   totalPages,
   modelFacets,
   canDeleteRuns,
-  prototypeVariant = null,
 }: {
   batchRuns: AgentTaskBatchRunSummary[];
   error: string | null;
@@ -50,8 +50,6 @@ export function RunsClient({
   modelFacets: ModelFacetOption[];
   /** Caller's project role allows run deletion (owner/admin). */
   canDeleteRuns: boolean;
-  /** PROTOTYPE: ?variant= swaps the toolbar for the unified-filter study. */
-  prototypeVariant?: string | null;
 }) {
   const projectId = useProjectId();
   const router = useRouter();
@@ -75,8 +73,38 @@ export function RunsClient({
 
   // Toolbar filter values, all derived from the URL the parent owns.
   const urlQ = searchParams.get("q") ?? "";
-  const urlStatus = searchParams.get("status") ?? "";
   const urlSince = searchParams.get("since");
+
+  // Comma-joined multi-status (`?status=failed,error`), same encoding as
+  // model/effort; the backend ORs the values.
+  const statusParam = searchParams.get("status") ?? "";
+  const selectedStatuses = useMemo(
+    () => new Set(statusParam.split(",").filter(Boolean)),
+    [statusParam],
+  );
+  // Status writes are mirrored locally and committed to the URL debounced:
+  // every URL write is a server round-trip that remounts the page (closing
+  // the menu mid-selection), so a burst of checkbox picks must land as one
+  // navigation, not one per click. External ?status changes (back/forward,
+  // Clear Filters) re-sync the mirror during render via a prev-value compare.
+  const [statusMirror, setStatusMirror] = useState(selectedStatuses);
+  const [prevStatusParam, setPrevStatusParam] = useState(statusParam);
+  if (statusParam !== prevStatusParam) {
+    setPrevStatusParam(statusParam);
+    setStatusMirror(new Set(statusParam.split(",").filter(Boolean)));
+  }
+  const statusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const handleStatusChange = useCallback(
+    (next: Set<string>) => {
+      setStatusMirror(next);
+      clearTimeout(statusTimer.current);
+      statusTimer.current = setTimeout(() => {
+        const isAll = next.size === 0 || next.size === BATCH_RUN_STATUS_FILTERS.length;
+        updateUrl({ status: isAll ? null : Array.from(next).join(","), page: null });
+      }, 350);
+    },
+    [updateUrl],
+  );
 
   const selectedModels = useMemo(() => {
     const raw = searchParams.get("model") ?? "";
@@ -153,12 +181,16 @@ export function RunsClient({
   // tell the difference between "no runs" and "none match".
   const hasActiveFilters =
     urlQ !== "" ||
-    urlStatus !== "" ||
+    selectedStatuses.size > 0 ||
     urlSince !== null ||
     selectedModels.size > 0 ||
     selectedEfforts.size > 0;
 
   const clearFilters = useCallback(() => {
+    // Cancel any in-flight debounced status write so it cannot resurrect a
+    // selection the user just cleared.
+    clearTimeout(statusTimer.current);
+    setStatusMirror(new Set());
     updateUrl({
       q: null,
       status: null,
@@ -203,7 +235,8 @@ export function RunsClient({
     <div className="flex h-full w-full flex-col">
       <RunsToolbar
         urlQ={urlQ}
-        urlStatus={urlStatus}
+        selectedStatuses={statusMirror}
+        onStatusChange={handleStatusChange}
         urlSince={urlSince}
         selectedModels={selectedModels}
         selectedEfforts={selectedEfforts}
@@ -214,7 +247,6 @@ export function RunsClient({
         updateUrl={updateUrl}
         onClearFilters={clearFilters}
         onSetArchived={setModelArchivedState}
-        prototypeVariant={prototypeVariant}
       />
 
       <div className="flex-1 overflow-auto">

@@ -117,9 +117,21 @@ def test_batch_list_status_filter(session: Session):
     session.commit()
 
     ids, _, _ = _query_batches(
-        session, BatchRunListFilters(status="running")
+        session, BatchRunListFilters(statuses=["running"])
     )
     assert ids == ["b2"]
+
+
+def test_batch_list_status_filter_ors_multiple_statuses(session: Session):
+    session.add(_batch("b1", status="completed"))
+    session.add(_batch("b2", status="running"))
+    session.add(_batch("b3", status="failed"))
+    session.commit()
+
+    ids, _, _ = _query_batches(
+        session, BatchRunListFilters(statuses=["completed", "failed"])
+    )
+    assert ids == ["b1", "b3"]
 
 
 def test_batch_list_search_matches_id(session: Session):

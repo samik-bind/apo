@@ -1,30 +1,15 @@
 "use client";
 
-import { ChevronDown, Plus, Search, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 
 import type { RunConfigModelFacet } from "@/lib/agent-task-view-api";
-import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { ModelFilterMenu } from "@/components/model-filter-menu";
-import { PrototypeFilterRow } from "@/components/prototype-unified-filters";
-import { shortModel } from "@/lib/run-configuration";
-import { ALL_SINCE_VALUE, sinceOptionsFor } from "@/lib/since-window";
+import { FilterBar } from "@/components/filter-bar";
+import { TASK_STATUS_FILTERS } from "@/lib/filter-status";
 
-import { FilterPicker } from "./FilterPicker";
-import {
-  MAIN_VIEW_ID,
-  STATUS_FILTERS,
-  type ViewTab,
-} from "./task-list-shared";
+import { MAIN_VIEW_ID, type ViewTab } from "./task-list-shared";
 
 const ALL_MODELS_VALUE = "__all__";
-const ANY_EFFORT_VALUE = "__any__";
 
 /** A short, human-readable config line for a tab chip (e.g. "Opus · high"). */
 function viewConfigLabel(view: ViewTab): string {
@@ -43,7 +28,6 @@ export function EvidenceViewsBar({
   isDerived,
   viewsActive,
   addingTab,
-  prototypeVariant,
   statusCounts,
   query,
   onQueryChange,
@@ -51,8 +35,8 @@ export function EvidenceViewsBar({
   onClearSelection,
   onToggleExpandAll,
   allExpanded,
-  statusFilter,
-  onToggleStatus,
+  status,
+  onStatusChange,
   onSelect,
   onChange,
   onSetArchived,
@@ -66,9 +50,7 @@ export function EvidenceViewsBar({
   isDerived: boolean;
   viewsActive: boolean;
   addingTab: boolean;
-  /** PROTOTYPE: swap the filter row for the unified-filter study (?variant=). */
-  prototypeVariant?: string | null;
-  /** PROTOTYPE: per-status task counts for the unified row's chips. */
+  /** Per-status task counts for the status menu rows. */
   statusCounts?: Record<string, number>;
   query: string;
   onQueryChange: (value: string) => void;
@@ -76,8 +58,8 @@ export function EvidenceViewsBar({
   onClearSelection: () => void;
   onToggleExpandAll: () => void;
   allExpanded: boolean;
-  statusFilter: Set<string>;
-  onToggleStatus: (status: string) => void;
+  status: Set<string>;
+  onStatusChange: (next: Set<string>) => void;
   onSelect: (id: string) => void;
   onChange: (patch: Partial<Pick<ViewTab, "model" | "effort" | "since" | "label">>) => void;
   /** Retire a model from the palette, or bring it back. */
@@ -105,6 +87,11 @@ export function EvidenceViewsBar({
 
   const trailingNode = (
     <div className="ml-auto flex items-center gap-3 text-[12px] text-muted-foreground">
+      {isDerived && (
+        <span className="font-mono text-[10px] text-muted-foreground/50">
+          {loading ? "loading scoped stats…" : "scoped to this view"}
+        </span>
+      )}
       {selectedCount > 0 && (
         <>
           <button
@@ -193,133 +180,35 @@ export function EvidenceViewsBar({
         </div>
       )}
 
-      {/* PROTOTYPE: the unified-filter study replaces this page's filter row
-          (search included) while the tabs and trailing controls stay real. */}
-      {prototypeVariant ? (
-        <div className="border-t border-border px-6 py-2.5">
-          <PrototypeFilterRow
-            variant={prototypeVariant}
-            statusOptions={STATUS_FILTERS.map((s) => ({
-              value: s.key,
-              label: s.label,
-              dot: s.dot,
-              count: statusCounts?.[s.key],
-            }))}
-            status={statusFilter}
-            onStatusChange={(next) => {
-              // Differencing against onToggleStatus keeps the page's own
-              // "toggling the last status off resets to all" rule in charge.
-              for (const key of statusFilter) if (!next.has(key)) onToggleStatus(key);
-              for (const key of next) if (!statusFilter.has(key)) onToggleStatus(key);
-            }}
-            modelOptions={facets}
-            model={active.model}
-            onModelChange={(model) => changeModel(model === null ? ALL_MODELS_VALUE : model)}
-            onSetArchived={onSetArchived}
-            effortOptions={effortOptions.map((e) => ({ value: e.effort, label: e.effort }))}
-            effort={active.effort}
-            onEffortChange={(effort) => onChange({ effort })}
-            since={active.since}
-            onSinceChange={(since) => onChange({ since })}
-            query={query}
-            onQueryChange={onQueryChange}
-            searchPlaceholder="Filter tasks..."
-            trailing={trailingNode}
-          />
-        </div>
-      ) : (
-      <div className="flex flex-wrap items-center gap-2 px-6 py-2">
-        <div className="relative min-w-[200px] flex-1 max-w-sm">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
-          <Input
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            placeholder="Filter tasks..."
-            aria-label="Filter tasks"
-            data-testid="tasks-search-input"
-            className="h-8 border-border bg-card pl-8 text-[13px] placeholder:text-muted-foreground/50 focus-visible:border-border"
-          />
-        </div>
-        {viewsActive && (
-          <>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <span className="text-[11px] uppercase tracking-wide text-foreground/50">Model</span>
-              <ModelFilterMenu
-                options={facets}
-                selected={active.model ? new Set([active.model]) : new Set()}
-                onSelect={(model) => changeModel(model ?? ALL_MODELS_VALUE)}
-                onClear={() => changeModel(ALL_MODELS_VALUE)}
-                onSetArchived={onSetArchived}
-                trigger={
-                  <button
-                    type="button"
-                    aria-label="Model filter"
-                    className="flex h-7 min-w-[140px] items-center justify-between gap-1 border border-input bg-muted/40 px-2 text-[12px] text-foreground hover:bg-muted/60"
-                  >
-                    <span className="truncate font-mono">
-                      {active.model ? shortModel(active.model) : "All models"}
-                    </span>
-                    <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
-                  </button>
-                }
-              />
-            </div>
-            {effortOptions.length > 0 && (
-              <FilterPicker
-                label="Effort"
-                value={active.effort ?? ANY_EFFORT_VALUE}
-                options={[
-                  { value: ANY_EFFORT_VALUE, label: "Any effort" },
-                  ...effortOptions.map((e) => ({ value: e.effort, label: e.effort })),
-                ]}
-                onChange={(value) => onChange({ effort: value === ANY_EFFORT_VALUE ? null : value })}
-              />
-            )}
-            <FilterPicker
-              label="Date"
-              value={active.since ?? ALL_SINCE_VALUE}
-              options={sinceOptionsFor(active.since)}
-              onChange={(value) => onChange({ since: value === ALL_SINCE_VALUE ? null : value })}
-            />
-            {viewsActive && (
-              <label className="flex shrink-0 items-center gap-1.5">
-                <span className="text-[11px] uppercase tracking-wide text-foreground/50">Status</span>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex h-7 items-center gap-1 border border-input bg-muted/40 px-2 text-[12px] text-foreground hover:bg-muted/60"
-                    >
-                      {statusFilter.size === STATUS_FILTERS.length ? "All" : `${statusFilter.size}/${STATUS_FILTERS.length}`}
-                      <ChevronDown className="h-3 w-3 opacity-60" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    {STATUS_FILTERS.map((s) => (
-                      <DropdownMenuCheckboxItem
-                        key={s.key}
-                        checked={statusFilter.has(s.key)}
-                        onCheckedChange={() => onToggleStatus(s.key)}
-                        className="text-[12px]"
-                      >
-                        <span className={cn("mr-1.5 inline-block h-2 w-2 rounded-full", s.dot)} />
-                        {s.label}
-                      </DropdownMenuCheckboxItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </label>
-            )}
-            {isDerived && (
-              <span className="font-mono text-[10px] text-muted-foreground/50">
-                {loading ? "loading scoped stats…" : "scoped to this view"}
-              </span>
-            )}
-          </>
-        )}
-        {trailingNode}
+      {/* The shared filter row: search + status + model/effort/date cohort.
+          Demo projects have no views, so the cohort controls hide there and
+          only search + status remain. Status and search are URL-backed (the
+          page owns the state); the cohort lives in the active view. */}
+      <div className="border-t border-border px-6 py-2.5">
+        <FilterBar
+          statusOptions={TASK_STATUS_FILTERS.map((s) => ({
+            ...s,
+            count: statusCounts?.[s.value],
+          }))}
+          status={status}
+          onStatusChange={onStatusChange}
+          modelOptions={viewsActive ? facets : []}
+          showModel={viewsActive}
+          selectedModels={viewsActive && active.model ? new Set([active.model]) : new Set()}
+          onSelectModel={(model) => changeModel(model === null ? ALL_MODELS_VALUE : model)}
+          onSetArchived={onSetArchived}
+          effortOptions={viewsActive ? effortOptions.map((e) => ({ value: e.effort, label: e.effort })) : []}
+          effort={viewsActive ? active.effort : null}
+          onEffortChange={(effort) => onChange({ effort })}
+          since={viewsActive ? active.since : undefined}
+          onSinceChange={viewsActive ? (since) => onChange({ since }) : undefined}
+          query={query}
+          onQueryChange={onQueryChange}
+          searchPlaceholder="Filter tasks..."
+          searchTestId="tasks-search-input"
+          trailing={trailingNode}
+        />
       </div>
-      )}
     </div>
   );
 }

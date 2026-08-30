@@ -1,4 +1,5 @@
 import type { AgentTaskSummary } from "@/lib/agent-task-api";
+import { TASK_STATUS_FILTERS } from "@/lib/filter-status";
 
 export type FolderNode = {
   id: string;
@@ -18,13 +19,9 @@ export interface ViewTab {
   since: string | null;  // "7d" | "30d" | "90d" | null (all time)
 }
 
-export const STATUS_FILTERS = [
-  { key: "passed", label: "Passed", dot: "bg-success" },
-  { key: "failed", label: "Failed", dot: "bg-destructive" },
-  { key: "errored", label: "Errored", dot: "bg-warning" },
-  { key: "idle", label: "Not Run", dot: "bg-muted-foreground/30" },
-] as const;
-export const STATUS_FILTER_KEYS = STATUS_FILTERS.map((s) => s.key);
+// The task status vocabulary lives in lib/filter-status alongside the other
+// entities' vocabularies; the filter bar consumes it from there directly.
+export const STATUS_FILTER_KEYS = TASK_STATUS_FILTERS.map((s) => s.value);
 
 export function taskFilterStatus(task: AgentTaskSummary): string {
   const stats = task.run_stats;

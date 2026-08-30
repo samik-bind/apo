@@ -23,16 +23,18 @@ export default async function RunsPage({
   const page = query.page ? Math.max(0, Number(query.page)) : 0;
   const pageSize = query.page_size ? Number(query.page_size) : 20;
   const q = typeof query.q === "string" ? query.q : undefined;
-  const status = typeof query.status === "string" ? query.status : undefined;
+  // Multi-status arrives comma-joined (`?status=failed,error`); repeated
+  // params from old links are folded into the same shape.
+  const statusParam = Array.isArray(query.status)
+    ? query.status.filter(Boolean).join(",") || undefined
+    : typeof query.status === "string" && query.status
+      ? query.status
+      : undefined;
   const since = typeof query.since === "string" ? query.since : undefined;
   const modelParam = typeof query.model === "string" ? query.model : undefined;
   const models = modelParam ? modelParam.split(",").filter(Boolean) : undefined;
   const effortParam = typeof query.effort === "string" ? query.effort : undefined;
   const efforts = effortParam ? effortParam.split(",").filter(Boolean) : undefined;
-  // PROTOTYPE: ?variant= mounts the unified-filter study on this page.
-  const variantRaw = query.variant;
-  const prototypeVariant =
-    typeof variantRaw === "string" && variantRaw ? variantRaw : null;
 
   let batchRuns: AgentTaskBatchRunSummary[] = [];
   let totalCount = 0;
@@ -47,7 +49,7 @@ export default async function RunsPage({
   try {
     const paginated = await listAgentTaskBatchRuns(projectId, {
       q,
-      status,
+      status: statusParam,
       since,
       model: models,
       effort: efforts,
@@ -81,7 +83,6 @@ export default async function RunsPage({
           totalPages={totalPages}
           modelFacets={modelFacets}
           canDeleteRuns={canDeleteRuns}
-          prototypeVariant={prototypeVariant}
         />
       </Suspense>
     </main>
