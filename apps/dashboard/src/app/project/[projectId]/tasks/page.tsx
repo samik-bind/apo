@@ -9,7 +9,7 @@ import {
   isValidPublicOrigin,
   type ProjectFirstRunSetup,
 } from "@/lib/first-run";
-import { DEMO_PROJECT } from "@/lib/project-router";
+import { DEMO_PROJECT } from "@/lib/project-ids";
 import { AgentTasksClient } from "./tasks-client";
 
 export const dynamic = "force-dynamic";

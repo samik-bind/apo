@@ -29,20 +29,14 @@ export default async function AgentTaskSchedulesPage({
   let taskSource: ProjectTaskSource | null = null;
   let executorPools: Awaited<ReturnType<typeof listExecutorPools>> = EMPTY_EXECUTOR_POOLS;
 
-  let canManage = true;
+  let canManage = false;
   try {
-    [schedules, taskSource, executorPools, canManage] = await Promise.all([
+    [schedules, taskSource, executorPools] = await Promise.all([
       listAgentTaskSchedules(projectId),
       getProject(projectId)
-        .then((project) => {
-          // Schedule management is admin-tier; viewers (and the anonymous
-          // demo visitor) never see the controls at all (SPEC-188 U3).
-          canManage = project.permissions?.can_manage_project === true;
-          return project.task_source;
-        })
+        .then((project) => project.task_source)
         .catch(() => null),
       listExecutorPools(projectId),
-      Promise.resolve(true),
     ]);
 
     // The task list always comes from the project's configured source
@@ -55,6 +49,12 @@ export default async function AgentTaskSchedulesPage({
   } catch (e: unknown) {
     error = e instanceof Error ? e.message : "Failed to load schedules";
   }
+  // Schedule management is admin-tier; viewers (and the anonymous demo
+  // visitor) never see the controls at all (SPEC-188 U3). Resolved after
+  // the data loads so a failed project fetch keeps the affordances off.
+  canManage = await getProject(projectId)
+    .then((project) => project.permissions?.can_manage_project === true)
+    .catch(() => false);
 
   const initialTaskIds = taskIds
     ? taskIds
