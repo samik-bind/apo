@@ -4,7 +4,7 @@
  * switches. Answers: does step-by-step guidance kill the memorization tax?
  */
 import { bold, cyan, dim, formatTable, green, red, yellow } from "../../src/lib/format.ts";
-import { checksHint, effectiveModel, hasProviderKey, resolveEnvView, type SharedState } from "./data.ts";
+import { checksHint, effectiveModel, groupTasks, hasProviderKey, resolveEnvView, shortName, type SharedState } from "./data.ts";
 import { askText, bottomBar, pick, waitKey, type PickResult } from "./ui.ts";
 
 export type VariantResult = "switch" | "quit";
@@ -14,28 +14,56 @@ const DEFAULT = "default";
 type ModelChoice = { kind: "catalog"; id: string } | { kind: typeof CUSTOM } | { kind: typeof DEFAULT };
 
 export async function runWizard(shared: SharedState): Promise<VariantResult> {
+  const groups = groupTasks(shared.tasks);
+  if (shared.selection.group === undefined && groups.length > 0) {
+    shared.selection.group = groups[0]!.folder;
+  }
   let step = 0;
   while (true) {
+    // step 0 → 0.5: drill down folder → task, so each screen is a handful of
+    // short bare lines instead of one long flat list.
     if (step === 0) {
       const result = await pick(
-        bold("Run an eval — step 1/4: pick a task") + dim(`   (${shared.taskSource})`),
-        shared.tasks.map((t) => ({
-          label: t.id,
-          hint: checksHint(t),
-          sub: t.description ?? undefined,
-          value: t.id,
+        bold("Run an eval — step 1/4: pick a group") + dim(`   (${shared.taskSource})`),
+        groups.map((g) => ({
+          label: g.folder,
+          hint: `${g.tasks.length} task${g.tasks.length === 1 ? "" : "s"}`,
+          value: g.folder,
         })),
       );
       const next = applyPick(result);
       if (next === "switch" || next === "quit") return next;
       if (next !== "back") {
-        shared.selection.taskId = next;
+        shared.selection.group = next;
         step = 1;
       }
       continue;
     }
 
     if (step === 1) {
+      const group = groups.find((g) => g.folder === shared.selection.group) ?? groups[0]!;
+      shared.selection.group = group.folder;
+      const result = await pick(
+        bold("Run an eval — step 1/4: pick a task") + dim(`   ${group.folder}/`),
+        group.tasks.map((t) => ({
+          label: shortName(t),
+          hint: checksHint(t),
+          value: t.id,
+        })),
+        Math.max(0, group.tasks.findIndex((t) => t.id === shared.selection.taskId)),
+      );
+      const next = applyPick(result);
+      if (next === "switch" || next === "quit") return next;
+      if (next !== "back") {
+        shared.selection.taskId = next;
+        step = 2;
+      } else {
+        step = 0;
+      }
+      continue;
+    }
+
+    if (step === 2) {
       const current = effectiveModel(resolveEnvView(task(shared).path, process.env), shared.selection);
       const result = await pick(
         bold("step 2/4: model") + dim(`   currently resolves to: ${current ?? "nothing — no model set"}`),
@@ -51,7 +79,7 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
       );
       const next = applyPick<ModelChoice>(result);
       if (next === "switch" || next === "quit") return next;
-      if (next === "back") { step = 0; continue; }
+      if (next === "back") { step = 1; continue; }
       if (next.kind === CUSTOM) {
         shared.selection.model = await askText("model id", shared.models[0]?.id ?? "");
       } else if (next.kind === "catalog") {
@@ -59,18 +87,18 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
       } else {
         delete shared.selection.model;
       }
-      step = 2;
+      step = 3;
       continue;
     }
 
-    if (step === 2) {
+    if (step === 3) {
       console.clear();
       console.log(stepScreen(shared, 3));
       console.log(bottomBar(0) + dim("   [any key] continue · [b] back"));
       const key = await waitKey();
       if (key.name === "tab") return "switch";
       if (key.name === "q") return "quit";
-      step = key.name === "b" || key.name === "escape" ? 1 : 3;
+      step = key.name === "b" || key.name === "escape" ? 2 : 4;
       continue;
     }
 
@@ -80,7 +108,7 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
     const key = await waitKey();
     if (key.name === "tab") return "switch";
     if (key.name === "q") return "quit";
-    step = key.name === "b" || key.name === "escape" ? 2 : 0;
+    step = key.name === "b" || key.name === "escape" ? 3 : 0;
   }
 }
 
@@ -161,16 +189,24 @@ export function sourceLabel(source: string | null): string {
 
 /** Non-interactive render used by `--preview`: the whole journey at a glance. */
 export function renderWizardStatic(shared: SharedState): string {
-  const taskLines = shared.tasks.slice(0, 6).flatMap((t, i) => [
-    `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? t.id : dim(t.id)}  ${i === 0 ? checksHint(t) : dim(checksHint(t))}`,
-    t.description ? `      ${dim(t.description)}` : "",
-  ].filter((line) => line !== ""));
+  const groups = groupTasks(shared.tasks);
+  const groupLines = groups.map((g, i) => {
+    const count = `${g.tasks.length} task${g.tasks.length === 1 ? "" : "s"}`;
+    return `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? g.folder : dim(g.folder)}  ${i === 0 ? count : dim(count)}`;
+  });
+  const first = groups[0] ?? { folder: "", tasks: [] };
+  const taskLines = first.tasks.map((t, i) =>
+    `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? shortName(t) : dim(shortName(t))}  ${i === 0 ? checksHint(t) : dim(checksHint(t))}`,
+  );
   const modelLines = shared.models.slice(0, 5).flatMap((m, i) => [
     `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? m.display : dim(m.display)}`,
     `      ${dim(`$${m.input} in / $${m.output} out per 1M tokens · ${m.id}`)}`,
   ]);
   return [
-    bold("Run an eval — step 1/4: pick a task") + dim(`   (${shared.taskSource})`),
+    bold("Run an eval — step 1/4: pick a group") + dim(`   (${shared.taskSource})`),
+    ...groupLines,
+    "",
+    bold(`step 1/4: pick a task`) + dim(`   ${first.folder}/`),
     ...taskLines,
     "",
     bold("step 2/4: model"),

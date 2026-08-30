@@ -38,7 +38,7 @@ export type SharedState = {
   models: ModelOption[];
   modelSource: string;
   /** Survives variant switches — the whole point of Tab-ing between shells. */
-  selection: { taskId?: string; model?: string };
+  selection: { group?: string; taskId?: string; model?: string };
   cursor: number;
 };
 
@@ -281,6 +281,35 @@ function countChecks(content: string): number {
 export function checksHint(t: TaskCard): string {
   if (t.checkCount === 0) return "run-only · no checks";
   return `${t.checkCount} check${t.checkCount === 1 ? "" : "s"}`;
+}
+
+export type TaskGroup = { folder: string; tasks: TaskCard[] };
+
+/**
+ * Group tasks by their folder path. Pickers drill down folder → task so no
+ * single screen carries more than a handful of short, bare lines — the
+ * density rule every readable TUI follows (k9s namespaces, lazygit panels).
+ */
+export function groupTasks(tasks: TaskCard[]): TaskGroup[] {
+  const byFolder = new Map<string, TaskCard[]>();
+  for (const t of tasks) {
+    const key = t.folderPath || "";
+    const list = byFolder.get(key);
+    if (list) list.push(t);
+    else byFolder.set(key, [t]);
+  }
+  return [...byFolder.entries()]
+    .map(([folder, list]) => ({
+      folder: folder || "top-level",
+      tasks: list.toSorted((a, b) => a.id.localeCompare(b.id)),
+    }))
+    .toSorted((a, b) => a.folder.localeCompare(b.folder));
+}
+
+/** The display name inside a group: the last path segment of the id. */
+export function shortName(t: TaskCard): string {
+  const slash = t.id.lastIndexOf("/");
+  return slash < 0 ? t.id : t.id.slice(slash + 1);
 }
 
 const SAMPLE_MODELS: ModelOption[] = [
