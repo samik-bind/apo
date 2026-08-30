@@ -4,7 +4,7 @@
  * switches. Answers: does step-by-step guidance kill the memorization tax?
  */
 import { bold, cyan, dim, formatTable, green, red, yellow } from "../../src/lib/format.ts";
-import { checksHint, effectiveModel, hasProviderKey, resolveEnvView, taskLabel, type SharedState } from "./data.ts";
+import { checksHint, effectiveModel, hasProviderKey, resolveEnvView, type SharedState } from "./data.ts";
 import { askText, bottomBar, pick, waitKey, type PickResult } from "./ui.ts";
 
 export type VariantResult = "switch" | "quit";
@@ -20,8 +20,9 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
       const result = await pick(
         bold("Run an eval — step 1/4: pick a task") + dim(`   (${shared.taskSource})`),
         shared.tasks.map((t) => ({
-          label: taskLabel(t),
+          label: t.id,
           hint: checksHint(t),
+          sub: t.description ?? undefined,
           value: t.id,
         })),
       );
@@ -41,11 +42,11 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
         [
           ...shared.models.map((m) => ({
             label: m.display,
-            hint: `$${m.input} in / $${m.output} out per 1M · ${m.id}`,
+            sub: `$${m.input} in / $${m.output} out per 1M tokens · ${m.id}`,
             value: { kind: "catalog", id: m.id } as ModelChoice,
           })),
-          { label: "✎ type a model id…", hint: "anything your provider accepts", value: { kind: CUSTOM } as ModelChoice },
-          { label: "keep what .env already selects", hint: "don't touch the model", value: { kind: DEFAULT } as ModelChoice },
+          { label: "✎ type a model id…", sub: "anything your provider accepts", value: { kind: CUSTOM } as ModelChoice },
+          { label: "keep what .env already selects", sub: "don't touch the model", value: { kind: DEFAULT } as ModelChoice },
         ],
       );
       const next = applyPick<ModelChoice>(result);
@@ -160,12 +161,14 @@ export function sourceLabel(source: string | null): string {
 
 /** Non-interactive render used by `--preview`: the whole journey at a glance. */
 export function renderWizardStatic(shared: SharedState): string {
-  const taskLines = shared.tasks.slice(0, 6).map((t, i) =>
-    `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? taskLabel(t) : dim(taskLabel(t))}  ${i === 0 ? checksHint(t) : dim(checksHint(t))}`,
-  );
-  const modelLines = shared.models.slice(0, 5).map((m, i) =>
-    `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? m.display : dim(m.display)}  ${dim(`$${m.input}/$${m.output} per 1M · ${m.id}`)}`,
-  );
+  const taskLines = shared.tasks.slice(0, 6).flatMap((t, i) => [
+    `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? t.id : dim(t.id)}  ${i === 0 ? checksHint(t) : dim(checksHint(t))}`,
+    t.description ? `      ${dim(t.description)}` : "",
+  ].filter((line) => line !== ""));
+  const modelLines = shared.models.slice(0, 5).flatMap((m, i) => [
+    `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? m.display : dim(m.display)}`,
+    `      ${dim(`$${m.input} in / $${m.output} out per 1M tokens · ${m.id}`)}`,
+  ]);
   return [
     bold("Run an eval — step 1/4: pick a task") + dim(`   (${shared.taskSource})`),
     ...taskLines,

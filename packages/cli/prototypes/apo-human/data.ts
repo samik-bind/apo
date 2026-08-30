@@ -283,14 +283,6 @@ export function checksHint(t: TaskCard): string {
   return `${t.checkCount} check${t.checkCount === 1 ? "" : "s"}`;
 }
 
-/** One-line label for pickers and lists: id, then what it tests, then grouping. */
-export function taskLabel(t: TaskCard): string {
-  const parts = [t.id];
-  if (t.description) parts.push(`— ${t.description}`);
-  if (t.category) parts.push(`[${t.category}]`);
-  return parts.join(" ");
-}
-
 const SAMPLE_MODELS: ModelOption[] = [
   { id: "claude-sonnet-4-5", display: "Claude Sonnet 4.5", provider: "anthropic", input: 3.0, output: 15.0 },
   { id: "claude-opus-4-6", display: "Claude Opus 4.6", provider: "anthropic", input: 5.0, output: 25.0 },

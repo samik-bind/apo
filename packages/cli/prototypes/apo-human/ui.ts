@@ -38,7 +38,7 @@ export function waitKey(): Promise<Key> {
   });
 }
 
-export type PickOption<T> = { label: string; hint?: string; value: T };
+export type PickOption<T> = { label: string; hint?: string; sub?: string; value: T };
 export type PickResult<T> =
   | { kind: "pick"; value: T }
   | { kind: "switch" }
@@ -46,8 +46,10 @@ export type PickResult<T> =
 
 /**
  * Arrow-key/j-k/number picker, redrawn in place. Enter picks; Tab requests
- * a variant switch; Esc goes back. Degrades to the default when stdin is
- * not a TTY so the prototype stays previewable.
+ * a variant switch; Esc goes back. Options are two-line entries when `sub`
+ * is set: the label (the thing you choose by) on line one, the `sub`
+ * context (description, pricing) dim on line two — one fact per line.
+ * Degrades to the default when stdin is not a TTY.
  */
 export async function pick<T>(
   title: string,
@@ -65,16 +67,24 @@ export async function pick<T>(
     process.stdout.write("\x1b[?25l");
     process.stdout.write(`${title}\n`);
 
+    const width = process.stdout.columns ?? 80;
+    let renderedLines = 0;
     let rendered = false;
     const render = () => {
-      if (rendered) process.stdout.write(`\x1b[${options.length}A`);
+      if (rendered) process.stdout.write(`\x1b[${renderedLines}A`);
+      renderedLines = 0;
       for (let i = 0; i < options.length; i++) {
         const opt = options[i];
         const selected = i === index;
         const marker = selected ? "\u276f" : " ";
-        const label = selected ? opt.label : `\x1b[2m${opt.label}\x1b[0m`;
-        const hint = opt.hint ? `  \x1b[2m${opt.hint}\x1b[0m` : "";
+        const label = selected ? bold(opt.label) : dim(opt.label);
+        const hint = opt.hint ? `  ${dim(opt.hint)}` : "";
         process.stdout.write(`\x1b[2K\r${marker} ${label}${hint}\n`);
+        renderedLines++;
+        if (opt.sub) {
+          process.stdout.write(`\x1b[2K\r    ${dim(truncate(opt.sub, width - 6))}\n`);
+          renderedLines++;
+        }
       }
       rendered = true;
     };
@@ -125,6 +135,10 @@ export async function pick<T>(
     render();
     stdin.on("keypress", onKey);
   });
+}
+
+function truncate(text: string, width: number): string {
+  return text.length > width && width > 1 ? `${text.slice(0, width - 1)}…` : text;
 }
 
 /** Line input: drops to cooked mode so the terminal handles echo/editing. */

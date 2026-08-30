@@ -3,7 +3,7 @@
  * shape). One stable frame, list left, detail right. Answers: is browsing
  * + inline detail worth a full-screen app, or overkill for eval running?
  */
-import { bold, cyan, dim, green, red, yellow } from "../../src/lib/format.ts";
+import { bold, cyan, dim, green, red, visibleLength, yellow } from "../../src/lib/format.ts";
 import { checksHint, effectiveModel, hasProviderKey, resolveEnvView, type SharedState } from "./data.ts";
 import { bottomBar, waitKey } from "./ui.ts";
 import { envScreenText, runWizard, task as selectedTask, type VariantResult } from "./wizard.ts";
@@ -38,18 +38,16 @@ export async function runDashboard(shared: SharedState): Promise<VariantResult> 
 
 function frameText(shared: SharedState): string {
   const ids = shared.tasks.map((t) => t.id);
-  const colWidth = Math.min(42, Math.max(...ids.map((id) => id.length), 10));
-  const snippetWidth = 30;
-  const leftWidth = 2 + colWidth + 1 + snippetWidth;
-
+  const colWidth = Math.min(42, Math.max(...ids.map((id) => id.length), 10)) + 4;
   const start = Math.max(0, Math.min(shared.cursor - Math.floor(VIEWPORT / 2), shared.tasks.length - VIEWPORT));
   const visible = shared.tasks.slice(start, start + VIEWPORT);
 
+  // One fact per line: the list is ids only — the detail pane carries the
+  // description, category, checks, and environment for the selected task.
   const left = visible.map((t) => {
     const marker = t.id === shared.selection.taskId ? "\u276f " : "  ";
-    const label = t.id === shared.selection.taskId ? bold(t.id.padEnd(colWidth)) : dim(t.id.padEnd(colWidth));
-    const snippet = t.description ? ` ${truncate(t.description, snippetWidth)}` : "";
-    return `${marker}${label}${dim(snippet.padEnd(1 + snippetWidth - snippet.length))}`;
+    const label = t.id === shared.selection.taskId ? bold(t.id) : dim(t.id);
+    return `${marker}${label}`;
   });
 
   const right = detailLines(shared);
@@ -60,13 +58,11 @@ function frameText(shared: SharedState): string {
   ];
   const rows = Math.max(left.length, right.length);
   for (let i = 0; i < rows; i++) {
-    lines.push(`${(left[i] ?? "").padEnd(leftWidth)}│ ${right[i] ?? ""}`);
+    const cell = left[i] ?? "";
+    const pad = " ".repeat(Math.max(0, colWidth - visibleLength(cell)));
+    lines.push(`${cell}${pad}│ ${right[i] ?? ""}`);
   }
   return lines.join("\n");
-}
-
-function truncate(text: string, width: number): string {
-  return text.length > width ? `${text.slice(0, width - 1)}…` : text;
 }
 
 function detailLines(shared: SharedState): string[] {
