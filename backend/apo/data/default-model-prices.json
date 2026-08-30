@@ -245,7 +245,7 @@
     },
     {
       "_doc": "Same reduced rates as Opus 4.6 and Opus 5 ($5/$25 per MTok).",
-      "match_pattern": "(?i)^claude-opus-4-7.*$",
+      "match_pattern": "(?i)^claude-opus-4[.-]7.*$",
       "provider": "anthropic",
       "display_name": "Claude Opus 4.7",
       "start_date": null,
