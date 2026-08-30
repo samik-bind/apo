@@ -10,6 +10,16 @@ import {
 
 const TAU = Math.PI * 2;
 
+/**
+ * The sphere's motion is slow ambient rotation, so rendering at 30fps instead
+ * of the display's rate is visually indistinguishable and halves the cost of
+ * a loop that runs continuously on auth pages. Motion phases derive from the
+ * absolute rAF timestamp (no integration between frames), so a coarser render
+ * cadence cannot drift the animation.
+ */
+const TARGET_FPS = 30;
+const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
+
 export type SignalSphereMotionPreset =
   | "orbit"
   | "parallax"
@@ -128,6 +138,13 @@ export function SignalSphereCanvas({
 
     let frameId = 0;
     let disposed = false;
+    // -Infinity so the very first frame (including the one-shot static render
+    // when animated=false) passes the frame-rate gate unconditionally.
+    let lastRenderTime = -Infinity;
+    // While the canvas is scrolled or routed offscreen the loop stops
+    // requesting frames entirely and the IntersectionObserver restarts it
+    // when the canvas becomes visible again.
+    let onScreen = true;
     const sizeValue = numericSize;
     const dpr = window.devicePixelRatio || 1;
 
@@ -140,113 +157,117 @@ export function SignalSphereCanvas({
     let lastSpawn = 0;
 
     const draw = (timestamp: number) => {
-      if (disposed) return;
+      if (disposed || !onScreen) return;
 
-      if (preset === "ripple" && timestamp - lastSpawn > 5200) {
-        lastSpawn = timestamp;
-        const bandIndex = Math.floor(Math.random() * 14);
-        const longitude = Math.random() * Math.PI * 2;
-        const strength = 0.5 + Math.random() * 0.35;
-        rippleSourcesRef.current.push({ bandIndex, longitude, strength, createdAt: timestamp });
-      }
+      if (timestamp - lastRenderTime >= FRAME_INTERVAL_MS) {
+        lastRenderTime = timestamp;
 
-      const lifetime = 7;
-      rippleSourcesRef.current = rippleSourcesRef.current.filter(
-        (source) => (timestamp - source.createdAt) / 1000 < lifetime,
-      );
+        if (preset === "ripple" && timestamp - lastSpawn > 5200) {
+          lastSpawn = timestamp;
+          const bandIndex = Math.floor(Math.random() * 14);
+          const longitude = Math.random() * Math.PI * 2;
+          const strength = 0.5 + Math.random() * 0.35;
+          rippleSourcesRef.current.push({ bandIndex, longitude, strength, createdAt: timestamp });
+        }
 
-      const palette = resolvePalette(canvas);
-      const motion = getMotionState(timestamp, animated, preset);
-      const rippleSources =
-        motion.rippleSources
-        ?? rippleSourcesRef.current.map((source) => ({
-          bandIndex: source.bandIndex,
-          longitude: source.longitude,
-          strength: source.strength,
-          time: (timestamp - source.createdAt) / 1000,
-        }));
+        const lifetime = 7;
+        rippleSourcesRef.current = rippleSourcesRef.current.filter(
+          (source) => (timestamp - source.createdAt) / 1000 < lifetime,
+        );
 
-      const scene = buildSignalSphereScene({
-        spin: motion.spin,
-        pulse: motion.pulse,
-        trailProgress: motion.trailProgress,
-        trailDirection: motion.trailDirection,
-        bandParallax: motion.bandParallax,
-        depthParallax: motion.depthParallax,
-        verticalScale: motion.verticalScale,
-        disableAccentTrail: motion.disableAccentTrail,
-        rippleSources,
-        config: {
-          rotX: motion.rotX,
-          rotZ: motion.rotZ,
-        },
-      });
-      const resolveProgress = motion.resolveProgress;
-      const renderedDots =
-        resolveProgress != null
-          ? scene.dots.map((dot) =>
-              resolveDotFromPointCloud(dot, scene.viewBox, resolveProgress),
-            )
-          : scene.dots;
-      const endpointAlpha =
-        resolveProgress != null
-          ? getResolveEndpointAlpha(resolveProgress)
-          : 1;
+        const palette = resolvePalette(canvas);
+        const motion = getMotionState(timestamp, animated, preset);
+        const rippleSources =
+          motion.rippleSources
+          ?? rippleSourcesRef.current.map((source) => ({
+            bandIndex: source.bandIndex,
+            longitude: source.longitude,
+            strength: source.strength,
+            time: (timestamp - source.createdAt) / 1000,
+          }));
 
-      const scale = sizeValue / scene.viewBox.width;
+        const scene = buildSignalSphereScene({
+          spin: motion.spin,
+          pulse: motion.pulse,
+          trailProgress: motion.trailProgress,
+          trailDirection: motion.trailDirection,
+          bandParallax: motion.bandParallax,
+          depthParallax: motion.depthParallax,
+          verticalScale: motion.verticalScale,
+          disableAccentTrail: motion.disableAccentTrail,
+          rippleSources,
+          config: {
+            rotX: motion.rotX,
+            rotZ: motion.rotZ,
+          },
+        });
+        const resolveProgress = motion.resolveProgress;
+        const renderedDots =
+          resolveProgress != null
+            ? scene.dots.map((dot) =>
+                resolveDotFromPointCloud(dot, scene.viewBox, resolveProgress),
+              )
+            : scene.dots;
+        const endpointAlpha =
+          resolveProgress != null
+            ? getResolveEndpointAlpha(resolveProgress)
+            : 1;
 
-      context.clearRect(0, 0, sizeValue, sizeValue);
-      context.save();
-      context.scale(scale, scale);
+        const scale = sizeValue / scene.viewBox.width;
 
-      context.fillStyle = palette.accent;
-      context.globalAlpha = scene.endpoint.glowOpacity * endpointAlpha;
-      context.beginPath();
-      context.arc(
-        scene.endpoint.x,
-        scene.endpoint.y,
-        scene.endpoint.glowRadius,
-        0,
-        Math.PI * 2,
-      );
-      context.fill();
+        context.clearRect(0, 0, sizeValue, sizeValue);
+        context.save();
+        context.scale(scale, scale);
 
-      context.globalAlpha = scene.endpoint.coreOpacity * endpointAlpha;
-      context.beginPath();
-      context.arc(
-        scene.endpoint.x,
-        scene.endpoint.y,
-        scene.endpoint.radius,
-        0,
-        Math.PI * 2,
-      );
-      context.fill();
-
-      for (const dot of renderedDots) {
-        context.fillStyle = palette.fg;
-        context.globalAlpha = dot.opacity;
+        context.fillStyle = palette.accent;
+        context.globalAlpha = scene.endpoint.glowOpacity * endpointAlpha;
         context.beginPath();
-        context.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
+        context.arc(
+          scene.endpoint.x,
+          scene.endpoint.y,
+          scene.endpoint.glowRadius,
+          0,
+          Math.PI * 2,
+        );
         context.fill();
 
-        if (dot.overlayTint > 0.02 && dot.overlayOpacity > 0) {
-          context.fillStyle = mixColor(palette.fg, palette.accent, dot.overlayTint);
-          context.globalAlpha = dot.overlayOpacity;
+        context.globalAlpha = scene.endpoint.coreOpacity * endpointAlpha;
+        context.beginPath();
+        context.arc(
+          scene.endpoint.x,
+          scene.endpoint.y,
+          scene.endpoint.radius,
+          0,
+          Math.PI * 2,
+        );
+        context.fill();
+
+        for (const dot of renderedDots) {
+          context.fillStyle = palette.fg;
+          context.globalAlpha = dot.opacity;
           context.beginPath();
-          context.arc(dot.x, dot.y, dot.overlayRadius, 0, Math.PI * 2);
+          context.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
           context.fill();
+
+          if (dot.overlayTint > 0.02 && dot.overlayOpacity > 0) {
+            context.fillStyle = mixColor(palette.fg, palette.accent, dot.overlayTint);
+            context.globalAlpha = dot.overlayOpacity;
+            context.beginPath();
+            context.arc(dot.x, dot.y, dot.overlayRadius, 0, Math.PI * 2);
+            context.fill();
+          }
+
+          if (dot.rippleTint > 0.02 && dot.rippleOpacity > 0) {
+            context.fillStyle = mixColor(palette.fg, "#ef4444", dot.rippleTint);
+            context.globalAlpha = dot.rippleOpacity;
+            context.beginPath();
+            context.arc(dot.x, dot.y, dot.rippleRadius, 0, Math.PI * 2);
+            context.fill();
+          }
         }
 
-        if (dot.rippleTint > 0.02 && dot.rippleOpacity > 0) {
-          context.fillStyle = mixColor(palette.fg, "#ef4444", dot.rippleTint);
-          context.globalAlpha = dot.rippleOpacity;
-          context.beginPath();
-          context.arc(dot.x, dot.y, dot.rippleRadius, 0, Math.PI * 2);
-          context.fill();
-        }
+        context.restore();
       }
-
-      context.restore();
 
       if (animated) {
         frameId = window.requestAnimationFrame(draw);
@@ -255,8 +276,22 @@ export function SignalSphereCanvas({
 
     draw(0);
 
+    let observer: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== "undefined" && animated) {
+      observer = new IntersectionObserver((entries) => {
+        const visible = entries.some((entry) => entry.isIntersecting);
+        if (visible === onScreen) return;
+        onScreen = visible;
+        if (visible && !disposed) {
+          frameId = window.requestAnimationFrame(draw);
+        }
+      });
+      observer.observe(canvas);
+    }
+
     return () => {
       disposed = true;
+      observer?.disconnect();
       window.cancelAnimationFrame(frameId);
     };
   }, [animated, numericSize, preset]);
