@@ -860,6 +860,21 @@ def _migrate_to_v34() -> None:
         _drop_column_if_exists(conn, "otlp_spans", "raw_span")
 
 
+def _migrate_to_v35() -> None:
+    """Version 35: run-level I/O previews (storage single-homing Stage 2a).
+
+    ``runs.input_preview`` / ``output_preview`` (200-char truncations frozen
+    at projection time) plus ``preview_call_row_id`` (soft reference to the
+    source call). Written only in dual/slim projection modes; a NULL preview
+    makes the list API's preview read fall back to the legacy truncation
+    path per run, so this migration alone changes no behavior.
+    """
+    with engine.begin() as conn:
+        _add_column_if_missing(conn, "runs", "input_preview", "TEXT")
+        _add_column_if_missing(conn, "runs", "output_preview", "TEXT")
+        _add_column_if_missing(conn, "runs", "preview_call_row_id", "INTEGER")
+
+
 def _migrate_test_result_correction_schema(conn: Connection) -> None:
     if "agent_task_test_result_corrections" not in _get_table_names(conn):
         id_type = "TEXT" if is_sqlite() else "VARCHAR"
@@ -2304,7 +2319,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 34
+LATEST_SCHEMA_VERSION = 35
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2341,6 +2356,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     32: _migrate_to_v32,
     33: _migrate_to_v33,
     34: _migrate_to_v34,
+    35: _migrate_to_v35,
 }
 
 

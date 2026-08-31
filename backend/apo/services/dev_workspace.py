@@ -403,6 +403,13 @@ def _seed_trace(
     run_passes: bool,
     model: str,
 ) -> None:
+    """Seed a demo/dev trace projection directly (no canonical spans).
+
+    These rows deliberately keep storing their I/O in the fat columns: in
+    slim projection mode, span-less calls serve stored columns through the
+    read-path fallback (projection_io.hydrate_calls_from_spans). Real
+    telemetry must go through the OTLP receiver.
+    """
     duration_ms = float(duration_seconds * 1000)
 
     session.add(

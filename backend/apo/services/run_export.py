@@ -35,6 +35,7 @@ from ..models.db import (
     TaskExecutionAttemptDB,
 )
 from .artifact_stores.registry import get_store
+from .projection_io import hydrate_calls_from_spans
 
 BUNDLE_VERSION = 2
 # v2 (storage single-homing): span objects no longer carry a ``raw_span``
@@ -194,6 +195,7 @@ def _trace_section(
             LoggedCallDB.project == project,
         )
     ).all()
+    hydrate_calls_from_spans(session, list(calls))
     section["calls"] = [c.model_dump(mode="json") for c in calls]
     if include_spans:
         spans = session.exec(

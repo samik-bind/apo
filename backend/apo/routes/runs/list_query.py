@@ -10,12 +10,12 @@ the HTTP response; everything from the ``select(RunDB)`` onward lives
 here.
 """
 
-import json
 from dataclasses import dataclass, field
 from typing import Any, cast
 
 from pydantic import BaseModel
 from sqlalchemy import asc, desc, and_ as sql_and
+from sqlalchemy.orm import defer
 from sqlalchemy.sql.elements import ColumnElement
 from sqlmodel import Session, func, or_, select
 
@@ -45,12 +45,12 @@ from ...models.columns import (
     RUN_METRIC_RUN_ID_COL,
     RUN_METRIC_SCORE_COL,
 )
+from ...services.projection_io import list_read_mode, truncate_preview
 from .metrics import calculate_run_metrics_from_calls
 
 
 VALID_SORT_FIELDS = frozenset({"created_at", "duration_ms", "call_count"})
 
-PREVIEW_MAX_CHARS = 200
 
 
 class PaginatedRunSummary(BaseModel):
@@ -350,8 +350,14 @@ def _load_calls_for_runs_without_metrics(
     ]
     if not needing:
         return {}
-    query = select(LoggedCallDB).options(*CALL_LIGHT).where(
-        LOGGED_CALL_RUN_ID_COL.in_(needing)
+    query = (
+        select(LoggedCallDB)
+        .options(
+            *CALL_LIGHT,
+            defer(LoggedCallDB.input),  # pyright: ignore[reportArgumentType]
+            defer(LoggedCallDB.output),  # pyright: ignore[reportArgumentType]
+        )
+        .where(LOGGED_CALL_RUN_ID_COL.in_(needing))
     )
     if project is not None:
         query = query.where(LOGGED_CALL_PROJECT_COL == project)
@@ -419,6 +425,44 @@ def _fetch_io_previews(
     if not run_ids:
         return {}
 
+    if list_read_mode() == "previews":
+        # Write-time previews first — the whole point is never touching the
+        # fat I/O columns on list renders. Runs without a stored preview
+        # (pre-Stage-2 rows, or the backfill hasn't reached them) fall back
+        # to the legacy truncation path individually.
+        query = select(
+            as_column(RunDB.id),
+            as_column(RunDB.input_preview),
+            as_column(RunDB.output_preview),
+        ).where(as_column(RunDB.id).in_(run_ids))
+        if project is not None:
+            query = query.where(as_column(RunDB.project) == project)
+        previewed: dict[str, dict[str, str | None]] = {}
+        for row in cast("list[tuple[object, ...]]", cast(object, session.exec(query).all())):
+            run_id = str(row[0])
+            input_preview = cast("str | None", row[1])
+            output_preview = cast("str | None", row[2])
+            if input_preview is None and output_preview is None:
+                continue
+            previewed[run_id] = {"input": input_preview, "output": output_preview}
+        legacy = _legacy_io_previews(
+            session, [rid for rid in run_ids if rid not in previewed], project
+        )
+        previewed.update(legacy)
+        for rid in run_ids:
+            if rid not in previewed:
+                previewed[rid] = {"input": None, "output": None}
+        return previewed
+
+    return _legacy_io_previews(session, run_ids, project)
+
+
+def _legacy_io_previews(
+    session: Session, run_ids: list[str], project: str | None
+) -> dict[str, dict[str, str | None]]:
+    if not run_ids:
+        return {}
+
     first_query = select(LoggedCallDB).options(*CALL_LIGHT).where(
         LOGGED_CALL_RUN_ID_COL.in_(run_ids),
         LoggedCallDB.observation_type == "GENERATION",
@@ -463,10 +507,4 @@ def _fetch_io_previews(
     return result
 
 
-def _truncate_preview(value: object) -> str | None:
-    if value is None:
-        return None
-    text = json.dumps(value, default=str) if not isinstance(value, str) else value
-    if len(text) > PREVIEW_MAX_CHARS:
-        return text[:PREVIEW_MAX_CHARS] + "..."
-    return text
+_truncate_preview = truncate_preview

@@ -207,6 +207,8 @@ purges the OTLP spans of what it deletes.
 | `APO_INGEST_BATCH_ROW_RETENTION_DAYS` | `90` | Days to keep payload-blanked, terminal inbox audit rows before deleting them. |
 | `APO_VACUUM_MIN_FREE_BYTES` | `10485760` | The daily maintenance pass only VACUUMs when at least this many bytes are reclaimable (freelist pages). VACUUM needs up to ~2x the database size of free space on the data volume. |
 | `APO_MAX_DB_PAGES` | `0` | SQLite page cap, applied on every connection. `0` disables the cap. |
+| `APO_PROJECTION_WRITE_MODE` | `fat` | How the trace projection stores call I/O. `fat` writes full input/output into `logged_calls` (today's behavior). `dual` additionally writes run-level list previews. `slim` stops writing the fat I/O columns — detail views resolve I/O from the canonical span store, and span-less legacy rows serve their stored columns as fallback. Flip one step at a time; each is independently revertible. |
+| `APO_LIST_READ` | `legacy` | The traces-list preview source. `previews` reads the write-time previews on `runs` (never touching call I/O on list renders); runs without a stored preview fall back to the legacy truncation per run. Flip only after the backfill (`POST /v1/admin/projection/backfill`) verified parity. |
 | `PROJECT_INVITATION_TTL_HOURS` | `168` | How long project invitations stay valid (7 days). |
 
 See [Self-Hosting → Data Growth and Retention](/self-hosting/data-growth/)

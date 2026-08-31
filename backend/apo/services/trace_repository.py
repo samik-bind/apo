@@ -104,6 +104,12 @@ class TraceRepository(Protocol):
     ) -> LoggedCallDB:
         """Upsert an Observation (LoggedCallDB). Returns the call row.
 
+        NOTE: rows written here have no canonical span, so in slim
+        projection mode they serve their stored I/O columns via the
+        read-path fallback (see projection_io.hydrate_calls_from_spans).
+        Production telemetry must go through the receiver, which persists
+        the canonical span.
+
         This is the write boundary — callers never construct LoggedCallDB directly.
         """
         ...
@@ -262,6 +268,9 @@ class NativeTraceRepository:
             .order_by(col(LoggedCallDB.created_at))
         ).all()
 
+        from .projection_io import hydrate_calls_from_spans
+
+        _resolved = hydrate_calls_from_spans(session, list(calls))
         observations = tuple(_build_observation(c) for c in calls)
 
         # Projection version: the max version stamped on the trace's canonical

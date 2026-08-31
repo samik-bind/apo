@@ -21,6 +21,7 @@ from sqlmodel import Session, func, select
 from ..auth.deps import require_api_key_scope
 from ..db import get_session
 from ..services.filters import apply_tag_all_filter
+from ..services.projection_io import hydrate_calls_from_spans
 from ..services.projection_lookup import select_call, select_run
 from ..models.columns import RUN_CREATED_AT_COL, SESSION_CREATED_AT_COL
 from ..models.db import (
@@ -338,6 +339,7 @@ async def list_observations(
     statement = statement.offset((page - 1) * limit).limit(limit)
 
     calls = db.exec(statement).all()
+    hydrate_calls_from_spans(db, list(calls))
     observations = [call_to_langfuse_observation(c) for c in calls]
 
     return LangfusePaginatedResponse(
@@ -514,6 +516,7 @@ def _build_trace_response(
                 LoggedCallDB.project == run.project,
             )
         ).all()
+        hydrate_calls_from_spans(db, list(calls))
         trace["observations"] = [call_to_langfuse_observation(c) for c in calls]
 
         run_metrics = db.exec(

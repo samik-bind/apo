@@ -20,7 +20,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
 from sqlmodel import Session, col, select
 
@@ -31,9 +31,14 @@ from ..models.db import (
     RunDB,
     RunMetricDB,
 )
-from ..models.schemas import JsonValue
 from ..models.trace_ingestion import TraceIngestionContext
 from .otel_normalization import NormalizedSpan, normalize_span
+from .projection_io import (
+    ResolvedCallIO,
+    maybe_update_run_preview,
+    projection_write_mode,
+    resolve_call_io,
+)
 from .projection_lookup import (
     select_call,
     select_run,
@@ -120,15 +125,19 @@ class TraceProjector:
         self._upsert_run(session, span, normalized, is_root, context, repo)
 
         # Upsert the call (applies cost + tokens inside)
-        self._upsert_call(session, span, normalized, repo)
+        call, io = self._upsert_call(session, span, normalized, repo)
 
         # A completed root may arrive before its children, and replay updates
         # calls on a run that was already complete. Refresh after every span
         # projected into a completed run so dashboard-facing aggregates cannot
         # lag behind the authoritative call rows.
         run_after = select_run(session, span.trace_id, span.project_id)
-        if run_after is not None and run_after.completed_at is not None:
-            _compute_run_aggregates(session, span.trace_id, span.project_id)
+        if run_after is not None:
+            # dual/slim: maintain the write-time list previews.
+            if projection_write_mode() != "fat":
+                maybe_update_run_preview(session, run_after, call, io)
+            if run_after.completed_at is not None:
+                _compute_run_aggregates(session, span.trace_id, span.project_id)
 
         # Issue #41: re-aggregate the linked Task Run's cost/tokens whenever a
         # span lands for a trace linked to a Task Run. The task runner's single
@@ -265,21 +274,19 @@ class TraceProjector:
         span: OtlpSpanDB,
         normalized: NormalizedSpan,
         repo: NativeTraceRepository | None = None,
-    ) -> None:
-        """Upsert a LoggedCallDB row from the normalized span."""
+    ) -> tuple[LoggedCallDB, ResolvedCallIO]:
+        """Upsert a LoggedCallDB row from the normalized span.
+
+        The I/O values come from ``projection_io.resolve_call_io`` — the ONE
+        resolver the slim-mode read path also uses, so what is written in
+        fat/dual mode is exactly what would be resolved in slim mode; the
+        two cannot drift. In slim mode the fat I/O columns stay empty
+        (reads resolve from spans; span-less legacy rows serve their stored
+        columns as the fallback).
+        """
         call = select_call(session, span.span_id, span.project_id)
-        # Fall back to raw span attributes for input/output when the normalizer
-        # didn't extract them (e.g. legacy adapter writes free-form dicts).
-        raw_input = _raw_attr(span, "input")
-        raw_output = _raw_attr(span, "output")
-        # also fall back to canonical apo.observation.input/output
-        # (used by Trace Source Connectors that emit non-gen_ai.* I/O).
-        if raw_input is None:
-            raw_input = _raw_attr(span, "apo.observation.input")
-        if raw_output is None:
-            raw_output = _raw_attr(span, "apo.observation.output")
-        input_value = normalized.input or raw_input or {}
-        output_value = normalized.output or raw_output or {}
+        io = resolve_call_io(span)
+        write_fat = projection_write_mode() in ("fat", "dual")
 
         if call is None:
             # Create new. The projection row needs a NOT NULL created_at for
@@ -296,25 +303,27 @@ class TraceProjector:
                 observation_type=normalized.observation_type,
                 step_name=normalized.display_name,
                 parent_call_id=span.parent_span_id,
-                input=input_value,
-                output=output_value,
-                messages=self._extract_messages(normalized),
+                input=io.input if write_fat else {},
+                output=io.output if write_fat else {},
+                messages=io.messages if write_fat else [],
             )
             session.add(call)
         else:
-            # Update existing (idempotent re-projection)
+            # Update existing (idempotent re-projection). In fat/dual mode a
+            # falsy new value preserves the stored one (a re-ingest that
+            # stopped extracting I/O); slim mode writes no I/O at all and
+            # reads always resolve fresh from the span.
             call.model = normalized.model or call.model
             call.observation_type = normalized.observation_type
             call.step_name = normalized.display_name
             call.parent_call_id = span.parent_span_id
-            if input_value:
-                call.input = input_value
-            if output_value:
-                call.output = output_value
-            # Update messages if we have them
-            msgs = self._extract_messages(normalized)
-            if msgs:
-                call.messages = msgs  # type: ignore[assignment]
+            if write_fat:
+                if io.input:
+                    call.input = io.input
+                if io.output:
+                    call.output = io.output
+                if io.messages:
+                    call.messages = io.messages  # type: ignore[assignment]
             session.add(call)
 
         # Set typed fields from normalization
@@ -335,9 +344,9 @@ class TraceProjector:
 
         if normalized.tool_name:
             call.tool_name = normalized.tool_name
-        if normalized.tool_parameters:
+        if write_fat and normalized.tool_parameters:
             call.tool_parameters = normalized.tool_parameters
-        if normalized.tool_result:
+        if write_fat and normalized.tool_result:
             call.tool_result = normalized.tool_result
 
         # Timing
@@ -359,28 +368,7 @@ class TraceProjector:
         _apply_cost(session, call, span)
 
         session.add(call)
-
-    def _extract_messages(self, normalized: NormalizedSpan) -> list[dict[str, Any]]:
-        """Extract messages from normalized input/output for the ``messages`` column.
-
-        The dashboard's ``detectChatML`` checks ``data.messages`` on both
-        ``call.input`` and ``call.output``, but the ``messages`` column is
-        also read by some query paths. Populate it from whichever normalized
-        field has a messages array.
-
-        Only GENERATION calls get messages — SPAN/AGENT lifecycle calls carry
-        adapter metadata (not real conversation turns), and TOOL calls carry
-        parameters/results (not messages). Showing fake messages for those
-        types clutters the trace with empty/misleading content.
-        """
-        if normalized.observation_type != "GENERATION":
-            return []
-        msgs: list[dict[str, Any]] = []
-        if normalized.input and isinstance(normalized.input.get("messages"), list):
-            msgs.extend(normalized.input["messages"])
-        if normalized.output and isinstance(normalized.output.get("messages"), list):
-            msgs.extend(normalized.output["messages"])
-        return msgs
+        return call, io
 
 
 # ---------------------------------------------------------------------------
@@ -444,18 +432,6 @@ def _is_truthy(value: object) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in ("true", "1", "yes")
     return False
-
-
-def _raw_attr(span: OtlpSpanDB, key: str) -> JsonValue | None:
-    """Read a free-form attribute (e.g. legacy ``input``/``output``).
-
-    Returns the raw value regardless of JSON type — dict, list, str, number,
-    bool. Issue #42: previously dict-only, which silently discarded string
-    prompts and list-shaped outputs (e.g. Anthropic reasoning blocks),
-    producing empty ``{}`` I/O on imported generations.
-    """
-    attrs = span.attributes or {}
-    return cast(JsonValue | None, attrs.get(key))
 
 
 def _apply_cost(session: Session, call: LoggedCallDB, span: OtlpSpanDB) -> None:

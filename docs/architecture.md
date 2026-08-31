@@ -203,7 +203,14 @@ The write path has explicit ownership boundaries:
 7. Projection materializes `RunDB` and `LoggedCallDB` for current product APIs.
    Public OTel IDs are preserved, while storage identity and every lookup are
    Project-scoped. Canonical OTel spans remain the replayable source of truth
-   when conventions or projection schemas change. A successful projection
+   when conventions or projection schemas change. Stage 2 single-homing makes
+   that literal: `APO_PROJECTION_WRITE_MODE=slim` stops copying call I/O into
+   `logged_calls` entirely — the projector writes through the same resolver
+   (`projection_io.resolve_call_io`) the read paths hydrate from, so stored
+   and resolved values cannot drift, and run-level list previews
+   (`runs.input_preview/output_preview`) replace read-time truncation under
+   `APO_LIST_READ=previews`. Span-less legacy rows serve their stored columns
+   as a measured fallback until the fat columns can be dropped. A successful projection
    stamps the canonical span with the normalizer version in the same database
    transaction as its derived writes. Failed projections therefore remain
    visibly stale, while replay advances the stamp only after the replacement

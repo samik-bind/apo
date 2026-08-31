@@ -17,6 +17,7 @@ from ...services.project_memberships import (
     enforce_project_role_from_request,
     list_readable_projects_from_request,
 )
+from ...services.projection_io import hydrate_calls_from_spans
 from ...services.trace_repository import derive_capabilities
 from ...db_helpers import as_column, ensure_utc_datetime
 from ...models import (
@@ -341,6 +342,10 @@ def get_run_details(
         calls_query = calls_query.options(*CALL_LIGHT)
 
     calls = session.exec(calls_query).all()
+
+    # Slim mode: resolve I/O from canonical spans (span-less rows keep
+    # their stored columns). In-memory only — nothing is persisted.
+    hydrate_calls_from_spans(session, list(calls))
 
     stored_metrics = session.exec(
         select(RunMetricDB).where(

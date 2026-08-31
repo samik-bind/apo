@@ -319,3 +319,106 @@ async def get_reprice_status(
     return {"job_id": job_id, **_reprice_jobs[job_id]}
 
 
+# ---------------------------------------------------------------------------
+# projection preview backfill (storage single-homing Stage 2a)
+#
+# ``POST /v1/admin/projection/backfill`` re-projects traces whose runs have
+# no stored previews yet (dual/slim mode), one commit per trace — idempotent
+# and resumable, so a process death mid-job just means re-running. Flip
+# ``APO_LIST_READ=previews`` only after a backfill reports parity.
+# ---------------------------------------------------------------------------
+
+_projection_jobs: dict[str, dict[str, object]] = {}
+
+
+class ProjectionBackfillRequest(BaseModel):
+    project: str | None = None
+    limit: int = 500
+
+
+@router.post("/projection/backfill")
+async def start_projection_backfill(
+    request: Request,
+    body: ProjectionBackfillRequest,
+    _: object = Depends(require_api_key_scope("full")),
+) -> dict[str, str]:
+    """Kick off the preview backfill. Requires dual or slim write mode."""
+    if not verify_admin(request):
+        raise HTTPException(status_code=401, detail="Unauthorized: Admin access required")
+    from ..services.projection_io import projection_write_mode
+
+    if projection_write_mode() == "fat":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "APO_PROJECTION_WRITE_MODE is 'fat' — previews are only "
+                "written in dual or slim mode"
+            ),
+        )
+    job_id = uuid.uuid4().hex[:12]
+    _projection_jobs[job_id] = {
+        "status": "running",
+        "processed": 0,
+        "skipped": 0,
+        "errors": [],
+    }
+    thread = threading.Thread(
+        target=_run_projection_backfill,
+        args=(job_id, body.project, body.limit),
+        daemon=True,
+        name=f"projection-backfill-{job_id}",
+    )
+    thread.start()
+    return {"job_id": job_id}
+
+
+def _run_projection_backfill(
+    job_id: str, project: str | None, limit: int
+) -> None:
+    """Worker: reproject traces lacking previews, updating job progress."""
+    from sqlmodel import Session, col, select
+
+    from ..db import engine
+    from ..models.db import RunDB
+    from ..services.reproject import reproject_trace
+
+    job = _projection_jobs[job_id]
+    try:
+        with Session(engine) as session:
+            query = (
+                select(RunDB.id, RunDB.project)
+                .where(col(RunDB.input_preview).is_(None))
+                .limit(limit)
+            )
+            if project is not None:
+                query = query.where(RunDB.project == project)
+            rows = session.exec(query).all()
+        for trace_id, trace_project in rows:
+            try:
+                projected = reproject_trace(str(trace_id), str(trace_project))
+            except Exception as exc:  # noqa: BLE001 - keep the job running
+                errors = cast("list[str]", job["errors"])
+                errors.append(f"{trace_id}: {exc}")
+                continue
+            if projected > 0:
+                job["processed"] = cast("int", job["processed"]) + 1
+            else:
+                job["skipped"] = cast("int", job["skipped"]) + 1
+        job["status"] = "done"
+    except Exception as exc:  # noqa: BLE001 - report any failure to the poller
+        job["status"] = "error"
+        job["error"] = str(exc)
+
+
+@router.get("/projection/backfill/{job_id}")
+async def get_projection_backfill_status(
+    job_id: str,
+    request: Request,
+    _: object = Depends(require_api_key_scope("full")),
+) -> dict[str, object]:
+    """Poll a projection backfill job's status."""
+    if not verify_admin(request):
+        raise HTTPException(status_code=401, detail="Unauthorized: Admin access required")
+    if job_id not in _projection_jobs:
+        raise HTTPException(status_code=404, detail="unknown projection backfill job")
+    return {"job_id": job_id, **_projection_jobs[job_id]}

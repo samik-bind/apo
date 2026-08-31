@@ -3,6 +3,14 @@ Shared ingestion processing service.
 
 Contains the core processing logic for creating/updating runs, calls,
 and scores. Used by all ingestion routes (batch, Langfuse, OTel).
+
+``process_call_create`` / ``process_call_update`` are the LEGACY direct
+writers: no route funnels through them anymore (routes use
+``legacy_adapter``, which persists canonical spans first). They write
+span-less ``LoggedCallDB`` rows, which in slim projection mode serve
+their stored I/O via the read-path fallback. The Stage-2c column-drop
+gate measures whether any fallback usage remains before the fat columns
+can go.
 """
 
 # pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false, reportUnnecessaryComparison=false, reportUnusedCallResult=false, reportUnusedParameter=false
