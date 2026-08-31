@@ -151,6 +151,9 @@ export async function pickTree<T>(
         process.stdout.write(`\x1b[2K\r${dim("no matches")}\n`);
         renderedLines++;
       }
+      // Hints (prices, check counts) share one vertical rail: pad every
+      // name to the longest in view so the column never drifts per row.
+      const nameCol = rows.reduce((max, r) => Math.max(max, r.depth * 2 + r.node.name.length), 0);
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
         const selected = i === cursor;
@@ -164,14 +167,17 @@ export async function pickTree<T>(
             : b === "~"
               ? `${yellow(`[${b}]`)} `
               : `${dim(`[${b}]`)} `;
+        const pad = " ".repeat(Math.max(0, nameCol - r.depth * 2 - r.node.name.length));
         let line: string;
         if (r.isFolder) {
           const arrow = expanded.has(r.node.key) ? "\u25be" : "\u25b8";
           const name = selected ? bold(cyan(`${arrow} ${r.node.name}`)) : cyan(`${arrow} ${r.node.name}`);
-          line = `${marker} ${indent}${checkbox}${name}  ${dim(String(r.node.count ?? ""))}`;
+          line = `${marker} ${indent}${checkbox}${name}${pad}  ${dim(String(r.node.count ?? ""))}`;
         } else {
           const name = selected ? bold(r.node.name) : r.node.name;
-          line = `${marker} ${indent}${checkbox}${name}${r.node.hint ? `  ${dim(r.node.hint)}` : ""}`;
+          line = r.node.hint
+            ? `${marker} ${indent}${checkbox}${name}${pad}  ${dim(r.node.hint)}`
+            : `${marker} ${indent}${checkbox}${name}`;
         }
         process.stdout.write(`\x1b[2K\r${line}\n`);
         renderedLines++;
