@@ -178,23 +178,39 @@ export function summaryText(shared: SharedState): string {
   const view = resolveEnvView(first.path, process.env);
   const model = shared.selection.model;
   const modelPrefix = model ? `OPENROUTER_MODEL='${model}' ` : "";
+  const modelLine = `${bold("model")}  ${model ? cyan(model) : dim(effectiveModel(view, shared.selection) ?? "from .env (nothing set!)")}`;
+
+  if (tasks.length === 1) {
+    return [
+      `${bold("task")}   ${first.id}`,
+      first.description ? `${dim("what")}    ${first.description}` : "",
+      modelLine,
+      `${bold("judge")}  ${checksHint(first)}`,
+      "",
+      `  ${dim("$")} ${bold(`${modelPrefix}apo task run ${first.id}`)}`,
+    ].filter((line) => line !== "").join("\n");
+  }
+
+  // Many tasks: show what varies at a glance — folder breakdown and totals —
+  // and cap the commands instead of repeating the same prefix N times.
+  const byFolder = new Map<string, number>();
+  for (const t of tasks) {
+    const folder = t.folderPath || "(top)";
+    byFolder.set(folder, (byFolder.get(folder) ?? 0) + 1);
+  }
+  const breakdown = [...byFolder.entries()].map(([f, n]) => `${f} ${dim(`×${n}`)}`).join(dim("   "));
+  const totalChecks = tasks.reduce((sum, t) => sum + t.checkCount, 0);
   const commands = tasks.map((t) => `${modelPrefix}apo task run ${t.id}`);
-  const taskLines =
-    tasks.length === 1
-      ? [
-          `${bold("task")}   ${first.id}`,
-          first.description ? `${dim("what")}    ${first.description}` : "",
-        ]
-      : [
-          `${bold("tasks")}  ${tasks.length} selected`,
-          ...tasks.map((t) => `  ${cyan(t.id)}  ${dim(checksHint(t))}`),
-        ];
+  const shown = commands.slice(0, 3);
+  const hidden = commands.length - shown.length;
   return [
-    ...taskLines,
-    `${bold("model")}  ${model ? cyan(model) : dim(effectiveModel(view, shared.selection) ?? "from .env (nothing set!)")}`,
-    tasks.length === 1 ? `${bold("judge")}  ${checksHint(first)}` : "",
+    `${bold("tasks")}  ${tasks.length} selected`,
+    `        ${breakdown}`,
+    modelLine,
+    `${bold("judge")}  ${totalChecks} checks total`,
     "",
-    ...commands.map((c) => `  ${dim("$")} ${bold(c)}`),
+    ...shown.map((c) => `  ${dim("$")} ${bold(c)}`),
+    hidden > 0 ? `  ${dim(`… +${hidden} more the same shape`)}` : "",
   ].filter((line) => line !== "").join("\n");
 }
 
@@ -234,6 +250,9 @@ export function renderWizardStatic(shared: SharedState): string {
     }
   };
   walk(shared.tree, 0);
+  // Preview the multi-task summary shape with the same two demo checks.
+  shared.selection.taskIds = [...demoChecked];
+  shared.selection.taskId = [...demoChecked][0];
   const modelLines = modelTree(shared.models, "OPENROUTER_MODEL (already set)").map((n) =>
     `    ${n.children ? cyan(`▸ ${n.name}`) : n.name}  ${dim(String(n.count ?? n.hint ?? ""))}`,
   );
