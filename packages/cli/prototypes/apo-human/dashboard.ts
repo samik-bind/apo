@@ -3,6 +3,7 @@
  * shape). One stable frame, list left, detail right. Answers: is browsing
  * + inline detail worth a full-screen app, or overkill for eval running?
  */
+// color roles: cyan folders, default tasks, dim hints — same as the tree picker
 import { bold, cyan, dim, green, red, visibleLength, yellow } from "../../src/lib/format.ts";
 import { checksHint, effectiveModel, groupTasks, hasProviderKey, resolveEnvView, shortName, type SharedState, type TaskCard } from "./data.ts";
 import { bottomBar, waitKey } from "./ui.ts";
@@ -57,9 +58,9 @@ function frameText(shared: SharedState): string {
   const window = ordered.slice(windowStart, windowStart + VIEWPORT);
 
   const left = window.map((r) => {
-    if (r.folder !== undefined) return dim(bold(r.folder));
+    if (r.folder !== undefined) return cyan(bold(r.folder));
     const selected = r.task!.id === shared.selection.taskId;
-    return `${selected ? "\u276f " : "  "}${selected ? bold(shortName(r.task!)) : dim(shortName(r.task!))}`;
+    return `${selected ? bold("\u276f ") : "  "}${selected ? bold(shortName(r.task!)) : shortName(r.task!)}`;
   });
   const colWidth = Math.min(42, Math.max(...shared.tasks.map((t) => shortName(t).length), 10)) + 6;
 

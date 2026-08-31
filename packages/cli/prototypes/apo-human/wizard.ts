@@ -201,11 +201,13 @@ export function renderWizardStatic(shared: SharedState): string {
   const walk = (nodes: TreeNode<TaskCard>[], depth: number) => {
     for (const n of nodes) {
       const indent = "  ".repeat(depth);
+      const b = box(n);
+      const checkbox = b === "x" ? green(`[${b}]`) : b === "~" ? yellow(`[${b}]`) : dim(`[${b}]`);
       if (n.children !== undefined) {
-        treeLines.push(`    ${indent}${dim(`[${box(n)}] ▾ ${n.name}`)}  ${dim(String(n.count ?? ""))}`);
+        treeLines.push(`    ${indent}${checkbox} ${cyan(`▾ ${n.name}`)}  ${dim(String(n.count ?? ""))}`);
         walk(n.children, depth + 1);
       } else {
-        treeLines.push(`    ${indent}${dim(`[${box(n)}] ${n.name}`)}${n.hint ? `  ${dim(n.hint)}` : ""}`);
+        treeLines.push(`    ${indent}${checkbox} ${n.name}${n.hint ? `  ${dim(n.hint)}` : ""}`);
       }
     }
   };

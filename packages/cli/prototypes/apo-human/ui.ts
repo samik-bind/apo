@@ -5,7 +5,7 @@
  */
 import { emitKeypressEvents } from "node:readline";
 import { stdin } from "node:process";
-import { bold, dim } from "../../src/lib/format.ts";
+import { bold, cyan, dim, green, yellow } from "../../src/lib/format.ts";
 
 export type Key = { name: string; ctrl: boolean };
 
@@ -76,8 +76,8 @@ export async function pick<T>(
       for (let i = 0; i < options.length; i++) {
         const opt = options[i];
         const selected = i === index;
-        const marker = selected ? "\u276f" : " ";
-        const label = selected ? bold(opt.label) : dim(opt.label);
+        const marker = selected ? bold("\u276f") : " ";
+        const label = selected ? bold(opt.label) : opt.label;
         const hint = opt.hint ? `  ${dim(opt.hint)}` : "";
         process.stdout.write(`\x1b[2K\r${marker} ${label}${hint}\n`);
         renderedLines++;
@@ -206,6 +206,9 @@ export async function pickTree<T>(
 
     let renderedLines = 0;
     let rendered = false;
+    // Color encodes state, not decoration (the ls/lazygit convention):
+    // folders cyan like directories, checkboxes green/yellow/dim for
+    // all/partial/none, secondary info dim, and the cursor row bold.
     const render = () => {
       const rows = flatten();
       cursor = Math.min(Math.max(cursor, 0), rows.length - 1);
@@ -215,16 +218,18 @@ export async function pickTree<T>(
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
         const selected = i === cursor;
-        const marker = selected ? "\u276f" : " ";
+        const marker = selected ? bold("\u276f") : " ";
         const indent = "  ".repeat(r.depth);
+        const b = box(r.node);
+        const checkbox = b === "x" ? green(`[${b}]`) : b === "~" ? yellow(`[${b}]`) : dim(`[${b}]`);
         let line: string;
         if (r.isFolder) {
           const arrow = expanded.has(r.node.key) ? "\u25be" : "\u25b8";
-          const name = selected ? bold(`[${box(r.node)}] ${arrow} ${r.node.name}`) : dim(`[${box(r.node)}] ${arrow} ${r.node.name}`);
-          line = `${marker} ${indent}${name}  ${dim(String(r.node.count ?? ""))}`;
+          const name = selected ? bold(cyan(`${arrow} ${r.node.name}`)) : cyan(`${arrow} ${r.node.name}`);
+          line = `${marker} ${indent}${checkbox} ${name}  ${dim(String(r.node.count ?? ""))}`;
         } else {
-          const name = selected ? bold(`[${box(r.node)}] ${r.node.name}`) : dim(`[${box(r.node)}] ${r.node.name}`);
-          line = `${marker} ${indent}${name}${r.node.hint ? `  ${dim(r.node.hint)}` : ""}`;
+          const name = selected ? bold(r.node.name) : r.node.name;
+          line = `${marker} ${indent}${checkbox} ${name}${r.node.hint ? `  ${dim(r.node.hint)}` : ""}`;
         }
         process.stdout.write(`\x1b[2K\r${line}\n`);
         renderedLines++;
