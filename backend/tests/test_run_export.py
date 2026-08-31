@@ -202,7 +202,7 @@ class TestRunExport:
 
         assert resp.status_code == 200, resp.text
         bundle = resp.json()
-        assert bundle["bundle_version"] == 1
+        assert bundle["bundle_version"] == 2  # v2: spans carry typed columns only (raw_span dropped)
         assert bundle["run_id"] == "r-ex"
         # Verdict section: the detail projection, verdict intact.
         assert bundle["run"]["status"] == "failed"

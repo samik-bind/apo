@@ -192,14 +192,17 @@ The write path has explicit ownership boundaries:
    there is no Project-level redaction mode.
 4. The receiver validates and persists the decoded OTLP graph once, including
    resource, scope, span, event, and link attributes. Both the durable inbox and
-   canonical span store derive from that same full-fidelity graph.
+   canonical span store derive from that same full-fidelity graph. The typed
+   span columns are the single home of span data — the inbox payload is a
+   crash-window buffer that is blanked in the same transaction that marks a
+   batch `projected`, and terminal audit rows are reaped on a window.
 5. A verified Task Run claim is reserved in the request transaction and only
    its verified ID is retained with the batch. Raw credentials are never queued.
 6. The durable worker claims the exact batch, uses an expiring processing lease,
    and records `projected`, `partial`, or `failed` truthfully.
 7. Projection materializes `RunDB` and `LoggedCallDB` for current product APIs.
    Public OTel IDs are preserved, while storage identity and every lookup are
-   Project-scoped. Canonical OTLP spans remain the replayable source of truth
+   Project-scoped. Canonical OTel spans remain the replayable source of truth
    when conventions or projection schemas change. A successful projection
    stamps the canonical span with the normalizer version in the same database
    transaction as its derived writes. Failed projections therefore remain
@@ -207,6 +210,8 @@ The write path has explicit ownership boundaries:
    projection succeeds. Once a run is complete, every later span projection
    refreshes its stored aggregate metrics; this covers both children that
    arrive after the root and replay into an already-complete run.
+   Duplicate span exports are resolved information-safely: a re-export that
+   adds nothing never overwrites stored data (OTLP delivery is at-least-once).
 
 This separation is the intended extension point: add framework convention
 normalizers over canonical spans, not provider-specific ingestion endpoints.

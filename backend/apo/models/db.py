@@ -1722,7 +1722,11 @@ class OtlpSpanDB(SQLModel, table=True):
     """Canonical lossless OTel span store.
 
     One row per ``(project_id, trace_id, span_id)`` — the immutable source of
-    truth. Typed OTel values are retained as JSON for replayability.
+    truth and the single home of span data. Typed OTel values are retained as
+    JSON for replayability (see ``span_row_to_otlp_json`` in the receiver for
+    the inverse direction). Not preserved at any level — no column, no reader:
+    OTLP dropped-attribute/event/link counters, ``schemaUrl``, and
+    sub-microsecond timestamp bits.
     """
 
     __tablename__: ClassVar[str] = "otlp_spans"
@@ -1752,7 +1756,6 @@ class OtlpSpanDB(SQLModel, table=True):
     attributes: dict[str, object] | None = Field(default=None, sa_column=Column(JSON))
     events: list[dict[str, object]] | None = Field(default=None, sa_column=Column(JSON))
     links: list[dict[str, object]] | None = Field(default=None, sa_column=Column(JSON))
-    raw_span: dict[str, object] | None = Field(default=None, sa_column=Column(JSON))
 
     content_policy: str = Field(default="default")
     projection_version: int = Field(default=0)

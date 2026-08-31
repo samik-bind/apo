@@ -22,7 +22,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from google.protobuf.json_format import MessageToDict
 from sqlmodel import Session
@@ -216,6 +216,173 @@ def _normalize_protobuf_decoded(decoded: dict[str, Any]) -> None:
                             span[field] = raw.hex()
                         except Exception:
                             pass  # Already hex or unparseable — leave as-is
+
+
+# OTLP enum names as rendered by protobuf MessageToDict. The names are
+# unique across SpanKind and StatusCode, so one shared map serves both.
+_ENUM_NAME_TO_INT: dict[str, int] = {
+    "SPAN_KIND_UNSPECIFIED": 0,
+    "SPAN_KIND_INTERNAL": 1,
+    "SPAN_KIND_SERVER": 2,
+    "SPAN_KIND_CLIENT": 3,
+    "SPAN_KIND_PRODUCER": 4,
+    "SPAN_KIND_CONSUMER": 5,
+    "STATUS_CODE_UNSET": 0,
+    "STATUS_CODE_OK": 1,
+    "STATUS_CODE_ERROR": 2,
+}
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def _datetime_to_nanos_str(value: datetime) -> str:
+    """Inverse of ``_datetime_from_nanos`` — exact integer arithmetic.
+
+    timedelta keeps microsecond precision as integers, so the round trip
+    through the typed columns loses nothing above microseconds.
+    """
+    delta = value.astimezone(timezone.utc) - _EPOCH
+    total = (delta.days * 86_400 + delta.seconds) * 1_000_000_000
+    total += delta.microseconds * 1000
+    return str(total)
+
+
+def _is_informationless(value: Any) -> bool:
+    """True when a value carries no span information.
+
+    Absent (``None``), empty containers, empty strings, false booleans, and
+    the enum / bitfield default 0 — a late duplicate export carrying only
+    these must never overwrite richer stored data.
+    """
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return value is False
+    if isinstance(value, (dict, list)):
+        return len(value) == 0
+    return value == "" or value == 0
+
+
+def _information_adding_updates(
+    existing: OtlpSpanDB, new_values: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Diff proposed span values against a stored row, information-safe.
+
+    Returns the fields to write, or ``None`` when the export is a no-op.
+    A field only updates when it differs AND the incoming value is not
+    emptier than the stored one — a stale retry that dropped its end time
+    or attributes is skipped instead of destroying them.
+    """
+    updates: dict[str, Any] = {}
+    for key, new in new_values.items():
+        old = getattr(existing, key, None)
+        if old == new:
+            continue
+        if _is_informationless(new) and not _is_informationless(old):
+            continue
+        updates[key] = new
+    return updates or None
+
+
+def dict_to_anyvalue(value: Any) -> dict[str, Any] | None:
+    """Inverse of ``OtlpReceiver._extract_value`` — typed dict → AnyValue."""
+    if isinstance(value, bool):
+        return {"boolValue": value}
+    if isinstance(value, int):
+        return {"intValue": value}
+    if isinstance(value, float):
+        return {"doubleValue": value}
+    if isinstance(value, str):
+        return {"stringValue": value}
+    if isinstance(value, list):
+        return {
+            "arrayValue": {
+                "values": [
+                    dict_to_anyvalue(item) for item in value if item is not None
+                ]
+            }
+        }
+    if isinstance(value, dict):
+        return {
+            "kvlistValue": {
+                "values": [
+                    {"key": key, "value": dict_to_anyvalue(item)}
+                    for key, item in value.items()
+                    if item is not None
+                ]
+            }
+        }
+    return None
+
+
+def attrs_dict_to_otlp(
+    attributes: dict[str, object] | None,
+) -> list[dict[str, Any]]:
+    """Rebuild the OTLP attribute array from the stored dict form."""
+    out: list[dict[str, Any]] = []
+    for key, value in (attributes or {}).items():
+        container = dict_to_anyvalue(value)
+        if container is not None:
+            out.append({"key": key, "value": container})
+    return out
+
+
+def span_row_to_otlp_json(span: OtlpSpanDB) -> dict[str, Any]:
+    """Rebuild an OTLP/JSON span dict from the typed canonical columns.
+
+    The inverse of the receive path, kept next to it so the two cannot
+    drift. Used by demo capture (which needs the wire form) and by the
+    round-trip losslessness test. Deliberately unpreserved fields are
+    absent: dropped counters, ``schemaUrl``, sub-microsecond timestamps.
+    """
+    out: dict[str, Any] = {
+        "traceId": span.trace_id,
+        "spanId": span.span_id,
+        "name": span.span_name,
+        "kind": span.span_kind,
+        "flags": span.trace_flags,
+        "attributes": attrs_dict_to_otlp(span.attributes),
+        "status": {"code": span.status_code},
+    }
+    if span.parent_span_id:
+        out["parentSpanId"] = span.parent_span_id
+    if span.trace_state:
+        out["traceState"] = span.trace_state
+    if span.start_time is not None:
+        out["startTimeUnixNano"] = _datetime_to_nanos_str(span.start_time)
+    if span.end_time is not None:
+        out["endTimeUnixNano"] = _datetime_to_nanos_str(span.end_time)
+    if span.status_message:
+        out["status"]["message"] = span.status_message
+    if span.events:
+        out["events"] = [
+            {
+                "name": event.get("name", ""),
+                "time": event.get("time"),
+                "attributes": attrs_dict_to_otlp(
+                    cast("dict[str, object] | None", event.get("attributes"))
+                ),
+            }
+            for event in span.events
+        ]
+    if span.links:
+        out["links"] = [
+            {
+                "traceId": link.get("traceId", ""),
+                "spanId": link.get("spanId", ""),
+                "attributes": attrs_dict_to_otlp(
+                    cast("dict[str, object] | None", link.get("attributes"))
+                ),
+                **({"flags": link["flags"]} if "flags" in link else {}),
+                **(
+                    {"traceState": link["traceState"]}
+                    if link.get("traceState")
+                    else {}
+                ),
+            }
+            for link in span.links
+        ]
+    return out
 
 
 class OtlpReceiver:
@@ -454,52 +621,51 @@ class OtlpReceiver:
             span.get("endTimeUnixNano") or span.get("endTime")
         )
 
-        if existing:
-            # Upsert: update the existing row
-            existing.parent_span_id = span.get("parentSpanId")
-            # Preserve a parsed timestamp; keep the prior value if the payload
-            # omits one. Never substitute ingestion time.
-            existing.start_time = start_time or existing.start_time
-            existing.end_time = end_time or existing.end_time
-            existing.span_name = str(span.get("name", ""))
-            existing.span_kind = self._parse_enum_int(span.get("kind", 0))
-            existing.status_code = self._parse_enum_int(status.get("code", 0)) if isinstance(status, dict) else 0
-            existing.status_message = status.get("message") if isinstance(status, dict) else None
-            existing.trace_flags = self._parse_enum_int(span.get("flags", 0))
-            existing.trace_state = span.get("traceState")
-            existing.resource = {"attributes": resource_attrs, **{k: v for k, v in resource.items() if k != "attributes"}}
-            existing.instrumentation_scope = scope if scope else None
-            existing.attributes = attributes
-            existing.events = events if events else None
-            existing.links = links if links else None
-            existing.raw_span = span
+        new_values: dict[str, Any] = {
+            "parent_span_id": span.get("parentSpanId"),
+            "start_time": start_time,
+            "end_time": end_time,
+            "span_name": str(span.get("name", "")),
+            "span_kind": self._parse_enum_int(span.get("kind", 0)),
+            "status_code": (
+                self._parse_enum_int(status.get("code", 0))
+                if isinstance(status, dict)
+                else 0
+            ),
+            "status_message": (
+                status.get("message") if isinstance(status, dict) else None
+            ),
+            "trace_flags": self._parse_enum_int(span.get("flags", 0)),
+            "trace_state": span.get("traceState"),
+            "resource": {
+                "attributes": resource_attrs,
+                **{k: v for k, v in resource.items() if k != "attributes"},
+            },
+            "instrumentation_scope": scope if scope else None,
+            "attributes": attributes,
+            "events": events if events else None,
+            "links": links if links else None,
+        }
+
+        if existing is not None:
+            # OTLP delivery is at-least-once, so a duplicate export is normal.
+            # A byte-identical retry is a no-op; a retry that carries LESS
+            # than stored (e.g. a re-serialized batch missing the end time)
+            # must never destroy information. Only updates that strictly add
+            # information are applied.
+            updates = _information_adding_updates(existing, new_values)
+            if updates is None:
+                return existing
+            for key, value in updates.items():
+                setattr(existing, key, value)
             existing.content_policy = "full"
             session.add(existing)
             session.flush()
-            canonical = existing
-        else:
-            canonical = OtlpSpanDB(
-                project_id=project_id,
-                trace_id=trace_id,
-                span_id=span_id,
-                parent_span_id=span.get("parentSpanId"),
-                start_time=start_time,
-                end_time=end_time,
-                span_name=str(span.get("name", "")),
-                span_kind=self._parse_enum_int(span.get("kind", 0)),
-                status_code=self._parse_enum_int(status.get("code", 0)) if isinstance(status, dict) else 0,
-                status_message=status.get("message") if isinstance(status, dict) else None,
-                trace_flags=self._parse_enum_int(span.get("flags", 0)),
-                trace_state=span.get("traceState"),
-                resource={"attributes": resource_attrs, **{k: v for k, v in resource.items() if k != "attributes"}},
-                instrumentation_scope=scope if scope else None,
-                attributes=attributes,
-                events=events if events else None,
-                links=links if links else None,
-                raw_span=span,
-            )
-            session.add(canonical)
-            session.flush()
+            return existing
+
+        canonical = OtlpSpanDB(project_id=project_id, trace_id=trace_id, span_id=span_id, **new_values)
+        session.add(canonical)
+        session.flush()
 
         return canonical
 
@@ -550,16 +716,18 @@ class OtlpReceiver:
 
         ``MessageToDict`` can render enums as their string name
         (e.g. ``"SPAN_KIND_INTERNAL"``) instead of their numeric value.
-        This handles both forms.
+        The OTLP enums apo stores (SpanKind, StatusCode) have unique names,
+        so one shared name→int map resolves them.
         """
         if isinstance(value, int):
             return value
         if isinstance(value, str):
+            mapped = _ENUM_NAME_TO_INT.get(value)
+            if mapped is not None:
+                return mapped
             try:
                 return int(value)
             except ValueError:
-                # It's an enum name string — we can't reliably map names to
-                # numbers without the proto descriptor. Use the default.
                 return default
         return default
 
@@ -567,6 +735,13 @@ class OtlpReceiver:
         """Extract a typed value from an OTLP AnyValue container."""
         if "stringValue" in container:
             return container["stringValue"]
+        if "bytesValue" in container:
+            # OTLP/JSON and MessageToDict both render bytes as base64 text;
+            # store that text so the value survives instead of being dropped.
+            raw = container["bytesValue"]
+            if isinstance(raw, bytes):
+                return base64.b64encode(raw).decode("ascii")
+            return raw
         if "intValue" in container:
             try:
                 return int(container["intValue"])
@@ -616,13 +791,16 @@ class OtlpReceiver:
         for link in raw_links:
             if not isinstance(link, dict):
                 continue
-            result.append(
-                {
-                    "traceId": link.get("traceId", ""),
-                    "spanId": link.get("spanId", ""),
-                    "attributes": self._extract_attrs(link.get("attributes", [])),
-                }
-            )
+            extracted: dict[str, Any] = {
+                "traceId": link.get("traceId", ""),
+                "spanId": link.get("spanId", ""),
+                "attributes": self._extract_attrs(link.get("attributes", [])),
+            }
+            if "flags" in link:
+                extracted["flags"] = link["flags"]
+            if link.get("traceState"):
+                extracted["traceState"] = link["traceState"]
+            result.append(extracted)
         return result
 
     def _parse_timestamp(self, value: Any) -> datetime | None:

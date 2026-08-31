@@ -81,7 +81,6 @@ def _make_span(
         span_name=name,
         attributes=attributes or {"apo.observation.type": "AGENT"},
         resource={},
-        raw_span={},
     )
 
 

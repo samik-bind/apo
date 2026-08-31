@@ -202,8 +202,11 @@ purges the OTLP spans of what it deletes.
 | `INIT_USER_NAME` | — | First-run admin display name. |
 | `APO_RETENTION_DAYS` | `0` | Days to keep runs/traces entirely (verdicts and all). `0` disables automatic deletion. |
 | `APO_EVIDENCE_RETENTION_DAYS` | `0` | Default days to keep run *evidence* (transcripts, traces, check reports, deliverables, attempt diagnostics). Verdicts stay forever; bookmarked runs keep their evidence. `0` keeps evidence forever. Per-project overrides live in Settings → Retention (`0` there = keep that project's evidence forever despite a shorter default). |
-| `APO_INGEST_RETENTION_DAYS` | `7` | Days raw OTLP ingest payloads stay replayable. After the window the payload is blanked in place (the audit row with its accepted/rejected counts stays). `0` keeps payloads forever. |
-| `APO_MAX_DB_PAGES` | `0` | SQLite page cap. `0` disables the cap. |
+| `APO_INGEST_RETENTION_DAYS` | `7` | Backstop window for OTLP ingest payloads of batches that never projected. A successfully projected batch's payload is blanked the moment projection commits (the canonical span store is the source of truth). `0` keeps unprojected payloads forever. |
+| `APO_INGEST_STUCK_BATCH_DAYS` | `30` | Horizon for non-terminal (queued/processing) batches: past it the payload is discarded and the batch marked failed. Guards against a dead worker holding payloads forever. Watch `ingestion_queue` in `GET /v1/admin/retention`. |
+| `APO_INGEST_BATCH_ROW_RETENTION_DAYS` | `90` | Days to keep payload-blanked, terminal inbox audit rows before deleting them. |
+| `APO_VACUUM_MIN_FREE_BYTES` | `10485760` | The daily maintenance pass only VACUUMs when at least this many bytes are reclaimable (freelist pages). VACUUM needs up to ~2x the database size of free space on the data volume. |
+| `APO_MAX_DB_PAGES` | `0` | SQLite page cap, applied on every connection. `0` disables the cap. |
 | `PROJECT_INVITATION_TTL_HOURS` | `168` | How long project invitations stay valid (7 days). |
 
 See [Self-Hosting → Data Growth and Retention](/self-hosting/data-growth/)
@@ -223,6 +226,7 @@ container required. The optional `s3` backend keeps the same server API.
 | `APO_ARTIFACT_MAX_ITEM_BYTES` | `104857600` | 100 MiB per Artifact. |
 | `APO_ARTIFACT_MAX_RUN_BYTES` | `524288000` | 500 MiB ready+pending per Task Run. |
 | `APO_ARTIFACT_UPLOAD_TTL_SECONDS` | `86400` | Pending-upload expiry (orphan cleanup). |
+| `APO_ARTIFACT_ORPHAN_GRACE_HOURS` | `48` | The daily pass reaps artifact-store objects no manifest row references (crash orphans). Objects younger than this grace are left alone; `staging/*.part` files are never touched. |
 | `APO_S3_BUCKET` | — | Required for S3 writes. |
 | `APO_S3_REGION` | — | Optional; provider default otherwise. |
 | `APO_S3_ENDPOINT_URL` | — | S3-compatible endpoint (R2, MinIO, Backblaze). |

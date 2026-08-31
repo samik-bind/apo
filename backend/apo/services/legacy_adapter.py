@@ -100,7 +100,6 @@ def ingest_run_create_to_canonical(
         start_time=_parse_dt(cast(str, body.get("created_at"))) or datetime.now(timezone.utc),
         end_time=None,
         attributes=_run_attributes(body),
-        raw_span=body,
     )
     return span
 
@@ -137,7 +136,6 @@ def ingest_call_create_to_canonical(
         start_time=created_at or datetime.now(timezone.utc),
         end_time=None,
         attributes=attributes,
-        raw_span=body,
     )
     _project(session, span)
     return span
@@ -263,7 +261,6 @@ def _upsert_canonical_span(
     start_time: datetime,
     end_time: datetime | None,
     attributes: dict[str, Any],
-    raw_span: dict[str, object],
 ) -> OtlpSpanDB:
     """Insert or update a canonical OtlpSpanDB row, idempotent by (project, trace, span)."""
     existing = _find_span(session, span_id, project_id)
@@ -274,7 +271,6 @@ def _upsert_canonical_span(
         if end_time is not None:
             existing.end_time = end_time
         existing.attributes = attributes
-        existing.raw_span = raw_span
         session.add(existing)
         session.flush()
         return existing
@@ -289,7 +285,6 @@ def _upsert_canonical_span(
         span_name=span_name,
         attributes=attributes,
         resource={},
-        raw_span=raw_span,
         content_policy="legacy",
     )
     session.add(span)

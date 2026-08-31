@@ -24,7 +24,6 @@ def test_backend_matches_shared_otel_classification_contract() -> None:
             span_name=case["spanName"],
             attributes=case["attributes"],
             resource={},
-            raw_span={},
             start_time=datetime.now(timezone.utc),
         ))
         expected = case["expected"]

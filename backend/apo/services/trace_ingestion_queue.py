@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
+from sqlalchemy import func
 from sqlmodel import Session, col, select, update
 
 from ..db import engine
@@ -167,13 +168,22 @@ class DbBackedQueue:
             return True
 
     async def mark_complete(self, batch_id: str) -> None:
-        """Mark a batch as 'projected' (successfully processed)."""
+        """Mark a batch as 'projected' and drop its replay payload.
+
+        Projection success is the payload's whole job: the canonical span
+        store is the source of truth (``reproject`` never reads payloads),
+        so the full decoded request stops being a second copy of every
+        span the moment it is no longer needed for crash replay. One
+        UPDATE keeps the status flip and the blanking atomic — a crash
+        between them cannot leave a 'projected' batch holding its payload.
+        """
         with Session(engine) as session:
             session.exec(
                 update(OtlpIngestBatchDB)
                 .where(col(OtlpIngestBatchDB.id) == batch_id)
                 .values(
                     status="projected",
+                    payload="",
                     error_message=None,
                     processing_started_at=None,
                 )
@@ -286,22 +296,32 @@ class QueueWorker:
             await self._queue.mark_failed(batch_id, str(exc))
             return
 
-        if result.rejected == 0:
-            await self._queue.mark_complete(batch_id)
-            logger.info("Batch %s projected successfully", batch_id)
-        elif result.projected > 0:
-            message = "; ".join(result.errors[:5])
-            await self._queue.mark_partial(batch_id, result.rejected, message)
-            logger.warning(
-                "Batch %s projected partially (%d rejected)",
+        # The status transition is contained too: a transient SQLITE_BUSY
+        # here (a VACUUM holding the write lock, say) must fail the mark,
+        # not kill the worker — the batch stays 'processing' and its lease
+        # expiry requeues it.
+        try:
+            if result.rejected == 0:
+                await self._queue.mark_complete(batch_id)
+                logger.info("Batch %s projected successfully", batch_id)
+            elif result.projected > 0:
+                message = "; ".join(result.errors[:5])
+                await self._queue.mark_partial(batch_id, result.rejected, message)
+                logger.warning(
+                    "Batch %s projected partially (%d rejected)",
+                    batch_id,
+                    result.rejected,
+                )
+            else:
+                await self._queue.mark_failed(
+                    batch_id,
+                    "; ".join(result.errors[:5]),
+                    result.rejected,
+                )
+        except Exception:
+            logger.exception(
+                "Failed to record outcome for batch %s — it stays 'processing' and will be requeued when its lease expires",
                 batch_id,
-                result.rejected,
-            )
-        else:
-            await self._queue.mark_failed(
-                batch_id,
-                "; ".join(result.errors[:5]),
-                result.rejected,
             )
 
     def _process_batch(self, batch_id: str) -> BatchProjectionResult:
@@ -394,6 +414,36 @@ class QueueWorker:
         logger.info("Worker processed %d batch(es)", count)
 
 
+def queue_depth_report() -> dict[str, object]:
+    """Queue health for the admin retention report.
+
+    Depth and age of non-terminal batches — the signal that the worker is
+    dead or a batch is looping, before payloads hit the stuck-batch
+    horizon and get discarded.
+    """
+    now = datetime.now(timezone.utc)
+    by_status: dict[str, int] = {}
+    non_terminal: list[datetime] = []
+    with Session(engine) as session:
+        rows = session.exec(
+            select(
+                OtlpIngestBatchDB.status,
+                func.count(),  # type: ignore[misc]
+                func.min(OtlpIngestBatchDB.received_at),  # type: ignore[misc]
+            ).group_by(OtlpIngestBatchDB.status)
+        ).all()
+    for status, count, oldest in rows:
+        by_status[str(status)] = int(count)
+        if status in ("queued", "processing"):
+            non_terminal.append(oldest)
+    report: dict[str, object] = {"by_status": by_status}
+    if non_terminal:
+        report["oldest_non_terminal_age_seconds"] = int(
+            (now - min(non_terminal)).total_seconds()
+        )
+    return report
+
+
 _worker_task: asyncio.Task[None] | None = None
 _worker_stop: asyncio.Event | None = None
 
@@ -427,7 +477,15 @@ async def _run_worker(stop_event: asyncio.Event) -> None:
         logger.warning("Recovered %d interrupted OTLP batch(es)", recovered)
     worker = QueueWorker(receiver=OtlpReceiver(), queue=queue)
     while not stop_event.is_set():
-        processed = await worker.process_one()
+        # One raised exception (a claim hitting SQLITE_BUSY during a VACUUM,
+        # a mark failing, anything) must never end the worker task silently —
+        # batches would pile up 'queued' while the container stays healthy.
+        # Log, back off briefly, keep draining.
+        try:
+            processed = await worker.process_one()
+        except Exception:
+            logger.exception("Ingestion worker iteration failed; continuing")
+            processed = False
         if not processed:
             try:
                 _ = await asyncio.wait_for(stop_event.wait(), timeout=1.0)

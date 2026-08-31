@@ -16,7 +16,7 @@ def _span(name="test", attrs=None):
     return OtlpSpanDB(
         project_id="test", trace_id="t1", span_id="s1",
         span_name=name, attributes=attrs or {},
-        resource={}, raw_span={},
+        resource={},
         start_time=datetime.now(timezone.utc),
     )
 

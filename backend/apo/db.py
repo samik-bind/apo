@@ -52,6 +52,12 @@ engine = create_engine(DATABASE_URL, **_get_engine_kwargs())
 # enforces declared FK constraints. synchronous=NORMAL is safe under WAL
 # and dramatically faster than the default FULL fsync-per-commit.
 if is_sqlite():
+    # VACUUM rebuilds the database through temp storage; by default that is
+    # /tmp (the container's writable layer), not the data volume. Point
+    # SQLite's temp dir at DATA_DIR so a reclaim needs free space where the
+    # operator actually sized it. setdefault — an explicit operator choice
+    # wins.
+    os.environ.setdefault("SQLITE_TMPDIR", DATA_DIR)
 
     @event.listens_for(engine, "connect")
     def _set_sqlite_pragmas(dbapi_conn, _connection_record):
@@ -60,6 +66,16 @@ if is_sqlite():
         cursor.execute("PRAGMA busy_timeout=5000")
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA synchronous=NORMAL")
+        # max_page_count is a PER-CONNECTION limit (the database file does
+        # not remember it) and this engine uses NullPool — so it must be set
+        # on every new connection or the hard cap is decorative. Read the
+        # env fresh so operators (and tests) can change it without restart.
+        try:
+            page_cap = int(os.environ.get("APO_MAX_DB_PAGES", "0"))
+        except ValueError:
+            page_cap = 0
+        if page_cap > 0:
+            cursor.execute(f"PRAGMA max_page_count={page_cap}")
         cursor.close()
 
 
@@ -823,6 +839,25 @@ def _migrate_to_v33() -> None:
     """
     with engine.begin() as conn:
         _add_column_if_missing(conn, "projects", "evidence_retention_days", "INTEGER")
+
+
+def _migrate_to_v34() -> None:
+    """Version 34: drop ``otlp_spans.raw_span`` (storage single-homing).
+
+    raw_span duplicated the typed decomposition inside the same row and had
+    no reader anywhere (the run-export ``include=spans`` dump implicitly
+    carried it — bundle version 2 drops that key). The guarded DROP is
+    re-run safe: a crash between this migration's commit and the version
+    stamp makes the restart skip the already-dropped column instead of
+    failing startup. ``ALTER TABLE DROP COLUMN`` rewrites the table on
+    SQLite (3.35+, shipped in the image) — deliberately no NULL pass
+    before it and no VACUUM inside it; the freelist-gated maintenance
+    vacuum reclaims the file space later. Forward-only: an older image
+    against a v34 database fails on trace reads — back up the data volume
+    before upgrading.
+    """
+    with engine.begin() as conn:
+        _drop_column_if_exists(conn, "otlp_spans", "raw_span")
 
 
 def _migrate_test_result_correction_schema(conn: Connection) -> None:
@@ -2269,7 +2304,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 33
+LATEST_SCHEMA_VERSION = 34
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2305,6 +2340,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     31: _migrate_to_v31,
     32: _migrate_to_v32,
     33: _migrate_to_v33,
+    34: _migrate_to_v34,
 }
 
 

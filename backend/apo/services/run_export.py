@@ -36,7 +36,9 @@ from ..models.db import (
 )
 from .artifact_stores.registry import get_store
 
-BUNDLE_VERSION = 1
+BUNDLE_VERSION = 2
+# v2 (storage single-homing): span objects no longer carry a ``raw_span``
+# key — the typed columns are the canonical form. No consumer read it.
 
 
 async def build_run_export_bundle(
@@ -171,15 +173,34 @@ def _trace_section(
     if not trace_ids:
         return None
 
+    # Project scoping on every select: OTel trace ids are only unique per
+    # project, so an unscoped select could embed another project's calls
+    # and spans in this bundle when ids collide.
+    project_row = session.execute(
+        sql_text(
+            "SELECT b.project FROM agent_task_batch_runs b "
+            "JOIN agent_task_runs a ON a.batch_run_id = b.id "
+            "WHERE a.id = :r"
+        ),
+        {"r": task_run.id},
+    ).first()
+    project = str(project_row[0]) if project_row is not None else ""
+
     ordered = sorted(str(t) for t in trace_ids)
     section: dict[str, Any] = {"trace_ids": ordered, "calls": [], "spans": []}
     calls = session.exec(
-        select(LoggedCallDB).where(as_column(LoggedCallDB.run_id).in_(ordered))
+        select(LoggedCallDB).where(
+            as_column(LoggedCallDB.run_id).in_(ordered),
+            LoggedCallDB.project == project,
+        )
     ).all()
     section["calls"] = [c.model_dump(mode="json") for c in calls]
     if include_spans:
         spans = session.exec(
-            select(OtlpSpanDB).where(as_column(OtlpSpanDB.trace_id).in_(ordered))
+            select(OtlpSpanDB).where(
+                as_column(OtlpSpanDB.trace_id).in_(ordered),
+                OtlpSpanDB.project_id == project,
+            )
         ).all()
         section["spans"] = [s.model_dump(mode="json") for s in spans]
     return section

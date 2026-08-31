@@ -192,7 +192,7 @@ def test_get_run_details_reports_projection_capabilities(client: TestClient, ses
     assert caps["skills"] == "unavailable"  # honest: no SKILL observation
 
 
-def test_get_run_details_includes_raw_span_attributes(client: TestClient, session: Session):
+def test_get_run_details_includes_span_attributes(client: TestClient, session: Session):
     # Issue #164 DX ask: `?include=attributes` attaches each call's canonical
     # OtlpSpanDB attributes so a producer can verify whether its OTLP
     # attributes arrived and what they normalized to.
@@ -208,7 +208,7 @@ def test_get_run_details_includes_raw_span_attributes(client: TestClient, sessio
         project_id="p", trace_id="r-attr", span_id="c-attr",
         span_name="gen_ai.execute_tool read_file",
         attributes={"apo.observation.type": "SKILL", "gen_ai.tool.name": "read_file"},
-        resource={}, raw_span={}, start_time=now,
+        resource={}, start_time=now,
     ))
     session.commit()
 

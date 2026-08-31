@@ -161,17 +161,23 @@ async def get_retention_info(
         evidence_retention_days,
         get_db_size_info,
         get_db_table_sizes,
+        ingest_batch_row_retention_days,
         ingest_payload_retention_days,
+        ingest_stuck_batch_days,
     )
+    from ..services.trace_ingestion_queue import queue_depth_report
 
     return {
         "status": "success",
         "retention_days": RETENTION_DAYS,
         "evidence_retention_days": evidence_retention_days(),
         "ingest_payload_retention_days": ingest_payload_retention_days(),
+        "ingest_batch_row_retention_days": ingest_batch_row_retention_days(),
+        "ingest_stuck_batch_days": ingest_stuck_batch_days(),
         "max_db_pages": MAX_DB_PAGES or None,
         "db": get_db_size_info(),
         "table_sizes": get_db_table_sizes(),
+        "ingestion_queue": queue_depth_report(),
     }
 
 

@@ -37,11 +37,21 @@ There is no undo. Export what you care about first — [`apo runs export`](/cli/
 
 A maintenance pass runs at startup and then every 24 hours, in this order:
 
-1. **Always**: blank past-window ingest payloads (the audit row with accepted/rejected counts stays); fail artifact uploads abandoned past their TTL and remove their staging bytes; delete expired verification/reset/enrollment tokens.
-2. **If `APO_EVIDENCE_RETENTION_DAYS` is set**: expire the evidence tier of runs whose batch is older than the window (bookmarked runs skipped).
-3. **If `APO_RETENTION_DAYS` is set**: delete old traces and batches entirely — runs, spans, checks, judgments, deliverable objects, revision bundles — keeping bookmarked traces, then `VACUUM` to hand file space back to the disk.
+1. **Always**: fail stuck non-terminal ingest batches past their horizon (payload discarded, batch marked failed); blank past-window ingest payloads of batches that never projected — a successfully projected batch's payload is already gone the moment projection commits; reap old payload-blanked inbox audit rows; fail artifact uploads abandoned past their TTL and remove their staging bytes; reap orphaned artifact-store objects no manifest row references; delete expired verification/reset/enrollment tokens.
+2. **If `APO_EVIDENCE_RETENTION_DAYS` is set**: expire the evidence tier of runs older than the window, aged by the run's own start (bookmarked runs skipped).
+3. **If `APO_RETENTION_DAYS` is set**: delete old traces and batches entirely — runs, spans, checks, judgments, deliverable objects, revision bundles — keeping bookmarked traces *and* bookmarked task runs' verdicts, then `VACUUM` (freelist-gated) to hand file space back to the disk.
 
 Nothing is deleted silently by default: both retention windows default to keep-forever, and only the replay-inbox trim (7 days) is on out of the box.
+
+### Upgrading across schema v34
+
+Schema v34 drops `otlp_spans.raw_span`, a write-only duplicate of the typed
+span columns. The migration rewrites the span table once at first boot after
+upgrading — expect the startup to take minutes on a multi-GB database (keep
+the container healthcheck grace generous), and **back up the data volume
+first**: schema upgrades are forward-only, so a rollback means restoring the
+backup. File space is reclaimed by the next maintenance VACUUM, which needs up
+to ~2x the database size of free space on the data volume.
 
 ## What grows, roughly
 

@@ -88,13 +88,12 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         bootstrap_initial_user(session)
     from .services.agent_task_scheduler import start_schedule_dispatcher, stop_schedule_dispatcher
-    from .services.retention import apply_max_page_count, start_retention_loop, stop_retention_loop
+    from .services.retention import start_retention_loop, stop_retention_loop
     from .services.trace_ingestion_queue import (
         start_trace_ingestion_worker,
         stop_trace_ingestion_worker,
     )
     from .services.execution_leases import start_lease_reaper, stop_lease_reaper
-    apply_max_page_count()
     start_schedule_dispatcher()
     start_retention_loop()
     start_trace_ingestion_worker()

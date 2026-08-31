@@ -66,7 +66,6 @@ def _make_canonical_span(
         span_name=name,
         attributes=attributes or {},
         resource={},
-        raw_span={},
     )
 
 

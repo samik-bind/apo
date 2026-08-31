@@ -30,7 +30,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from sqlmodel import Session, col, select
 
@@ -43,7 +43,7 @@ from .models.db import (
     AgentTaskScheduleDB,
     AgentTaskScheduleOccurrenceDB,
     AgentTaskTestResultCorrectionDB,
-    OtlpIngestBatchDB,
+    OtlpSpanDB,
     ProjectDB,
     ProjectTaskInventoryDB,
     ProjectTaskSourceDB,
@@ -52,6 +52,7 @@ from .models.db import (
     TaskViewDB,
 )
 from .services.demo_fixture import DEFAULTS_PATH
+from .services.otlp_receiver import attrs_dict_to_otlp, span_row_to_otlp_json
 from .services.paths import demo_task_root
 from .services.project_task_inventory import seed_demo_inventory
 
@@ -349,39 +350,61 @@ def export_corrections(session: Session, run_id: str) -> list[dict[str, Any]]:
 
 
 def find_otel_payload(session: Session, trace_run_id: str) -> dict[str, Any] | None:
-    """Assemble a run's full OTLP trace from the durable inbox.
+    """Assemble a run's full OTLP trace from the canonical span store.
 
-    The SDK flushes one trace across MULTIPLE inbox batches (incremental
-    exports), so every payload containing the trace id contributes its
-    resourceSpans. Span-level dedupe happens at ingest upsert — canonical
-    spans are keyed (project, trace, span) — so concatenation is safe.
+    Ingest payloads are blanked once a batch projects (the span store is
+    the source of truth), and capture runs after completion — so the wire
+    form is REBUILT from the typed canonical columns via
+    ``span_row_to_otlp_json``. Spans are grouped by their stored
+    resource/scope so the replayed payload projects identically.
     """
     rows = session.exec(
-        select(OtlpIngestBatchDB).where(
-            OtlpIngestBatchDB.project_id == CAPTURE_PROJECT_ID
+        select(OtlpSpanDB)
+        .where(
+            OtlpSpanDB.project_id == CAPTURE_PROJECT_ID,
+            OtlpSpanDB.trace_id == trace_run_id,
         )
+        .order_by(col(OtlpSpanDB.id))
     ).all()
-    # Filter at SPAN level: one inbox batch may carry several traces, so
-    # copying whole resourceSpans blocks would duplicate other runs' spans
-    # into this payload (and balloon the fixture).
-    resource_spans: list[dict[str, Any]] = []
-    for row in rows:
-        if trace_run_id not in (row.payload or ""):
-            continue
-        document = json.loads(row.payload)
-        for resource_block in document.get("resourceSpans", []):
-            keep_scopes = []
-            for scope in resource_block.get("scopeSpans", []):
-                spans = [
-                    s for s in scope.get("spans", [])
-                    if s.get("traceId") == trace_run_id
-                ]
-                if spans:
-                    keep_scopes.append({**scope, "spans": spans})
-            if keep_scopes:
-                resource_spans.append({**resource_block, "scopeSpans": keep_scopes})
-    if not resource_spans:
+    if not rows:
         return None
+
+    # Group spans by (resource, scope) — the resourceSpans/scopeSpans shape
+    # the receiver flattens them into on ingest.
+    from dataclasses import dataclass, field
+
+    @dataclass
+    class _SpanGroup:
+        resource: dict[str, object]
+        resource_attrs: dict[str, object]
+        scope: dict[str, object]
+        spans: list[dict[str, object]] = field(default_factory=list)
+
+    groups: dict[tuple[str, str], _SpanGroup] = {}
+    for row in rows:
+        resource: dict[str, object] = dict(row.resource or {})
+        raw_attrs = resource.pop("attributes", None)
+        resource_attrs: dict[str, object] = (
+            cast("dict[str, object]", raw_attrs)
+            if isinstance(raw_attrs, dict)
+            else {}
+        )
+        scope = dict(row.instrumentation_scope or {})
+        key = (json.dumps(resource, sort_keys=True), json.dumps(scope, sort_keys=True))
+        group = groups.setdefault(
+            key, _SpanGroup(resource=resource, resource_attrs=resource_attrs, scope=scope)
+        )
+        group.spans.append(span_row_to_otlp_json(row))
+
+    resource_spans: list[dict[str, object]] = []
+    for group in groups.values():
+        resource_block = {**group.resource, "attributes": attrs_dict_to_otlp(group.resource_attrs)}
+        resource_spans.append(
+            {
+                "resource": resource_block,
+                "scopeSpans": [{"scope": group.scope, "spans": group.spans}],
+            }
+        )
     return {"resourceSpans": resource_spans}
 
 

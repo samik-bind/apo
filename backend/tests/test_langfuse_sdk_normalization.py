@@ -208,7 +208,6 @@ def _canonical(span_id: str, attrs: dict[str, object], parent: str | None = None
         span_name="sim-user",
         attributes=attrs,
         resource={},
-        raw_span={},
     )
 
 
