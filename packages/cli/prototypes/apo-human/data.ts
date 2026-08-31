@@ -395,7 +395,9 @@ export function modelTree(models: ModelOption[], envModelHint: string): TreeNode
         name: m.display,
         key: `model/${m.id}`,
         value: { kind: "catalog", id: m.id } as ModelChoice,
-        hint: `$${m.input} in / $${m.output} out per 1M · ${m.id}`,
+        // unit convention lives once on the picker's idle filter line;
+        // the model id only appears where it's used — the summary command
+        hint: `$${m.input}/$${m.output}`,
       })),
     }));
   roots.push({ name: "✎ type a model id…", key: "custom", value: { kind: "custom" }, hint: "anything your provider accepts" });

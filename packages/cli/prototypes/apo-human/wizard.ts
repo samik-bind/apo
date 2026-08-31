@@ -54,7 +54,7 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
     if (step === 1) {
       const current = effectiveModel(resolveEnvView(task(shared).path, process.env), shared.selection);
       const result = await pickTree(
-        bold("Model") + dim("   [→] open [esc] back · type to filter"),
+        bold("Model") + dim("   [→] open [esc] back"),
         modelTree(shared.models, current ?? "no model set yet"),
         shared.modelExpanded,
         new Set<string>(),

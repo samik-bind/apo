@@ -143,7 +143,8 @@ export async function pickTree<T>(
       if (rendered) process.stdout.write(`\x1b[${prevLines}A`);
       renderedLines = 0;
       if (opts.filter) {
-        process.stdout.write(`\x1b[2K\r${dim("filter:")} ${query}${query === "" ? dim(" type to narrow") : "\u258f"}\n`);
+        const idle = "type to filter · prices are $ in / $ out per 1M tokens";
+        process.stdout.write(`\x1b[2K\r${dim("filter:")} ${query}${query === "" ? dim(` ${idle}`) : "\u258f"}\n`);
         renderedLines++;
       }
       if (rows.length === 0) {
