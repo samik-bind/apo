@@ -29,9 +29,8 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
       }
       const checkedCount = shared.treeChecked.size;
       const result = await pickTree(
-        bold("Run an eval — step 1/4: pick task(s)") +
-          dim(`   (${shared.taskSource})`) +
-          dim(`   [→] open [←] close [space] check${checkedCount > 0 ? ` (${checkedCount} checked)` : ""} [enter] run`),
+        bold("Run an eval") +
+          dim(`   [→] open [←] close [space] check${checkedCount > 0 ? ` (${checkedCount})` : ""} [enter] run`),
         shared.tree,
         shared.treeExpanded,
         shared.treeChecked,
@@ -49,9 +48,7 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
     if (step === 1) {
       const current = effectiveModel(resolveEnvView(task(shared).path, process.env), shared.selection);
       const result = await pick(
-        bold("step 2/4: model") +
-          dim(`   currently resolves to: ${current ?? "nothing — no model set"}`) +
-          dim("   [esc] back"),
+        bold("Model") + dim("   [esc] back"),
         [
           ...shared.models.map((m) => ({
             label: m.display,
@@ -59,7 +56,7 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
             value: { kind: "catalog", id: m.id } as ModelChoice,
           })),
           { label: "✎ type a model id…", sub: "anything your provider accepts", value: { kind: CUSTOM } as ModelChoice },
-          { label: "keep what .env already selects", sub: "don't touch the model", value: { kind: DEFAULT } as ModelChoice },
+          { label: "keep the .env model", sub: current ?? "no model set yet", value: { kind: DEFAULT } as ModelChoice },
         ],
       );
       const next = applyPick<ModelChoice>(result);
@@ -110,8 +107,8 @@ export function task(shared: SharedState) {
 
 function stepScreen(shared: SharedState, step: 3 | 4): string {
   return step === 3
-    ? `${bold("Run an eval — step 3/4: environment check")}\n\n${envScreenText(shared)}`
-    : `${bold("Run an eval — step 4/4: ready")}\n\n${summaryText(shared)}`;
+    ? `${bold("Environment")}\n\n${envScreenText(shared)}`
+    : `${bold("Ready to run")}\n\n${summaryText(shared)}`;
 }
 
 /** The env screen — also reused by the menu and dashboard variants. */
@@ -219,16 +216,16 @@ export function renderWizardStatic(shared: SharedState): string {
     `      ${dim(`$${m.input} in / $${m.output} out per 1M tokens · ${m.id}`)}`,
   ]);
   return [
-    bold("Run an eval — step 1/4: pick task(s)") + dim(`   (${shared.taskSource})   [→] open [←] close [space] check [enter] run`),
+    bold("Run an eval") + dim("   [→] open [←] close [space] check [enter] run"),
     ...treeLines,
     "",
-    bold("step 2/4: model"),
+    bold("Model"),
     ...modelLines,
     "",
-    bold("step 3/4: environment check"),
+    bold("Environment"),
     envScreenText(shared),
     "",
-    bold("step 4/4: ready"),
+    bold("Ready to run"),
     summaryText(shared),
   ].join("\n");
 }

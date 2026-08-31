@@ -391,13 +391,13 @@ function buildHierarchy(items: Item[]): Item[] {
 
 ### Error Handling
 
-- Use the `normalizeError` pattern in `packages/sdk/src/errors.ts` to provide consistent error reporting
-- Prefer `Effect` for internal logic to handle complex flows and retries, but expose a clean Promise-based API for end-users
+- Define explicit error classes extending `Error` (e.g. `AgentTaskRunError` in `packages/sdk/src/agent-task/run/runTask.ts`); preserve the original failure on `cause`
+- Plain `async/await` throughout; retries are small bounded-backoff loops (see `trace-projection/remote-capture.ts`), not framework schedules
 
 ### Dependencies
 
 - Keep dependencies minimal
-- Use **Effect-TS** for complex logic and error handling
+- No Effect-TS — the SDK is a published package; the `effect` dependency was dead weight and removed. Plain `async/await` and explicit error classes instead
 - Ensure type safety for all prompt contexts using **Zod**
 
 ### Agent Task Runtime Bundle

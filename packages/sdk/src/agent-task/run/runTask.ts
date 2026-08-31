@@ -3,7 +3,12 @@ import type {
   EvaluationItemResult,
   TaskTranscriptTurn,
 } from "./types.ts";
-import type { AgentTaskRunConfiguration, AdapterRuntimeState, AdapterSession } from "../adapter/types.ts";
+import type {
+  AgentTaskRunConfiguration,
+  AdapterRuntimeState,
+  AdapterSession,
+  CollectedDeliverables,
+} from "../adapter/types.ts";
 import { normalizeRunConfiguration } from "./run-configuration.ts";
 import { loadTask } from "../task/loadTask.ts";
 import {
@@ -22,6 +27,7 @@ import {
   runTraceChecks,
 } from "../checks/flow-runner.ts";
 import { createProjectionTee } from "../trace-projection/projection-tee.ts";
+import type { TraceProjectionSnapshot } from "../trace-projection/types.ts";
 import { readTaskRunProjection } from "../trace-projection/remote-capture.ts";
 import { resolveJudgeConfig, type JudgeConfig } from "../checks/t.ts";
 import { APO_TASK_ID, APO_TASK_RUN_ID } from "../../semconv.ts";
@@ -181,15 +187,42 @@ interface CapturedExecution {
   /** The adapter-reported run configuration, captured right after session open. */
   runConfiguration: AgentTaskRunConfiguration | undefined;
   /** The frozen projection snapshot Phase 2 evaluates against. */
-  snapshot: import("../trace-projection/types.ts").TraceProjectionSnapshot;
+  snapshot: TraceProjectionSnapshot;
 }
 
-async function executeLoadedTask(
+/** What the shared adapter lifecycle hands to the caller's continuation. */
+interface AdapterRunOutcome {
+  /** Deliverables exactly as the adapter collected them (unvalidated). */
+  collected: CollectedDeliverables;
+  transcriptTurns: TaskTranscriptTurn[];
+  /** The adapter-reported run configuration, captured right after session open. */
+  runConfiguration: AgentTaskRunConfiguration | undefined;
+  /** The tee-wrapped trace context — continuations must keep using this. */
+  trace: AgentTaskTraceContext;
+  /** Freeze the projection snapshot. Call before the root span ends. */
+  getSnapshot: () => TraceProjectionSnapshot;
+}
+
+/**
+ * Run the shared adapter lifecycle — initialize → open-session → Task Turns →
+ * collect deliverables — then hand the result to `continueWith`.
+ *
+ * This is the one place the adapter lifecycle exists. The two run paths differ
+ * only in what happens after deliverable collection: the untraced one-pass
+ * path continues straight into validation + checks inside the trace
+ * ({@link executeLoadedTask}), while the two-phase capture path freezes the
+ * projection snapshot and returns for later evaluation ({@link captureExecution}).
+ *
+ * The continuation runs inside the same error boundary: anything that throws
+ * after the Run Configuration is resolved is wrapped with it (issue #40), and
+ * adapter cleanup + session close always run afterward, success or failure.
+ */
+async function executeAdapterRun<T>(
   loaded: LoadedTask,
   options: RunTaskOptions | undefined,
   rawTrace: AgentTaskTraceContext,
-  traceRunId: string | undefined,
-): Promise<TaskRunResult> {
+  continueWith: (outcome: AdapterRunOutcome) => Promise<T>,
+): Promise<T> {
   const {
     task,
     adapter,
@@ -197,186 +230,177 @@ async function executeLoadedTask(
     files,
     checksPath,
     inlineChecks,
-    moduleUrl,
-    evalFileName,
   } = loaded;
-  const taskFiles = new TaskFiles(files);
   // Tee the trace so the run's tool/agent/message spans also build the
   // projection snapshot that checks read. `trace` below is the wrapped context.
   const tee = createProjectionTee(rawTrace);
-  const { trace, getSnapshot } = { trace: tee.trace, getSnapshot: () => tee.getSnapshot() };
+  const trace = tee.trace;
 
   // Establish the run on AsyncLocalStorage so the OTel SpanProcessor
   // (if registered) can route GenAI spans to this run's trace context.
   return withApoRun(
     { trace, parentSpanId: rawTrace.rootSpanId, taskId: task.id },
     async () => {
-      // All the local state that the previous body used, now inside the ALS scope
-      return executeRunBody();
-    },
-  );
+      let state: AdapterRuntimeState | undefined;
+      let session: AdapterSession | undefined;
 
-  async function executeRunBody(): Promise<TaskRunResult> {
-    let state: AdapterRuntimeState | undefined;
-    let session: AdapterSession | undefined;
-    const transcriptTurns: TaskTranscriptTurn[] = [];
-
-  try {
-    await trace.step(
-      {
-        step_name: "task.load",
-        input: { taskId: task.id, taskDir: absoluteDir },
-        metadata: {
-          taskId: task.id,
-          taskDir: absoluteDir,
-          fileCount: files.length,
-          hasChecks: inlineChecks || checksPath !== null,
-        },
-        summarize: () => ({
-          taskId: task.id,
-          adapterName: adapter.name,
-        }),
-      },
-      async () => loaded,
-    );
-
-    if (adapter.initialize) {
-      const initState = await trace.step(
-        {
-          step_name: "adapter.initialize",
-          input: { adapterName: adapter.name },
-          metadata: { adapterName: adapter.name },
-          summarize: (result) => ({
-            initialized: true,
-            stateKeys:
-              result && typeof result === "object"
-                ? Object.keys(result as Record<string, unknown>)
-                : [],
-          }),
-        },
-        async () =>
-          adapter.initialize?.({
-            task,
-            taskDir: absoluteDir,
-            files,
-            trace,
-          }),
-      );
-      state = initState ?? undefined;
-    }
-
-    session = await trace.step(
-      {
-        step_name: "adapter.open-session",
-        input: { adapterName: adapter.name, hasState: state !== undefined },
-        metadata: { adapterName: adapter.name },
-        summarize: () => ({ sessionOpened: true }),
-      },
-      async () =>
-        adapter.startSession({
-          task,
-          taskDir: absoluteDir,
-          files,
-          state,
-          trace,
-        }),
-    );
-
-    // capture the adapter's resolved model/effort immediately after
-    // the session opens and validate it before the first Task Turn. An invalid
-    // reported configuration is an adapter contract error and fails the run.
-    const runConfiguration = normalizeRunConfiguration(session.runConfiguration);
-
-    // Issue #40: anything that throws past this point (a Task Turn, deliverable
-    // collection, checks) must carry the resolved configuration out so callers
-    // can still report model/effort on an errored run.
-    try {
-    // Legacy two-file tasks register turn() from checks.ts. Single-file tasks
-    // already registered it while loadTask imported the .eval.ts file.
-    if (!inlineChecks && checksPath) {
-      resetTaskTurn();
-      resetFlowChecks();
-      await loadChecksModule(checksPath);
-    }
-
-    const taskTurn = getTaskTurn();
-    resetTaskTurn();
-    const turnFn = resolveTurn(adapter.turn, taskTurn);
-
-    if (turnFn) {
-      const turnTranscript: TurnRecord[] = [];
-      let lastTurnResponse: unknown;
-      // Precedence: explicit run override → task config → default 10.
-      const maxTurns = options?.maxTurnsOverride ?? task.maxTurns ?? 10;
-
-      for (let turnNum = 1; turnNum <= maxTurns; turnNum++) {
-        const userTurn = await turnFn({ files: taskFiles, transcript: turnTranscript });
-        if (userTurn === null || userTurn === undefined) break;
-
-        const result = await trace.step(
+      try {
+        await trace.step(
           {
-            step_name: "task.turn",
-            metadata: { turnNumber: turnNum },
-            summarize: (r) => ({ response: (r as { response: unknown }).response }),
+            step_name: "task.load",
+            input: { taskId: task.id, taskDir: absoluteDir },
+            metadata: {
+              taskId: task.id,
+              taskDir: absoluteDir,
+              fileCount: files.length,
+              hasChecks: inlineChecks || checksPath !== null,
+            },
+            summarize: () => ({
+              taskId: task.id,
+              adapterName: adapter.name,
+            }),
           },
-          async (spanId) => {
-            if (!session) throw new Error("Session not created");
-            return session.sendUserTurn(userTurn, {
-              trace,
-              turnNumber: turnNum,
-              parentSpanId: spanId,
-            });
-          },
+          async () => loaded,
         );
 
-        turnTranscript.push({
-          turnNumber: turnNum,
-          input: userTurn,
-          output: result.response,
-        });
-        transcriptTurns.push({
-          turnNumber: turnNum,
-          userAction: userTurn,
-          agentResponse: result.response,
-        });
-        options?.onTurn?.(turnNum, userTurn, result.response);
-        lastTurnResponse = result.response;
-      }
-      // Issue #45: roll the final turn's response up to the run root so the
-      // trace header / run list shows what the agent answered at a glance.
-      if (lastTurnResponse !== undefined) {
-        rawTrace.endRoot({ output: { response: lastTurnResponse } });
-      }
-    }
-
-    const collected = await trace.step(
-      {
-        step_name: "adapter.collect-deliverables",
-        input: { adapterName: adapter.name, expectedDeliverables: task.deliverables },
-        metadata: { adapterName: adapter.name },
-        summarize: (result) => {
-          const keys =
-            result && typeof result === "object"
-              ? Object.keys(result as Record<string, unknown>)
-              : [];
-          return { deliverableCount: keys.length, deliverableNames: keys };
-        },
-      },
-      async () => {
-        if (!session) {
-          throw new Error("Adapter session was not created");
+        if (adapter.initialize) {
+          const initState = await trace.step(
+            {
+              step_name: "adapter.initialize",
+              input: { adapterName: adapter.name },
+              metadata: { adapterName: adapter.name },
+              summarize: (result) => ({
+                initialized: true,
+                stateKeys:
+                  result && typeof result === "object"
+                    ? Object.keys(result as Record<string, unknown>)
+                    : [],
+              }),
+            },
+            async () =>
+              adapter.initialize?.({
+                task,
+                taskDir: absoluteDir,
+                files,
+                trace,
+              }),
+          );
+          state = initState ?? undefined;
         }
 
-        return adapter.collectDeliverables({
-          task,
-          taskDir: absoluteDir,
-          files,
-          state,
-          session,
-          trace,
-        });
-      },
-    );
+        session = await trace.step(
+          {
+            step_name: "adapter.open-session",
+            input: { adapterName: adapter.name, hasState: state !== undefined },
+            metadata: { adapterName: adapter.name },
+            summarize: () => ({ sessionOpened: true }),
+          },
+          async () =>
+            adapter.startSession({
+              task,
+              taskDir: absoluteDir,
+              files,
+              state,
+              trace,
+            }),
+        );
+
+        // Capture the adapter's resolved model/effort immediately after
+        // the session opens and validate it before the first Task Turn. An
+        // invalid reported configuration is an adapter contract error and
+        // fails the run.
+        const runConfiguration = normalizeRunConfiguration(
+          session.runConfiguration,
+        );
+
+        // Issue #40: anything that throws past this point (a Task Turn,
+        // deliverable collection, checks) must carry the resolved
+        // configuration out so callers can still report model/effort on an
+        // errored run.
+        try {
+          const transcriptTurns = await runTurnLoop(
+            loaded,
+            options,
+            session,
+            trace,
+            rawTrace,
+          );
+
+          const collected = await trace.step(
+            {
+              step_name: "adapter.collect-deliverables",
+              input: {
+                adapterName: adapter.name,
+                expectedDeliverables: task.deliverables,
+              },
+              metadata: { adapterName: adapter.name },
+              summarize: (result) => {
+                const keys =
+                  result && typeof result === "object"
+                    ? Object.keys(result as Record<string, unknown>)
+                    : [];
+                return {
+                  deliverableCount: keys.length,
+                  deliverableNames: keys,
+                };
+              },
+            },
+            async () => {
+              if (!session) {
+                throw new Error("Adapter session was not created");
+              }
+
+              return adapter.collectDeliverables({
+                task,
+                taskDir: absoluteDir,
+                files,
+                state,
+                session,
+                trace,
+              });
+            },
+          );
+
+          return await continueWith({
+            collected,
+            transcriptTurns,
+            runConfiguration,
+            trace,
+            getSnapshot: () => tee.getSnapshot(),
+          });
+        } catch (error) {
+          throw withRunConfiguration(error, runConfiguration);
+        }
+      } finally {
+        await cleanupAdapter(loaded, trace, state, session);
+      }
+    },
+  );
+}
+
+/**
+ * One-pass path (no tracing): the adapter lifecycle, deliverable validation,
+ * and checks all run in a single pass — there is no trace to contaminate, so
+ * the two-phase split is unnecessary.
+ */
+async function executeLoadedTask(
+  loaded: LoadedTask,
+  options: RunTaskOptions | undefined,
+  rawTrace: AgentTaskTraceContext,
+  traceRunId: string | undefined,
+): Promise<TaskRunResult> {
+  return executeAdapterRun(loaded, options, rawTrace, async (outcome) => {
+    const {
+      task,
+      adapter,
+      taskDir: absoluteDir,
+      files,
+      checksPath,
+      inlineChecks,
+      moduleUrl,
+      evalFileName,
+    } = loaded;
+    const { trace, collected, transcriptTurns, runConfiguration } = outcome;
 
     const validationResults = await trace.step(
       {
@@ -414,7 +438,7 @@ async function executeLoadedTask(
           return loadAndRunFlowChecks(
             checksPath,
             {
-              snapshot: getSnapshot(),
+              snapshot: outcome.getSnapshot(),
               deliverables: collected,
               files,
               task,
@@ -424,7 +448,7 @@ async function executeLoadedTask(
           );
         }
         return runTraceChecks({
-          snapshot: getSnapshot(),
+          snapshot: outcome.getSnapshot(),
           deliverables: proxyBrokenDeliverables(
             collected,
             validationResults.brokenDeliverables,
@@ -438,58 +462,17 @@ async function executeLoadedTask(
       },
     );
 
-    const result = aggregateResult(checksResults);
-
     return {
       task,
       taskDir: absoluteDir,
       files,
       traceRunId,
-      result,
+      result: aggregateResult(checksResults),
       deliverables: collected,
       transcript: { turns: transcriptTurns },
       runConfiguration,
     };
-    } catch (error) {
-      throw withRunConfiguration(error, runConfiguration);
-    }
-  } finally {
-    if (adapter.cleanup) {
-      try {
-        await trace.step(
-          {
-            step_name: "adapter.cleanup",
-            input: { adapterName: adapter.name },
-            metadata: { adapterName: adapter.name },
-            summarize: () => ({ cleaned: true }),
-          },
-          async () =>
-            adapter.cleanup?.({
-              task,
-              taskDir: absoluteDir,
-              files,
-              state,
-              session,
-              trace,
-            }),
-        );
-      } catch (error) {
-        console.error(
-          "[AgentTask] Cleanup failed:",
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-    }
-
-    if (session?.close) {
-      try {
-        await session.close();
-      } catch {
-        // ignore close errors
-      }
-    }
-  }
-  } // end executeRunBody
+  });
 }
 
 /**
@@ -503,125 +486,14 @@ async function captureExecution(
   options: RunTaskOptions | undefined,
   rawTrace: AgentTaskTraceContext,
 ): Promise<CapturedExecution> {
-  const {
-    task,
-    adapter,
-    taskDir: absoluteDir,
-    files,
-    checksPath,
-    inlineChecks,
-  } = loaded;
-  const taskFiles = new TaskFiles(files);
-  const tee = createProjectionTee(rawTrace);
-  const trace = tee.trace;
-
-  return withApoRun(
-    { trace, parentSpanId: rawTrace.rootSpanId, taskId: task.id },
-    async () => {
-      let state: AdapterRuntimeState | undefined;
-      let session: AdapterSession | undefined;
-      const transcriptTurns: TaskTranscriptTurn[] = [];
-
-      try {
-        await trace.step(
-          { step_name: "task.load", input: { taskId: task.id, taskDir: absoluteDir }, metadata: { taskId: task.id, taskDir: absoluteDir, fileCount: files.length, hasChecks: inlineChecks || checksPath !== null }, summarize: () => ({ taskId: task.id, adapterName: adapter.name }) },
-          async () => loaded,
-        );
-
-        if (adapter.initialize) {
-          const initState = await trace.step(
-            { step_name: "adapter.initialize", input: { adapterName: adapter.name }, metadata: { adapterName: adapter.name }, summarize: (result) => ({ initialized: true, stateKeys: result && typeof result === "object" ? Object.keys(result as Record<string, unknown>) : [] }) },
-            async () => adapter.initialize?.({ task, taskDir: absoluteDir, files, trace }),
-          );
-          state = initState ?? undefined;
-        }
-
-        session = await trace.step(
-          { step_name: "adapter.open-session", input: { adapterName: adapter.name, hasState: state !== undefined }, metadata: { adapterName: adapter.name }, summarize: () => ({ sessionOpened: true }) },
-          async () => adapter.startSession({ task, taskDir: absoluteDir, files, state, trace }),
-        );
-
-        // validate the adapter-reported configuration before the first
-        // Task Turn. An invalid configuration fails the run inside the trace body.
-        const runConfiguration = normalizeRunConfiguration(session.runConfiguration);
-
-        // Issue #40: carry the resolved configuration out on any downstream
-        // failure so the errored run keeps its model/effort label.
-        try {
-        if (!inlineChecks && checksPath) {
-          resetTaskTurn();
-          resetFlowChecks();
-          await loadChecksModule(checksPath);
-        }
-
-        const taskTurn = getTaskTurn();
-        resetTaskTurn();
-        const turnFn = resolveTurn(adapter.turn, taskTurn);
-
-        if (turnFn) {
-          const turnTranscript: TurnRecord[] = [];
-          let lastTurnResponse: unknown;
-          const maxTurns = options?.maxTurnsOverride ?? task.maxTurns ?? 10;
-          for (let turnNum = 1; turnNum <= maxTurns; turnNum++) {
-            const userTurn = await turnFn({ files: taskFiles, transcript: turnTranscript });
-            if (userTurn === null || userTurn === undefined) break;
-            const result = await trace.step(
-              { step_name: "task.turn", metadata: { turnNumber: turnNum }, summarize: (r) => ({ response: (r as { response: unknown }).response }) },
-              async (spanId) => {
-                if (!session) throw new Error("Session not created");
-                return session.sendUserTurn(userTurn, { trace, turnNumber: turnNum, parentSpanId: spanId });
-              },
-            );
-            turnTranscript.push({ turnNumber: turnNum, input: userTurn, output: result.response });
-            transcriptTurns.push({ turnNumber: turnNum, userAction: userTurn, agentResponse: result.response });
-            options?.onTurn?.(turnNum, userTurn, result.response);
-            lastTurnResponse = result.response;
-          }
-          // Issue #45: roll the final turn's response up to the run root.
-          if (lastTurnResponse !== undefined) {
-            rawTrace.endRoot({ output: { response: lastTurnResponse } });
-          }
-        }
-
-        const collected = await trace.step(
-          { step_name: "adapter.collect-deliverables", input: { adapterName: adapter.name, expectedDeliverables: task.deliverables }, metadata: { adapterName: adapter.name }, summarize: (result) => { const keys = result && typeof result === "object" ? Object.keys(result as Record<string, unknown>) : []; return { deliverableCount: keys.length, deliverableNames: keys }; } },
-          async () => {
-            if (!session) throw new Error("Adapter session was not created");
-            return adapter.collectDeliverables({ task, taskDir: absoluteDir, files, state, session, trace });
-          },
-        );
-
-        // Freeze the snapshot from the projection tee. The root span will end
-        // and flush after this callback returns — Phase 2 reads this snapshot.
-        const snapshot = tee.getSnapshot();
-
-        return {
-          traceRunId: rawTrace.runId,
-          collected: collected as Record<string, unknown>,
-          transcriptTurns,
-          runConfiguration,
-          snapshot,
-        };
-        } catch (error) {
-          throw withRunConfiguration(error, runConfiguration);
-        }
-      } finally {
-        if (adapter.cleanup) {
-          try {
-            await trace.step(
-              { step_name: "adapter.cleanup", input: { adapterName: adapter.name }, metadata: { adapterName: adapter.name }, summarize: () => ({ cleaned: true }) },
-              async () => adapter.cleanup?.({ task, taskDir: absoluteDir, files, state, session, trace }),
-            );
-          } catch (error) {
-            console.error("[AgentTask] Cleanup failed:", error instanceof Error ? error.message : String(error));
-          }
-        }
-        if (session?.close) {
-          try { await session.close(); } catch { /* ignore */ }
-        }
-      }
-    },
-  );
+  return executeAdapterRun(loaded, options, rawTrace, async (outcome) => ({
+    traceRunId: rawTrace.runId,
+    collected: outcome.collected,
+    transcriptTurns: outcome.transcriptTurns,
+    runConfiguration: outcome.runConfiguration,
+    // Freeze the snapshot before the root span ends — Phase 2 reads it.
+    snapshot: outcome.getSnapshot(),
+  }));
 }
 
 /**
@@ -691,6 +563,130 @@ async function evaluate(
     transcript: { turns: phase1.transcriptTurns },
     runConfiguration: phase1.runConfiguration,
   };
+}
+
+/**
+ * Drive the Task Turn loop: resolve the turn function (legacy two-file tasks
+ * register `turn()` from checks.ts; single-file tasks registered it while
+ * loadTask imported the eval file), then exchange user turns with the session
+ * until it yields null/undefined or `maxTurns` is reached. The final
+ * response is rolled up to the run root so the trace header / run list shows
+ * what the agent answered at a glance (issue #45).
+ */
+async function runTurnLoop(
+  loaded: LoadedTask,
+  options: RunTaskOptions | undefined,
+  session: AdapterSession,
+  trace: AgentTaskTraceContext,
+  rawTrace: AgentTaskTraceContext,
+): Promise<TaskTranscriptTurn[]> {
+  const { task, adapter, files, checksPath, inlineChecks } = loaded;
+
+  // Legacy two-file tasks register turn() from checks.ts. Single-file tasks
+  // already registered it while loadTask imported the .eval.ts file.
+  if (!inlineChecks && checksPath) {
+    resetTaskTurn();
+    resetFlowChecks();
+    await loadChecksModule(checksPath);
+  }
+
+  const taskTurn = getTaskTurn();
+  resetTaskTurn();
+  const turnFn = resolveTurn(adapter.turn, taskTurn);
+  if (!turnFn) return [];
+
+  const taskFiles = new TaskFiles(files);
+  const turnTranscript: TurnRecord[] = [];
+  const transcriptTurns: TaskTranscriptTurn[] = [];
+  let lastTurnResponse: unknown;
+  // Precedence: explicit run override → task config → default 10.
+  const maxTurns = options?.maxTurnsOverride ?? task.maxTurns ?? 10;
+
+  for (let turnNum = 1; turnNum <= maxTurns; turnNum++) {
+    const userTurn = await turnFn({ files: taskFiles, transcript: turnTranscript });
+    if (userTurn === null || userTurn === undefined) break;
+
+    const result = await trace.step(
+      {
+        step_name: "task.turn",
+        metadata: { turnNumber: turnNum },
+        summarize: (r) => ({ response: (r as { response: unknown }).response }),
+      },
+      async (spanId) =>
+        session.sendUserTurn(userTurn, {
+          trace,
+          turnNumber: turnNum,
+          parentSpanId: spanId,
+        }),
+    );
+
+    turnTranscript.push({
+      turnNumber: turnNum,
+      input: userTurn,
+      output: result.response,
+    });
+    transcriptTurns.push({
+      turnNumber: turnNum,
+      userAction: userTurn,
+      agentResponse: result.response,
+    });
+    options?.onTurn?.(turnNum, userTurn, result.response);
+    lastTurnResponse = result.response;
+  }
+
+  if (lastTurnResponse !== undefined) {
+    rawTrace.endRoot({ output: { response: lastTurnResponse } });
+  }
+  return transcriptTurns;
+}
+
+/**
+ * Adapter teardown: run `adapter.cleanup` as a traced step (cleanup failures
+ * are logged, never thrown — they must not mask the run's own outcome), then
+ * close the session if it has a close hook.
+ */
+async function cleanupAdapter(
+  loaded: LoadedTask,
+  trace: AgentTaskTraceContext,
+  state: AdapterRuntimeState | undefined,
+  session: AdapterSession | undefined,
+): Promise<void> {
+  const { task, adapter, taskDir: absoluteDir, files } = loaded;
+
+  if (adapter.cleanup) {
+    try {
+      await trace.step(
+        {
+          step_name: "adapter.cleanup",
+          input: { adapterName: adapter.name },
+          metadata: { adapterName: adapter.name },
+          summarize: () => ({ cleaned: true }),
+        },
+        async () =>
+          adapter.cleanup?.({
+            task,
+            taskDir: absoluteDir,
+            files,
+            state,
+            session,
+            trace,
+          }),
+      );
+    } catch (error) {
+      console.error(
+        "[AgentTask] Cleanup failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  if (session?.close) {
+    try {
+      await session.close();
+    } catch {
+      // ignore close errors
+    }
+  }
 }
 
 /** Compact summary of check evaluation results for span output.
