@@ -75,10 +75,14 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
       continue;
     }
 
+    // The final check: the run manifest — tasks, model, the command — plus
+    // one plain-language go/no-go line. Everything env-related that users
+    // don't choose (keys, judge wiring) collapses into that line, with the
+    // full audit one [d] away.
     if (step === 2) {
       console.clear();
-      console.log(stepScreen(shared, 3));
-      console.log(bottomBar(0) + dim("   [any key] continue · [d] details · [b] back"));
+      console.log(`${bold("Ready to run")}\n\n${summaryText(shared)}\n${readinessLine(shared)}`);
+      console.log(bottomBar(0) + dim("   [Enter] run · [d] details · [b] back"));
       const key = await waitKey();
       if (key.name === "tab") return "switch";
       if (key.name === "q") return "quit";
@@ -89,17 +93,19 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
         await waitKey();
         continue;
       }
-      step = key.name === "b" || key.name === "escape" ? 1 : 3;
+      if (key.name === "b" || key.name === "escape") {
+        step = 1;
+        continue;
+      }
+      if (key.name === "return" || key.name === "enter") {
+        const count = selectedTasks(shared).length;
+        console.log(`\n${dim(`PROTOTYPE — dry run. This is where the ${count} eval(s) would execute`)}`);
+        console.log(dim("and record to your project. Wire exec in when this graduates from prototype."));
+        await waitKey();
+        step = 0;
+      }
       continue;
     }
-
-    console.clear();
-    console.log(stepScreen(shared, 4));
-    console.log(bottomBar(0) + dim("   [Enter] start over · [b] back"));
-    const key = await waitKey();
-    if (key.name === "tab") return "switch";
-    if (key.name === "q") return "quit";
-    step = key.name === "b" || key.name === "escape" ? 2 : 0;
   }
 }
 
@@ -114,60 +120,21 @@ export function task(shared: SharedState) {
   return shared.tasks.find((t) => t.id === shared.selection.taskId) ?? shared.tasks[0]!;
 }
 
-function stepScreen(shared: SharedState, step: 3 | 4): string {
-  return step === 3
-    ? `${bold("Environment")}\n\n${envVerdictText(shared)}`
-    : `${bold("Ready to run")}\n\n${summaryText(shared)}`;
-}
-
 /**
- * The pre-flight check users actually need: can this run? Three verdict
- * rows and a ready/not-ready line — nothing else. The full chain/table
- * audit stays one key away ([d] details) for when something is wrong.
+ * One plain-language go/no-go line for the final screen. Users don't pick
+ * keys or judges, so those collapse here into a sentence — green says
+ * what checks passed, red says what to do about it. The full audit
+ * (chain, var table, judge wiring) stays one [d] away.
  */
-export function envVerdictText(shared: SharedState): string {
+export function readinessLine(shared: SharedState): string {
   const view = resolveEnvView(task(shared).path, process.env);
-  const rows: string[] = [];
-
-  const or = view.known.find((v) => v.name === "OPENROUTER_MODEL")!;
-  const oa = view.known.find((v) => v.name === "OPENAI_MODEL")!;
-  const chosen = shared.selection.model;
-  let modelOk: boolean;
-  if (chosen) {
-    modelOk = true;
-    rows.push(`${green("✓")} ${bold("model")}     ${cyan(chosen)}  ${dim("chosen in this session")}`);
-  } else if (or.set) {
-    modelOk = true;
-    rows.push(`${green("✓")} ${bold("model")}     ${dim("from")} OPENROUTER_MODEL  ${dim(sourceLabel(or.source))}`);
-  } else if (oa.set) {
-    modelOk = true;
-    rows.push(`${green("✓")} ${bold("model")}     ${dim("from")} OPENAI_MODEL  ${dim(sourceLabel(oa.source))}`);
-  } else {
-    modelOk = false;
-    rows.push(`${red("✗")} ${bold("model")}     ${red("none set")}  ${dim("go back a step and pick one")}`);
-  }
-
-  const keyVar = view.known.find((v) => v.name.endsWith("_API_KEY") && v.set);
-  rows.push(
-    keyVar
-      ? `${green("✓")} ${bold("provider")} ${dim("key present")}  ${dim(sourceLabel(keyVar.source))}`
-      : `${red("✗")} ${bold("provider")} ${red("no API key")}  ${dim("the first model call will fail")}`,
-  );
-
-  rows.push(
-    modelOk
-      ? `${green("✓")} ${bold("judge")}     ${dim("uses the same model var")}`
-      : `${dim("—")} ${bold("judge")}     ${dim("nothing to judge with yet")}`,
-  );
-
-  const ready = modelOk && keyVar !== undefined;
-  return [
-    ...rows,
-    "",
-    ready
-      ? green("Ready — model and provider key are set, the run can start.")
-      : yellow("Not ready — the run would fail on its first model call. Fix the ✗ row(s)."),
-  ].join("\n");
+  const modelOk =
+    shared.selection.model !== undefined ||
+    view.known.some((v) => (v.name === "OPENROUTER_MODEL" || v.name === "OPENAI_MODEL") && v.set);
+  const keyOk = view.known.some((v) => v.name.endsWith("_API_KEY") && v.set);
+  if (modelOk && keyOk) return green("✓ ready to run — model and API key found");
+  if (!modelOk) return red("✗ no model selected — press [b] and pick one");
+  return red("✗ no API key found — add OPENROUTER_API_KEY or OPENAI_API_KEY to a .env file, then come back");
 }
 
 /** The full audit — the [d] details view behind the verdict screen. */
@@ -228,13 +195,6 @@ export function summaryText(shared: SharedState): string {
     tasks.length === 1 ? `${bold("judge")}  ${checksHint(first)}` : "",
     "",
     ...commands.map((c) => `  ${dim("$")} ${bold(c)}`),
-    "",
-    dim(tasks.length > 1
-      ? "PROTOTYPE — would run these in sequence (or as one batch)."
-      : "PROTOTYPE — would exec this now. The judge reads the same model var;"),
-    dim(tasks.length > 1
-      ? "Each run records to your project like any `task run`."
-      : "the run records to your project like any `task run`."),
   ].filter((line) => line !== "").join("\n");
 }
 
@@ -284,12 +244,10 @@ export function renderWizardStatic(shared: SharedState): string {
     bold("Model") + dim("   [→] open · type to filter"),
     ...modelLines,
     "",
-    bold("Environment"),
-    envVerdictText(shared),
-    dim("[d] full details:"),
-    envScreenText(shared),
-    "",
     bold("Ready to run"),
     summaryText(shared),
+    readinessLine(shared),
+    dim("[d] full details:"),
+    envScreenText(shared),
   ].join("\n");
 }
