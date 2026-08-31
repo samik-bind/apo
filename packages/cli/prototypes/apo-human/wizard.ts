@@ -78,10 +78,17 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
     if (step === 2) {
       console.clear();
       console.log(stepScreen(shared, 3));
-      console.log(bottomBar(0) + dim("   [any key] continue · [b] back"));
+      console.log(bottomBar(0) + dim("   [any key] continue · [d] details · [b] back"));
       const key = await waitKey();
       if (key.name === "tab") return "switch";
       if (key.name === "q") return "quit";
+      if (key.name === "d") {
+        console.clear();
+        console.log(`${bold("Environment — details")}\n\n${envScreenText(shared)}`);
+        console.log(dim("\n[any key] back"));
+        await waitKey();
+        continue;
+      }
       step = key.name === "b" || key.name === "escape" ? 1 : 3;
       continue;
     }
@@ -109,16 +116,70 @@ export function task(shared: SharedState) {
 
 function stepScreen(shared: SharedState, step: 3 | 4): string {
   return step === 3
-    ? `${bold("Environment")}\n\n${envScreenText(shared)}`
+    ? `${bold("Environment")}\n\n${envVerdictText(shared)}`
     : `${bold("Ready to run")}\n\n${summaryText(shared)}`;
 }
 
-/** The env screen — also reused by the menu and dashboard variants. */
+/**
+ * The pre-flight check users actually need: can this run? Three verdict
+ * rows and a ready/not-ready line — nothing else. The full chain/table
+ * audit stays one key away ([d] details) for when something is wrong.
+ */
+export function envVerdictText(shared: SharedState): string {
+  const view = resolveEnvView(task(shared).path, process.env);
+  const rows: string[] = [];
+
+  const or = view.known.find((v) => v.name === "OPENROUTER_MODEL")!;
+  const oa = view.known.find((v) => v.name === "OPENAI_MODEL")!;
+  const chosen = shared.selection.model;
+  let modelOk: boolean;
+  if (chosen) {
+    modelOk = true;
+    rows.push(`${green("✓")} ${bold("model")}     ${cyan(chosen)}  ${dim("chosen in this session")}`);
+  } else if (or.set) {
+    modelOk = true;
+    rows.push(`${green("✓")} ${bold("model")}     ${dim("from")} OPENROUTER_MODEL  ${dim(sourceLabel(or.source))}`);
+  } else if (oa.set) {
+    modelOk = true;
+    rows.push(`${green("✓")} ${bold("model")}     ${dim("from")} OPENAI_MODEL  ${dim(sourceLabel(oa.source))}`);
+  } else {
+    modelOk = false;
+    rows.push(`${red("✗")} ${bold("model")}     ${red("none set")}  ${dim("go back a step and pick one")}`);
+  }
+
+  const keyVar = view.known.find((v) => v.name.endsWith("_API_KEY") && v.set);
+  rows.push(
+    keyVar
+      ? `${green("✓")} ${bold("provider")} ${dim("key present")}  ${dim(sourceLabel(keyVar.source))}`
+      : `${red("✗")} ${bold("provider")} ${red("no API key")}  ${dim("the first model call will fail")}`,
+  );
+
+  rows.push(
+    modelOk
+      ? `${green("✓")} ${bold("judge")}     ${dim("uses the same model var")}`
+      : `${dim("—")} ${bold("judge")}     ${dim("nothing to judge with yet")}`,
+  );
+
+  const ready = modelOk && keyVar !== undefined;
+  return [
+    ...rows,
+    "",
+    ready
+      ? green("Ready — nothing blocking this run.")
+      : yellow("Not ready — fix the ✗ row(s) before running."),
+  ].join("\n");
+}
+
+/** The full audit — the [d] details view behind the verdict screen. */
 export function envScreenText(shared: SharedState): string {
   const view = resolveEnvView(task(shared).path, process.env);
+  const CHAIN_LABELS = ["task .env", "tasks/.env", "backend/.env", "example-service/.env", "repo .env"];
   const chain = view.files
-    .map((f) => (f.exists ? green(`✓ ${shortPath(f.path)}`) : dim(`· ${shortPath(f.path)}`)))
-    .join(dim("  →  "));
+    .map((f, i) => {
+      const label = CHAIN_LABELS[i] ?? shortPath(f.path);
+      return f.exists ? `${green("✓")} ${label}` : `${dim("·")} ${dim(label)}  ${dim("missing")}`;
+    })
+    .join("\n  ");
   const rows = view.known.map((v) => [
     v.name,
     dim(v.meaning),
@@ -139,7 +200,7 @@ export function envScreenText(shared: SharedState): string {
     parts.push(yellow("⚠ no OPENROUTER_API_KEY / OPENAI_API_KEY anywhere — the first model call will fail."));
   }
   parts.push(
-    `${bold("effective model:")} ${effectiveModel(view, shared.selection) ? cyan(effectiveModel(view, shared.selection)!) : red("none — step 2 sets one")}`,
+    `${bold("effective model:")} ${effectiveModel(view, shared.selection) ? cyan(effectiveModel(view, shared.selection)!) : red("none — the model step sets one")}`,
   );
   return parts.join("\n\n");
 }
@@ -224,6 +285,8 @@ export function renderWizardStatic(shared: SharedState): string {
     ...modelLines,
     "",
     bold("Environment"),
+    envVerdictText(shared),
+    dim("[d] full details:"),
     envScreenText(shared),
     "",
     bold("Ready to run"),
