@@ -44,6 +44,8 @@ export type SharedState = {
   treeExpanded: Set<string>;
   /** Which task nodes are checked for a multi-run — node keys are task ids. */
   treeChecked: Set<string>;
+  /** Which provider folders are open in the model picker. */
+  modelExpanded: Set<string>;
   /** Survives variant switches — the whole point of Tab-ing between shells. */
   selection: { taskId?: string; taskIds?: string[]; model?: string };
   cursor: number;
@@ -110,6 +112,7 @@ export async function loadShared(): Promise<SharedState> {
     tree: taskTree(tasks),
     treeExpanded: new Set<string>(),
     treeChecked: new Set<string>(),
+    modelExpanded: new Set<string>(),
     selection: {},
     cursor: 0,
   };
@@ -361,6 +364,43 @@ export function taskTree(tasks: TaskCard[]): TreeNode<TaskCard>[] {
 export function shortName(t: TaskCard): string {
   const slash = t.id.lastIndexOf("/");
   return slash < 0 ? t.id : t.id.slice(slash + 1);
+}
+
+export type ModelChoice =
+  | { kind: "catalog"; id: string }
+  | { kind: "custom" }
+  | { kind: "default" };
+
+/**
+ * Models as a provider tree for the single-select picker: a handful of
+ * provider folders (anthropic, openai, gemini, other), models as leaves
+ * with price + id as the hint, plus custom-id and keep-.env as root leaves.
+ * The `envModelHint` is what the .env model currently resolves to.
+ */
+export function modelTree(models: ModelOption[], envModelHint: string): TreeNode<ModelChoice>[] {
+  const byProvider = new Map<string, ModelOption[]>();
+  for (const m of models) {
+    const key = m.provider === "generic" ? "other" : m.provider;
+    const list = byProvider.get(key);
+    if (list) list.push(m);
+    else byProvider.set(key, [m]);
+  }
+  const roots: TreeNode<ModelChoice>[] = [...byProvider.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([provider, list]) => ({
+      name: provider,
+      key: `provider/${provider}`,
+      count: list.length,
+      children: list.map((m) => ({
+        name: m.display,
+        key: `model/${m.id}`,
+        value: { kind: "catalog", id: m.id } as ModelChoice,
+        hint: `$${m.input} in / $${m.output} out per 1M · ${m.id}`,
+      })),
+    }));
+  roots.push({ name: "✎ type a model id…", key: "custom", value: { kind: "custom" }, hint: "anything your provider accepts" });
+  roots.push({ name: "keep the .env model", key: "default", value: { kind: "default" }, hint: envModelHint });
+  return roots;
 }
 
 const SAMPLE_MODELS: ModelOption[] = [

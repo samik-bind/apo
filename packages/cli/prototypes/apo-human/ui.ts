@@ -7,7 +7,7 @@ import { emitKeypressEvents } from "node:readline";
 import { stdin } from "node:process";
 import { bold, cyan, dim, green, yellow } from "../../src/lib/format.ts";
 
-export type Key = { name: string; ctrl: boolean };
+export type Key = { name: string; ctrl: boolean; sequence?: string };
 
 let keypressReady = false;
 
@@ -38,108 +38,10 @@ export function waitKey(): Promise<Key> {
   });
 }
 
-export type PickOption<T> = { label: string; hint?: string; sub?: string; value: T };
 export type PickResult<T> =
   | { kind: "pick"; value: T }
   | { kind: "switch" }
   | { kind: "back" };
-
-/**
- * Arrow-key/j-k/number picker, redrawn in place. Enter picks; Tab requests
- * a variant switch; Esc goes back. Options are two-line entries when `sub`
- * is set: the label (the thing you choose by) on line one, the `sub`
- * context (description, pricing) dim on line two — one fact per line.
- * Degrades to the default when stdin is not a TTY.
- */
-export async function pick<T>(
-  title: string,
-  options: PickOption<T>[],
-  defaultIndex = 0,
-): Promise<PickResult<T>> {
-  if (options.length === 0) return { kind: "back" };
-  let index = Math.min(Math.max(defaultIndex, 0), options.length - 1);
-
-  if (!stdin.isTTY) return { kind: "pick", value: options[index].value };
-
-  return new Promise<PickResult<T>>((resolve) => {
-    stdin.setRawMode(true);
-    stdin.resume();
-    process.stdout.write("\x1b[?25l");
-    process.stdout.write(`${title}\n`);
-
-    const width = process.stdout.columns ?? 80;
-    let renderedLines = 0;
-    let rendered = false;
-    const render = () => {
-      if (rendered) process.stdout.write(`\x1b[${renderedLines}A`);
-      renderedLines = 0;
-      for (let i = 0; i < options.length; i++) {
-        const opt = options[i];
-        const selected = i === index;
-        const marker = selected ? bold("\u276f") : " ";
-        const label = selected ? bold(opt.label) : opt.label;
-        const hint = opt.hint ? `  ${dim(opt.hint)}` : "";
-        process.stdout.write(`\x1b[2K\r${marker} ${label}${hint}\n`);
-        renderedLines++;
-        if (opt.sub) {
-          process.stdout.write(`\x1b[2K\r    ${dim(truncate(opt.sub, width - 6))}\n`);
-          renderedLines++;
-        }
-      }
-      rendered = true;
-    };
-
-    const finish = (result: PickResult<T>) => {
-      stdin.removeListener("keypress", onKey);
-      process.stdout.write("\x1b[?25h");
-      resolve(result);
-    };
-
-    const onKey = (_ch: string, key: Key) => {
-      if (key?.ctrl && key.name === "c") {
-        shutdownInput();
-        process.exit(130);
-      }
-      switch (key?.name) {
-        case "up":
-        case "k":
-          index = Math.max(0, index - 1);
-          render();
-          return;
-        case "down":
-        case "j":
-          index = Math.min(options.length - 1, index + 1);
-          render();
-          return;
-        case "return":
-        case "enter":
-          finish({ kind: "pick", value: options[index].value });
-          return;
-        case "tab":
-          finish({ kind: "switch" });
-          return;
-        case "escape":
-        case "b":
-          finish({ kind: "back" });
-          return;
-      }
-      if (_ch >= "1" && _ch <= "9") {
-        const n = Number(_ch) - 1;
-        if (n < options.length) {
-          index = n;
-          render();
-        }
-      }
-    };
-
-    render();
-    stdin.on("keypress", onKey);
-  });
-}
-
-function truncate(text: string, width: number): string {
-  return text.length > width && width > 1 ? `${text.slice(0, width - 1)}…` : text;
-}
 
 export type TreeNode<T> = {
   name: string;
@@ -154,20 +56,27 @@ export type TreeNode<T> = {
 
 type VisibleRow<T> = { node: TreeNode<T>; depth: number; isFolder: boolean; parent: TreeNode<T> | null };
 
+export type PickTreeOptions = {
+  /** Single-select: no checkboxes, Enter on a leaf picks it. */
+  single?: boolean;
+  /** Type-to-filter: printable keys edit a query, leaves matching name or
+   *  hint flatten across folders; while filtering, only arrows navigate
+   *  (the fzf convention — letters type). Esc clears the query, then backs. */
+  filter?: boolean;
+};
+
 /**
- * Collapsible multi-select tree: ↑↓ move, →/l opens a folder (descends
- * when open), ←/h closes the cursor's folder or its nearest open
- * ancestor, space toggles a checkbox (folders select their whole subtree
- * and render [~] when partially checked), Enter/c confirms — the checked
- * subset in tree order, or the cursor task / folder subtree when nothing
- * is checked. `expanded` and `checked` are the caller's sets; they
- * persist across visits and variant switches.
+ * Collapsible tree picker. Multi-select by default: space toggles a
+ * checkbox (folders select their whole subtree, [~] when partial),
+ * Enter/c confirms the checked subset in tree order. `expanded` and
+ * `checked` are the caller's sets — they persist across visits.
  */
 export async function pickTree<T>(
   title: string,
   roots: TreeNode<T>[],
   expanded: Set<string>,
   checked: Set<string>,
+  opts: PickTreeOptions = {},
 ): Promise<PickResult<T[]>> {
   const flatten = (): VisibleRow<T>[] => {
     const rows: VisibleRow<T>[] = [];
@@ -192,6 +101,24 @@ export async function pickTree<T>(
     return n === 0 ? " " : n === keys.length ? "x" : "~";
   };
 
+  let query = "";
+  const filterRows = (): VisibleRow<T>[] => {
+    const needle = query.toLowerCase();
+    const out: VisibleRow<T>[] = [];
+    const walk = (nodes: TreeNode<T>[], parent: TreeNode<T> | null) => {
+      for (const n of nodes) {
+        if (n.children !== undefined) {
+          walk(n.children, n);
+        } else if (`${n.name} ${n.hint ?? ""}`.toLowerCase().includes(needle)) {
+          out.push({ node: n, depth: 0, isFolder: false, parent });
+        }
+      }
+    };
+    walk(roots, null);
+    return out;
+  };
+  const rowsNow = (): VisibleRow<T>[] => (query !== "" ? filterRows() : flatten());
+
   if (!stdin.isTTY) {
     const first = flatten().find((r) => !r.isFolder);
     return first?.node.value !== undefined ? { kind: "pick", value: [first.node.value] } : { kind: "back" };
@@ -210,26 +137,40 @@ export async function pickTree<T>(
     // folders cyan like directories, checkboxes green/yellow/dim for
     // all/partial/none, secondary info dim, and the cursor row bold.
     const render = () => {
-      const rows = flatten();
-      cursor = Math.min(Math.max(cursor, 0), rows.length - 1);
+      const rows = rowsNow();
+      cursor = Math.min(Math.max(cursor, 0), Math.max(rows.length - 1, 0));
       const prevLines = renderedLines;
       if (rendered) process.stdout.write(`\x1b[${prevLines}A`);
       renderedLines = 0;
+      if (opts.filter) {
+        process.stdout.write(`\x1b[2K\r${dim("filter:")} ${query}${query === "" ? dim(" type to narrow") : "\u258f"}\n`);
+        renderedLines++;
+      }
+      if (rows.length === 0) {
+        process.stdout.write(`\x1b[2K\r${dim("no matches")}\n`);
+        renderedLines++;
+      }
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
         const selected = i === cursor;
         const marker = selected ? bold("\u276f") : " ";
         const indent = "  ".repeat(r.depth);
         const b = box(r.node);
-        const checkbox = b === "x" ? green(`[${b}]`) : b === "~" ? yellow(`[${b}]`) : dim(`[${b}]`);
+        const checkbox = opts.single
+          ? ""
+          : b === "x"
+            ? `${green(`[${b}]`)} `
+            : b === "~"
+              ? `${yellow(`[${b}]`)} `
+              : `${dim(`[${b}]`)} `;
         let line: string;
         if (r.isFolder) {
           const arrow = expanded.has(r.node.key) ? "\u25be" : "\u25b8";
           const name = selected ? bold(cyan(`${arrow} ${r.node.name}`)) : cyan(`${arrow} ${r.node.name}`);
-          line = `${marker} ${indent}${checkbox} ${name}  ${dim(String(r.node.count ?? ""))}`;
+          line = `${marker} ${indent}${checkbox}${name}  ${dim(String(r.node.count ?? ""))}`;
         } else {
           const name = selected ? bold(r.node.name) : r.node.name;
-          line = `${marker} ${indent}${checkbox} ${name}${r.node.hint ? `  ${dim(r.node.hint)}` : ""}`;
+          line = `${marker} ${indent}${checkbox}${name}${r.node.hint ? `  ${dim(r.node.hint)}` : ""}`;
         }
         process.stdout.write(`\x1b[2K\r${line}\n`);
         renderedLines++;
@@ -282,22 +223,49 @@ export async function pickTree<T>(
         shutdownInput();
         process.exit(130);
       }
-      const rows = flatten();
+      // Filter mode first: printable keys edit the query (fzf convention —
+      // while filtering, letters type and only arrows navigate).
+      if (opts.filter && key && !key.ctrl) {
+        const ch = key.sequence && key.sequence.length === 1 ? key.sequence : "";
+        if (/^[a-zA-Z0-9.\-+*_$]/.test(ch)) {
+          query += ch;
+          cursor = 0;
+          render();
+          return;
+        }
+        if (key.name === "backspace") {
+          query = query.slice(0, -1);
+          cursor = 0;
+          render();
+          return;
+        }
+      }
+      const rows = rowsNow();
       const row = rows[cursor];
       switch (key?.name) {
         case "up":
-        case "k":
           cursor = Math.max(0, cursor - 1);
           render();
           return;
         case "down":
-        case "j":
           cursor = Math.min(rows.length - 1, cursor + 1);
           render();
           return;
+        case "k":
+          if (!opts.filter) {
+            cursor = Math.max(0, cursor - 1);
+            render();
+          }
+          return;
+        case "j":
+          if (!opts.filter) {
+            cursor = Math.min(rows.length - 1, cursor + 1);
+            render();
+          }
+          return;
         case "right":
         case "l":
-          if (row?.isFolder) {
+          if (query === "" && row?.isFolder) {
             if (!expanded.has(row.node.key)) expanded.add(row.node.key);
             else cursor = Math.min(cursor + 1, rows.length - 1);
             render();
@@ -305,7 +273,7 @@ export async function pickTree<T>(
           return;
         case "left":
         case "h": {
-          if (!row) return;
+          if (query !== "" || !row) return;
           if (row.isFolder && expanded.has(row.node.key)) {
             expanded.delete(row.node.key);
           } else {
@@ -320,7 +288,7 @@ export async function pickTree<T>(
           return;
         }
         case "space": {
-          if (!row) return;
+          if (opts.single || !row) return;
           const keys = subtreeKeys(row.node);
           const all = keys.length > 0 && keys.every((k) => checked.has(k));
           for (const k of keys) {
@@ -332,22 +300,34 @@ export async function pickTree<T>(
         }
         case "return":
         case "enter":
-        case "c":
           if (!row) return;
-          if ((key.name === "return" || key.name === "enter") && row.isFolder) {
+          if (row.isFolder) {
             if (expanded.has(row.node.key)) expanded.delete(row.node.key);
             else expanded.add(row.node.key);
             render();
+          } else if (opts.single) {
+            finish({ kind: "pick", value: [row.node.value!] });
           } else {
             confirm(row);
           }
+          return;
+        case "c":
+          if (!opts.filter && !opts.single && row) confirm(row);
           return;
         case "tab":
           finish({ kind: "switch" });
           return;
         case "escape":
-        case "b":
+          if (query !== "") {
+            query = "";
+            cursor = 0;
+            render();
+            return;
+          }
           finish({ kind: "back" });
+          return;
+        case "b":
+          if (!opts.filter) finish({ kind: "back" });
           return;
       }
     };

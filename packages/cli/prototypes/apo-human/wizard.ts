@@ -4,14 +4,20 @@
  * switches. Answers: does step-by-step guidance kill the memorization tax?
  */
 import { bold, cyan, dim, formatTable, green, red, yellow } from "../../src/lib/format.ts";
-import { checksHint, effectiveModel, hasProviderKey, resolveEnvView, selectedTasks, type SharedState, type TaskCard } from "./data.ts";
-import { askText, bottomBar, pick, pickTree, waitKey, type PickResult, type TreeNode } from "./ui.ts";
+import {
+  checksHint,
+  effectiveModel,
+  hasProviderKey,
+  modelTree,
+  resolveEnvView,
+  selectedTasks,
+  type ModelChoice,
+  type SharedState,
+  type TaskCard,
+} from "./data.ts";
+import { askText, bottomBar, pickTree, waitKey, type PickResult, type TreeNode } from "./ui.ts";
 
 export type VariantResult = "switch" | "quit";
-
-const CUSTOM = "custom";
-const DEFAULT = "default";
-type ModelChoice = { kind: "catalog"; id: string } | { kind: typeof CUSTOM } | { kind: typeof DEFAULT };
 
 export async function runWizard(shared: SharedState): Promise<VariantResult> {
   let step = 0;
@@ -47,29 +53,25 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
 
     if (step === 1) {
       const current = effectiveModel(resolveEnvView(task(shared).path, process.env), shared.selection);
-      const result = await pick(
-        bold("Model") + dim("   [esc] back"),
-        [
-          ...shared.models.map((m) => ({
-            label: m.display,
-            sub: `$${m.input} in / $${m.output} out per 1M tokens · ${m.id}`,
-            value: { kind: "catalog", id: m.id } as ModelChoice,
-          })),
-          { label: "✎ type a model id…", sub: "anything your provider accepts", value: { kind: CUSTOM } as ModelChoice },
-          { label: "keep the .env model", sub: current ?? "no model set yet", value: { kind: DEFAULT } as ModelChoice },
-        ],
+      const result = await pickTree(
+        bold("Model") + dim("   [→] open [esc] back · type to filter"),
+        modelTree(shared.models, current ?? "no model set yet"),
+        shared.modelExpanded,
+        new Set<string>(),
+        { single: true, filter: true },
       );
-      const next = applyPick<ModelChoice>(result);
+      const next = applyPick<ModelChoice[]>(result);
       if (next === "switch" || next === "quit") return next;
       if (next === "back") { step = 0; continue; }
-      if (next.kind === CUSTOM) {
+      const choice = next[0]!;
+      if (choice.kind === "custom") {
         shared.selection.model = await askText("model id", shared.models[0]?.id ?? "");
-      } else if (next.kind === "catalog") {
-        shared.selection.model = next.id;
+      } else if (choice.kind === "catalog") {
+        shared.selection.model = choice.id;
       } else {
         delete shared.selection.model;
       }
-      step = 3;
+      step = 2;
       continue;
     }
 
@@ -211,15 +213,14 @@ export function renderWizardStatic(shared: SharedState): string {
     }
   };
   walk(shared.tree, 0);
-  const modelLines = shared.models.slice(0, 5).flatMap((m, i) => [
-    `  ${i === 0 ? "\u276f" : " "} ${i === 0 ? m.display : dim(m.display)}`,
-    `      ${dim(`$${m.input} in / $${m.output} out per 1M tokens · ${m.id}`)}`,
-  ]);
+  const modelLines = modelTree(shared.models, "OPENROUTER_MODEL (already set)").map((n) =>
+    `    ${n.children ? cyan(`▸ ${n.name}`) : n.name}  ${dim(String(n.count ?? n.hint ?? ""))}`,
+  );
   return [
     bold("Run an eval") + dim("   [→] open [←] close [space] check [enter] run"),
     ...treeLines,
     "",
-    bold("Model"),
+    bold("Model") + dim("   [→] open · type to filter"),
     ...modelLines,
     "",
     bold("Environment"),
