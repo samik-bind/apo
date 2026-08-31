@@ -4,7 +4,7 @@
  * switches. Answers: does step-by-step guidance kill the memorization tax?
  */
 import { bold, cyan, dim, formatTable, green, red, yellow } from "../../src/lib/format.ts";
-import { checksHint, effectiveModel, hasProviderKey, resolveEnvView, type SharedState, type TaskCard } from "./data.ts";
+import { checksHint, effectiveModel, hasProviderKey, resolveEnvView, selectedTasks, type SharedState, type TaskCard } from "./data.ts";
 import { askText, bottomBar, pick, pickTree, waitKey, type PickResult, type TreeNode } from "./ui.ts";
 
 export type VariantResult = "switch" | "quit";
@@ -16,8 +16,9 @@ type ModelChoice = { kind: "catalog"; id: string } | { kind: typeof CUSTOM } | {
 export async function runWizard(shared: SharedState): Promise<VariantResult> {
   let step = 0;
   while (true) {
-    // One screen, a collapsible tree: folders open with →/Enter, close with
-    // ←/h; Enter on a task proceeds. Expansion persists across steps.
+    // One screen, a collapsible multi-select tree: space checks tasks (or a
+    // whole folder subtree), Enter/c confirms the checked subset. Expansion
+    // and checks persist across steps.
     if (step === 0) {
       if (shared.selection.taskId) {
         let prefix = "";
@@ -26,15 +27,20 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
           shared.treeExpanded.add(prefix);
         }
       }
+      const checkedCount = shared.treeChecked.size;
       const result = await pickTree(
-        bold("Run an eval — step 1/4: pick a task") + dim(`   (${shared.taskSource})`) + dim("   [→] open [←] close"),
+        bold("Run an eval — step 1/4: pick task(s)") +
+          dim(`   (${shared.taskSource})`) +
+          dim(`   [→] open [←] close [space] check${checkedCount > 0 ? ` (${checkedCount} checked)` : ""} [enter] run`),
         shared.tree,
         shared.treeExpanded,
+        shared.treeChecked,
       );
       const next = applyPick(result);
       if (next === "switch" || next === "quit") return next;
       if (next !== "back") {
-        shared.selection.taskId = next.id;
+        shared.selection.taskIds = next.map((t) => t.id);
+        shared.selection.taskId = next[0]?.id;
         step = 1;
       }
       continue;
@@ -138,20 +144,35 @@ export function envScreenText(shared: SharedState): string {
 }
 
 export function summaryText(shared: SharedState): string {
-  const t = task(shared);
-  const view = resolveEnvView(t.path, process.env);
+  const tasks = selectedTasks(shared);
+  const first = tasks[0]!;
+  const view = resolveEnvView(first.path, process.env);
   const model = shared.selection.model;
-  const command = model ? `OPENROUTER_MODEL='${model}' apo task run ${t.id}` : `apo task run ${t.id}`;
+  const modelPrefix = model ? `OPENROUTER_MODEL='${model}' ` : "";
+  const commands = tasks.map((t) => `${modelPrefix}apo task run ${t.id}`);
+  const taskLines =
+    tasks.length === 1
+      ? [
+          `${bold("task")}   ${first.id}`,
+          first.description ? `${dim("what")}    ${first.description}` : "",
+        ]
+      : [
+          `${bold("tasks")}  ${tasks.length} selected`,
+          ...tasks.map((t) => `  ${cyan(t.id)}  ${dim(checksHint(t))}`),
+        ];
   return [
-    `${bold("task")}   ${t.id}`,
-    t.description ? `${dim("what")}    ${t.description}` : "",
+    ...taskLines,
     `${bold("model")}  ${model ? cyan(model) : dim(effectiveModel(view, shared.selection) ?? "from .env (nothing set!)")}`,
-    `${bold("judge")}  ${checksHint(t)}`,
+    tasks.length === 1 ? `${bold("judge")}  ${checksHint(first)}` : "",
     "",
-    `  ${dim("$")} ${bold(command)}`,
+    ...commands.map((c) => `  ${dim("$")} ${bold(c)}`),
     "",
-    dim("PROTOTYPE — would exec this now. The judge reads the same model var;"),
-    dim("the run records to your project like any `task run`."),
+    dim(tasks.length > 1
+      ? "PROTOTYPE — would run these in sequence (or as one batch)."
+      : "PROTOTYPE — would exec this now. The judge reads the same model var;"),
+    dim(tasks.length > 1
+      ? "Each run records to your project like any `task run`."
+      : "the run records to your project like any `task run`."),
   ].filter((line) => line !== "").join("\n");
 }
 
@@ -166,20 +187,25 @@ export function sourceLabel(source: string | null): string {
 
 /** Non-interactive render used by `--preview`: the whole journey at a glance. */
 export function renderWizardStatic(shared: SharedState): string {
-  // The tree fully expanded, first task selected, one line per row.
+  // The tree fully expanded with a sample partial folder check, to show the
+  // checkbox states: [ ] unchecked, [~] some children, [x] all children.
+  const demoChecked = new Set(["real-agent/engineering/api-testing", "real-agent/engineering/bug-triage"]);
   const treeLines: string[] = [];
-  let marked = false;
+  const subtreeKeys = (n: TreeNode<TaskCard>): string[] =>
+    n.value !== undefined ? [n.key] : (n.children ?? []).flatMap(subtreeKeys);
+  const box = (n: TreeNode<TaskCard>): string => {
+    const keys = subtreeKeys(n);
+    const c = keys.filter((k) => demoChecked.has(k)).length;
+    return c === 0 ? " " : c === keys.length ? "x" : "~";
+  };
   const walk = (nodes: TreeNode<TaskCard>[], depth: number) => {
     for (const n of nodes) {
       const indent = "  ".repeat(depth);
       if (n.children !== undefined) {
-        treeLines.push(`    ${indent}${dim(`▾ ${n.name}`)}  ${dim(String(n.count ?? ""))}`);
+        treeLines.push(`    ${indent}${dim(`[${box(n)}] ▾ ${n.name}`)}  ${dim(String(n.count ?? ""))}`);
         walk(n.children, depth + 1);
       } else {
-        const selected = !marked;
-        marked = true;
-        const name = selected ? n.name : dim(n.name);
-        treeLines.push(`${selected ? "  ❯" : "   "} ${indent}  ${name}${n.hint && !selected ? `  ${dim(n.hint)}` : ""}`);
+        treeLines.push(`    ${indent}${dim(`[${box(n)}] ${n.name}`)}${n.hint ? `  ${dim(n.hint)}` : ""}`);
       }
     }
   };
@@ -189,7 +215,7 @@ export function renderWizardStatic(shared: SharedState): string {
     `      ${dim(`$${m.input} in / $${m.output} out per 1M tokens · ${m.id}`)}`,
   ]);
   return [
-    bold("Run an eval — step 1/4: pick a task") + dim(`   (${shared.taskSource})   [→] open [←] close`),
+    bold("Run an eval — step 1/4: pick task(s)") + dim(`   (${shared.taskSource})   [→] open [←] close [space] check [enter] run`),
     ...treeLines,
     "",
     bold("step 2/4: model"),

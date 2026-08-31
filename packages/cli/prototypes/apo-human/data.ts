@@ -42,10 +42,19 @@ export type SharedState = {
   tree: TreeNode<TaskCard>[];
   /** Which folders are open — persists across steps and variant switches. */
   treeExpanded: Set<string>;
+  /** Which task nodes are checked for a multi-run — node keys are task ids. */
+  treeChecked: Set<string>;
   /** Survives variant switches — the whole point of Tab-ing between shells. */
-  selection: { taskId?: string; model?: string };
+  selection: { taskId?: string; taskIds?: string[]; model?: string };
   cursor: number;
 };
+
+/** The tasks currently selected for a run, in selection order. */
+export function selectedTasks(shared: SharedState): TaskCard[] {
+  const ids = shared.selection.taskIds ?? (shared.selection.taskId ? [shared.selection.taskId] : []);
+  if (ids.length === 0) return [shared.tasks[0]!].filter(Boolean);
+  return shared.tasks.filter((t) => ids.includes(t.id));
+}
 
 export type EnvVarState = {
   name: string;
@@ -100,6 +109,7 @@ export async function loadShared(): Promise<SharedState> {
     modelSource: models.source,
     tree: taskTree(tasks),
     treeExpanded: new Set<string>(),
+    treeChecked: new Set<string>(),
     selection: {},
     cursor: 0,
   };

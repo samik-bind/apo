@@ -155,16 +155,20 @@ export type TreeNode<T> = {
 type VisibleRow<T> = { node: TreeNode<T>; depth: number; isFolder: boolean; parent: TreeNode<T> | null };
 
 /**
- * Collapsible tree picker: ↑↓ move, →/l opens a folder (descends when
- * already open), ←/h closes the cursor's folder or its nearest open
- * ancestor, Enter opens/closes folders and picks tasks. The `expanded` set
- * is the caller's — it persists across visits and variant switches.
+ * Collapsible multi-select tree: ↑↓ move, →/l opens a folder (descends
+ * when open), ←/h closes the cursor's folder or its nearest open
+ * ancestor, space toggles a checkbox (folders select their whole subtree
+ * and render [~] when partially checked), Enter/c confirms — the checked
+ * subset in tree order, or the cursor task / folder subtree when nothing
+ * is checked. `expanded` and `checked` are the caller's sets; they
+ * persist across visits and variant switches.
  */
 export async function pickTree<T>(
   title: string,
   roots: TreeNode<T>[],
   expanded: Set<string>,
-): Promise<PickResult<T>> {
+  checked: Set<string>,
+): Promise<PickResult<T[]>> {
   const flatten = (): VisibleRow<T>[] => {
     const rows: VisibleRow<T>[] = [];
     const walk = (nodes: TreeNode<T>[], depth: number, parent: TreeNode<T> | null) => {
@@ -176,13 +180,24 @@ export async function pickTree<T>(
     walk(roots, 0, null);
     return rows;
   };
+  // `checked` holds node keys; task nodes are keyed by their task id, so
+  // folders and tasks share one namespace without the picker knowing T.
+  const subtreeKeys = (node: TreeNode<T>): string[] => {
+    if (node.value !== undefined) return [node.key];
+    return (node.children ?? []).flatMap((c) => subtreeKeys(c));
+  };
+  const box = (node: TreeNode<T>): string => {
+    const keys = subtreeKeys(node);
+    const n = keys.filter((k) => checked.has(k)).length;
+    return n === 0 ? " " : n === keys.length ? "x" : "~";
+  };
 
   if (!stdin.isTTY) {
     const first = flatten().find((r) => !r.isFolder);
-    return first?.node.value !== undefined ? { kind: "pick", value: first.node.value } : { kind: "back" };
+    return first?.node.value !== undefined ? { kind: "pick", value: [first.node.value] } : { kind: "back" };
   }
 
-  return new Promise<PickResult<T>>((resolve) => {
+  return new Promise<PickResult<T[]>>((resolve) => {
     let cursor = 0;
     stdin.setRawMode(true);
     stdin.resume();
@@ -204,11 +219,11 @@ export async function pickTree<T>(
         let line: string;
         if (r.isFolder) {
           const arrow = expanded.has(r.node.key) ? "\u25be" : "\u25b8";
-          const name = selected ? bold(`${arrow} ${r.node.name}`) : dim(`${arrow} ${r.node.name}`);
+          const name = selected ? bold(`[${box(r.node)}] ${arrow} ${r.node.name}`) : dim(`[${box(r.node)}] ${arrow} ${r.node.name}`);
           line = `${marker} ${indent}${name}  ${dim(String(r.node.count ?? ""))}`;
         } else {
-          const name = selected ? bold(r.node.name) : dim(r.node.name);
-          line = `${marker} ${indent}  ${name}${r.node.hint ? `  ${dim(r.node.hint)}` : ""}`;
+          const name = selected ? bold(`[${box(r.node)}] ${r.node.name}`) : dim(`[${box(r.node)}] ${r.node.name}`);
+          line = `${marker} ${indent}${name}${r.node.hint ? `  ${dim(r.node.hint)}` : ""}`;
         }
         process.stdout.write(`\x1b[2K\r${line}\n`);
         renderedLines++;
@@ -216,10 +231,37 @@ export async function pickTree<T>(
       rendered = true;
     };
 
-    const finish = (result: PickResult<T>) => {
+    const finish = (result: PickResult<T[]>) => {
       stdin.removeListener("keypress", onKey);
       process.stdout.write("\x1b[?25h");
       resolve(result);
+    };
+
+    const confirm = (row: VisibleRow<T>) => {
+      // Checked tasks are collected from the whole tree, not the visible
+      // rows — a collapsed folder's checks must still run.
+      if (checked.size > 0) {
+        const picked: T[] = [];
+        const walk = (nodes: TreeNode<T>[]) => {
+          for (const n of nodes) {
+            if (n.value !== undefined) {
+              if (checked.has(n.key)) picked.push(n.value);
+            } else {
+              walk(n.children ?? []);
+            }
+          }
+        };
+        walk(roots);
+        if (picked.length > 0) {
+          finish({ kind: "pick", value: picked });
+          return;
+        }
+      }
+      if (row.node.value !== undefined) {
+        finish({ kind: "pick", value: [row.node.value] });
+      } else {
+        finish({ kind: "pick", value: subtreeByKey(row.node) });
+      }
     };
 
     const onKey = (_ch: string, key: Key) => {
@@ -254,7 +296,6 @@ export async function pickTree<T>(
           if (row.isFolder && expanded.has(row.node.key)) {
             expanded.delete(row.node.key);
           } else {
-            // close the nearest open ancestor and land on it
             let parent = row.parent;
             while (parent && !expanded.has(parent.key)) parent = findParent(roots, parent.key);
             if (parent) {
@@ -265,15 +306,27 @@ export async function pickTree<T>(
           render();
           return;
         }
+        case "space": {
+          if (!row) return;
+          const keys = subtreeKeys(row.node);
+          const all = keys.length > 0 && keys.every((k) => checked.has(k));
+          for (const k of keys) {
+            if (all) checked.delete(k);
+            else checked.add(k);
+          }
+          render();
+          return;
+        }
         case "return":
         case "enter":
+        case "c":
           if (!row) return;
-          if (row.isFolder) {
+          if ((key.name === "return" || key.name === "enter") && row.isFolder) {
             if (expanded.has(row.node.key)) expanded.delete(row.node.key);
             else expanded.add(row.node.key);
             render();
-          } else if (row.node.value !== undefined) {
-            finish({ kind: "pick", value: row.node.value });
+          } else {
+            confirm(row);
           }
           return;
         case "tab":
@@ -289,6 +342,12 @@ export async function pickTree<T>(
     render();
     stdin.on("keypress", onKey);
   });
+}
+
+/** Task values in a node's subtree, in tree order (folder confirm fallback). */
+function subtreeByKey<T>(node: TreeNode<T>): T[] {
+  if (node.value !== undefined) return [node.value];
+  return (node.children ?? []).flatMap((c) => subtreeByKey(c));
 }
 
 /** Walk to a node's parent by key (flatten() only tracks one level). */
