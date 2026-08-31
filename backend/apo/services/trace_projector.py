@@ -177,7 +177,7 @@ class TraceProjector:
             run = RunDB(
                 id=span.trace_id,
                 project=span.project_id,
-                environment="default",
+                environment=_resource_environment(span) or "default",
                 created_at=span.start_time or datetime.now(timezone.utc),
             )
             session.add(run)
@@ -240,6 +240,13 @@ class TraceProjector:
                 run.session_id = str(attrs["apo.run.session_id"])
             if attrs.get("apo.run.environment"):
                 run.environment = str(attrs["apo.run.environment"])
+            elif run.environment in (None, "", "default"):
+                # Vanilla OTel SDKs carry the environment on the resource,
+                # not as a span attribute — without this fallback every
+                # service trace shows environment=default (SPEC-190).
+                fallback = _resource_environment(span)
+                if fallback:
+                    run.environment = fallback
             if attrs.get("apo.run.external_id"):
                 run.external_id = str(attrs["apo.run.external_id"])
 
@@ -421,6 +428,25 @@ def _claim_task_run(
 # broadcasting — the capabilities the legacy ingestion path provided that the
 # projector must gain before legacy code can be removed.
 # ---------------------------------------------------------------------------
+
+
+def _resource_environment(span: OtlpSpanDB) -> str | None:
+    """environment from the span's resource attributes, guarded.
+
+    ``resource`` is ``dict | None`` and its ``attributes`` member is an
+    untyped JSON value — both must be checked before reading keys.
+    """
+    resource = span.resource or {}
+    if not isinstance(resource, dict):
+        return None
+    resource_attrs = resource.get("attributes")
+    if not isinstance(resource_attrs, dict):
+        return None
+    for key in ("deployment.environment", "service.environment"):
+        value = resource_attrs.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
 
 
 def _is_truthy(value: object) -> bool:

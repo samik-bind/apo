@@ -18,6 +18,7 @@ from ...services.project_memberships import (
     list_readable_projects_from_request,
 )
 from ...services.projection_io import hydrate_calls_from_spans
+from ...services.trace_search import SpanFilterError, parse_span_filter
 from ...services.trace_repository import derive_capabilities
 from ...db_helpers import as_column, ensure_utc_datetime
 from ...models import (
@@ -202,6 +203,10 @@ def list_runs(
     min_score: float | None = Query(None, description="Minimum metric score"),
     max_score: float | None = Query(None, description="Maximum metric score"),
     search: str | None = Query(None, description="Search by run_id or external_id"),
+    service: str | None = Query(None, description="Filter traces by service (any span's resource service.name)"),
+    operation: str | None = Query(None, description="Filter traces by span name (exact)"),
+    span_text: str | None = Query(None, description="Free text over span names and span attributes (case-insensitive, ASCII)"),
+    span_filter: str | None = Query(None, description="JSON array of span predicates: [{\"field\": \"attribute:<key>\", \"op\": \"eq|neq|in|not_in|contains|not_contains|starts_with|ends_with|gt|gte|lt|lte|exists|not_exists\", \"value\": ...}]"),
     min_duration_ms: float | None = None,
     max_duration_ms: float | None = None,
     created_after: str | None = Query(None, description="ISO 8601 datetime"),
@@ -221,6 +226,11 @@ def list_runs(
     else:
         allowed_projects = _caller_project_scope(http_request, session)
 
+    try:
+        span_predicates = parse_span_filter(span_filter)
+    except SpanFilterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     return list_run_summaries(
         session,
         RunListFilters(
@@ -234,6 +244,10 @@ def list_runs(
             models=split_csv_param(models),
             tags=tags,
             search=search,
+            service=service,
+            operation=operation,
+            span_text=span_text,
+            span_predicates=parse_span_filter(span_filter),
             metric_name=metric_name,
             min_score=min_score,
             max_score=max_score,

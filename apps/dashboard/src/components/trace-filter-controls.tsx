@@ -36,6 +36,7 @@ import {
   TraceFilters,
   FilterActions,
   TimePreset,
+  SpanPredicate,
   hasActiveFilters,
 } from "@/hooks/use-filters";
 import {
@@ -60,6 +61,7 @@ interface FilterControlsProps {
   availableEnvironments?: string[];
   availableTags?: string[];
   filterOptions?: FilterOptions;
+  spanFieldOptions?: { services?: string[]; operations?: string[] };
 }
 
 /**
@@ -290,12 +292,116 @@ function SearchFilter({
   );
 }
 
+const ATTRIBUTE_OPS: { value: string; label: string }[] = [
+  { value: "eq", label: "=" },
+  { value: "neq", label: "≠" },
+  { value: "contains", label: "contains" },
+  { value: "not_contains", label: "not contains" },
+  { value: "starts_with", label: "starts with" },
+  { value: "ends_with", label: "ends with" },
+  { value: "gt", label: ">" },
+  { value: "gte", label: "≥" },
+  { value: "lt", label: "<" },
+  { value: "lte", label: "≤" },
+  { value: "exists", label: "exists" },
+  { value: "not_exists", label: "not exists" },
+];
+
+/** Attribute predicate rows: free-text key / op select / value (SPEC-190). */
+function AttributePredicates({
+  predicates,
+  onChange,
+}: {
+  predicates: SpanPredicate[];
+  onChange: (next: SpanPredicate[]) => void;
+}) {
+  const update = (index: number, patch: Partial<SpanPredicate>) =>
+    onChange(predicates.map((p, i) => (i === index ? { ...p, ...patch } : p)));
+
+  return (
+    <div className="space-y-2">
+      {predicates.map((predicate, index) => {
+        const op = predicate.op || "eq";
+        const needsValue = op !== "exists" && op !== "not_exists";
+        return (
+          <div key={index} className="flex items-center gap-1">
+            <Input
+              aria-label={`Attribute key ${index + 1}`}
+              placeholder="attribute key"
+              className="h-8 flex-1 text-xs"
+              value={predicate.field.replace(/^attribute:/, "")}
+              onChange={(e) =>
+                update(index, { field: `attribute:${e.target.value}` })
+              }
+            />
+            <Select
+              value={op}
+              onValueChange={(value) => update(index, { op: value })}
+            >
+              <SelectTrigger className="h-8 w-[110px] text-xs" aria-label={`Operator ${index + 1}`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ATTRIBUTE_OPS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {needsValue && (
+              <Input
+                aria-label={`Attribute value ${index + 1}`}
+                placeholder="value"
+                className="h-8 w-24 text-xs"
+                value={String(predicate.value ?? "")}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  const numeric = ["gt", "gte", "lt", "lte"].includes(op);
+                  update(index, {
+                    value: numeric && raw !== "" && !Number.isNaN(Number(raw))
+                      ? Number(raw)
+                      : raw,
+                  });
+                }}
+              />
+            )}
+            <button type="button"
+              aria-label={`Remove attribute filter ${index + 1}`}
+              onClick={() => onChange(predicates.filter((_, i) => i !== index))}
+              className="text-muted-foreground hover:text-destructive"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        );
+      })}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="w-full text-xs"
+        disabled={predicates.length >= 16}
+        onClick={() =>
+          onChange([
+            ...predicates,
+            { field: "attribute:", op: "eq", value: "" },
+          ])
+        }
+      >
+        + Add attribute filter
+      </Button>
+    </div>
+  );
+}
+
 export function TraceFilterControls({
   filters,
   actions,
   availableEnvironments = ["default", "dev", "staging", "production"],
   availableTags,
   filterOptions,
+  spanFieldOptions,
 }: FilterControlsProps) {
   // Track which accordion sections are expanded
   const [expanded, setExpanded] = useState<string[]>(["time", "environment"]);
@@ -311,6 +417,62 @@ export function TraceFilterControls({
   return (
     <div className="space-y-3">
       <SearchFilter value={filters.search} onChange={actions.setSearch} />
+
+      <FilterSection id="span-search" label="Span Search" expanded={expanded} onToggle={toggleExpanded}>
+        <div className="space-y-2">
+          <Input
+            placeholder="Search span names and attributes..."
+            value={filters.span_text || ""}
+            onChange={(e) =>
+              actions.setSpanSearch({ span_text: e.target.value || undefined })
+            }
+            aria-label="Search span names and attributes"
+          />
+          <Select
+            value={filters.service || "all"}
+            onValueChange={(value) =>
+              actions.setSpanSearch({ service: value === "all" ? undefined : value })
+            }
+          >
+            <SelectTrigger aria-label="Filter by service">
+              <SelectValue placeholder="Service" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All services</SelectItem>
+              {(spanFieldOptions?.services ?? []).map((service) => (
+                <SelectItem key={service} value={service}>
+                  {service}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={filters.operation || "all"}
+            onValueChange={(value) =>
+              actions.setSpanSearch({ operation: value === "all" ? undefined : value })
+            }
+          >
+            <SelectTrigger aria-label="Filter by operation">
+              <SelectValue placeholder="Operation" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All operations</SelectItem>
+              {(spanFieldOptions?.operations ?? []).map((operation) => (
+                <SelectItem key={operation} value={operation}>
+                  {operation}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </FilterSection>
+
+      <FilterSection id="attributes" label="Attributes" expanded={expanded} onToggle={toggleExpanded}>
+        <AttributePredicates
+          predicates={filters.span_predicates}
+          onChange={actions.setSpanPredicates}
+        />
+      </FilterSection>
 
       <div className="space-y-1">
         <FilterSection id="time" label="Time Range" expanded={expanded} onToggle={toggleExpanded}>

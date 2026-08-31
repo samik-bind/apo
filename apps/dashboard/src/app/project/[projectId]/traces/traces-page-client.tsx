@@ -36,6 +36,7 @@ interface TracesPageClientProps {
   error?: string | null;
   pagination?: PaginationData;
   filterOptions?: TraceFilterOptions;
+  spanFieldOptions?: { services?: string[]; operations?: string[] };
   sessions?: TraceSessionSummary[];
   sessionsPagination?: PaginationData;
   view?: string;
@@ -83,6 +84,7 @@ export function TracesPageClient({
   error,
   pagination,
   filterOptions,
+  spanFieldOptions,
   sessions,
   sessionsPagination,
   view = "list",
@@ -98,7 +100,7 @@ export function TracesPageClient({
             useFilters (useSearchParams), which needs a boundary above it. The
             table panels keep their own inner boundaries. */}
         <Suspense fallback={null}>
-          <TracesPageLayout filterOptions={filterOptions}>
+          <TracesPageLayout filterOptions={filterOptions} spanFieldOptions={spanFieldOptions}>
             {view === "sessions" && sessions ? (
               <Suspense fallback={null}>
                 <SessionsTablePanel

@@ -1,5 +1,6 @@
 import { getProject } from "@/lib/projects-api";
 import {
+  fetchSpanFieldFacets,
   getTraceFilterOptions,
   listTraces,
   listTraceSessions,
@@ -40,6 +41,10 @@ export default async function TracesPage({
     minScore: queryParams.min_score ? String(queryParams.min_score) : undefined,
     maxScore: queryParams.max_score ? String(queryParams.max_score) : undefined,
     search: queryParams.search ? String(queryParams.search) : undefined,
+    service: queryParams.service ? String(queryParams.service) : undefined,
+    operation: queryParams.operation ? String(queryParams.operation) : undefined,
+    spanText: queryParams.span_text ? String(queryParams.span_text) : undefined,
+    spanFilter: queryParams.span_filter ? String(queryParams.span_filter) : undefined,
     minDurationMs: queryParams.min_duration_ms
       ? String(queryParams.min_duration_ms)
       : undefined,
@@ -67,7 +72,7 @@ export default async function TracesPage({
 
   let canWrite = true;
   try {
-    const [listResult, filterOptions, sessionsData] = await Promise.all([
+    const [listResult, filterOptions, sessionsData, spanFields] = await Promise.all([
       listPromise,
       getTraceFilterOptions(),
       view === "sessions" ? listTraceSessions(
@@ -75,6 +80,7 @@ export default async function TracesPage({
         page,
         pageSize,
       ) : Promise.resolve(null),
+      fetchSpanFieldFacets(projectId),
     ]);
     // Bookmark/delete/export are member-tier writes: viewers never see
     // them (SPEC-188 U3). Best-effort — a failed fetch keeps the affordances.
@@ -95,6 +101,7 @@ export default async function TracesPage({
             totalPages: paginatedData.totalPages,
           } : undefined}
           filterOptions={filterOptions}
+          spanFieldOptions={spanFields ? { services: spanFields.services.map((s) => s.value), operations: spanFields.operations.map((o) => o.value) } : undefined}
           sessions={sessionsData?.data ?? undefined}
           canWrite={canWrite}
           sessionsPagination={sessionsData ? {

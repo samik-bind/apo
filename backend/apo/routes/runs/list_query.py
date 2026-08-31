@@ -46,6 +46,7 @@ from ...models.columns import (
     RUN_METRIC_SCORE_COL,
 )
 from ...services.projection_io import list_read_mode, truncate_preview
+from ...services.trace_search import apply_trace_search
 from .metrics import calculate_run_metrics_from_calls
 
 
@@ -79,6 +80,11 @@ class RunListFilters:
     models: list[str] = field(default_factory=list)
     tags: str | None = None
     search: str | None = None
+    # SPEC-190 span-derived search
+    service: str | None = None
+    operation: str | None = None
+    span_text: str | None = None
+    span_predicates: list[Any] = field(default_factory=list)
     metric_name: str | None = None
     min_score: float | None = None
     max_score: float | None = None
@@ -112,6 +118,15 @@ def list_run_summaries(
     statement = _apply_status_filter(statement, filters.status_values)
     if filters.bookmarked is not None:
         statement = statement.where(RunDB.bookmarked == filters.bookmarked)
+    # SPEC-190: span-derived predicates MUST land before the total_count
+    # subquery below, or pages filter but counts do not.
+    statement = apply_trace_search(
+        statement,
+        service=filters.service,
+        operation=filters.operation,
+        span_text=filters.span_text,
+        predicates=filters.span_predicates,
+    )
 
     total_count = session.exec(
         select(func.count()).select_from(statement.subquery())
@@ -182,10 +197,13 @@ def _apply_attribute_filters(statement: Any, filters: RunListFilters) -> Any:
     if filters.tags:
         statement = apply_tag_filters(statement, filters.tags)
     if filters.search:
+        # Wildcards in the user's text match literally — SQLite LIKE has
+        # no default escape character, so ESCAPE is explicit (SPEC-190).
+        like = f"%{_escape_like_text(filters.search)}%"
         statement = statement.where(
             or_(
-                RUN_ID_COL.like(f"%{filters.search}%"),
-                RUN_EXTERNAL_ID_COL.like(f"%{filters.search}%"),
+                RUN_ID_COL.like(like, escape="\\"),
+                RUN_EXTERNAL_ID_COL.like(like, escape="\\"),
             )
         )
     if filters.min_duration_ms is not None or filters.max_duration_ms is not None:
@@ -417,6 +435,10 @@ def _count_levels(
             elif level_value == "WARNING":
                 warning_count += 1
     return error_count, warning_count
+
+
+def _escape_like_text(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def _fetch_io_previews(

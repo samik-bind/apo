@@ -2,7 +2,7 @@
 
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, func, or_
 from sqlmodel import Session, select
 
@@ -330,3 +330,68 @@ def get_run_facets(
             filtered_ids(metric_name=None) if metric_name else filtered_ids(),
         ),
     )
+
+
+@router.get("/facets/span-fields")
+def get_span_field_facets(
+    http_request: Request,
+    project: str = Query(..., description="Project to facet over"),
+    created_after: str | None = Query(None, description="ISO 8601 datetime (spans' start-time clock)"),
+    created_before: str | None = Query(None, description="ISO 8601 datetime (spans' start-time clock)"),
+    window: str = Query("7d", description="Default window when no dates given: e.g. '7d'; 'all' disables"),
+    span_text: str | None = Query(None, description="Narrows facet counts like the run list's span_text"),
+    limit: int = Query(50, ge=1, le=100),
+    session: Session = Depends(get_session),
+) -> dict[str, list[FacetBucket]]:
+    """Span-derived facet buckets (services, operations) for the filter bar.
+
+    Counts are per distinct trace within the project + window (the spans'
+    start_time clock — the run list filters on runs.created_at, so counts
+    can differ slightly at window edges). A default 7-day window guards
+    the page-load scan; ``window=all`` opts out explicitly.
+    """
+    from datetime import datetime, timedelta, timezone
+    import re as _re
+
+    from ...services.trace_search import span_field_facets
+
+    # Same tenancy scoping as every other trace read.
+    _ = enforce_project_read_from_request(http_request, session, project)
+
+    after: datetime | None = None
+    before: datetime | None = None
+    for raw, label in ((created_after, "created_after"), (created_before, "created_before")):
+        if raw is None:
+            continue
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"invalid {label}: {raw}") from exc
+        if label == "created_after":
+            after = parsed
+        else:
+            before = parsed
+
+    if after is None and before is None:
+        match = _re.fullmatch(r"(\d+)d", window)
+        if window == "all":
+            pass
+        elif match:
+            after = datetime.now(timezone.utc) - timedelta(days=int(match.group(1)))
+        else:
+            raise HTTPException(status_code=400, detail="window must be '<N>d' or 'all'")
+
+    result = span_field_facets(
+        session,
+        project=project,
+        created_after=after,
+        created_before=before,
+        span_text=span_text,
+        limit=limit,
+    )
+    return {
+        "services": [FacetBucket(value=b["value"], count=b["count"]) for b in result["services"]],
+        "operations": [
+            FacetBucket(value=b["value"], count=b["count"]) for b in result["operations"]
+        ],
+    }

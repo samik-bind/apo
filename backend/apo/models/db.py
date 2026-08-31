@@ -153,6 +153,9 @@ class RunDB(SQLModel, table=True):
     __tablename__: ClassVar[str] = "runs"
     __table_args__ = (
         UniqueConstraint("project", "id", name="uq_runs_project_trace"),
+        # SPEC-190: the traces list defaults to unfiltered time — push the
+        # project scan down a created_at-ordered index.
+        Index("ix_runs_project_created", "project", "created_at"),
     )
 
     row_id: int | None = Field(default=None, primary_key=True)
@@ -1740,6 +1743,10 @@ class OtlpSpanDB(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("project_id", "trace_id", "span_id", name="uq_otlp_span"),
         Index("ix_otlp_spans_trace", "project_id", "trace_id"),
+        # SPEC-190: the hottest trace-search filters — service and
+        # operation facets/filters over the single span home.
+        Index("ix_otlp_spans_service", "project_id", "service_name"),
+        Index("ix_otlp_spans_operation", "project_id", "span_name"),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -1750,6 +1757,10 @@ class OtlpSpanDB(SQLModel, table=True):
     start_time: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
     end_time: datetime | None = Field(default=None, sa_column=Column(UTCDateTime))
     span_name: str = Field(default="")
+    # Materialized from resource.attributes["service.name"] at ingest —
+    # the hottest company-wide filter (SPEC-190). NULL on legacy rows
+    # without a derivable service.
+    service_name: str | None = Field(default=None)
     span_kind: int = Field(default=0)
     status_code: int = Field(default=0)
     status_message: str | None = Field(default=None)

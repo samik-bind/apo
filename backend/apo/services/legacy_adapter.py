@@ -275,6 +275,9 @@ def _upsert_canonical_span(
         session.flush()
         return existing
 
+    # No resource on the legacy protocol — derive the search service
+    # from the span's own attribute when present, else NULL (SPEC-190).
+    service = attributes.get("service.name")
     span = OtlpSpanDB(
         project_id=project_id,
         trace_id=trace_id,
@@ -283,6 +286,7 @@ def _upsert_canonical_span(
         start_time=start_time,
         end_time=end_time,
         span_name=span_name,
+        service_name=service if isinstance(service, str) else None,
         attributes=attributes,
         resource={},
         content_policy="legacy",

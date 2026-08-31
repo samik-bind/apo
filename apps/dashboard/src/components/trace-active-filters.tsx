@@ -155,6 +155,73 @@ export function TraceActiveFilters({
     );
   }
 
+  // Span search (SPEC-190)
+  if (filters.service) {
+    chips.push(
+      <FilterChip
+        key="service"
+        icon={<Cpu className="h-3 w-3" />}
+        label={`service: ${filters.service}`}
+        onRemove={() => onRemoveFilter("service")}
+      />
+    );
+  }
+  if (filters.operation) {
+    chips.push(
+      <FilterChip
+        key="operation"
+        icon={<Cpu className="h-3 w-3" />}
+        label={`op: ${filters.operation}`}
+        onRemove={() => onRemoveFilter("operation")}
+      />
+    );
+  }
+  if (filters.span_text) {
+    chips.push(
+      <FilterChip
+        key="span_text"
+        icon={<SearchIcon className="h-3 w-3" />}
+        label={`spans: ${filters.span_text}`}
+        onRemove={() => onRemoveFilter("span_text")}
+      />
+    );
+  }
+  filters.span_predicates.forEach((predicate, index) => {
+    const key = predicate.field.replace(/^attribute:/, "");
+    const opLabel =
+      {
+        eq: "=",
+        neq: "≠",
+        contains: "~",
+        not_contains: "!~",
+        starts_with: "^",
+        ends_with: "$",
+        gt: ">",
+        gte: "≥",
+        lt: "<",
+        lte: "≤",
+        exists: "exists",
+        not_exists: "missing",
+      }[predicate.op] ?? predicate.op;
+    const value =
+      Array.isArray(predicate.value)
+        ? predicate.value.join(",")
+        : String(predicate.value ?? "");
+    chips.push(
+      <FilterChip
+        key={`span-pred-${index}`}
+        icon={<Tag className="h-3 w-3" />}
+        label={`${key} ${opLabel}${value ? ` ${value}` : ""}`}
+        onRemove={() =>
+          onRemoveFilter(
+            "span_predicates",
+            filters.span_predicates.filter((_, i) => i !== index)
+          )
+        }
+      />
+    );
+  });
+
   // Tags
   filters.tags.forEach((tag) => {
     chips.push(

@@ -22,6 +22,7 @@ import { Suspense, useState, type ReactNode, useCallback, useSyncExternalStore }
 export interface TracesPageLayoutProps {
   children: ReactNode;
   filterOptions?: TraceFilterOptions;
+  spanFieldOptions?: { services?: string[]; operations?: string[] };
 }
 
 const CSV_REMOVE_KEYS = ["environment", "status", "user_id", "session_id"];
@@ -78,7 +79,7 @@ function getBasePath(pathname: string | null, fallback: string): string {
   return pathname.replace(/\/traces.*$/, "/traces") || fallback;
 }
 
-function TracesPageLayoutInner({ children, filterOptions }: TracesPageLayoutProps) {
+function TracesPageLayoutInner({ children, filterOptions, spanFieldOptions }: TracesPageLayoutProps) {
   const [filters, actions] = useFilters();
   const router = useRouter();
   const filtersVisible = useFiltersVisible();
@@ -95,6 +96,8 @@ function TracesPageLayoutInner({ children, filterOptions }: TracesPageLayoutProp
       actions.setTags(value);
     } else if (key === "models" && Array.isArray(value)) {
       actions.setModels(value);
+    } else if (key === "span_predicates" && Array.isArray(value)) {
+      actions.setSpanPredicates(value);
     } else if (CSV_REMOVE_KEYS.includes(key as string) && typeof value === "string") {
       const params = new URLSearchParams(window.location.search);
       const paramKey = key;
@@ -139,6 +142,7 @@ function TracesPageLayoutInner({ children, filterOptions }: TracesPageLayoutProp
                 actions={actions}
                 availableEnvironments={["default", "dev", "staging", "production"]}
                 filterOptions={filterOptions}
+                spanFieldOptions={spanFieldOptions}
               />
               <TraceActiveFilters
                 filters={filters}
@@ -180,6 +184,7 @@ function TracesPageLayoutInner({ children, filterOptions }: TracesPageLayoutProp
                   actions={actions}
                   availableEnvironments={["default", "dev", "staging", "production"]}
                   filterOptions={filterOptions}
+                  spanFieldOptions={spanFieldOptions}
                 />
 
                 <TraceActiveFilters

@@ -113,6 +113,10 @@ export interface TraceListParams {
   minScore?: string;
   maxScore?: string;
   search?: string;
+  service?: string;
+  operation?: string;
+  spanText?: string;
+  spanFilter?: string;
   minDurationMs?: string;
   maxDurationMs?: string;
   createdAfter?: string;
@@ -206,6 +210,10 @@ export async function listTraces(
       min_score: params.minScore,
       max_score: params.maxScore,
       search: params.search,
+      service: params.service,
+      operation: params.operation,
+      span_text: params.spanText,
+      span_filter: params.spanFilter,
       min_duration_ms: params.minDurationMs,
       max_duration_ms: params.maxDurationMs,
       created_after: params.createdAfter,
@@ -386,3 +394,27 @@ export const saveCorrection = (
     method: "PATCH",
     body: { corrected_output: correctedOutput },
   });
+
+
+export interface SpanFieldFacets {
+  services: { value: string; count: number }[];
+  operations: { value: string; count: number }[];
+}
+
+/** Span-derived facet buckets (SPEC-190) for the traces filter bar. */
+export async function fetchSpanFieldFacets(
+  projectId: string,
+): Promise<SpanFieldFacets | null> {
+  try {
+    const data = await apiClient<{ services: { value: string; count: number }[]; operations: { value: string; count: number }[] }>(
+      "/v1/runs/facets/span-fields",
+      {
+        ...NO_CACHE,
+        query: { project: projectId },
+      },
+    );
+    return { services: data.services ?? [], operations: data.operations ?? [] };
+  } catch {
+    return null; // Filter bar works without facets; dropdowns just start empty.
+  }
+}

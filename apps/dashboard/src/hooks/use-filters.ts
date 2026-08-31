@@ -23,6 +23,17 @@ export interface TraceFilters {
   search?: string;
   min_duration_ms?: number;
   max_duration_ms?: number;
+  // SPEC-190 span-derived search
+  service?: string;
+  operation?: string;
+  span_text?: string;
+  span_predicates: SpanPredicate[];
+}
+
+export interface SpanPredicate {
+  field: string;
+  op: string;
+  value?: string | number | string[];
 }
 
 export interface FilterActions {
@@ -36,6 +47,8 @@ export interface FilterActions {
   setModels: (models: string[]) => void;
   setMetricFilter: (metricName?: string, minScore?: number, maxScore?: number) => void;
   setSearch: (search: string | undefined) => void;
+  setSpanSearch: (span: Partial<Pick<TraceFilters, "service" | "operation" | "span_text">>) => void;
+  setSpanPredicates: (predicates: SpanPredicate[]) => void;
   setDurationRange: (min?: number, max?: number) => void;
   clearAllFilters: () => void;
   removeFilter: (key: keyof TraceFilters) => void;
@@ -165,6 +178,23 @@ function useFilterCore<Filters extends { timePreset: TimePreset; tags: string[] 
   };
 }
 
+function parseSpanPredicates(raw: string | null): SpanPredicate[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (p): p is SpanPredicate =>
+        typeof p === "object" &&
+        p !== null &&
+        typeof (p as SpanPredicate).field === "string" &&
+        typeof (p as SpanPredicate).op === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
 function parseTraceFilters(searchParams: URLSearchParams): TraceFilters {
   const timePreset = (searchParams.get("timePreset") as TimePreset) || "all";
   const { start, end } = getDatetimeFromPreset(timePreset);
@@ -184,6 +214,10 @@ function parseTraceFilters(searchParams: URLSearchParams): TraceFilters {
     min_score: searchParams.get("min_score") ? Number(searchParams.get("min_score")) : undefined,
     max_score: searchParams.get("max_score") ? Number(searchParams.get("max_score")) : undefined,
     search: searchParams.get("search") || undefined,
+    service: searchParams.get("service") || undefined,
+    operation: searchParams.get("operation") || undefined,
+    span_text: searchParams.get("span_text") || undefined,
+    span_predicates: parseSpanPredicates(searchParams.get("span_filter")),
     min_duration_ms: searchParams.get("min_duration_ms")
       ? Number(searchParams.get("min_duration_ms"))
       : undefined,
@@ -213,6 +247,12 @@ function buildTraceQueryString(filters: TraceFilters): string {
   if (filters.min_score !== undefined) params.set("min_score", filters.min_score.toString());
   if (filters.max_score !== undefined) params.set("max_score", filters.max_score.toString());
   if (filters.search) params.set("search", filters.search);
+  if (filters.service) params.set("service", filters.service);
+  if (filters.operation) params.set("operation", filters.operation);
+  if (filters.span_text) params.set("span_text", filters.span_text);
+  if (filters.span_predicates.length > 0) {
+    params.set("span_filter", JSON.stringify(filters.span_predicates));
+  }
   if (filters.min_duration_ms !== undefined) params.set("min_duration_ms", filters.min_duration_ms.toString());
   if (filters.max_duration_ms !== undefined) params.set("max_duration_ms", filters.max_duration_ms.toString());
 
@@ -225,7 +265,7 @@ export function useFilters(): [filters: TraceFilters, actions: FilterActions] {
     parseFilters: parseTraceFilters,
     buildQueryString: buildTraceQueryString,
     basePath: "/traces",
-    clearState: { timePreset: "all", tags: [], models: [] } as TraceFilters,
+    clearState: { timePreset: "all", tags: [], models: [], span_predicates: [] } as TraceFilters,
     removeFilterOverrides: (key, filters) => {
       if (key === "models") return { ...filters, models: [] };
       if (key === "metric_name") {
@@ -256,6 +296,9 @@ export function useFilters(): [filters: TraceFilters, actions: FilterActions] {
           max_score: maxScore,
         } as Partial<TraceFilters>),
       setSearch: (search) => core.updateFilters({ search } as Partial<TraceFilters>),
+      setSpanSearch: (span) => core.updateFilters(span as Partial<TraceFilters>),
+      setSpanPredicates: (predicates) =>
+        core.updateFilters({ span_predicates: predicates } as Partial<TraceFilters>),
       setDurationRange: (min, max) =>
         core.updateFilters({
           min_duration_ms: min,
@@ -283,6 +326,10 @@ export function hasActiveFilters(filters: TraceFilters): boolean {
     filters.models.length > 0 ||
     (filters.metric_name ?? "") !== "" ||
     (filters.search ?? "") !== "" ||
+    (filters.service ?? "") !== "" ||
+    (filters.operation ?? "") !== "" ||
+    (filters.span_text ?? "") !== "" ||
+    filters.span_predicates.length > 0 ||
     filters.min_duration_ms !== undefined ||
     filters.max_duration_ms !== undefined
   );

@@ -875,6 +875,63 @@ def _migrate_to_v35() -> None:
         _add_column_if_missing(conn, "runs", "preview_call_row_id", "INTEGER")
 
 
+def _add_service_name_column(conn: Connection) -> None:
+    """Conn-taking seam so the v36 column add is unit-testable."""
+    _add_column_if_missing(conn, "otlp_spans", "service_name", "TEXT")
+
+
+def _backfill_service_name(conn: Connection) -> None:
+    """Populate service_name from the stored resource attributes.
+
+    Idempotent: only fills NULL rows. Dialect-specific JSON extraction —
+    the receiver stores ``{"attributes": {...}, ...}``.
+    """
+    columns = _get_column_names(conn, "otlp_spans")
+    if "service_name" not in columns:
+        return
+    if is_sqlite():
+        conn.exec_driver_sql(
+            "UPDATE otlp_spans SET service_name = json_extract("
+            "resource, '$.attributes.\"service.name\"') "
+            "WHERE service_name IS NULL AND resource IS NOT NULL"
+        )
+    else:
+        conn.exec_driver_sql(
+            "UPDATE otlp_spans SET service_name = "
+            "resource->'attributes'->>'service.name' "
+            "WHERE service_name IS NULL AND resource IS NOT NULL"
+        )
+
+
+def _add_search_indexes(conn: Connection) -> None:
+    """Search/facet indexes (SPEC-190): spans by service/operation, runs by window."""
+    _create_index_if_not_exists(
+        conn, "ix_otlp_spans_service", "otlp_spans", "project_id, service_name"
+    )
+    _create_index_if_not_exists(
+        conn, "ix_otlp_spans_operation", "otlp_spans", "project_id, span_name"
+    )
+    _create_index_if_not_exists(
+        conn, "ix_runs_project_created", "runs", "project, created_at"
+    )
+
+
+def _migrate_to_v36() -> None:
+    """Version 36: trace-search substrate (SPEC-190).
+
+    ``otlp_spans.service_name`` (materialized from resource attributes at
+    ingest; backfilled here for stored rows — legacy adapter rows without
+    a derivable service stay NULL and are documented as not
+    service-filterable), plus the service/operation span indexes and the
+    runs project+created_at window index. Additive-only, guarded,
+    re-run safe.
+    """
+    with engine.begin() as conn:
+        _add_service_name_column(conn)
+        _backfill_service_name(conn)
+        _add_search_indexes(conn)
+
+
 def _migrate_test_result_correction_schema(conn: Connection) -> None:
     if "agent_task_test_result_corrections" not in _get_table_names(conn):
         id_type = "TEXT" if is_sqlite() else "VARCHAR"
@@ -2319,7 +2376,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 35
+LATEST_SCHEMA_VERSION = 36
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2357,6 +2414,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     33: _migrate_to_v33,
     34: _migrate_to_v34,
     35: _migrate_to_v35,
+    36: _migrate_to_v36,
 }
 
 

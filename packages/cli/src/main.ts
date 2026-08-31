@@ -330,9 +330,15 @@ const commands: Record<string, CommandEntry> = {
     options: [
       ["--task <id>", "Filter by task id"],
       ["--limit <n>", "Max results (default: 20)"],
+      ["--service <name>", "Filter traces by service (resource service.name)"],
+      ["--operation <name>", "Filter traces by span name (exact)"],
+      ["--span-text <text>", "Free text over span names and attributes"],
+      ["--attr <expr>", "Span attribute predicate, repeatable: key=v, key!=v, key>v, key>=v, key<v, key<=v, key~=v (contains), key? (exists), 'key in a,b'"],
     ],
     examples: [
       "apo traces list --limit 10",
+      "apo traces list --service billing-api --attr http.response.status_code>=500",
+      "apo traces list --attr customer.tier in enterprise,pro --span-text timeout",
     ],
     note: "Requires backend auth. Supports --json.",
   },
