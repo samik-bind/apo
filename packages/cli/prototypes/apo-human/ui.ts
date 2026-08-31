@@ -209,7 +209,8 @@ export async function pickTree<T>(
     const render = () => {
       const rows = flatten();
       cursor = Math.min(Math.max(cursor, 0), rows.length - 1);
-      if (rendered) process.stdout.write(`\x1b[${renderedLines}A`);
+      const prevLines = renderedLines;
+      if (rendered) process.stdout.write(`\x1b[${prevLines}A`);
       renderedLines = 0;
       for (let i = 0; i < rows.length; i++) {
         const r = rows[i];
@@ -227,6 +228,13 @@ export async function pickTree<T>(
         }
         process.stdout.write(`\x1b[2K\r${line}\n`);
         renderedLines++;
+      }
+      // A collapse shrinks the tree: erase the rows the previous, taller
+      // render left below the new last row, or closed children stay painted.
+      const leftover = prevLines - renderedLines;
+      if (rendered && leftover > 0) {
+        for (let i = 0; i < leftover; i++) process.stdout.write("\x1b[2K\x1b[1B");
+        process.stdout.write(`\x1b[${leftover}A`);
       }
       rendered = true;
     };
@@ -350,13 +358,15 @@ function subtreeByKey<T>(node: TreeNode<T>): T[] {
   return (node.children ?? []).flatMap((c) => subtreeByKey(c));
 }
 
-/** Walk to a node's parent by key (flatten() only tracks one level). */
+/** Walk to a node's parent by key (flatten() only tracks one level). A null
+ *  return means both "not found" and "matched at root" — roots have no
+ *  parent either way, so callers treat it as "stop walking". */
 function findParent<T>(nodes: TreeNode<T>[], key: string, parent: TreeNode<T> | null = null): TreeNode<T> | null {
   for (const n of nodes) {
     if (n.key === key) return parent;
     if (n.children) {
       const found = findParent(n.children, key, n);
-      if (found !== null || n.children.some((c) => c.key === key)) return found;
+      if (found) return found;
     }
   }
   return null;
