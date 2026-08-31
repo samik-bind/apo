@@ -49,7 +49,9 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
     if (step === 1) {
       const current = effectiveModel(resolveEnvView(task(shared).path, process.env), shared.selection);
       const result = await pick(
-        bold("step 2/4: model") + dim(`   currently resolves to: ${current ?? "nothing — no model set"}`),
+        bold("step 2/4: model") +
+          dim(`   currently resolves to: ${current ?? "nothing — no model set"}`) +
+          dim("   [esc] back"),
         [
           ...shared.models.map((m) => ({
             label: m.display,
@@ -62,7 +64,7 @@ export async function runWizard(shared: SharedState): Promise<VariantResult> {
       );
       const next = applyPick<ModelChoice>(result);
       if (next === "switch" || next === "quit") return next;
-      if (next === "back") { step = 1; continue; }
+      if (next === "back") { step = 0; continue; }
       if (next.kind === CUSTOM) {
         shared.selection.model = await askText("model id", shared.models[0]?.id ?? "");
       } else if (next.kind === "catalog") {
