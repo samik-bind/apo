@@ -165,8 +165,8 @@ export function envVerdictText(shared: SharedState): string {
     ...rows,
     "",
     ready
-      ? green("Ready — nothing blocking this run.")
-      : yellow("Not ready — fix the ✗ row(s) before running."),
+      ? green("Ready — model and provider key are set, the run can start.")
+      : yellow("Not ready — the run would fail on its first model call. Fix the ✗ row(s)."),
   ].join("\n");
 }
 
