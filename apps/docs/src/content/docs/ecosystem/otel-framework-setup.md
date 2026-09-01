@@ -9,6 +9,12 @@ apo accepts standard OTLP/HTTP traces from any OpenTelemetry-compatible
 instrumentation. No apo-specific SDK is required — just point your existing
 OTel exporter at apo's OTLP endpoint.
 
+This page covers **LLM framework recipes** (OpenAI, Anthropic, Vercel AI
+SDK, LangChain). For plain-service tracing — any OTel-instrumented
+service or a company collector, no agent runs involved — see
+[Send service traces](/guides/send-service-traces); it also covers
+searching by span attributes and per-key ingest quotas.
+
 :::caution[Provider ownership]
 If your application or framework already configures OpenTelemetry, keep that
 provider and add apo's span processor when constructing it. Use the standalone
@@ -253,25 +259,6 @@ sensitive content at the instrumentation source before exporting it.
 
 ## Searching traces
 
-Any traces you send — linked to agent runs or not — are searchable through
-the traces API and the dashboard's filter bar:
-
-```bash
-# Filter by service (resource service.name) and operation (span name)
-curl -u "$PK:$SK" "https://your-apo/v1/runs?project=billing&service=billing-api&operation=psql.query"
-
-# Attribute predicates: two comparison domains — text ops (eq/in/contains/
-# starts_with…) and numeric ops (gt/gte/lt/lte, numeric bounds only)
-curl -u "$PK:$SK" --get "https://your-apo/v1/runs?project=billing"   --data-urlencode 'span_filter=[{"field":"attribute:http.response.status_code","op":"gte","value":500}]'
-
-# Free text over span names and attribute keys/values
-curl -u "$PK:$SK" "https://your-apo/v1/runs?project=billing&span_text=timeout"
-```
-
-Predicates mean "at least one span in the trace matches" (negated ops —
-`neq`, `not_in`, `not_contains`, `not_exists` — mean *no* span matches).
-The CLI compiles the same filters:
-`apo traces list --service billing-api --attr http.response.status_code>=500`.
-
-The filter bar's Service and Operation dropdowns are fed by
-`GET /v1/runs/facets/span-fields` (per-project, 7-day default window).
+Filtering by service, operation, span attributes, and free text — plus
+the CLI equivalents — live in one place:
+[Send service traces → Search](/guides/send-service-traces#_4-search-by-the-services-own-attributes).

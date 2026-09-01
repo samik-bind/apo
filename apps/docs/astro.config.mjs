@@ -44,6 +44,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Define a Task', slug: 'guides/define-a-task' },
 						{ label: 'Run and debug', slug: 'guides/run-and-debug' },
+						{ label: 'Send service traces', slug: 'guides/send-service-traces' },
 						{ label: 'Close the loop', slug: 'guides/loop-engineering' },
 					],
 				},
