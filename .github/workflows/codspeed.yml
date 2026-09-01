@@ -1,0 +1,56 @@
+# CodSpeed benchmarks — measured speedup/regression reports on backend PRs.
+#
+# Dual-use with the normal CI suite: the same files run in smoke mode inside
+# ci.yml's `pytest -x -q`; here they run under `--codspeed` in CodSpeed's
+# simulation mode, which counts CPU instructions so ±% deltas on shared
+# runners are signal instead of noise. Comments land on the PR once a
+# maintainer has connected the repo at codspeed.io and added CODSPEED_TOKEN;
+# until then only the upload step fails.
+#
+# Path-filtered so docs/frontend PRs don't burn runs.
+
+name: CodSpeed
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/apo/**"
+      - "backend/tests/benchmarks/**"
+      - "backend/pyproject.toml"
+      - "backend/uv.lock"
+      - ".github/workflows/codspeed.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/apo/**"
+      - "backend/tests/benchmarks/**"
+      - "backend/pyproject.toml"
+      - "backend/uv.lock"
+      - ".github/workflows/codspeed.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmarks:
+    name: Backend benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        run: pip install uv
+      - name: Sync dependencies
+        working-directory: backend
+        run: uv sync --frozen
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@v5
+        with:
+          mode: simulation
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          run: cd backend && uv run pytest tests/benchmarks --codspeed

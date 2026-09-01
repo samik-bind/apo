@@ -29,6 +29,7 @@ dev = [
   "pytest",
   "basedpyright",
   "pyyaml>=6.0.3",
+  "pytest-codspeed>=4.0",
 ]
 
 [tool.pytest.ini_options]
