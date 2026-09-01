@@ -8,12 +8,14 @@ Keys are SHA256 hashed in storage and only shown once at creation time.
 """
 
 import hashlib
-from datetime import datetime, timezone
+import os
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from ..auth import verify_password
+from ..services.ingest_quota import today_usage
 from ..auth.api_key_auth import generate_key_pair
 from ..auth.api_key_cache import (
     api_key_cache,
@@ -25,12 +27,15 @@ from ..auth.deps import require_api_key_scope
 from ..auth.rate_limit import LoginRateLimiter
 from ..db import get_session
 from ..models.db import ApiKeyDB, ProjectDB, UserDB
+from ..models.db import ApiKeyDailyUsageDB
 from ..models.schemas import (
     ApiKeyBootstrapRequest,
     ApiKeyCreate,
     ApiKeyCreateResponse,
+    ApiKeyPatch,
     ApiKeyResponse,
     ApiKeyRotateResponse,
+    ApiKeyUsageDay,
 )
 from ..services.demo_workspace import require_project_not_demo
 from ..services.project_memberships import (
@@ -172,6 +177,16 @@ def create_api_key(
 
     public_key, secret_key, hashed_secret_key, display_secret_key = generate_key_pair()
 
+    # SPEC-191: explicit body quota wins; otherwise the env default applies
+    # to NEW keys only (existing keys are untouched — bulk-apply in the UI).
+    quota = body.daily_span_quota
+    if quota is None:
+        try:
+            default_quota = int(os.environ.get("APO_DEFAULT_DAILY_SPAN_QUOTA", "0"))
+        except ValueError:
+            default_quota = 0
+        quota = default_quota if default_quota > 0 else None
+
     api_key = ApiKeyDB(
         name=body.name,
         prefix=public_key[:8],
@@ -182,6 +197,7 @@ def create_api_key(
         created_by=user_id,
         scope=scope,
         expires_at=expires_at,
+        daily_span_quota=quota,
     )
     session.add(api_key)
     session.commit()
@@ -194,6 +210,8 @@ def create_api_key(
         project=api_key.project,
         created_by=api_key.created_by,
         scope=api_key.scope,
+        daily_span_quota=api_key.daily_span_quota,
+        ingest_paused=api_key.ingest_paused,
         created_at=api_key.created_at.isoformat(),
         last_used_at=api_key.last_used_at.isoformat() if api_key.last_used_at else None,
         expires_at=api_key.expires_at.isoformat() if api_key.expires_at else None,
@@ -275,6 +293,9 @@ def list_api_keys(
             expires_at=k.expires_at.isoformat() if k.expires_at else None,
             public_key=k.public_key,
             display_secret_key=k.display_secret_key or None,
+            daily_span_quota=k.daily_span_quota,
+            ingest_paused=k.ingest_paused,
+            today_usage=today_usage(session, k.id),
         )
         for k in keys
     ]
@@ -440,8 +461,133 @@ def bootstrap_api_key(
         project=api_key.project,
         created_by=api_key.created_by,
         scope=api_key.scope,
+        daily_span_quota=api_key.daily_span_quota,
+        ingest_paused=api_key.ingest_paused,
         created_at=api_key.created_at.isoformat(),
         last_used_at=api_key.last_used_at.isoformat() if api_key.last_used_at else None,
         expires_at=api_key.expires_at.isoformat() if api_key.expires_at else None,
         key=full_key,
     )
+
+
+@router.patch("/api-keys/{key_id}", response_model=ApiKeyResponse)
+def patch_api_key(
+    key_id: str,
+    body: ApiKeyPatch,
+    request: Request,
+    session: Session = Depends(get_session),
+    _: object = Depends(require_api_key_scope("full")),
+):
+    """Edit a key's ingest guardrails: daily span quota and pause state.
+
+    Same authority as rotate/revoke — project admin via the canonical
+    credential-aware guard (with the legacy-project creator carve-out).
+    Quota is per key (N keys = N x cap); NULL/0 clears it (unlimited).
+    Pause blocks INGEST ONLY — the key keeps reading; rotate is the
+    compromised-key answer.
+    """
+    user_id = _get_user_id(request)
+    api_key = session.get(ApiKeyDB, key_id)
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key not found")
+    require_project_not_demo(api_key.project)
+
+    membership = enforce_project_role_from_request(
+        request, session, api_key.project, minimum_role="admin"
+    )
+    if api_key.created_by != user_id and membership.id.startswith("legacy-"):
+        raise HTTPException(status_code=403, detail="Not authorized to edit this key")
+
+    if body.daily_span_quota is not None:
+        quota = int(body.daily_span_quota)
+        api_key.daily_span_quota = quota if quota > 0 else None
+    if body.ingest_paused is not None:
+        api_key.ingest_paused = bool(body.ingest_paused)
+
+    _invalidate_cache_for_key(api_key)
+    session.add(api_key)
+    session.commit()
+    session.refresh(api_key)
+    return ApiKeyResponse(
+        id=api_key.id,
+        name=api_key.name,
+        prefix=api_key.prefix,
+        project=api_key.project,
+        created_by=api_key.created_by,
+        scope=api_key.scope,
+        created_at=api_key.created_at.isoformat(),
+        last_used_at=api_key.last_used_at.isoformat() if api_key.last_used_at else None,
+        expires_at=api_key.expires_at.isoformat() if api_key.expires_at else None,
+        public_key=api_key.public_key,
+        display_secret_key=api_key.display_secret_key or None,
+        daily_span_quota=api_key.daily_span_quota,
+        ingest_paused=api_key.ingest_paused,
+        today_usage=today_usage(session, api_key.id),
+    )
+
+
+@router.get("/api-keys/usage")
+def api_key_usage(
+    request: Request,
+    project: str = Query(None, description="Filter to one project's keys"),
+    days: int = Query(14, ge=1, le=120),
+    session: Session = Depends(get_session),
+    _: object = Depends(require_api_key_scope("full")),
+):
+    """Per-key daily ingest usage rows (admin, project-scoped).
+
+    Quota context per key is included so the UI can draw bars without a
+    second round-trip.
+    """
+    cutoff_day = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    stmt = select(ApiKeyDB).where(col(ApiKeyDB.project).is_not(None))
+    if project:
+        _ = enforce_project_role_from_request(request, session, project, minimum_role="admin")
+        stmt = stmt.where(ApiKeyDB.project == project)
+    keys = session.exec(stmt).all()
+
+    # Restrict to keys on projects the caller administers when no single
+    # project is pinned (defense in depth; the guard above covers pinned).
+    if not project:
+        allowed: list[str] = []
+        for k in keys:
+            try:
+                _ = enforce_project_role_from_request(request, session, k.project, minimum_role="admin")
+                allowed.append(k.id)
+            except HTTPException:
+                continue
+        keys = [k for k in keys if k.id in allowed]
+
+    key_ids = [k.id for k in keys]
+    rows: list[dict[str, object]] = []
+    if key_ids:
+        usage_rows = session.exec(
+            select(ApiKeyDailyUsageDB)
+            .where(
+                col(ApiKeyDailyUsageDB.api_key_id).in_(key_ids),
+                col(ApiKeyDailyUsageDB.day) >= cutoff_day,
+            )
+            .order_by(col(ApiKeyDailyUsageDB.day))
+        ).all()
+        by_key: dict[str, list[ApiKeyUsageDay]] = {}
+        for u in usage_rows:
+            by_key.setdefault(u.api_key_id, []).append(
+                ApiKeyUsageDay(
+                    day=u.day,
+                    span_count=u.span_count,
+                    byte_count=u.byte_count,
+                    request_count=u.request_count,
+                )
+            )
+        for k in keys:
+            rows.append(
+                {
+                    "key_id": k.id,
+                    "name": k.name,
+                    "project": k.project,
+                    "daily_span_quota": k.daily_span_quota,
+                    "ingest_paused": k.ingest_paused,
+                    "usage": [d.model_dump() for d in by_key.get(k.id, [])],
+                }
+            )
+    return {"keys": rows, "days": days}

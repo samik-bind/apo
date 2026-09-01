@@ -408,6 +408,7 @@ class OtlpReceiver:
         project_immediately: bool = True,
         limits: TelemetryTransportLimits | None = None,
         admission_consume_units: "Callable[[int], object] | None" = None,
+        api_key_id: str | None = None,
     ) -> OtlpReceiverResult:
         """Decode, validate, and persist an OTLP batch.
 
@@ -456,6 +457,8 @@ class OtlpReceiver:
             payload_sha256=payload_hash,
             payload=payload_str,
             status="processing",
+            api_key_id=api_key_id,
+            payload_bytes=len(payload),
         )
         session.add(batch)
         session.flush()

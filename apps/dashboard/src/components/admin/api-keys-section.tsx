@@ -14,7 +14,7 @@ import { listProjects, type Project } from "@/lib/projects-api"
 import { ApiKeyRevealDialog, type ApiKeyRevealPayload } from "@/components/api-key-created-dialog"
 import { ApiKeyCreateDialog } from "@/components/admin/api-key-create-dialog"
 import { ApiKeyRow } from "@/components/admin/api-key-row"
-import { KeyRound, Loader2, Plus, RefreshCw, ChevronDown } from "lucide-react"
+import { Check, Copy, KeyRound, Loader2, Plus, RefreshCw, ChevronDown } from "lucide-react"
 
 type RevealState = { payload: ApiKeyRevealPayload; action: "created" | "rotated" } | null
 
@@ -188,6 +188,8 @@ export function ApiKeysSection() {
         </div>
       </div>
 
+      <ConnectServiceCard />
+
       <div className="overflow-hidden border bg-card">
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -203,6 +205,7 @@ export function ApiKeysSection() {
                 apiKey={key}
                 onRotate={handleRotate}
                 onRevoke={handleRevoke}
+                onGuardrailsChanged={fetchKeys}
               />
             ))}
           </ul>
@@ -251,5 +254,67 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
         Create your first key
       </Button>
     </div>
+  )
+}
+
+
+function CopyLine({ label, code }: { label: string; code: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-label={`Copy ${label}`}
+          onClick={() => {
+            navigator.clipboard.writeText(code)
+            setCopied(true)
+            toast.success("Copied")
+            setTimeout(() => setCopied(false), 1500)
+          }}
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        </Button>
+      </div>
+      <pre className="overflow-x-auto rounded border bg-muted/50 p-2 font-mono text-xs leading-relaxed">
+        <code>{code}</code>
+      </pre>
+    </div>
+  )
+}
+
+function ConnectServiceCard() {
+  const [origin, setOrigin] = useState("")
+  useEffect(() => setOrigin(window.location.origin), [])
+  if (!origin) return null
+  const endpoint = `${origin}/api/public/otel/v1/traces`
+  return (
+    <section className="border bg-card p-4" aria-label="Connect a service">
+      <h3 className="text-sm font-semibold">Connect a service</h3>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        Point any OpenTelemetry SDK at apo with an ingest-scope key (create one above —
+        quota is per key). Traces appear on the Traces page, no agent runs needed.
+      </p>
+      <div className="mt-3 grid gap-3">
+        <CopyLine label="OTLP endpoint" code={endpoint} />
+        <CopyLine
+          label="Python (opentelemetry-exporter-otlp-proto-http)"
+          code={`from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+import base64
+
+auth = "Basic " + base64.b64encode(b"<pk-apo-...>:<sk-apo-...>").decode()
+exporter = OTLPSpanExporter(endpoint="${endpoint}", headers={"Authorization": auth})`}
+        />
+        <CopyLine
+          label="curl"
+          code={`curl -u "<pk-apo-...>:<sk-apo-...>" ${endpoint} \
+  -H "Content-Type: application/json" \
+  -d '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"my-service"}}]},"scopeSpans":[{"scope":{},"spans":[{"traceId":"<32-hex>","spanId":"<16-hex>","name":"hello"}]}]}]}'`}
+        />
+      </div>
+    </section>
   )
 }

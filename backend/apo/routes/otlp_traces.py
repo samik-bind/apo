@@ -25,6 +25,7 @@ from ..auth.deps import require_api_key_scope
 from ..db import get_session
 from ..middleware.telemetry_admission import rate_limit_response
 from ..models.db import ProjectDB
+from ..services.ingest_quota import enforce_ingest_guardrails, record_ingest_usage
 from ..services.otlp_receiver import (
     OtlpDecodeError,
     OtlpReceiver,
@@ -123,7 +124,10 @@ async def receive_otlp_traces(
     receiver = OtlpReceiver()
 
     # consume one unit per decoded Span, before any persistence.
+    # SPEC-191: the same hook enforces the per-key daily quota / pause —
+    # post-decode, pre-durable-write, with the decoded span count.
     def _consume_units(count: int) -> None:
+        enforce_ingest_guardrails(request, session, pending_spans=count)
         if identity is not None and controller is not None:
             unit_rejection = controller.consume_units(identity, count)
             if unit_rejection is not None:
@@ -149,6 +153,7 @@ async def receive_otlp_traces(
             project_immediately=False,
             limits=limits,
             admission_consume_units=_consume_units,
+            api_key_id=getattr(request.state, "api_key_id", None),
         )
     except OtlpDecodeError as exc:
         return _otlp_error_response(content_type, 400, str(exc))
@@ -158,6 +163,16 @@ async def receive_otlp_traces(
         return rate_limit_response(exc.rejection)
 
     partial = _build_partial_success(result.rejected, result.errors)
+
+    # SPEC-191 usage accounting — AFTER the inbox commit, non-fatal by
+    # design: a failed counter must never turn an accepted batch into a
+    # 500 (the SDK would retry and re-send).
+    record_ingest_usage(
+        session,
+        getattr(request.state, "api_key_id", None),
+        spans=result.accepted,
+        bytes_=len(body),
+    )
 
     # projection runs asynchronously so the OTLP response returns
     # immediately after the inbox commit. We process just the batch we accepted

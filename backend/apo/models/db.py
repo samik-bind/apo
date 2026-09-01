@@ -1001,6 +1001,10 @@ class ApiKeyDB(SQLModel, table=True):
     scope: str = Field(default="full")
     expires_at: datetime | None = Field(default=None)
     last_used_at: datetime | None = Field(default=None)
+    # SPEC-191 ingest guardrails. Quota is PER KEY (N keys = N x cap) and
+    # guards against accidents, not adversarial senders. NULL = unlimited.
+    daily_span_quota: int | None = Field(default=None)
+    ingest_paused: bool = Field(default=False)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(UTCDateTime, server_default=func.now()),
@@ -1698,6 +1702,24 @@ class GithubConnectionDB(SQLModel, table=True):
 # ============================================================================
 
 
+class ApiKeyDailyUsageDB(SQLModel, table=True):
+    """Per-key daily ingest usage (SPEC-191). One row per (key, UTC day),
+    UPSERT-incremented at accept time by the ingest routes. Tiny rows;
+    reaped by the maintenance pass past APO_USAGE_RETENTION_DAYS."""
+
+    __tablename__: ClassVar[str] = "api_key_daily_usage"
+
+    api_key_id: str = Field(foreign_key="api_keys.id", primary_key=True)
+    day: str = Field(primary_key=True)  # "YYYY-MM-DD" (UTC)
+    span_count: int = Field(default=0)
+    byte_count: int = Field(default=0)
+    request_count: int = Field(default=0)
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(UTCDateTime, server_default=func.now()),
+    )
+
+
 class OtlpIngestBatchDB(SQLModel, table=True):
     """Durable inbox record for a received OTLP batch.
 
@@ -1726,6 +1748,11 @@ class OtlpIngestBatchDB(SQLModel, table=True):
     )
     status: str = Field(default="accepted", index=True)
     error_message: str | None = Field(default=None)
+    # SPEC-191 audit linkage: which key accepted this batch and how big it
+    # was on the wire. Usage accounting happens route-side; these make the
+    # history reconstructable straight from the inbox.
+    api_key_id: str | None = Field(default=None, index=True)
+    payload_bytes: int = Field(default=0)
 
 
 class OtlpSpanDB(SQLModel, table=True):

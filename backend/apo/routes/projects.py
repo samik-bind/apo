@@ -620,10 +620,34 @@ async def get_project_onboarding_status(
             valid_public_url = f"{parsed.scheme}://{parsed.netloc}"
     except ValueError:
         valid_public_url = None
+    # SPEC-191 service-tracing onboarding signals: the OTLP endpoint and
+    # whether an ingest-scope key exists (booleans + URL only — never key
+    # material). has_traces distinguishes "no traces yet" from "filters
+    # matched nothing" for the traces page's connect-a-service CTA.
+    from ..models.db import ApiKeyDB, RunDB
+
+    has_ingest_key = (
+        session.exec(
+            select(func.count())
+            .select_from(ApiKeyDB)
+            .where(ApiKeyDB.project == project_id, ApiKeyDB.scope == "ingest")
+        ).one()
+        > 0
+    )
+    trace_count = session.exec(
+        select(func.count()).select_from(RunDB).where(RunDB.project == project_id)
+    ).one()
     return {
         "published_task_count": int(published),
         "recorded_run_count": int(recorded),
         "public_url": valid_public_url,
+        "otel_endpoint": (
+            f"{valid_public_url}/api/public/otel/v1/traces"
+            if valid_public_url
+            else None
+        ),
+        "has_ingest_key": bool(has_ingest_key),
+        "has_traces": int(trace_count) > 0,
     }
 
 

@@ -46,6 +46,7 @@ interface CreateKeyFormState {
   project: string
   scope: ApiKeyScope
   expiresAt: string
+  quota: string
   creating: boolean
 }
 
@@ -54,6 +55,7 @@ type CreateKeyFormAction =
   | { type: "PROJECT_SET"; project: string }
   | { type: "SCOPE_SET"; scope: ApiKeyScope }
   | { type: "EXPIRES_AT_SET"; expiresAt: string }
+  | { type: "QUOTA_SET"; quota: string }
   | { type: "RESET"; project: string }
   | { type: "CREATING_SET"; creating: boolean }
 
@@ -66,6 +68,7 @@ function createInitialFormState(project: string): CreateKeyFormState {
     // administrative choice.
     scope: "ingest",
     expiresAt: "",
+    quota: "",
     creating: false,
   }
 }
@@ -83,6 +86,8 @@ function createKeyFormReducer(
       return { ...state, scope: action.scope }
     case "EXPIRES_AT_SET":
       return { ...state, expiresAt: action.expiresAt }
+    case "QUOTA_SET":
+      return { ...state, quota: action.quota }
     case "RESET":
       return createInitialFormState(action.project)
     case "CREATING_SET":
@@ -106,7 +111,7 @@ export function ApiKeyCreateDialog({
     initialProject,
     createInitialFormState,
   )
-  const { name, project, scope, expiresAt, creating } = form
+  const { name, project, scope, expiresAt, quota, creating } = form
 
   const hasProjects = projects.length > 0
 
@@ -122,11 +127,13 @@ export function ApiKeyCreateDialog({
     if (!hasProjects || !project) return
     dispatch({ type: "CREATING_SET", creating: true })
     try {
+      const trimmedQuota = quota.trim()
       const result = await createApiKey(
         name.trim() || "Default",
         project,
         scope,
         expiresAt ? new Date(expiresAt).toISOString() : undefined,
+        trimmedQuota === "" ? null : Number(trimmedQuota),
       )
       onCreated(result)
       onOpenChange(false)
@@ -189,7 +196,7 @@ export function ApiKeyCreateDialog({
               <option value="full">Full access — CLI and management</option>
             </select>
           </div>
-          <div className="flex flex-col gap-1.5 sm:col-span-2">
+          <div className="flex flex-col gap-1.5">
             <Label htmlFor="api-key-expires">Expires (optional)</Label>
             <Input
               id="api-key-expires"
@@ -197,6 +204,19 @@ export function ApiKeyCreateDialog({
               value={expiresAt}
               onChange={(e) => dispatch({ type: "EXPIRES_AT_SET", expiresAt: e.target.value })}
             />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="api-key-quota">Daily span quota (optional)</Label>
+            <Input
+              id="api-key-quota"
+              inputMode="numeric"
+              placeholder="unlimited"
+              value={quota}
+              onChange={(e) => dispatch({ type: "QUOTA_SET", quota: e.target.value })}
+            />
+            <span className="text-[11px] text-muted-foreground">
+              Accepted spans per UTC day, per key. Over-quota gets 429 until midnight UTC.
+            </span>
           </div>
 
           <DialogFooter className="sm:col-span-2">

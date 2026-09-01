@@ -228,7 +228,9 @@ container required. The optional `s3` backend keeps the same server API.
 | `APO_ARTIFACT_MAX_ITEM_BYTES` | `104857600` | 100 MiB per Artifact. |
 | `APO_ARTIFACT_MAX_RUN_BYTES` | `524288000` | 500 MiB ready+pending per Task Run. |
 | `APO_ARTIFACT_UPLOAD_TTL_SECONDS` | `86400` | Pending-upload expiry (orphan cleanup). |
-| `APO_ARTIFACT_ORPHAN_GRACE_HOURS` | `48` | The daily pass reaps artifact-store objects no manifest row references (crash orphans). Objects younger than this grace are left alone; `staging/*.part` files are never touched. |
+| `APO_ARTIFACT_ORPHAN_GRACE_HOURS` | `48` |
+| `APO_DEFAULT_DAILY_SPAN_QUOTA` | `0` | Default accepted-spans/day quota applied to NEWLY MINTED API keys. `0` = unlimited. Existing keys are untouched — edit per key (Settings → API Keys) or bulk-apply there. Quota is per key (N keys = N × cap) and resets at UTC midnight; over-quota ingest gets 429. |
+| `APO_USAGE_RETENTION_DAYS` | `400` | Days to keep per-key daily ingest-usage rows. `0` = keep forever. | The daily pass reaps artifact-store objects no manifest row references (crash orphans). Objects younger than this grace are left alone; `staging/*.part` files are never touched. |
 | `APO_S3_BUCKET` | — | Required for S3 writes. |
 | `APO_S3_REGION` | — | Optional; provider default otherwise. |
 | `APO_S3_ENDPOINT_URL` | — | S3-compatible endpoint (R2, MinIO, Backblaze). |

@@ -1,9 +1,11 @@
 """Telemetry admission middleware and protected-route registry.
 
 The registry classifies exact method/path pairs as protected telemetry writes.
-The middleware (wired after AuthMiddleware, before RequestSizeMiddleware)
-derives a stable internal identity, consumes request tokens, acquires a
-concurrency lease, and returns a 429 rate-limit response on rejection.
+The middleware (wired INSIDE AuthMiddleware so request.state is populated
+when the identity is derived; RequestSize and SecurityHeaders sit outside
+both) derives a stable internal identity from the authenticated caller,
+consumes request tokens, acquires a concurrency lease, and returns a 429
+rate-limit response on rejection.
 """
 
 # pyright: reportImplicitOverride=false, reportUnannotatedClassAttribute=false

@@ -932,6 +932,53 @@ def _migrate_to_v36() -> None:
         _add_search_indexes(conn)
 
 
+def _add_ingest_guardrail_columns(conn: Connection) -> None:
+    """Conn-taking seam: ApiKeyDB quota/pause columns."""
+    _add_column_if_missing(conn, "api_keys", "daily_span_quota", "INTEGER")
+    _add_column_if_missing(conn, "api_keys", "ingest_paused", "BOOLEAN NOT NULL DEFAULT 0")
+
+
+def _add_ingest_audit_columns(conn: Connection) -> None:
+    """Conn-taking seam: inbox audit linkage columns."""
+    _add_column_if_missing(conn, "otlp_ingest_batches", "api_key_id", "TEXT")
+    _add_column_if_missing(conn, "otlp_ingest_batches", "payload_bytes", "INTEGER NOT NULL DEFAULT 0")
+    _create_index_if_not_exists(conn, "ix_batches_api_key", "otlp_ingest_batches", "api_key_id")
+
+
+def _create_usage_table(conn: Connection) -> None:
+    """Conn-taking seam: per-key daily usage rollup."""
+    if "api_key_daily_usage" in _get_table_names(conn):
+        return
+    timestamp_type = "DATETIME" if is_sqlite() else "TIMESTAMPTZ"
+    conn.exec_driver_sql(
+        f"""
+        CREATE TABLE api_key_daily_usage (
+            api_key_id VARCHAR(20) NOT NULL REFERENCES api_keys(id),
+            day VARCHAR(10) NOT NULL,
+            span_count INTEGER NOT NULL DEFAULT 0,
+            byte_count INTEGER NOT NULL DEFAULT 0,
+            request_count INTEGER NOT NULL DEFAULT 0,
+            updated_at {timestamp_type} NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (api_key_id, day)
+        )
+        """
+    )
+
+
+def _migrate_to_v37() -> None:
+    """Version 37: ingest guardrails (SPEC-191).
+
+    api_keys.daily_span_quota / ingest_paused, the api_key_daily_usage
+    rollup table, and inbox audit columns (api_key_id, payload_bytes).
+    Additive-only, no backfill — per-key usage starts counting at deploy
+    and history rows keep payload_bytes=0.
+    """
+    with engine.begin() as conn:
+        _add_ingest_guardrail_columns(conn)
+        _add_ingest_audit_columns(conn)
+        _create_usage_table(conn)
+
+
 def _migrate_test_result_correction_schema(conn: Connection) -> None:
     if "agent_task_test_result_corrections" not in _get_table_names(conn):
         id_type = "TEXT" if is_sqlite() else "VARCHAR"
@@ -2376,7 +2423,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 36
+LATEST_SCHEMA_VERSION = 37
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2415,6 +2462,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     34: _migrate_to_v34,
     35: _migrate_to_v35,
     36: _migrate_to_v36,
+    37: _migrate_to_v37,
 }
 
 

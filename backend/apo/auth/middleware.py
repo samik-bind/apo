@@ -102,7 +102,7 @@ _COMPARISON_CARD_RE = re.compile(
 )
 
 _warned_no_secret = False
-AuthContextValue: TypeAlias = str | bool | int
+AuthContextValue: TypeAlias = str | bool | int | None
 AuthContext: TypeAlias = dict[str, AuthContextValue]
 
 # Anonymous demo visitors (SPEC-188): when no credential is present and the
@@ -413,6 +413,10 @@ def _authenticate_basic(public_key: str, secret_key: str) -> AuthContext | None:
             "auth_method": "api_key",
             "api_key_scope": api_key.scope,
             "api_key_id": api_key.id,
+            # SPEC-191 ingest guardrails — read from the cached row so the
+            # existing key-cache invalidation covers quota/pause edits.
+            "api_key_daily_quota": api_key.daily_span_quota,
+            "api_key_ingest_paused": api_key.ingest_paused,
         }
 
 
@@ -469,6 +473,10 @@ def _authenticate_bearer(token: str) -> AuthContext | None:
             "auth_method": "api_key",
             "api_key_scope": api_key.scope,
             "api_key_id": api_key.id,
+            # SPEC-191 ingest guardrails — read from the cached row so the
+            # existing key-cache invalidation covers quota/pause edits.
+            "api_key_daily_quota": api_key.daily_span_quota,
+            "api_key_ingest_paused": api_key.ingest_paused,
         }
 
 

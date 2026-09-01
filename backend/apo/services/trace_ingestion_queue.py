@@ -246,9 +246,9 @@ class DbBackedQueue:
 class QueueWorker:
     """Processes batches from the ingestion queue.
 
-    Claims a batch, replays its raw OTLP payload through the receiver pipeline
-    (canonical span persistence + normalization + projection), and marks it
-    complete or failed.
+    Claims a batch and projects its already-persisted canonical spans
+    through the projector (the receiver ran at accept time; this path never
+    re-enters it), then marks the batch complete or failed.
 
     The worker is designed to run in the FastAPI process (background task or
     polling loop) for simple deployments. For production, it can run as a

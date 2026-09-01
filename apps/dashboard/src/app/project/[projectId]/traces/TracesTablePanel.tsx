@@ -79,6 +79,9 @@ interface TracesTablePanelProps {
   pagination?: PaginationData;
   /** Member-tier trace writes (bookmark/delete/export) render only when allowed. */
   canWrite?: boolean;
+  /** Whether the project has EVER had traces (onboarding-status). Distinguishes
+   *  "connect a service" from "filters matched nothing" in the empty state. */
+  hasTraces?: boolean;
 }
 
 const autoRefreshOptions = [
@@ -428,7 +431,8 @@ function TracesTableContent({
   );
 }
 
-export function TracesTablePanel({ projectId, traces, error, pagination, canWrite = true }: TracesTablePanelProps) {
+export function TracesTablePanel({
+  hasTraces = true, projectId, traces, error, pagination, canWrite = true }: TracesTablePanelProps) {
   const isDemo = useIsDemo();
   // Read-only visitors (demo, viewer role) get no write affordances at all.
   const readOnlyVisitor = isDemo || !canWrite;
@@ -676,8 +680,22 @@ export function TracesTablePanel({ projectId, traces, error, pagination, canWrit
         <div className="p-6">
           <Card className="border-dashed border-border/60 bg-card/60">
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              No traces found. Recorded task runs produce a trace automatically
-              — run a task from the Tasks page, or clear the filters above.
+              {hasTraces ? (
+                <>No traces match the current filters — clear them above.</>
+              ) : (
+                <div className="space-y-3">
+                  <p>
+                    No traces yet. Recorded task runs produce a trace automatically,
+                    or point any OpenTelemetry SDK at apo with an ingest key.
+                  </p>
+                  <a
+                    href="/settings/api-keys"
+                    className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+                  >
+                    Connect a service →
+                  </a>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

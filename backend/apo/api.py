@@ -159,9 +159,14 @@ def create_app() -> FastAPI:
     app.state.public_readiness_probe = PublicReadinessProbe()
 
     # Middleware execution order (outer → inner):
-    #   SecurityHeaders → Auth → TelemetryAdmission → RequestSize → CORS → router
-    app.add_middleware(AuthMiddleware)
+    #   SecurityHeaders → RequestSize → Auth → TelemetryAdmission → CORS → router
+    # Starlette's add_middleware is last-added-outermost, so TelemetryAdmission
+    # is added AFTER Auth here to run INSIDE it — admission identities are
+    # derived from request.state that Auth populates. (Before SPEC-191 the
+    # order was inverted and every authenticated sender bucketed as
+    # "open-dev" in the rate limiter.)
     app.add_middleware(TelemetryAdmissionMiddleware, controller=admission_controller)
+    app.add_middleware(AuthMiddleware)
     app.add_middleware(RequestSizeMiddleware, otlp_limits=transport_limits)
     app.add_middleware(SecurityHeadersMiddleware)
 

@@ -1253,6 +1253,9 @@ class ApiKeyCreate(SQLModel):
     project: str = "example-service"
     scope: Literal["full", "ingest"] = "ingest"
     expires_at: str | None = None
+    # SPEC-191: accepted spans/day this key may ingest (NULL/0 = unlimited).
+    # Quota is PER KEY — N keys = N x cap.
+    daily_span_quota: int | None = None
 
 
 class ApiKeyBootstrapRequest(SQLModel):
@@ -1278,6 +1281,26 @@ class ApiKeyResponse(SQLModel):
     # Two-key model fields
     public_key: str | None = None
     display_secret_key: str | None = None
+    # SPEC-191 guardrails (quota is per key: N keys = N x cap)
+    daily_span_quota: int | None = None
+    ingest_paused: bool = False
+    today_usage: dict[str, object] | None = None
+
+
+class ApiKeyPatch(SQLModel):
+    """Body of ``PATCH /v1/api-keys/{id}`` — ingest guardrail edits."""
+
+    daily_span_quota: int | None = None
+    ingest_paused: bool | None = None
+
+
+class ApiKeyUsageDay(SQLModel):
+    """One day of per-key ingest usage."""
+
+    day: str
+    span_count: int
+    byte_count: int
+    request_count: int
 
 
 class ApiKeyCreateResponse(ApiKeyResponse):

@@ -179,6 +179,12 @@ async def langfuse_ingestion(
     route-authorized Project (credential binding or session membership) —
     a body Project never authorizes the write.
     """
+    # SPEC-191 guardrails — BEFORE the per-event loop (per-event except
+    # blocks would swallow enforcement into 200-with-errors).
+    from ..services.ingest_quota import enforce_ingest_guardrails, record_ingest_usage
+
+    enforce_ingest_guardrails(http_request, db, pending_spans=len(request.batch))
+
     results: list[LangfuseIngestionResult] = []
 
     for event in request.batch:
@@ -221,6 +227,13 @@ async def langfuse_ingestion(
             results.append(LangfuseIngestionResult(id=event.id, status=500))
 
     db.commit()
+
+    record_ingest_usage(
+        db,
+        getattr(http_request.state, "api_key_id", None),
+        spans=sum(1 for r in results if r.status == 200),
+        bytes_=0,
+    )
     return {"results": [r.model_dump() for r in results]}
 
 

@@ -37,6 +37,7 @@ interface TracesPageClientProps {
   pagination?: PaginationData;
   filterOptions?: TraceFilterOptions;
   spanFieldOptions?: { services?: string[]; operations?: string[] };
+  hasTraces?: boolean;
   sessions?: TraceSessionSummary[];
   sessionsPagination?: PaginationData;
   view?: string;
@@ -79,6 +80,7 @@ function TraceSelectionUrlSync() {
 }
 
 export function TracesPageClient({
+  hasTraces = true,
   projectId,
   traces,
   error,
@@ -122,6 +124,7 @@ export function TracesPageClient({
                   error={error}
                   pagination={pagination}
                   canWrite={canWrite}
+                  hasTraces={hasTraces}
                 />
               </Suspense>
             )}

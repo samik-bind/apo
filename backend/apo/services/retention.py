@@ -322,6 +322,38 @@ def reap_expired_credentials(session: Session) -> int:
     return deleted
 
 
+USAGE_RETENTION_DAYS_ENV = "APO_USAGE_RETENTION_DAYS"
+DEFAULT_USAGE_RETENTION_DAYS = 400
+
+
+def usage_retention_days() -> int:
+    value = os.environ.get(USAGE_RETENTION_DAYS_ENV, "")
+    try:
+        days = int(value)
+    except ValueError:
+        days = DEFAULT_USAGE_RETENTION_DAYS
+    return max(days, 0)
+
+
+def reap_old_usage_rows(session: Session, cutoff_day: str) -> int:
+    """Delete per-key usage rollup rows older than the retention window.
+
+    Rows are tiny; 0 = keep forever (matching apo's other retention-knob
+    semantics). Days are compared as YYYY-MM-DD strings — lexicographic
+    order equals chronological order for zero-padded ISO dates.
+    """
+    if not table_exists(session, "api_key_daily_usage"):
+        return 0
+    result = cast(
+        CursorResult[Any],
+        session.execute(
+            text("DELETE FROM api_key_daily_usage WHERE day < :c"),
+            {"c": cutoff_day},
+        ),
+    )
+    return result.rowcount or 0
+
+
 # Grace window before an unreferenced Task Definition Revision is reaped.
 # Revisions are content-addressed and shared; one still referenced by any
 # run (verdict provenance), judgment (judgment provenance), or the task
@@ -1178,6 +1210,10 @@ def run_maintenance_cleanup() -> dict[str, int]:
             cleanup_expired_artifact_uploads(session)
         ).get("failed_uploads", 0)
         summary["expired_tokens"] = reap_expired_credentials(session)
+        usage_days = usage_retention_days()
+        if usage_days > 0:
+            cutoff_day = (now - timedelta(days=usage_days)).strftime("%Y-%m-%d")
+            summary["reaped_usage_rows"] = reap_old_usage_rows(session, cutoff_day)
         summary["unreferenced_revisions"] = reap_unreferenced_task_definition_revisions(
             session, now - timedelta(days=UNREFERENCED_REVISION_GRACE_DAYS)
         )

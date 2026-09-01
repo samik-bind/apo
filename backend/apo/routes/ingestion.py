@@ -60,6 +60,12 @@ async def batch_ingestion(
     Returns success count and error details for any failed events.
     One failed event doesn't fail the entire batch.
     """
+    # SPEC-191 guardrails — BEFORE the per-event loop (the loop's
+    # except-per-event would swallow enforcement into 200-with-errors).
+    from ..services.ingest_quota import enforce_ingest_guardrails, record_ingest_usage
+
+    enforce_ingest_guardrails(request, session, pending_spans=len(payload.batch))
+
     _validate_service_token_batch(request, payload)
 
     processed = 0
@@ -106,6 +112,12 @@ async def batch_ingestion(
 
     session.commit()
 
+    record_ingest_usage(
+        session,
+        getattr(request.state, "api_key_id", None),
+        spans=processed,
+        bytes_=0,
+    )
     return IngestionResponse(processed=processed, errors=errors)
 
 

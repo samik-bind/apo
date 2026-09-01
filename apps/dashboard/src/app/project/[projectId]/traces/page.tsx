@@ -1,3 +1,4 @@
+import { apiClient } from "@/lib/api-client";
 import { getProject } from "@/lib/projects-api";
 import {
   fetchSpanFieldFacets,
@@ -6,6 +7,18 @@ import {
   listTraceSessions,
   type PaginatedTraceSummary,
 } from "@/lib/traces-api";
+
+async function projectHasTraces(projectId: string): Promise<boolean> {
+  try {
+    const resp = await apiClient<{ has_traces?: boolean }>(
+      `/v1/projects/${projectId}/onboarding-status`,
+      { cache: "no-store" },
+    );
+    return Boolean(resp.has_traces);
+  } catch {
+    return true; // On fetch failure, default to the copy-only empty state.
+  }
+}
 import { TracesPageClient } from "./traces-page-client";
 
 export const dynamic = "force-dynamic";
@@ -72,7 +85,7 @@ export default async function TracesPage({
 
   let canWrite = true;
   try {
-    const [listResult, filterOptions, sessionsData, spanFields] = await Promise.all([
+    const [listResult, filterOptions, sessionsData, spanFields, hasTraces] = await Promise.all([
       listPromise,
       getTraceFilterOptions(),
       view === "sessions" ? listTraceSessions(
@@ -81,6 +94,7 @@ export default async function TracesPage({
         pageSize,
       ) : Promise.resolve(null),
       fetchSpanFieldFacets(projectId),
+      projectHasTraces(projectId),
     ]);
     // Bookmark/delete/export are member-tier writes: viewers never see
     // them (SPEC-188 U3). Best-effort — a failed fetch keeps the affordances.
@@ -102,6 +116,7 @@ export default async function TracesPage({
           } : undefined}
           filterOptions={filterOptions}
           spanFieldOptions={spanFields ? { services: spanFields.services.map((s) => s.value), operations: spanFields.operations.map((o) => o.value) } : undefined}
+          hasTraces={hasTraces}
           sessions={sessionsData?.data ?? undefined}
           canWrite={canWrite}
           sessionsPagination={sessionsData ? {
