@@ -306,18 +306,28 @@ export async function pickTree<T>(
           return;
         }
         case "return":
-        case "enter":
+        case "enter": {
           if (!row) return;
-          if (row.isFolder) {
-            if (expanded.has(row.node.key)) expanded.delete(row.node.key);
-            else expanded.add(row.node.key);
+          // Enter always advances: a closed folder opens; anything else
+          // proceeds — an open folder confirms its subtree, a leaf confirms
+          // the selection. Closing folders is ←/h's job.
+          if (row.isFolder && !expanded.has(row.node.key)) {
+            expanded.add(row.node.key);
             render();
-          } else if (opts.single) {
-            finish({ kind: "pick", value: [row.node.value!] });
+            return;
+          }
+          if (opts.single) {
+            if (row.node.value !== undefined) {
+              finish({ kind: "pick", value: [row.node.value] });
+            } else {
+              const firstLeaf = subtreeByKey(row.node)[0];
+              if (firstLeaf !== undefined) finish({ kind: "pick", value: [firstLeaf] });
+            }
           } else {
             confirm(row);
           }
           return;
+        }
         case "c":
           if (!opts.filter && !opts.single && row) confirm(row);
           return;
