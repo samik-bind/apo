@@ -11,6 +11,7 @@ export const COLUMN_LABELS: Record<string, string> = {
   status: "Status",
   id: "ID",
   name: "Name",
+  service: "Service",
   task: "Task",
   environment: "Env",
   primary_model: "Model",

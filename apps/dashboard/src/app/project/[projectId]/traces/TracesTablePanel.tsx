@@ -62,7 +62,7 @@ import type { TableAction } from "@/components/table";
 import { usePersistentTablePreferences } from "@/hooks/use-persistent-table-preferences";
 import { cn } from "@/lib/utils";
 import { useIsDemo } from "@/lib/project-router";
-import { COLUMN_LABELS, COLUMN_SORT_MAP, SortableHeader, createTraceColumns } from "./columns";
+import { COLUMN_LABELS, COLUMN_SORT_MAP, SortableHeader, createTraceColumns, getMetric } from "./columns";
 import { bulkActions } from "./bulk-actions";
 
 interface PaginationData {
@@ -469,6 +469,22 @@ export function TracesTablePanel({
         : t,
     );
   }, [bookmarkState, traces]);
+  // Service traces (no agent dimensions) shouldn't render empty Task /
+  // Model / Usage columns. Auto-hide each when the page has none of that
+  // dimension — but only where the user hasn't made an explicit choice in
+  // their persisted preferences; a stored toggle always wins.
+  const hasTaskIds = useMemo(() => traces.some((t) => t.task_id), [traces])
+  const hasModels = useMemo(() => traces.some((t) => t.primary_model), [traces])
+  const hasUsage = useMemo(
+    () =>
+      traces.some(
+        (t) =>
+          getMetric(t.metrics, "total_tokens") !== null ||
+          getMetric(t.metrics, "total_cost") !== null,
+      ),
+    [traces],
+  )
+
   const {
     preferences,
     setColumnVisibility,
@@ -625,7 +641,14 @@ export function TracesTablePanel({
     getRowId: (row) => row.id,
     state: {
       rowSelection,
-      columnVisibility: preferences.columnVisibility ?? {},
+      columnVisibility: (() => {
+        const stored = preferences.columnVisibility ?? {};
+        const autoHide: Record<string, boolean> = {};
+        if (!hasTaskIds && stored.task === undefined) autoHide.task = false;
+        if (!hasModels && stored.primary_model === undefined) autoHide.primary_model = false;
+        if (!hasUsage && stored.usage === undefined) autoHide.usage = false;
+        return { ...stored, ...autoHide };
+      })(),
       columnSizing: (preferences.columnSizing ?? {}) as ColumnSizingState,
       columnPinning: preferences.columnPinning ?? {},
       sorting: sortingState,

@@ -190,6 +190,10 @@ class RunDB(SQLModel, table=True):
     output: JsonValue | None = Field(
         default=None, sa_column=Column("output", JSON)
     )
+    # The trace's service (resource service.name of its spans) — denormalized
+    # for the traces LIST column (SPEC-190 kept it span-side only; the list
+    # display made a run-level copy cheaper than a per-row span join).
+    service_name: str | None = Field(default=None)
     # Storage single-homing Stage 2: write-time previews for the traces
     # LIST. Derived from the preview-source call's I/O (first GENERATION,
     # else first call — see projection_io.maybe_update_run_preview); they

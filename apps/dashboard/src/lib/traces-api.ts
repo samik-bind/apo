@@ -29,6 +29,7 @@ interface TraceSummaryTransport {
   tags: string[];
   user_id: string | null;
   primary_model: string | null;
+  service_name: string | null;
   call_count: number;
   duration_ms: number | null;
   created_at: string;
@@ -53,6 +54,7 @@ export interface TraceSummary {
   tags: string[];
   user_id: string | null;
   primary_model: string | null;
+  serviceName: string | null;
   call_count: number;
   duration_ms: number | null;
   created_at: string;
@@ -166,6 +168,7 @@ function normalizeTraceSummary(
     tags: trace.tags,
     user_id: trace.user_id,
     primary_model: trace.primary_model,
+    serviceName: trace.service_name ?? null,
     call_count: trace.call_count,
     duration_ms: trace.duration_ms,
     created_at: trace.created_at,

@@ -325,6 +325,7 @@ def _hydrate_summaries(
                 tags=run.tags or [],
                 user_id=run.user_id,
                 primary_model=run.primary_model,
+                service_name=run.service_name,
                 bookmarked=run.bookmarked,
                 task_run_id=run.task_run_id,
                 call_count=run.call_count,

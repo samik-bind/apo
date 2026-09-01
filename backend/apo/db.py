@@ -979,6 +979,50 @@ def _migrate_to_v37() -> None:
         _create_usage_table(conn)
 
 
+def _add_run_service_column(conn: Connection) -> None:
+    """Conn-taking seam: runs.service_name for the traces list column."""
+    _add_column_if_missing(conn, "runs", "service_name", "TEXT")
+
+
+def _backfill_run_service(conn: Connection) -> None:
+    """One-time backfill from the trace's spans (first service wins).
+
+    Idempotent: only fills NULL rows; the projector maintains it going
+    forward, so re-runs never overwrite newer values.
+    """
+    if "service_name" not in _get_column_names(conn, "runs"):
+        return
+    if is_sqlite():
+        conn.exec_driver_sql(
+            "UPDATE runs SET service_name = ("
+            "  SELECT sp.service_name FROM otlp_spans sp"
+            "  WHERE sp.project_id = runs.project AND sp.trace_id = runs.id"
+            "    AND sp.service_name IS NOT NULL AND sp.service_name != ''"
+            "  LIMIT 1) "
+            "WHERE service_name IS NULL"
+        )
+    else:
+        conn.exec_driver_sql(
+            "UPDATE runs r SET service_name = ("
+            "  SELECT sp.service_name FROM otlp_spans sp"
+            "  WHERE sp.project_id = r.project AND sp.trace_id = r.id"
+            "    AND sp.service_name IS NOT NULL AND sp.service_name != ''"
+            "  LIMIT 1) "
+            "WHERE r.service_name IS NULL"
+        )
+
+
+def _migrate_to_v38() -> None:
+    """Version 38: runs.service_name for the traces-list Service column.
+
+    Additive column + one-time backfill from the spans' materialized
+    service (v36); the projector keeps it current afterwards.
+    """
+    with engine.begin() as conn:
+        _add_run_service_column(conn)
+        _backfill_run_service(conn)
+
+
 def _migrate_test_result_correction_schema(conn: Connection) -> None:
     if "agent_task_test_result_corrections" not in _get_table_names(conn):
         id_type = "TEXT" if is_sqlite() else "VARCHAR"
@@ -2423,7 +2467,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 37
+LATEST_SCHEMA_VERSION = 38
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2463,6 +2507,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     35: _migrate_to_v35,
     36: _migrate_to_v36,
     37: _migrate_to_v37,
+    38: _migrate_to_v38,
 }
 
 

@@ -34,7 +34,7 @@ import type {
 // React components (keeps Fast Refresh able to preserve component state).
 export { COLUMN_LABELS, COLUMN_SORT_MAP } from "./column-constants";
 
-function getMetric(metrics: TraceMetric[], name: string): number | null {
+export function getMetric(metrics: TraceMetric[], name: string): number | null {
   const m = metrics.find((m) => m.metric_name === name);
   return m ? m.score : null;
 }
@@ -307,6 +307,24 @@ export function createTraceColumns(
       size: 180,
       enableSorting: false,
       cell: ({ row }) => <TraceNameCell trace={row.original} projectId={projectId} />,
+    },
+    {
+      id: "service",
+      header: "Service",
+      size: 130,
+      enableSorting: false,
+      cell: ({ row }) => {
+        const service = row.original.serviceName;
+        if (!service) return <span className="text-muted-foreground/50">{"\u2014"}</span>;
+        return (
+          <span
+            className="block truncate text-xs text-muted-foreground"
+            title={service}
+          >
+            {service}
+          </span>
+        );
+      },
     },
     {
       id: "task",

@@ -183,6 +183,12 @@ class TraceProjector:
             session.add(run)
             session.flush()
 
+        # The trace's service for the list column — first service wins;
+        # a later span from a different library in the same service keeps
+        # the first value (a trace is one service in practice).
+        if span.service_name and not run.service_name:
+            run.service_name = span.service_name
+
         # Update run-level fields from the root span
         if is_root:
             attrs = span.attributes or {}

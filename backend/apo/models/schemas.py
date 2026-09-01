@@ -134,6 +134,7 @@ class RunSummary(SQLModel):
     tags: list[str] = []
     user_id: str | None = None
     primary_model: str | None = None
+    service_name: str | None = None
 
     bookmarked: bool = False
 
