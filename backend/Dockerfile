@@ -129,6 +129,9 @@ COPY apps/example-service/app/lib/agent /app/apps/example-service/app/lib/agent
 # has a hard peer dependency on zod ^4.0.0; installing zod 3.x makes npm abort
 # with ERESOLVE. ai@^6 and @ai-sdk/openai@^3 both accept zod 3 or 4.
 COPY --from=agent-task-builder /workspace/packages/sdk /app/_sdk-source
+# npm 10 (node:22-slim default) hits an arborist crash ("edgesOut" of null)
+# on current registry metadata for the SDK deps; npm 12 resolves fine.
+RUN npm install -g npm@12 --no-audit --no-fund
 RUN rm -rf /app/_sdk-source/node_modules \
     && cd /app/_sdk-source \
     && npm install --omit=dev --no-audit --no-fund --package-lock=false
