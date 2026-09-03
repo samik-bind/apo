@@ -57,6 +57,11 @@ from .services.paths import demo_task_root
 from .services.project_task_inventory import seed_demo_inventory
 
 CAPTURE_PROJECT_ID = "demo-capture"
+
+
+def _export_project(args_project: str | None) -> str:
+    """The project whose rows an export reads (--project), or the capture default."""
+    return args_project or CAPTURE_PROJECT_ID
 DEMO_USER_ID = "demo-user"
 WATERMARK_PATH = Path(__file__).resolve().parents[1] / "data" / "demo-capture-session.json"
 
@@ -67,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("start", help="Begin a capture session (watermark the scratch project)")
     finish = sub.add_parser("finish", help="Export the delta and merge it into the fixture")
+    finish.add_argument("--project", default=None, metavar="ID",
+                        help="Export from this project instead of the capture scratch project")
     finish.add_argument("--pin", action="append", default=[], metavar="FROM=TO",
                         help="Rename an entity id in the exported delta (repeatable); "
                              "keeps guide-rail anchors like demo-run-001 stable")
@@ -78,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "start":
         return cmd_start()
     if args.command == "finish":
-        return cmd_finish([p.split("=", 1) for p in args.pin], args.out or DEFAULTS_PATH)
+        return cmd_finish([p.split("=", 1) for p in args.pin], args.out or DEFAULTS_PATH, getattr(args, "project", None))
     if args.command == "verify":
         return cmd_verify(args.out if hasattr(args, "out") else DEFAULTS_PATH)
     if args.command == "abort":
@@ -133,16 +140,21 @@ def cmd_abort() -> int:
     return 1
 
 
-def cmd_finish(pins: list[list[str]], out_path: Path) -> int:
+def cmd_finish(pins: list[list[str]], out_path: Path, project: str | None = None) -> int:
     if not WATERMARK_PATH.exists():
         print("no capture session open — run `start` first")
         return 1
     watermark = json.loads(WATERMARK_PATH.read_text())
     started_at = datetime.fromisoformat(watermark["started_at"])
+    export_source = project or watermark.get("project", CAPTURE_PROJECT_ID)
+    if project:
+        # Direct export of an existing project: no capture window applies,
+        # take everything from the epoch.
+        started_at = datetime.fromisoformat("2000-01-01T00:00:00+00:00")
     pin_map = {frm: to for frm, to in pins}
 
     with Session(engine) as session:
-        delta = export_delta(session, started_at)
+        delta = export_delta(session, started_at, export_source)
     if not delta.get("batches"):
         print("nothing captured in the window (no batches) — fixture unchanged")
         WATERMARK_PATH.unlink()
@@ -160,19 +172,21 @@ def cmd_finish(pins: list[list[str]], out_path: Path) -> int:
 # ---------------------------------------------------------------------------
 
 
-def export_delta(session: Session, started_at: datetime) -> dict[str, Any]:
+def export_delta(
+    session: Session, started_at: datetime, project: str = CAPTURE_PROJECT_ID
+) -> dict[str, Any]:
     batches = session.exec(
         select(AgentTaskBatchRunDB).where(
-            AgentTaskBatchRunDB.project == CAPTURE_PROJECT_ID,
+            AgentTaskBatchRunDB.project == project,
             col(AgentTaskBatchRunDB.created_at) > started_at,
         )
     ).all()
     delta: dict[str, Any] = {
         "schema_version": 1,
-        "catalog": {"tasks": export_catalog(session)},
-        "batches": [export_batch(session, b) for b in batches],
-        "schedules": export_schedules(session, started_at),
-        "views": export_views(session),
+        "catalog": {"tasks": export_catalog(session, project)},
+        "batches": [export_batch(session, b, project=project) for b in batches],
+        "schedules": export_schedules(session, started_at, project),
+        "views": export_views(session, project),
     }
     users = capture_users(session)
     if users:
@@ -198,11 +212,13 @@ def capture_users(session: Session) -> list[str]:
     )
 
 
-def export_catalog(session: Session) -> list[dict[str, Any]]:
+def export_catalog(
+    session: Session, project: str = CAPTURE_PROJECT_ID
+) -> list[dict[str, Any]]:
     tasks: list[dict[str, Any]] = []
     rows = session.exec(
         select(ProjectTaskInventoryDB).where(
-            ProjectTaskInventoryDB.project == CAPTURE_PROJECT_ID
+            ProjectTaskInventoryDB.project == project
         )
     ).all()
     for row in rows:
@@ -228,7 +244,9 @@ def _iso(value: datetime | None) -> str | None:
     return value.isoformat()
 
 
-def export_batch(session: Session, batch: AgentTaskBatchRunDB) -> dict[str, Any]:
+def export_batch(
+    session: Session, batch: AgentTaskBatchRunDB, *, project: str
+) -> dict[str, Any]:
     runs = session.exec(
         select(AgentTaskRunDB).where(AgentTaskRunDB.batch_run_id == batch.id)
     ).all()
@@ -245,7 +263,7 @@ def export_batch(session: Session, batch: AgentTaskBatchRunDB) -> dict[str, Any]
         "created_at": _iso(batch.created_at),
         "started_at": _iso(batch.started_at),
         "completed_at": _iso(batch.completed_at),
-        "runs": [export_run(session, run) for run in runs],
+        "runs": [export_run(session, run, project=project) for run in runs],
     }
     return spec
 
@@ -256,7 +274,7 @@ def canonical_task_id(task_id: str) -> str:
     return task_id.removeprefix("tasks/")
 
 
-def export_run(session: Session, run: AgentTaskRunDB) -> dict[str, Any]:
+def export_run(session: Session, run: AgentTaskRunDB, *, project: str) -> dict[str, Any]:
     from .services.check_report_storage import load_check_report
 
     spec: dict[str, Any] = {
@@ -279,7 +297,7 @@ def export_run(session: Session, run: AgentTaskRunDB) -> dict[str, Any]:
         "corrections": export_corrections(session, run.id),
     }
     if run.trace_run_id:
-        payload = find_otel_payload(session, run.trace_run_id)
+        payload = find_otel_payload(session, run.trace_run_id, project)
         if payload is not None:
             spec["otel_trace"] = payload
         else:
@@ -349,7 +367,9 @@ def export_corrections(session: Session, run_id: str) -> list[dict[str, Any]]:
     ]
 
 
-def find_otel_payload(session: Session, trace_run_id: str) -> dict[str, Any] | None:
+def find_otel_payload(
+    session: Session, trace_run_id: str, project: str = CAPTURE_PROJECT_ID
+) -> dict[str, Any] | None:
     """Assemble a run's full OTLP trace from the canonical span store.
 
     Ingest payloads are blanked once a batch projects (the span store is
@@ -361,7 +381,7 @@ def find_otel_payload(session: Session, trace_run_id: str) -> dict[str, Any] | N
     rows = session.exec(
         select(OtlpSpanDB)
         .where(
-            OtlpSpanDB.project_id == CAPTURE_PROJECT_ID,
+            OtlpSpanDB.project_id == project,
             OtlpSpanDB.trace_id == trace_run_id,
         )
         .order_by(col(OtlpSpanDB.id))
@@ -408,10 +428,12 @@ def find_otel_payload(session: Session, trace_run_id: str) -> dict[str, Any] | N
     return {"resourceSpans": resource_spans}
 
 
-def export_schedules(session: Session, started_at: datetime) -> list[dict[str, Any]]:
+def export_schedules(
+    session: Session, started_at: datetime, project: str = CAPTURE_PROJECT_ID
+) -> list[dict[str, Any]]:
     schedules = session.exec(
         select(AgentTaskScheduleDB).where(
-            AgentTaskScheduleDB.project == CAPTURE_PROJECT_ID
+            AgentTaskScheduleDB.project == project
         )
     ).all()
     out: list[dict[str, Any]] = []
@@ -455,13 +477,15 @@ def export_schedules(session: Session, started_at: datetime) -> list[dict[str, A
     return out
 
 
-def export_views(session: Session) -> dict[str, Any]:
+def export_views(
+    session: Session, project: str = CAPTURE_PROJECT_ID
+) -> dict[str, Any]:
     views = session.exec(
-        select(TaskViewDB).where(TaskViewDB.project_id == CAPTURE_PROJECT_ID)
+        select(TaskViewDB).where(TaskViewDB.project_id == project)
     ).all()
     comparisons = session.exec(
         select(TaskViewComparisonDB).where(
-            TaskViewComparisonDB.project_id == CAPTURE_PROJECT_ID
+            TaskViewComparisonDB.project_id == project
         )
     ).all()
     return {
