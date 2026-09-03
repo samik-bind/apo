@@ -65,3 +65,30 @@ export async function fetchReadinessReport(): Promise<ReadinessReport> {
   const res = await backendFetch(`${getBrowserBackendBaseUrl()}/health/ready`);
   return (await res.json()) as ReadinessReport;
 }
+
+// ============================================================================
+// Instance-maintenance operations
+//
+// These endpoints gate on the x-admin-key header, which the backend proxy
+// attaches server-side from ADMIN_API_KEY — the browser never sees the key.
+// ============================================================================
+
+export type DbTableStats = Record<string, number>;
+
+export async function fetchDbTableStats(): Promise<DbTableStats | null> {
+  const data = await apiClient<{ stats: DbTableStats | null }>(
+    "/backend-proxy/v1/admin/stats",
+  );
+  return data.stats;
+}
+
+export const resetDatabase = (): Promise<{ message: string }> =>
+  apiClient<{ message: string }>("/backend-proxy/v1/admin/reset-db", {
+    method: "POST",
+  });
+
+export const nukeDatabase = (): Promise<{ message: string }> =>
+  apiClient<{ message: string }>("/backend-proxy/v1/admin/nuke-db", {
+    method: "POST",
+    query: { confirm: "YES_I_AM_SURE" },
+  });

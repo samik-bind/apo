@@ -21,6 +21,10 @@ services:
       - BACKEND_URL=http://backend:8000
       - AUTH_SECRET=${AUTH_SECRET}
       - AUTH_TRUST_HOST=true
+      # Gates Settings → System maintenance ops (table stats, reset, nuke).
+      # Must match the backend's ADMIN_API_KEY; the backend-proxy turns it
+      # into the x-admin-key header so the browser never sees it.
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-}
       # pass the deployment profile to the frontend.
       - APO_DEPLOYMENT_PROFILE=${APO_DEPLOYMENT_PROFILE:-local}
       # Keep NEXTAUTH_URL as a fallback for existing installations; new
@@ -52,6 +56,8 @@ services:
       # For a longer-lived shared installation or heavier concurrent writes,
       # apply docker-compose.postgres.yml (see comments there).
       - AUTH_SECRET=${AUTH_SECRET}
+      # Must match the frontend's value — see the frontend service note.
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-}
       - APO_DEPLOYMENT_PROFILE=${APO_DEPLOYMENT_PROFILE:-local}
       - APO_PUBLIC_URL=${APO_PUBLIC_URL:-${NEXTAUTH_URL:-http://localhost:3000}}
       # FRONTEND_URL is the browser-facing URL: used for CORS allow-list and

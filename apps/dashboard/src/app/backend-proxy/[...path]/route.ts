@@ -72,6 +72,14 @@ async function proxyToBackend(
   backendUrl.search = new URL(request.url).search;
 
   const headers = buildProxyHeaders(request.headers);
+  // Instance-maintenance endpoints (/v1/admin/*) authenticate with the
+  // operator's ADMIN_API_KEY via the x-admin-key header. The key must never
+  // reach the browser, so the proxy attaches it server-side only, and only
+  // for the admin path prefix.
+  const adminApiKey = process.env.ADMIN_API_KEY;
+  if (adminApiKey && pathname.startsWith("v1/admin/")) {
+    headers.set("x-admin-key", adminApiKey);
+  }
   const init: RequestInit = {
     method: request.method,
     headers,
