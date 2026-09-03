@@ -76,9 +76,8 @@ class TestFixtureLoads:
     def test_catalog_and_definitions(self, session: Session) -> None:
         assert _load(session)
         inventory = session_exec_ids(session)
-        assert "real-agent/documents/document-qa" in inventory
-        assert "harbor/terminal-bench/count-dataset-tokens" in inventory
-        assert "judge-flip-probe" in inventory
+        assert "tasks/dabstep/dabstep-merchant-high-fraud-fine-risk" in inventory
+        assert "tasks/dabstep/dabstep-issuing-country-most-transactions" in inventory
 
         revision = ensure_task_definition_revision(
             session,
@@ -103,15 +102,15 @@ class TestFixtureLoads:
                 AgentTaskBatchRunDB.project == DEMO_PROJECT_ID
             )
         ).all()
-        # The captured dataset (31 batches) plus the two pinned anchors.
-        assert len(batches) >= 30
+        # The captured dabstep dataset (22 runs) plus the pinned anchors.
+        assert len(batches) >= 20
         assert {"demo-batch-001", "demo-batch-002"} <= {b.id for b in batches}
 
         run = session.get(AgentTaskRunDB, "demo-run-001")
         assert run is not None
         assert run.status == "failed"
-        assert run.configured_model == "anthropic/claude-sonnet-4.5"
-        assert run.task_id == "real-agent/documents/document-qa"
+        assert run.configured_model == "z-ai/glm-5.3-flash"
+        assert run.task_id == "tasks/dabstep/dabstep-merchant-high-fraud-fine-risk"
 
         deliverable = session.exec(
             select(AgentTaskDeliverableDB).where(
@@ -123,11 +122,10 @@ class TestFixtureLoads:
 
         judgment = session.exec(
             select(AgentTaskJudgmentDB).where(
-                AgentTaskJudgmentDB.task_run_id == "demo-run-probe"
+                AgentTaskJudgmentDB.task_run_id == "demo-run-001"
             )
         ).first()
         assert judgment is not None
-        assert judgment.label in ("reasoning-first", "verdict-first")
         assert judgment.samples == 3
 
     def test_schedule_and_occurrences(self, session: Session) -> None:
@@ -152,9 +150,7 @@ class TestFixtureLoads:
         views = session.exec(
             select(TaskViewDB).where(TaskViewDB.project_id == DEMO_PROJECT_ID)
         ).all()
-        assert {v.id for v in views} >= {
-            "demo-view-mini", "demo-view-haiku", "demo-view-sonnet",
-        }
+        assert {v.id for v in views} >= {"demo-view-1", "demo-view-2"}
 
     def test_otel_replay_claims_and_projects(self, session: Session) -> None:
         assert _load(session)
@@ -184,7 +180,7 @@ class TestFixtureLoads:
         # A real multi-turn agent trace: generations + tool calls.
         assert len(calls) >= 5
         models = {c.model for c in calls if c.model}
-        assert "anthropic/claude-sonnet-4.5" in models
+        assert "z-ai/glm-5.3-flash" in models
 
 
 class TestReconcileSemantics:
@@ -196,10 +192,12 @@ class TestReconcileSemantics:
 
     def test_digest_change_reloads(self, session: Session, tmp_path: Path) -> None:
         assert _load(session)
-        document = json.loads(_read_fixture_bytes(Path(
-            __import__("apo.services.demo_fixture", fromlist=["DEFAULTS_PATH"]).DEFAULTS_PATH
-        )))
-        document["batches"][0]["runs"][0]["status"] = "passed"
+        import apo.services.demo_fixture as fixture_mod
+        document = json.loads(_read_fixture_bytes(Path(fixture_mod.DEFAULTS_PATH)))
+        anchor = next(
+            r for b in document["batches"] for r in b["runs"] if r["id"] == "demo-run-001"
+        )
+        anchor["status"] = "passed"
         variant = tmp_path / "variant.json"
         variant.write_text(json.dumps(document))
 
