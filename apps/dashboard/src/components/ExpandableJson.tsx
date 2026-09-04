@@ -19,6 +19,16 @@ interface ExpandableJsonProps {
   data: unknown;
   label?: string;
   className?: string;
+  /**
+   * How much of the payload is visible on arrival.
+   *
+   * `summary` (the default) starts deep or wide nodes collapsed and elides
+   * long string values, which suits reference material you drill into.
+   * `full` hides nothing, for a payload that IS the thing being read — a
+   * model's structured answer, whose substance lives in exactly those long
+   * strings. Either way the toolbar still switches between them.
+   */
+  initialDetail?: "summary" | "full";
 }
 
 // Search box + active match index: typing a new query resets the active
@@ -65,6 +75,7 @@ export function ExpandableJson({
   data,
   label,
   className,
+  initialDetail = "summary",
 }: ExpandableJsonProps) {
   const root = useMemo(() => {
     if (data === null || data === undefined) return null;
@@ -78,7 +89,11 @@ export function ExpandableJson({
 
   // Auto-collapse is derived from the displayed tree instead of copied into
   // state at mount; user toggles layer on top of it as per-node overrides.
-  const autoCollapsed = useMemo(() => collectAutoCollapsed(root), [root]);
+  const summarized = initialDetail === "summary";
+  const autoCollapsed = useMemo(
+    () => collectAutoCollapsed(root, summarized),
+    [root, summarized],
+  );
   const [collapseOverrides, setCollapseOverrides] = useState<Record<string, boolean>>({});
   const collapsed = useMemo(
     () => applyCollapseOverrides(autoCollapsed, collapseOverrides),
@@ -86,7 +101,9 @@ export function ExpandableJson({
   );
 
   const [search, dispatchSearch] = useReducer(searchReducer, { input: "", matchIdx: 0 });
-  const [stringMode, setStringMode] = useState<StringMode>("truncate");
+  const [stringMode, setStringMode] = useState<StringMode>(
+    summarized ? "truncate" : "wrap",
+  );
   const [showLineNumbers, setShowLineNumbers] = useState(false);
   const [viewport, dispatchViewport] = useReducer(viewportReducer, {
     scrollTop: 0,
@@ -154,7 +171,11 @@ export function ExpandableJson({
     }
   }, [currentMatchRowIdx]);
 
-  const shouldVirtualize = rows.length > VIRTUALIZE_THRESHOLD;
+  // Virtualization positions rows by index * ROW_HEIGHT, so it only holds while
+  // every row is one line. The other modes show values whole and wrap, which
+  // would leave the spacer short and the tail unreachable.
+  const shouldVirtualize =
+    stringMode === "truncate" && rows.length > VIRTUALIZE_THRESHOLD;
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -279,9 +300,12 @@ export function ExpandableJson({
   );
 }
 
-function collectAutoCollapsed(root: JsonNode | null): Set<string> {
+function collectAutoCollapsed(
+  root: JsonNode | null,
+  enabled: boolean,
+): Set<string> {
   const collapsed = new Set<string>();
-  if (!root) return collapsed;
+  if (!root || !enabled) return collapsed;
   function autoCollapse(node: JsonNode, depth: number) {
     if (
       (node.type === "object" || node.type === "array") &&

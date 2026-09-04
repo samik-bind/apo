@@ -8,6 +8,7 @@ import { ThinkingBlock } from "./ThinkingBlock";
 import { extractThinkingContent } from "./thinking-utils";
 import { CollapsibleHistory } from "./CollapsibleHistory";
 import { Markdown } from "./Markdown";
+import { formatJsonMessageText } from "./message-content-utils";
 
 interface ChatMessage {
   role: string;
@@ -217,12 +218,23 @@ function MessageContent({ parts }: { parts: ContentPart[] }) {
         }
         if (part.type === "text") {
           const text = (part as { type: "text"; text: string }).text;
-          return <Markdown key={`text-${text}`}>{text}</Markdown>;
+          return <TextContent key={`text-${text}`} text={text} />;
         }
         return null;
       })}
     </div>
   );
+}
+
+/**
+ * One text part. A model answering with structured output sends its JSON as
+ * plain message text, which markdown renders as a single unreadable paragraph,
+ * so JSON is indented in a code block and everything else stays markdown.
+ */
+function TextContent({ text }: { text: string }) {
+  const json = useMemo(() => formatJsonMessageText(text), [text]);
+  if (json === null) return <Markdown>{text}</Markdown>;
+  return <CodeBlock body={json} variant="content" />;
 }
 
 function ImageReference({ url }: { url: string }) {
@@ -274,19 +286,75 @@ function parseContentParts(content: string | ContentPart[]): ContentPart[] {
   return [];
 }
 
-const TOOL_ARG_COLLAPSE_CHARS = 400;
+const CHROME_COLLAPSE_CHARS = 400;
+
+/**
+ * A monospace block, in one of two registers.
+ *
+ * `chrome` is for tool-call arguments — the machinery around a message rather
+ * than the message. Dimmed, broken anywhere so a long path or token can't
+ * force a horizontal scroll, and collapsed past
+ * {@link CHROME_COLLAPSE_CHARS} so it can't swallow the conversation.
+ *
+ * `content` is the message itself. Shown whole at full contrast, because the
+ * markdown branch beside it truncates nothing either — hiding a structured
+ * answer behind a click while the same answer in prose renders in full would
+ * be the very asymmetry this rendering exists to remove. Wrapped on word
+ * boundaries, since a payload's string values are usually prose.
+ */
+function CodeBlock({
+  body,
+  label,
+  variant,
+}: {
+  body: string;
+  label?: string;
+  variant: "content" | "chrome";
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const collapsible = variant === "chrome" && body.length > CHROME_COLLAPSE_CHARS;
+  const visible =
+    collapsible && !expanded ? body.slice(0, CHROME_COLLAPSE_CHARS) : body;
+
+  return (
+    <div className="mt-1 max-w-full">
+      {label ? (
+        <div className="text-xs uppercase tracking-wide text-muted-foreground">
+          {label}
+        </div>
+      ) : null}
+      <pre
+        className={`max-w-full overflow-x-auto whitespace-pre-wrap text-xs font-mono ${
+          variant === "chrome"
+            ? "break-all text-muted-foreground"
+            : "break-words text-foreground"
+        }`}
+      >
+        {visible}
+        {collapsible && !expanded ? "…" : ""}
+      </pre>
+      {collapsible ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-xs text-muted-foreground underline hover:text-foreground"
+        >
+          {expanded ? "Collapse" : `Expand (${body.length} chars)`}
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * Render a tool call's arguments readably. The raw value is a JSON string whose
  * inner text has escaped newlines (e.g. {"text":"import json\\ndef …"}), which
  * otherwise renders as a single unbroken wall. Parse it: if the argument is an
  * object carrying a text-like field, show that field with real newlines; fall
- * back to pretty-printed JSON, then raw text. Long payloads collapse behind an
- * expand toggle.
+ * back to pretty-printed JSON, then raw text.
  */
 function ToolCallArguments({ arguments: args }: { arguments: string }) {
-  const [expanded, setExpanded] = useState(false);
-
   const rendered = useMemo(() => {
     let parsed: unknown = args;
     try {
@@ -319,31 +387,7 @@ function ToolCallArguments({ arguments: args }: { arguments: string }) {
       ? (rendered as { body?: string }).body ?? ""
       : (rendered as string);
 
-  const tooLong = body.length > TOOL_ARG_COLLAPSE_CHARS;
-  const visible = !expanded && tooLong ? body.slice(0, TOOL_ARG_COLLAPSE_CHARS) : body;
-
-  return (
-    <div className="mt-1 max-w-full">
-      {label ? (
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">
-          {label}
-        </div>
-      ) : null}
-      <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-all text-xs font-mono text-muted-foreground">
-        {visible}
-        {tooLong && !expanded ? "…" : ""}
-      </pre>
-      {tooLong ? (
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="text-xs text-muted-foreground underline hover:text-foreground"
-        >
-          {expanded ? "Collapse" : `Expand (${body.length} chars)`}
-        </button>
-      ) : null}
-    </div>
-  );
+  return <CodeBlock body={body} label={label} variant="chrome" />;
 }
 
 function hasContent(content: string | ContentPart[]): boolean {

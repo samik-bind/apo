@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+
 import { ExpandableJson } from "@/components/ExpandableJson";
 import { ChatMessagePreview } from "./ChatMessagePreview";
 import { TraceEventPreview } from "./TraceEventPreview";
@@ -7,6 +9,7 @@ import { detectTraceEventKind } from "./trace-event-utils";
 import { CommentableJsonView } from "./comments/CommentableJsonView";
 import type { JsonDataField } from "./comments/selectionToPath";
 import { Markdown } from "./Markdown";
+import { parseJsonPayload } from "./message-content-utils";
 
 /** When provided, the JSON view enables inline text-selection comments. */
 export interface CommentAnchor {
@@ -103,7 +106,14 @@ function FlatKeyValuePreview({
   );
 }
 
+/**
+ * A payload's readable text — which is where a structured answer lands, since
+ * apo's own SDK records a generation's output as `{ text }`. A JSON payload
+ * gets a tree rather than the paragraph markdown would flatten it into.
+ */
 function ReadableTextPreview({ text }: { text: string }) {
+  const payload = useMemo(() => parseJsonPayload(text), [text]);
+  if (payload !== null) return <ExpandableJson data={payload} initialDetail="full" />;
   return (
     <div className="rounded-md border border-border/60 bg-muted/10 px-3 py-2.5">
       <Markdown>{text}</Markdown>
