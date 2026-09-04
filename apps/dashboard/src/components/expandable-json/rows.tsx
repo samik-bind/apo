@@ -40,7 +40,7 @@ function ValueDisplay({
     const str = String(node.value);
     const truncated = stringMode === "truncate" && str.length > TRUNCATE_AT;
     const display = truncated ? str.slice(0, TRUNCATE_AT) + "…" : str;
-    const wrapCls = stringMode === "nowrap" ? "whitespace-nowrap" : "break-all";
+    const wrapCls = WRAP_CLASS[stringMode];
     return (
       <span className={cn(wrapCls, TYPE_COLORS.string)}>
         &quot;{highlightText(display, searchQuery, isCurrentMatch)}&quot;
@@ -145,6 +145,19 @@ export interface JsonRowDisplayOptions {
   stringMode: StringMode;
 }
 
+/**
+ * How a value wraps, per string mode. `truncate` shows at most a 120-char
+ * slice — as likely an id or a path as prose, so breaking anywhere is right.
+ * `wrap` shows the value whole, and a payload's long strings are prose, so it
+ * breaks on words: mid-word breaks start the next line at column 0 and merge
+ * visually with the structural lines.
+ */
+const WRAP_CLASS: Record<StringMode, string> = {
+  truncate: "break-all",
+  wrap: "break-words",
+  nowrap: "whitespace-nowrap",
+};
+
 export function JsonRow({
   node,
   isLast: _isLast,
@@ -228,10 +241,7 @@ export function JsonRow({
         <span
           data-json-path={jsonPath}
           data-json-key-value={isContainer ? undefined : jsonPath}
-          className={cn(
-            "min-w-0",
-            stringMode === "nowrap" ? "whitespace-nowrap" : "break-all",
-          )}
+          className={cn("min-w-0", WRAP_CLASS[stringMode])}
         >
           <ValueDisplay
             node={node}

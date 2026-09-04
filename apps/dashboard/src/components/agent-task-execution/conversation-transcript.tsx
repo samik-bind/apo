@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { Accordion as AccordionPrimitive } from "radix-ui";
 import {
   Wrench,
@@ -12,6 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ExpandableJson } from "@/components/ExpandableJson";
 import { Markdown } from "@/components/trace-detail/Markdown";
+import { parseJsonPayload } from "@/components/trace-detail/message-content-utils";
 import { TraceHomeLink } from "@/components/trace-detail";
 import type { ChatMessage } from "@/lib/conversation-from-trace";
 
@@ -140,17 +141,33 @@ function AssistantMessageContent({ message }: { message: ChatMessage }) {
   const toolCalls = extractToolCalls(message);
   return (
     <div className="space-y-1.5">
-      {message.content && (
-        <div className="min-w-0 max-w-full overflow-x-auto break-words text-sm text-foreground/80 leading-relaxed">
-          <Markdown>{message.content}</Markdown>
-        </div>
-      )}
+      {message.content && <MessageText text={message.content} />}
       {toolCalls.map((tc) => (
         <ToolCallBlock
           key={`tc-${tc.id ?? tc.name}-${tc.arguments.slice(0, 32)}`}
           toolCall={tc}
         />
       ))}
+    </div>
+  );
+}
+
+/**
+ * A message's text. An agent answering with structured output sends its JSON
+ * as plain text, which markdown flattens into one paragraph and actively
+ * corrupts (`snake_case` keys turn to italics), so a payload gets the same
+ * tree the tool blocks above already use.
+ *
+ * Fully expanded, unlike those blocks: a tool result is reference material you
+ * drill into, but this is the answer itself, and the default policy would hide
+ * every finding under `notes` behind a click.
+ */
+function MessageText({ text }: { text: string }) {
+  const payload = useMemo(() => parseJsonPayload(text), [text]);
+  if (payload !== null) return <ExpandableJson data={payload} initialDetail="full" />;
+  return (
+    <div className="min-w-0 max-w-full overflow-x-auto break-words text-sm text-foreground/80 leading-relaxed">
+      <Markdown>{text}</Markdown>
     </div>
   );
 }
@@ -269,9 +286,7 @@ export function ConversationTranscript({
                     ) : isTool ? (
                       <ToolMessageContent message={message} />
                     ) : (
-                      <div className="min-w-0 max-w-full overflow-x-auto break-words text-sm text-foreground/80 leading-relaxed">
-                        <Markdown>{message.content}</Markdown>
-                      </div>
+                      <MessageText text={message.content} />
                     )}
                   </div>
                 </AccordionPrimitive.Content>

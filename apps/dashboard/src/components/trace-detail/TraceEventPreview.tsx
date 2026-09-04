@@ -8,6 +8,7 @@ import { ToolCallPreview } from "./ToolCallPreview";
 import { Markdown } from "./Markdown";
 import { formatDuration, usdFormat } from "@/lib/format";
 import { detectTraceEventKind } from "./trace-event-utils";
+import { parseJsonPayload } from "./message-content-utils";
 
 interface TraceEventPreviewProps {
   data: any;
@@ -263,12 +264,17 @@ function extractToolResultData(data: any) {
   return null;
 }
 
+/**
+ * {@link parseJsonPayload}, plus the fenced form. This panel renders a JSON
+ * payload as a tree rather than as markdown, so unlike a chat message a
+ * ```json block is worth unwrapping here.
+ */
 function parseJsonLikeText(text: string): unknown | null {
   if (!text) {
     return null;
   }
 
-  const direct = tryParseJson(text);
+  const direct = parseJsonPayload(text);
   if (direct !== null) {
     return direct;
   }
@@ -278,20 +284,7 @@ function parseJsonLikeText(text: string): unknown | null {
     return null;
   }
 
-  return tryParseJson(fenced[1]);
-}
-
-function tryParseJson(value: string): unknown | null {
-  const trimmed = value.trim();
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return null;
-  }
+  return parseJsonPayload(fenced[1]);
 }
 
 function formatPlainText(data: any): string {
