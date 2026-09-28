@@ -436,7 +436,7 @@ function createJudgeMethod(
         )
       : call();
     try {
-      const { pass, reasoning, judge } = await traced;
+      const { pass, reasoning, judge, unavailable } = await traced;
       rec.record(label, pass, reasoning, {
         evaluator_type: "llm",
         judge,
@@ -446,8 +446,11 @@ function createJudgeMethod(
         // prose, a JSON tree for structured objects.
         received: valueArray.length === 1 ? valueArray[0] : valueArray,
         location,
+        ...(unavailable ? { outcome: "error" as AssertionOutcome } : {}),
       });
     } catch (error) {
+      // No verdict exists: the judge was unreachable or errored. Recorded as
+      // `outcome: "error"` so it can be told apart from the judge's FAIL.
       rec.record(
         label,
         false,
@@ -457,6 +460,7 @@ function createJudgeMethod(
           expected: instruction,
           received: valueArray.length === 1 ? valueArray[0] : valueArray,
           location,
+          outcome: "error",
         },
       );
     }

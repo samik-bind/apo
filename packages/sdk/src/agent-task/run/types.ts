@@ -12,8 +12,11 @@ import type { AgentTaskRunConfiguration } from "../adapter/types.ts";
  *   it must never silently pass. Value assertions (``t.check``) and LLM
  *   assertions (``t.judge``) do not consult trace capabilities and retain
  *   their existing pass/fail behavior.
+ * - ``"error"`` → ``pass=false``. An LLM judge produced no verdict: it was
+ *   unreachable, returned an HTTP error, or sent an empty or truncated reply
+ *   (after one retry). The check's quality is unknown, not failed.
  */
-export type AssertionOutcome = "pass" | "fail" | "unsupported";
+export type AssertionOutcome = "pass" | "fail" | "unsupported" | "error";
 
 /**
  * Metadata about an LLM judge call. Populated by evaluators that use an
