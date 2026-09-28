@@ -517,6 +517,50 @@ describe("t.judge streaming", () => {
     }
   });
 
+  it("finishes on [DONE] even when the server keeps the stream open", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const encoder = new TextEncoder();
+      const fetchMock = vi.fn(async () => {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ choices: [{ delta: { content: '{"reasoning":"ok","pass":true}' }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+              ),
+            );
+            // Never closed.
+          },
+        });
+        return new Response(body, { headers: { "content-type": "text/event-stream" } });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await callJudge({ values: ["done-no-close"], instruction: "x", model: "m" });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ pass: true, reasoning: "ok" });
+      expect(result.unavailable).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a complete verdict even when the reply stopped for length", async () => {
+    const fetchMock = vi.fn(async () =>
+      sseResponse([
+        `data: ${JSON.stringify({ choices: [{ delta: { content: '{"reasoning":"ok","pass":false}' }, finish_reason: "length" }] })}\n\n`,
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callJudge({ values: ["length-but-complete"], instruction: "x", model: "m" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ pass: false, reasoning: "ok" });
+    expect(result.unavailable).toBeUndefined();
+  });
+
   it("retries a reply cut off at the length limit", async () => {
     const fetchMock = vi
       .fn()

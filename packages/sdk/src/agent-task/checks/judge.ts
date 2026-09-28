@@ -249,8 +249,11 @@ const JUDGE_IDLE_TIMEOUT_MS = 90_000;
  */
 const JUDGE_RETRY_DELAY_MS = 1_000;
 const JUDGE_RETRY_AFTER_CAP_MS = 20_000;
-/** Below this much remaining budget a retry cannot finish, so none is made. */
-const JUDGE_MIN_RETRY_BUDGET_MS = 10_000;
+/**
+ * Below this much remaining budget a retry is unlikely to finish (a
+ * reasoning judge measured 34–100 s end to end), so none is made.
+ */
+const JUDGE_MIN_RETRY_BUDGET_MS = 60_000;
 
 function isRetryableStatus(status: number): boolean {
   return status === 429 || status >= 500;
@@ -316,12 +319,15 @@ async function readCompletion(
   // PROCESSING") are keepalives and carry nothing.
   let eventType = "message";
   let dataLines: string[] = [];
+  // `[DONE]` ends the completion even if the server keeps the socket open.
+  let finished = false;
   const dispatch = (): void => {
     const payload = dataLines.join("\n").trim();
     const type = eventType;
     eventType = "message";
     dataLines = [];
-    if (!payload || payload === "[DONE]") return;
+    if (payload === "[DONE]") finished = true;
+    if (!payload || finished) return;
     onData();
     let chunk: StreamChunk | undefined;
     try {
@@ -363,7 +369,10 @@ async function readCompletion(
     // Hold a trailing CR: it may be the first half of a CRLF split across reads.
     const lines = buffer.split(/\r\n|\r(?!$)|\n/);
     buffer = lines.pop() ?? "";
-    for (const line of lines) handleLine(line);
+    for (const line of lines) {
+      handleLine(line);
+      if (finished) return { text, usage, finishReason };
+    }
   }
   buffer += decoder.decode();
   for (const line of buffer.split(/\r\n|\r|\n/)) if (line) handleLine(line);
@@ -519,10 +528,12 @@ export async function callJudge(args: {
           kind: "unavailable",
           error: new JudgeUnavailableError(`Judge API ${response.status}: ${body.slice(0, 200)}`),
           retryable: isRetryableStatus(response.status),
-          ...(response.status === 429
+          ...(isRetryableStatus(response.status)
             ? { retryDelayMs: retryDelayMs(response.headers.get("retry-after")) }
             : {}),
-          ...(stream && response.status === 400 && /stream/i.test(body)
+          // Name the field, not the word: gateways echo request params in
+          // unrelated 400 bodies.
+          ...(stream && response.status === 400 && /stream_options|["'`]stream["'`]/.test(body)
             ? { streamRejected: true }
             : {}),
         };
@@ -544,14 +555,23 @@ export async function callJudge(args: {
 
   // No verdict came back: an empty reply, a provider that reports zero output
   // tokens (a stream cut mid-generation can return a stub like "[" with
-  // completion_tokens: 0), or a reply stopped for length or content
-  // filtering. (Only guard on tokens when the provider actually reported
-  // usage; absent usage means "unknown", not "zero".)
-  const isTruncated = ({ text, usage, finishReason }: JudgeCompletion): boolean =>
-    !text.trim() ||
-    (usage !== undefined && usage.completion_tokens === 0) ||
-    finishReason === "length" ||
-    finishReason === "content_filter";
+  // completion_tokens: 0), or a reply stopped early (length, content filter,
+  // provider error) whose JSON didn't complete. (Only guard on tokens when
+  // the provider actually reported usage; absent usage means "unknown", not
+  // "zero".) A stopped-early reply that still parses is a verdict and is kept.
+  const isTruncated = ({ text, usage, finishReason }: JudgeCompletion): boolean => {
+    if (!text.trim()) return true;
+    if (usage !== undefined && usage.completion_tokens === 0) return true;
+    if (finishReason !== "length" && finishReason !== "content_filter" && finishReason !== "error") {
+      return false;
+    }
+    try {
+      JSON.parse(text);
+      return false;
+    } catch {
+      return true;
+    }
+  };
 
   return runWithSharedPrefix(cacheKey, async () => {
     const startedAt = Date.now();
@@ -572,7 +592,17 @@ export async function callJudge(args: {
       if (deadline - Date.now() - delay >= JUDGE_MIN_RETRY_BUDGET_MS) {
         if (streamRejected) stream = false;
         await new Promise((resolve) => setTimeout(resolve, delay));
+        const first = result;
         result = await attempt(stream, deadline);
+        // Keep the original cause visible when the retry fails too.
+        if (result.kind === "unavailable" && first.kind === "unavailable") {
+          result = {
+            ...result,
+            error: new JudgeUnavailableError(
+              `${first.error.message} (retry: ${result.error.message})`,
+            ),
+          };
+        }
       }
     }
     if (result.kind === "unavailable") throw result.error;
