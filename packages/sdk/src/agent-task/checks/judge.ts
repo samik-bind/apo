@@ -225,31 +225,61 @@ function parseJudgeJson(raw: string): { pass?: boolean; reasoning?: string } {
 }
 
 /**
- * Bounds on one judge request. Same-prefix judge calls are serialized
- * (below), so a stalled request delays every criterion sharing the cached
- * prefix; both bounds end it with an error rather than a silent wait.
+ * Bounds on one judge call. Same-prefix judge calls are serialized (below),
+ * so a stalled call delays every criterion sharing the cached prefix; both
+ * bounds end it with an error rather than a silent wait.
  *
- * - Idle: no `data:` chunk for this long means the stream has stalled. A
- *   streaming reasoning model emits reasoning chunks while it thinks, and
- *   SSE keepalive comments do not count as progress.
- * - Total: generous, because a reasoning judge on a long checklist criterion
- *   measured 87–100 s end to end, and some samples run past 180 s.
+ * - Total: one deadline for the whole call, retry included. Generous,
+ *   because a reasoning judge on a long checklist criterion measured
+ *   87–100 s end to end, and some samples run past 180 s.
+ * - Idle: once content has started streaming, no `data:` chunk for this long
+ *   means the stream has stalled. It is not armed before the first chunk: a
+ *   model that reasons without streaming its thinking sends only keepalive
+ *   comments until it answers, and that silence is the think, not a stall.
  */
-const JUDGE_IDLE_TIMEOUT_MS = 90_000;
 const JUDGE_TIMEOUT_MS = 300_000;
+const JUDGE_IDLE_TIMEOUT_MS = 90_000;
 
 /**
- * One retry for a transport failure (network error, 429, 5xx, or a reply
- * with no content). These are the provider's or the gateway's, not the
- * judge's: a single cut connection should not become a FAIL verdict.
+ * One retry for a transport failure (network error, 429, 5xx, a stream error,
+ * a stalled stream, or a reply with no complete content). These are the
+ * provider's or the gateway's, not the judge's: a single cut connection
+ * should not become a FAIL verdict. A 429's `Retry-After` is honoured up to
+ * the cap.
  */
 const JUDGE_RETRY_DELAY_MS = 1_000;
+const JUDGE_RETRY_AFTER_CAP_MS = 20_000;
+/** Below this much remaining budget a retry cannot finish, so none is made. */
+const JUDGE_MIN_RETRY_BUDGET_MS = 10_000;
 
 function isRetryableStatus(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
-type JudgeCompletion = { text: string; usage: JudgeUsage | undefined };
+function retryDelayMs(retryAfter: string | null): number {
+  if (!retryAfter) return JUDGE_RETRY_DELAY_MS;
+  const seconds = Number(retryAfter);
+  const ms = Number.isFinite(seconds)
+    ? seconds * 1000
+    : Date.parse(retryAfter) - Date.now();
+  if (!Number.isFinite(ms)) return JUDGE_RETRY_DELAY_MS;
+  return Math.min(Math.max(ms, JUDGE_RETRY_DELAY_MS), JUDGE_RETRY_AFTER_CAP_MS);
+}
+
+type JudgeCompletion = {
+  text: string;
+  usage: JudgeUsage | undefined;
+  finishReason: string | undefined;
+};
+
+type StreamChunk = {
+  choices?: Array<{
+    delta?: { content?: string | null };
+    finish_reason?: string | null;
+  }>;
+  usage?: JudgeUsage | null;
+  error?: { message?: string } | string;
+};
 
 /**
  * Read a chat-completion response. The request asks for a stream so a
@@ -258,62 +288,87 @@ type JudgeCompletion = { text: string; usage: JudgeUsage | undefined };
  * request is a silent connection for the whole think, and an idle-timeout
  * proxy cuts it: a 60 s idle cut returned 504 on judge calls that reason
  * for 60–90 s). Providers that ignore `stream` reply with plain JSON, which
- * is read as before.
+ * is read as before. `onData` fires on every SSE data event.
  */
 async function readCompletion(
   response: Response,
-  onProgress: () => void,
+  onData: () => void,
 ): Promise<JudgeCompletion> {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/event-stream")) {
     const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string | null }>;
       usage?: JudgeUsage;
     };
-    return { text: data.choices?.[0]?.message?.content ?? "", usage: data.usage };
+    return {
+      text: data.choices?.[0]?.message?.content ?? "",
+      usage: data.usage,
+      finishReason: data.choices?.[0]?.finish_reason ?? undefined,
+    };
   }
 
   let text = "";
   let usage: JudgeUsage | undefined;
-  const handleLine = (line: string): void => {
-    // SSE comments (": ping") are keepalives; only `data:` lines carry chunks.
-    if (!line.startsWith("data:")) return;
-    const payload = line.slice(5).trim();
+  let finishReason: string | undefined;
+
+  // SSE event assembly: `data:` lines accumulate until a blank line
+  // dispatches the event; comment lines (": ping", ": OPENROUTER
+  // PROCESSING") are keepalives and carry nothing.
+  let eventType = "message";
+  let dataLines: string[] = [];
+  const dispatch = (): void => {
+    const payload = dataLines.join("\n").trim();
+    const type = eventType;
+    eventType = "message";
+    dataLines = [];
     if (!payload || payload === "[DONE]") return;
-    onProgress();
-    let chunk: {
-      choices?: Array<{ delta?: { content?: string | null } }>;
-      usage?: JudgeUsage | null;
-      error?: { message?: string } | string;
-    };
+    onData();
+    let chunk: StreamChunk | undefined;
     try {
-      chunk = JSON.parse(payload);
+      chunk = JSON.parse(payload) as StreamChunk;
     } catch {
-      return;
+      chunk = undefined;
     }
-    if (chunk.error) {
-      const message = typeof chunk.error === "string" ? chunk.error : chunk.error.message;
+    if (type === "error" || chunk?.error) {
+      const error = chunk?.error;
+      const message =
+        typeof error === "string" ? error : (error?.message ?? (chunk ? undefined : payload));
       throw new JudgeUnavailableError(`Judge stream error: ${message ?? "unknown"}`);
     }
-    text += chunk.choices?.[0]?.delta?.content ?? "";
+    if (!chunk) return;
+    const choice = chunk.choices?.[0];
+    text += choice?.delta?.content ?? "";
+    if (choice?.finish_reason) finishReason = choice.finish_reason;
     if (chunk.usage) usage = chunk.usage;
+  };
+  const handleLine = (line: string): void => {
+    if (line === "") return dispatch();
+    if (line.startsWith(":")) return;
+    const colon = line.indexOf(":");
+    const field = colon === -1 ? line : line.slice(0, colon);
+    let value = colon === -1 ? "" : line.slice(colon + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+    if (field === "data") dataLines.push(value);
+    else if (field === "event") eventType = value;
   };
 
   const reader = response.body?.getReader();
-  if (!reader) return { text, usage };
+  if (!reader) return { text, usage, finishReason };
   const decoder = new TextDecoder();
   let buffer = "";
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
+    // Hold a trailing CR: it may be the first half of a CRLF split across reads.
+    const lines = buffer.split(/\r\n|\r(?!$)|\n/);
     buffer = lines.pop() ?? "";
-    for (const line of lines) handleLine(line.replace(/\r$/, ""));
+    for (const line of lines) handleLine(line);
   }
   buffer += decoder.decode();
-  if (buffer) handleLine(buffer.replace(/\r$/, ""));
-  return { text, usage };
+  for (const line of buffer.split(/\r\n|\r|\n/)) if (line) handleLine(line);
+  dispatch();
+  return { text, usage, finishReason };
 }
 
 /**
@@ -392,44 +447,52 @@ export async function callJudge(args: {
   // different briefings grading one deliverable would otherwise collide (#161).
   const cacheKey = `${args.model}\u0000${briefingText}\u0000${deliverableText}`;
 
-  const requestBody = JSON.stringify({
-    model: args.model,
-    messages: [
-      {
-        role: "system",
-        content: [
-          { type: "text", text: briefingText },
-          {
-            type: "text",
-            text: deliverableText,
-            cache_control: { type: "ephemeral" },
-          },
-        ],
-      },
-      { role: "user", content: instructionText },
-    ],
-    temperature: 0,
-    response_format: { type: "json_object" },
-    stream: true,
-    stream_options: { include_usage: true },
-  });
+  const requestBody = (stream: boolean): string =>
+    JSON.stringify({
+      model: args.model,
+      messages: [
+        {
+          role: "system",
+          content: [
+            { type: "text", text: briefingText },
+            {
+              type: "text",
+              text: deliverableText,
+              cache_control: { type: "ephemeral" },
+            },
+          ],
+        },
+        { role: "user", content: instructionText },
+      ],
+      temperature: 0,
+      response_format: { type: "json_object" },
+      ...(stream ? { stream: true, stream_options: { include_usage: true } } : {}),
+    });
 
-  // One attempt: a completion, or a JudgeUnavailableError flagged retryable
-  // when a second try could plausibly succeed.
-  const attempt = async (): Promise<
+  type AttemptResult =
     | { kind: "completion"; completion: JudgeCompletion }
-    | { kind: "unavailable"; error: JudgeUnavailableError; retryable: boolean }
-  > => {
+    | {
+        kind: "unavailable";
+        error: JudgeUnavailableError;
+        retryable: boolean;
+        retryDelayMs?: number;
+        /** The endpoint rejected the streaming fields; retry without them. */
+        streamRejected?: boolean;
+      };
+
+  // One attempt, bounded by the call's shared deadline and, once content is
+  // flowing, by the idle bound.
+  const attempt = async (stream: boolean, deadline: number): Promise<AttemptResult> => {
     const controller = new AbortController();
     const expire = (reason: string, name: string) => () =>
       controller.abort(new DOMException(reason, name));
     const total = setTimeout(
       expire(`no complete response within ${JUDGE_TIMEOUT_MS / 1000}s`, "TimeoutError"),
-      JUDGE_TIMEOUT_MS,
+      Math.max(deadline - Date.now(), 0),
     );
     const stalled = expire(`no data for ${JUDGE_IDLE_TIMEOUT_MS / 1000}s`, "IdleTimeoutError");
-    let idle = setTimeout(stalled, JUDGE_IDLE_TIMEOUT_MS);
-    const onProgress = (): void => {
+    let idle: ReturnType<typeof setTimeout> | undefined;
+    const onData = (): void => {
       clearTimeout(idle);
       idle = setTimeout(stalled, JUDGE_IDLE_TIMEOUT_MS);
     };
@@ -444,7 +507,7 @@ export async function callJudge(args: {
             "Content-Type": "application/json",
             ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
           },
-          body: requestBody,
+          body: requestBody(stream),
         });
       } catch (error) {
         return transportFailure("Judge request failed", controller.signal.reason ?? error);
@@ -456,37 +519,61 @@ export async function callJudge(args: {
           kind: "unavailable",
           error: new JudgeUnavailableError(`Judge API ${response.status}: ${body.slice(0, 200)}`),
           retryable: isRetryableStatus(response.status),
+          ...(response.status === 429
+            ? { retryDelayMs: retryDelayMs(response.headers.get("retry-after")) }
+            : {}),
+          ...(stream && response.status === 400 && /stream/i.test(body)
+            ? { streamRejected: true }
+            : {}),
         };
       }
 
       try {
-        return { kind: "completion", completion: await readCompletion(response, onProgress) };
+        return { kind: "completion", completion: await readCompletion(response, onData) };
       } catch (error) {
         return transportFailure("Judge response failed", controller.signal.reason ?? error);
       }
     } finally {
       clearTimeout(total);
       clearTimeout(idle);
+      // Release the connection on every exit, including a thrown error chunk
+      // whose stream the server has not closed. A no-op once the body is read.
+      controller.abort();
     }
   };
 
-  // A response that is empty, OR that the provider reports as having
-  // generated zero output tokens, is a transient/provider failure — not a
-  // model verdict. This happens when a provider cuts a stream mid-generation
-  // and returns a stub like "[" with completion_tokens: 0. (Only guard on
-  // tokens when the provider actually reported usage; absent usage means
-  // "unknown", not "zero".)
-  const isTruncated = ({ text, usage }: JudgeCompletion): boolean =>
-    !text.trim() || (usage !== undefined && usage.completion_tokens === 0);
+  // No verdict came back: an empty reply, a provider that reports zero output
+  // tokens (a stream cut mid-generation can return a stub like "[" with
+  // completion_tokens: 0), or a reply stopped for length or content
+  // filtering. (Only guard on tokens when the provider actually reported
+  // usage; absent usage means "unknown", not "zero".)
+  const isTruncated = ({ text, usage, finishReason }: JudgeCompletion): boolean =>
+    !text.trim() ||
+    (usage !== undefined && usage.completion_tokens === 0) ||
+    finishReason === "length" ||
+    finishReason === "content_filter";
 
   return runWithSharedPrefix(cacheKey, async () => {
     const startedAt = Date.now();
+    const deadline = startedAt + JUDGE_TIMEOUT_MS;
 
-    let result = await attempt();
+    let stream = true;
+    let result = await attempt(stream, deadline);
     const truncated = result.kind === "completion" && isTruncated(result.completion);
-    if (truncated || (result.kind === "unavailable" && result.retryable)) {
-      await new Promise((resolve) => setTimeout(resolve, JUDGE_RETRY_DELAY_MS));
-      result = await attempt();
+    const streamRejected = result.kind === "unavailable" && result.streamRejected === true;
+    const retryable = result.kind === "unavailable" && result.retryable;
+    if (truncated || streamRejected || retryable) {
+      const delay =
+        result.kind === "unavailable" && result.retryDelayMs !== undefined
+          ? result.retryDelayMs
+          : streamRejected
+            ? 0
+            : JUDGE_RETRY_DELAY_MS;
+      if (deadline - Date.now() - delay >= JUDGE_MIN_RETRY_BUDGET_MS) {
+        if (streamRejected) stream = false;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        result = await attempt(stream, deadline);
+      }
     }
     if (result.kind === "unavailable") throw result.error;
 
@@ -528,10 +615,9 @@ export async function callJudge(args: {
 }
 
 /**
- * A fetch or body-read failure. Hitting the total bound already spent the
- * whole budget, and retrying it would double the wait for every sibling
- * queued on the same prefix, so that alone is not retried. A stalled stream
- * (idle bound) is transient, like a cut connection, and gets the retry.
+ * A fetch or body-read failure. Hitting the call's deadline already spent the
+ * whole budget, so that alone is not retried. A stalled stream (idle bound)
+ * is transient, like a cut connection, and gets the retry.
  */
 function transportFailure(
   prefix: string,
