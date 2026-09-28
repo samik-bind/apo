@@ -437,13 +437,17 @@ describe("t.judge streaming", () => {
   it("cuts a stalled stream on the idle bound and retries it", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
-      // First attempt: keepalives only, never a data chunk, never closes —
-      // a stalled provider behind a live gateway.
+      // First attempt: streaming starts, then only keepalives, never closes —
+      // a provider that stalled mid-stream behind a live gateway.
       const stalled = (_url: string, init?: RequestInit): Promise<Response> => {
         const encoder = new TextEncoder();
         const body = new ReadableStream<Uint8Array>({
           start(controller) {
-            controller.enqueue(encoder.encode(": ping\n\n"));
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "thinking" } }] })}\n\n: ping\n\n`,
+              ),
+            );
             init?.signal?.addEventListener("abort", () =>
               controller.error(init.signal!.reason),
             );
@@ -470,6 +474,133 @@ describe("t.judge streaming", () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(result).toMatchObject({ pass: true, reasoning: "ok" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not treat keepalive-only silence before the first chunk as a stall", async () => {
+    // A reasoning model that doesn't stream its thinking sends only comments
+    // until it answers; that silence is the think and must outlast the idle
+    // bound.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const encoder = new TextEncoder();
+      let answer!: () => void;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(": OPENROUTER PROCESSING\n\n"));
+          answer = () => {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ choices: [{ delta: { content: '{"reasoning":"late","pass":true}' }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`,
+              ),
+            );
+            controller.close();
+          };
+        },
+      });
+      const fetchMock = vi.fn(async () =>
+        new Response(body, { headers: { "content-type": "text/event-stream" } }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const pending = callJudge({ values: ["slow-thinker"], instruction: "x", model: "m" });
+      await vi.advanceTimersByTimeAsync(150_000);
+      answer();
+      const result = await pending;
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ pass: true, reasoning: "late" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a reply cut off at the length limit", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: '{"reasoning":"the memo lists' }, finish_reason: "length" }] })}\n\n`,
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: '{"reasoning":"ok","pass":true}' }, finish_reason: "stop" }] })}\n\n`,
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callJudge({ values: ["length-cut"], instruction: "x", model: "m" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ pass: true, reasoning: "ok" });
+  });
+
+  it("falls back to a non-streaming request when the endpoint rejects stream fields", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('{"error":"Unrecognized request argument supplied: stream_options"}', {
+          status: 400,
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ choices: [{ message: { content: '{"reasoning":"ok","pass":true}' } }] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callJudge({ values: ["no-stream-endpoint"], instruction: "x", model: "m" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const retryBody = JSON.parse(fetchMock.mock.calls[1]![1]!.body as string);
+    expect(retryBody.stream).toBeUndefined();
+    expect(retryBody.stream_options).toBeUndefined();
+    expect(result).toMatchObject({ pass: true, reasoning: "ok" });
+  });
+
+  it("reads a multi-line SSE event and a named error event", async () => {
+    const verdict = '{"reasoning":"ok","pass":true}';
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(sseResponse(["event: error\r\ndata: upstream overloaded\r\n\r\n"]))
+        .mockResolvedValueOnce(
+          sseResponse([
+            // One event split across two data lines is joined with "\n".
+            `data: {"choices":[{"delta":{"content":${JSON.stringify(verdict)}},\ndata: "finish_reason":"stop"}]}\n\n`,
+          ]),
+        ),
+    );
+
+    const result = await callJudge({ values: ["multi-line"], instruction: "x", model: "m" });
+
+    expect(result).toMatchObject({ pass: true, reasoning: "ok" });
+  });
+
+  it("waits out a 429's Retry-After before the retry", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response("rate limited", { status: 429, headers: { "retry-after": "5" } }),
+        )
+        .mockResolvedValueOnce(
+          Response.json({ choices: [{ message: { content: '{"reasoning":"ok","pass":true}' } }] }),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const pending = callJudge({ values: ["rate-limited"], instruction: "x", model: "m" });
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await pending;
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({ pass: true });
     } finally {
       vi.useRealTimers();
     }
