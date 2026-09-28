@@ -11,7 +11,25 @@ export type JudgeCallResult = {
   pass: boolean;
   reasoning: string;
   judge: JudgeMetadata;
+  /**
+   * Set when no verdict arrived (empty or truncated response). `pass` is then
+   * false only because a pass can't be confirmed — the caller records it as
+   * `outcome: "error"`, not as the judge's FAIL.
+   */
+  unavailable?: true;
 };
+
+/**
+ * The judge could not be reached or returned an HTTP error — no verdict
+ * exists. Thrown after the one retry is spent; `t.judge` records it as
+ * `outcome: "error"`.
+ */
+export class JudgeUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "JudgeUnavailableError";
+  }
+}
 
 /**
  * What a judge call is grading — everything the SDK knows that a bare
@@ -207,13 +225,96 @@ function parseJudgeJson(raw: string): { pass?: boolean; reasoning?: string } {
 }
 
 /**
- * Bound on one judge request. Generous — LLM completions on large
- * deliverables are slow — but finite, because same-prefix judge calls are
- * serialized (below): one stalled provider request would otherwise delay
- * every criterion sharing the cached prefix, ~300s each on undici's
- * default, with no error to see.
+ * Bounds on one judge request. Same-prefix judge calls are serialized
+ * (below), so a stalled request delays every criterion sharing the cached
+ * prefix; both bounds end it with an error rather than a silent wait.
+ *
+ * - Idle: no `data:` chunk for this long means the stream has stalled. A
+ *   streaming reasoning model emits reasoning chunks while it thinks, and
+ *   SSE keepalive comments do not count as progress.
+ * - Total: generous, because a reasoning judge on a long checklist criterion
+ *   measured 87–100 s end to end, and some samples run past 180 s.
  */
-const JUDGE_TIMEOUT_MS = 120_000;
+const JUDGE_IDLE_TIMEOUT_MS = 90_000;
+const JUDGE_TIMEOUT_MS = 300_000;
+
+/**
+ * One retry for a transport failure (network error, 429, 5xx, or a reply
+ * with no content). These are the provider's or the gateway's, not the
+ * judge's: a single cut connection should not become a FAIL verdict.
+ */
+const JUDGE_RETRY_DELAY_MS = 1_000;
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+type JudgeCompletion = { text: string; usage: JudgeUsage | undefined };
+
+/**
+ * Read a chat-completion response. The request asks for a stream so a
+ * reasoning model's long silence before its first content token carries
+ * the gateway's SSE keepalives instead of looking idle (a non-streaming
+ * request is a silent connection for the whole think, and an idle-timeout
+ * proxy cuts it: a 60 s idle cut returned 504 on judge calls that reason
+ * for 60–90 s). Providers that ignore `stream` reply with plain JSON, which
+ * is read as before.
+ */
+async function readCompletion(
+  response: Response,
+  onProgress: () => void,
+): Promise<JudgeCompletion> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/event-stream")) {
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: JudgeUsage;
+    };
+    return { text: data.choices?.[0]?.message?.content ?? "", usage: data.usage };
+  }
+
+  let text = "";
+  let usage: JudgeUsage | undefined;
+  const handleLine = (line: string): void => {
+    // SSE comments (": ping") are keepalives; only `data:` lines carry chunks.
+    if (!line.startsWith("data:")) return;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") return;
+    onProgress();
+    let chunk: {
+      choices?: Array<{ delta?: { content?: string | null } }>;
+      usage?: JudgeUsage | null;
+      error?: { message?: string } | string;
+    };
+    try {
+      chunk = JSON.parse(payload);
+    } catch {
+      return;
+    }
+    if (chunk.error) {
+      const message = typeof chunk.error === "string" ? chunk.error : chunk.error.message;
+      throw new JudgeUnavailableError(`Judge stream error: ${message ?? "unknown"}`);
+    }
+    text += chunk.choices?.[0]?.delta?.content ?? "";
+    if (chunk.usage) usage = chunk.usage;
+  };
+
+  const reader = response.body?.getReader();
+  if (!reader) return { text, usage };
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) handleLine(line.replace(/\r$/, ""));
+  }
+  buffer += decoder.decode();
+  if (buffer) handleLine(buffer.replace(/\r$/, ""));
+  return { text, usage };
+}
 
 /**
  * Per-prefix serialization. Checks run concurrently (flow-runner uses
@@ -291,79 +392,128 @@ export async function callJudge(args: {
   // different briefings grading one deliverable would otherwise collide (#161).
   const cacheKey = `${args.model}\u0000${briefingText}\u0000${deliverableText}`;
 
+  const requestBody = JSON.stringify({
+    model: args.model,
+    messages: [
+      {
+        role: "system",
+        content: [
+          { type: "text", text: briefingText },
+          {
+            type: "text",
+            text: deliverableText,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+      },
+      { role: "user", content: instructionText },
+    ],
+    temperature: 0,
+    response_format: { type: "json_object" },
+    stream: true,
+    stream_options: { include_usage: true },
+  });
+
+  // One attempt: a completion, or a JudgeUnavailableError flagged retryable
+  // when a second try could plausibly succeed.
+  const attempt = async (): Promise<
+    | { kind: "completion"; completion: JudgeCompletion }
+    | { kind: "unavailable"; error: JudgeUnavailableError; retryable: boolean }
+  > => {
+    const controller = new AbortController();
+    const expire = (reason: string, name: string) => () =>
+      controller.abort(new DOMException(reason, name));
+    const total = setTimeout(
+      expire(`no complete response within ${JUDGE_TIMEOUT_MS / 1000}s`, "TimeoutError"),
+      JUDGE_TIMEOUT_MS,
+    );
+    const stalled = expire(`no data for ${JUDGE_IDLE_TIMEOUT_MS / 1000}s`, "IdleTimeoutError");
+    let idle = setTimeout(stalled, JUDGE_IDLE_TIMEOUT_MS);
+    const onProgress = (): void => {
+      clearTimeout(idle);
+      idle = setTimeout(stalled, JUDGE_IDLE_TIMEOUT_MS);
+    };
+
+    try {
+      let response: Response;
+      try {
+        response = await fetch(`${baseURL}/chat/completions`, {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            "Content-Type": "application/json",
+            ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          },
+          body: requestBody,
+        });
+      } catch (error) {
+        return transportFailure("Judge request failed", controller.signal.reason ?? error);
+      }
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        return {
+          kind: "unavailable",
+          error: new JudgeUnavailableError(`Judge API ${response.status}: ${body.slice(0, 200)}`),
+          retryable: isRetryableStatus(response.status),
+        };
+      }
+
+      try {
+        return { kind: "completion", completion: await readCompletion(response, onProgress) };
+      } catch (error) {
+        return transportFailure("Judge response failed", controller.signal.reason ?? error);
+      }
+    } finally {
+      clearTimeout(total);
+      clearTimeout(idle);
+    }
+  };
+
+  // A response that is empty, OR that the provider reports as having
+  // generated zero output tokens, is a transient/provider failure — not a
+  // model verdict. This happens when a provider cuts a stream mid-generation
+  // and returns a stub like "[" with completion_tokens: 0. (Only guard on
+  // tokens when the provider actually reported usage; absent usage means
+  // "unknown", not "zero".)
+  const isTruncated = ({ text, usage }: JudgeCompletion): boolean =>
+    !text.trim() || (usage !== undefined && usage.completion_tokens === 0);
+
   return runWithSharedPrefix(cacheKey, async () => {
     const startedAt = Date.now();
 
-    const response = await fetch(`${baseURL}/chat/completions`, {
-      method: "POST",
-      signal: AbortSignal.timeout(JUDGE_TIMEOUT_MS),
-      headers: {
-        "Content-Type": "application/json",
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      },
-      body: JSON.stringify({
-        model: args.model,
-        messages: [
-          {
-            role: "system",
-            content: [
-              { type: "text", text: briefingText },
-              {
-                type: "text",
-                text: deliverableText,
-                cache_control: { type: "ephemeral" },
-              },
-            ],
-          },
-          { role: "user", content: instructionText },
-        ],
-        temperature: 0,
-        response_format: { type: "json_object" },
-      }),
-    });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => "");
-      throw new Error(`Judge API ${response.status}: ${body.slice(0, 200)}`);
+    let result = await attempt();
+    const truncated = result.kind === "completion" && isTruncated(result.completion);
+    if (truncated || (result.kind === "unavailable" && result.retryable)) {
+      await new Promise((resolve) => setTimeout(resolve, JUDGE_RETRY_DELAY_MS));
+      result = await attempt();
     }
+    if (result.kind === "unavailable") throw result.error;
 
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-      usage?: JudgeUsage;
+    const { text, usage } = result.completion;
+    const judge: JudgeMetadata = {
+      model: args.model,
+      contract: judgeContractInUse(),
+      prompt: { system: systemPromptText, user: instructionText },
+      response: text,
+      tokens: parseJudgeUsage(usage),
+      latency_ms: Date.now() - startedAt,
+      secondJudge: await secondJudgePromise,
     };
 
-    const text = data.choices?.[0]?.message?.content ?? "";
-    const outputTokens = data.usage?.completion_tokens;
-
-    // Guard: a response that is empty, OR that the provider reports as having
-    // generated zero output tokens, is a transient/provider failure — not a
-    // model verdict. This happens when a provider cuts a stream mid-generation
-    // and returns a stub like "[" with completion_tokens: 0. Treat it as a
-    // failure with a clear explanation rather than feeding garbage to the
-    // parser. (Only guard on tokens when the provider actually reported usage;
-    // absent usage means "unknown", not "zero".)
-    const isEmpty = !text.trim();
-    const reportedZeroTokens = data.usage !== undefined && outputTokens === 0;
-    if (isEmpty || reportedZeroTokens) {
+    if (isTruncated(result.completion)) {
       return {
         pass: false,
         reasoning:
           "Judge returned an empty or truncated response — likely a transient " +
-          "provider failure. The verdict is unknown, so this check is treated " +
-          "as a failure.",
-        judge: {
-          model: args.model,
-          contract: judgeContractInUse(),
-          prompt: { system: systemPromptText, user: instructionText },
-          response: text,
-          tokens: parseJudgeUsage(data.usage),
-          latency_ms: Date.now() - startedAt,
-          secondJudge: await secondJudgePromise,
-        },
+          "provider failure. The verdict is unknown, so this check is recorded " +
+          "as a judge error, not a verdict.",
+        judge,
+        unavailable: true,
       };
     }
 
-  // Models routinely wrap their JSON in markdown fences (```json … ```) or
+    // Models routinely wrap their JSON in markdown fences (```json … ```) or
     // add prose around it despite the json_object response_format. Parse
     // tolerantly so the verdict + reasoning aren't lost to a parse error:
     // try the raw text, then strip fences, then extract the first {...}.
@@ -372,17 +522,32 @@ export async function callJudge(args: {
     return {
       pass: parsed.pass === true,
       reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "",
-      judge: {
-        model: args.model,
-        contract: judgeContractInUse(),
-        prompt: { system: systemPromptText, user: instructionText },
-        response: text,
-        tokens: parseJudgeUsage(data.usage),
-        latency_ms: Date.now() - startedAt,
-        secondJudge: await secondJudgePromise,
-      },
+      judge,
     };
   });
+}
+
+/**
+ * A fetch or body-read failure. Hitting the total bound already spent the
+ * whole budget, and retrying it would double the wait for every sibling
+ * queued on the same prefix, so that alone is not retried. A stalled stream
+ * (idle bound) is transient, like a cut connection, and gets the retry.
+ */
+function transportFailure(
+  prefix: string,
+  error: unknown,
+): { kind: "unavailable"; error: JudgeUnavailableError; retryable: boolean } {
+  if (error instanceof JudgeUnavailableError) {
+    return { kind: "unavailable", error, retryable: true };
+  }
+  const timedOut = error instanceof Error && error.name === "TimeoutError";
+  return {
+    kind: "unavailable",
+    error: new JudgeUnavailableError(
+      `${prefix}: ${error instanceof Error ? error.message : String(error)}`,
+    ),
+    retryable: !timedOut,
+  };
 }
 
 /**

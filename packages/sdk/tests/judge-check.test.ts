@@ -132,7 +132,7 @@ describe("t.judge", () => {
     expect(result?.reasoning).not.toContain("not-json");
   });
 
-  it("treats a zero-output-token response as a transient failure", async () => {
+  it("treats a zero-output-token response as a judge error", async () => {
     // OpenRouter occasionally cuts a stream mid-generation and returns a
     // stub like "[" with completion_tokens: 0. That's a provider failure,
     // not a verdict — guard it before parsing.
@@ -154,13 +154,12 @@ describe("t.judge", () => {
     });
     expect(result?.reasoning).toContain("empty or truncated");
     expect(result?.reasoning).not.toEqual("[");
+    expect(result?.assertions?.[0]).toMatchObject({ pass: false, outcome: "error" });
   });
 
-  it("turns provider errors into an LLM check failure", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("unavailable", { status: 503 })),
-    );
+  it("records a provider error as a judge error after one retry, not a verdict", async () => {
+    const fetchMock = vi.fn(async () => new Response("unavailable", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
     defineCheck("quality", async (t) => {
       await t.judge("answer", "PASS when correct");
     });
@@ -171,11 +170,84 @@ describe("t.judge", () => {
       judgeConfig,
     });
 
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({
       pass: false,
       evaluator_type: "code",
     });
     expect(result?.reasoning).toContain("Judge API 503");
+    expect(result?.assertions?.[0]).toMatchObject({ pass: false, outcome: "error" });
+  });
+
+  it("retries a gateway timeout once and keeps the second attempt's verdict", async () => {
+    // A 504 is an idle proxy cutting the connection, not the judge's answer.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("<html>504 Gateway Time-out</html>", { status: 504 }))
+      .mockResolvedValueOnce(
+        Response.json({
+          choices: [{ message: { content: JSON.stringify({ pass: true, reasoning: "ok" }) } }],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    defineCheck("quality", async (t) => {
+      await t.judge("answer", "PASS when correct");
+    });
+
+    const [result] = await runTraceChecks({
+      snapshot: emptySnapshot,
+      deliverables: {},
+      judgeConfig,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result?.pass).toBe(true);
+    expect(result?.assertions?.[0]).toMatchObject({ pass: true, reasoning: "ok" });
+    expect(result?.assertions?.[0]?.outcome).toBeUndefined();
+  });
+
+  it("does not retry a client error", async () => {
+    const fetchMock = vi.fn(async () => new Response("bad model", { status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+    defineCheck("quality", async (t) => {
+      await t.judge("answer", "PASS when correct");
+    });
+
+    const [result] = await runTraceChecks({
+      snapshot: emptySnapshot,
+      deliverables: {},
+      judgeConfig,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result?.reasoning).toContain("Judge API 400");
+    expect(result?.assertions?.[0]).toMatchObject({ pass: false, outcome: "error" });
+  });
+
+  it("retries a network failure once", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(
+        Response.json({
+          choices: [{ message: { content: JSON.stringify({ pass: false, reasoning: "no" }) } }],
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    defineCheck("quality", async (t) => {
+      await t.judge("answer", "PASS when correct");
+    });
+
+    const [result] = await runTraceChecks({
+      snapshot: emptySnapshot,
+      deliverables: {},
+      judgeConfig,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // A real FAIL verdict from the judge carries no error outcome.
+    expect(result).toMatchObject({ pass: false, reasoning: "no" });
+    expect(result?.assertions?.[0]?.outcome).toBeUndefined();
   });
 
   it("overrides the judge model for a single call", async () => {
@@ -276,6 +348,149 @@ describe("t.judge", () => {
     });
     const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
     expect(body.model).toBe("only/override");
+  });
+});
+
+describe("t.judge streaming", () => {
+  it("asks for a stream with usage", async () => {
+    const fetchMock = stubCapturingJudgeResponse({
+      content: JSON.stringify({ pass: true, reasoning: "ok" }),
+    });
+    defineCheck("quality", async (t) => {
+      await t.judge("answer", "PASS when correct");
+    });
+
+    await runTraceChecks({ snapshot: emptySnapshot, deliverables: {}, judgeConfig });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+    expect(body.stream).toBe(true);
+    expect(body.stream_options).toEqual({ include_usage: true });
+  });
+
+  it("assembles the verdict from SSE chunks, skipping keepalive comments", async () => {
+    const verdict = JSON.stringify({ reasoning: "all positions stated", pass: true });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sseResponse([
+          ": ping\n\n",
+          // A reasoning model's thinking arrives outside `content`.
+          `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "hmm" } }] })}\n\n`,
+          ": ping\n\n",
+          `data: ${JSON.stringify({ choices: [{ delta: { content: verdict.slice(0, 20) } }] })}\n`,
+          // A chunk boundary inside an SSE line must not lose content.
+          `\ndata: ${JSON.stringify({ choices: [{ delta: { content: verdict.slice(20) } }] }).slice(0, 15)}`,
+          `${JSON.stringify({ choices: [{ delta: { content: verdict.slice(20) } }] }).slice(15)}\n\n`,
+          `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 50, completion_tokens: 9 } })}\n\n`,
+          "data: [DONE]\n\n",
+        ]),
+      ),
+    );
+    defineCheck("quality", async (t) => {
+      await t.judge("answer", "PASS when correct");
+    });
+
+    const [result] = await runTraceChecks({
+      snapshot: emptySnapshot,
+      deliverables: {},
+      judgeConfig,
+    });
+
+    expect(result).toMatchObject({
+      pass: true,
+      judge: { response: verdict, tokens: { input: 50, output: 9 } },
+    });
+    expect(result?.assertions?.[0]?.reasoning).toBe("all positions stated");
+  });
+
+  it("retries a stream that carries an error chunk", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          ": ping\n\n",
+          `data: ${JSON.stringify({ error: { message: "upstream overloaded" } })}\n\n`,
+        ]),
+      )
+      .mockResolvedValueOnce(
+        sseResponse([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: '{"reasoning":"ok","pass":true}' } }] })}\n\n`,
+          "data: [DONE]\n\n",
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    defineCheck("quality", async (t) => {
+      await t.judge("answer", "PASS when correct");
+    });
+
+    const [result] = await runTraceChecks({
+      snapshot: emptySnapshot,
+      deliverables: {},
+      judgeConfig,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result?.pass).toBe(true);
+    expect(result?.assertions?.[0]).toMatchObject({ pass: true, reasoning: "ok" });
+  });
+
+  it("cuts a stalled stream on the idle bound and retries it", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      // First attempt: keepalives only, never a data chunk, never closes —
+      // a stalled provider behind a live gateway.
+      const stalled = (_url: string, init?: RequestInit): Promise<Response> => {
+        const encoder = new TextEncoder();
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode(": ping\n\n"));
+            init?.signal?.addEventListener("abort", () =>
+              controller.error(init.signal!.reason),
+            );
+          },
+        });
+        return Promise.resolve(
+          new Response(body, { headers: { "content-type": "text/event-stream" } }),
+        );
+      };
+      const fetchMock = vi
+        .fn()
+        .mockImplementationOnce(stalled)
+        .mockResolvedValueOnce(
+          sseResponse([
+            `data: ${JSON.stringify({ choices: [{ delta: { content: '{"reasoning":"ok","pass":true}' } }] })}\n\n`,
+          ]),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const pending = callJudge({ values: ["stall-deliverable"], instruction: "x", model: "m" });
+      await vi.advanceTimersByTimeAsync(90_000);
+      await vi.advanceTimersByTimeAsync(1_000);
+      const result = await pending;
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({ pass: true, reasoning: "ok" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("records a stream with no content as a judge error after one retry", async () => {
+    const fetchMock = vi.fn(async () => sseResponse([": ping\n\n", "data: [DONE]\n\n"]));
+    vi.stubGlobal("fetch", fetchMock);
+    defineCheck("quality", async (t) => {
+      await t.judge("answer", "PASS when correct");
+    });
+
+    const [result] = await runTraceChecks({
+      snapshot: emptySnapshot,
+      deliverables: {},
+      judgeConfig,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result?.reasoning).toContain("empty or truncated");
+    expect(result?.assertions?.[0]).toMatchObject({ pass: false, outcome: "error" });
   });
 });
 
@@ -570,6 +785,18 @@ function stubCapturingJudgeResponse(args: {
   );
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+}
+
+/** A `text/event-stream` response delivering `chunks` as separate reads. */
+function sseResponse(chunks: string[]): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+      controller.close();
+    },
+  });
+  return new Response(body, { headers: { "content-type": "text/event-stream" } });
 }
 
 function stubJudgeResponse(args: {
