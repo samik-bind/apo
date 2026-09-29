@@ -296,6 +296,39 @@ describe("nesting", () => {
     expect(r.pass).toBe(false);
   });
 
+  it("adds a tool span's rolled-up usage instead of capping it by the calling LLM call", async () => {
+    const obs = [
+      turnSpan(1, 10),
+      llmCall("outer", "turn-1", { inputTokens: 800, outputTokens: 200 }),
+      { spanId: "tool", parentSpanId: "outer", type: "TOOL" as const, name: "delegate", status: "ok" as const, usage: { inputTokens: 800, outputTokens: 200 } },
+      llmCall("inner", "tool", { inputTokens: 800, outputTokens: 200 }),
+    ];
+    expect(new TraceView(snapshot(obs)).tokens("total")?.tokens).toBe(2000);
+  });
+
+  it("lets a complete wrapper cover a retried step whose usage is unknown", async () => {
+    const obs = [
+      turnSpan(1, 10),
+      llmCall("w", "turn-1", { inputTokens: 1000, outputTokens: 100 }, { name: "ai.generateText" }),
+      llmCall("s0", "w", undefined, { name: "ai.generateText.doGenerate", status: "error" }),
+      llmCall("s1", "w", { inputTokens: 1000, outputTokens: 100 }, { name: "ai.generateText.doGenerate" }),
+    ];
+    expect(new TraceView(snapshot(obs)).tokens("total")).toMatchObject({ tokens: 1100, unreported: 0 });
+    // Without the wrapper's own count, the errored step leaves a lower bound.
+    const bare = obs.map((o) => (o.spanId === "w" ? { ...o, usage: undefined } : o));
+    expect(new TraceView(snapshot(bare)).tokens("total")?.unreported).toBeGreaterThan(0);
+  });
+
+  it("handles a span with a very large number of direct children", async () => {
+    const n = 200_000;
+    const obs: Obs[] = [
+      turnSpan(1, 10),
+      { spanId: "tool", parentSpanId: "turn-1", type: "TOOL", name: "fan-out", status: "ok" },
+    ];
+    for (let i = 0; i < n; i++) obs.push(llmCall(`g${i}`, "tool", { inputTokens: 1, outputTokens: 0 }));
+    expect(new TraceView(snapshot(obs)).tokens("input")?.tokens).toBe(n);
+  });
+
   it("walks a very deep span chain without overflowing the stack", async () => {
     const depth = 20_000;
     const obs: Obs[] = [turnSpan(1, 10)];

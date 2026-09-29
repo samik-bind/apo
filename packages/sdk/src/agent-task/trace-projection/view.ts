@@ -241,13 +241,17 @@ export class TraceView {
     const children = this.childrenByParent;
     const isLlmCall = (o: TraceProjectionObservation): boolean =>
       o.type === "GENERATION" || o.usage != null;
+    // A per-step call of the call above it — not a tool or agent span, which
+    // run separate calls even when they carry a rolled-up count.
+    const isStep = (o: TraceProjectionObservation): boolean =>
+      isLlmCall(o) && o.type !== "TOOL" && o.type !== "AGENT";
 
     // Every observation below the roots, each visited once, parents first.
     const order: TraceProjectionObservation[] = [];
     const visited = new Set<string>(roots.map((r) => r.spanId));
-    const stack = roots.flatMap((r) => children.get(r.spanId) ?? []);
+    const topLevel = roots.flatMap((r) => children.get(r.spanId) ?? []);
+    const stack = [...topLevel];
     const scopeChildren = new Map<string, TraceProjectionObservation[]>();
-    const topLevel: TraceProjectionObservation[] = [...stack];
     while (stack.length > 0) {
       const obs = stack.pop()!;
       if (visited.has(obs.spanId)) continue;
@@ -255,39 +259,54 @@ export class TraceView {
       order.push(obs);
       const kids = (children.get(obs.spanId) ?? []).filter((c) => !visited.has(c.spanId));
       scopeChildren.set(obs.spanId, kids);
-      stack.push(...kids);
+      for (const kid of kids) stack.push(kid);
     }
 
     // Usage nests: an LLM call can carry the sum of its per-step calls
     // directly beneath it (Vercel's ai.generateText over its doGenerate
     // steps), and which of the two a producer records differs between the
-    // local and canonical paths. So a node's own count covers its direct
-    // LLM-call children — it counts the larger of the two, never both.
-    // Anything reached through another span (a tool that runs a subagent)
-    // is a separate call and adds.
-    const effective = new Map<string, number | undefined>();
+    // local and canonical paths. So a call's own count covers its direct step
+    // children — it counts the larger of the two, never both — and a
+    // complete own count also covers a step whose usage is unknown (a retried
+    // attempt). Anything reached through another span (a tool that runs a
+    // subagent) is a separate call and adds.
+    const effective = new Map<string, { tokens: number | undefined; unreported: number }>();
     for (let i = order.length - 1; i >= 0; i--) {
       const obs = order[i]!;
       const { count, complete } = tokenCount(obs, kind);
       if (count !== undefined) tally.reported += 1;
-      if (isLlmCall(obs) && (!complete || obs.status === "error")) tally.unreported += 1;
+      const ownKnown = complete && obs.status !== "error";
       let steps: number | undefined;
+      let stepsUnreported = 0;
       let separate: number | undefined;
+      let separateUnreported = 0;
       for (const child of scopeChildren.get(obs.spanId) ?? []) {
         const c = effective.get(child.spanId);
-        if (c === undefined) continue;
-        if (isLlmCall(child)) steps = (steps ?? 0) + c;
-        else separate = (separate ?? 0) + c;
+        if (!c) continue;
+        if (isStep(child)) {
+          if (c.tokens !== undefined) steps = (steps ?? 0) + c.tokens;
+          stepsUnreported += c.unreported;
+        } else {
+          if (c.tokens !== undefined) separate = (separate ?? 0) + c.tokens;
+          separateUnreported += c.unreported;
+        }
       }
       const own =
         count === undefined ? steps : steps === undefined ? count : Math.max(count, steps);
-      effective.set(
-        obs.spanId,
-        own === undefined && separate === undefined ? undefined : (own ?? 0) + (separate ?? 0),
-      );
+      const unreported =
+        (isLlmCall(obs) && !ownKnown ? 1 : 0) +
+        (isLlmCall(obs) && ownKnown ? 0 : stepsUnreported) +
+        separateUnreported;
+      effective.set(obs.spanId, {
+        tokens: own === undefined && separate === undefined ? undefined : (own ?? 0) + (separate ?? 0),
+        unreported,
+      });
     }
     for (const obs of topLevel) {
-      if (effective.has(obs.spanId)) tally.tokens += effective.get(obs.spanId) ?? 0;
+      const e = effective.get(obs.spanId);
+      if (!e) continue;
+      tally.tokens += e.tokens ?? 0;
+      tally.unreported += e.unreported;
       effective.delete(obs.spanId);
     }
     return tally;
