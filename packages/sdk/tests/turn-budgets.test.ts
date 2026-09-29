@@ -282,6 +282,30 @@ describe("nesting", () => {
     expect(new TraceView(snapshot(obs)).tokens("total")?.tokens).toBe(1100);
   });
 
+  it("adds a subagent reached through a tool to the call that ran the tool", async () => {
+    // Local processor shape: the outer call carries only its own steps; the
+    // subagent's call is a separate call beneath a TOOL span.
+    const obs = [
+      turnSpan(1, 10),
+      llmCall("outer", "turn-1", { inputTokens: 800, outputTokens: 200 }),
+      { spanId: "tool", parentSpanId: "outer", type: "TOOL" as const, name: "delegate", status: "ok" as const },
+      llmCall("inner", "tool", { inputTokens: 800, outputTokens: 200 }),
+    ];
+    expect(new TraceView(snapshot(obs)).tokens("total")?.tokens).toBe(2000);
+    const r = await runOne((t) => t.maxTokens(1500, { turn: 1 }), snapshot(obs));
+    expect(r.pass).toBe(false);
+  });
+
+  it("walks a very deep span chain without overflowing the stack", async () => {
+    const depth = 20_000;
+    const obs: Obs[] = [turnSpan(1, 10)];
+    for (let i = 0; i < depth; i++) {
+      obs.push({ spanId: `s${i}`, parentSpanId: i === 0 ? "turn-1" : `s${i - 1}`, type: "SPAN", name: "wrap", status: "ok" });
+    }
+    obs.push(llmCall("leaf", `s${depth - 1}`, { inputTokens: 3, outputTokens: 4 }));
+    expect(new TraceView(snapshot(obs)).tokens("total")?.tokens).toBe(7);
+  });
+
   it("does not treat a task.turn span nested inside a turn as a turn of its own", async () => {
     const obs = [
       turnSpan(1, 900_000),
