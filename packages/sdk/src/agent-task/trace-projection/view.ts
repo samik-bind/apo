@@ -23,6 +23,9 @@ import type {
   TraceProjectionSnapshot,
 } from "./types.ts";
 
+/** The span name `runTask` gives each Task Turn (one `sendUserTurn` call). */
+export const TASK_TURN_SPAN_NAME = "task.turn";
+
 /** A tool call derived from a `TOOL` observation. */
 export interface TraceToolCall {
   spanId: string;
@@ -49,6 +52,33 @@ export interface TraceSubagentCall {
   startedAt?: string;
 }
 
+/** One Task Turn, derived from a `task.turn` observation. */
+export interface TraceTurn {
+  /** 1-based, in invocation order. */
+  turnNumber: number;
+  spanId: string;
+  durationMs?: number;
+  status: ObservationStatus;
+}
+
+export type TokenKind = "input" | "output" | "total";
+
+/**
+ * Token usage summed over a scope (the whole agent execution, or one turn).
+ * When `unreported` is non-zero, `tokens` is only a lower bound.
+ */
+export interface TraceTokenTally {
+  tokens: number;
+  /** Observations that contributed a count. */
+  reported: number;
+  /**
+   * LLM calls in scope whose count is unknown or untrustworthy: a GENERATION
+   * that reported no usage for the dimension, or an errored call (a provider
+   * error often drops the final usage event, so its count may be short).
+   */
+  unreported: number;
+}
+
 /** Sentinel that sorts before every real timestamp in string comparison. */
 const TIMESTAMPED_MIN = "";
 
@@ -72,12 +102,13 @@ export class TraceView {
   requireCapability(
     capability: keyof TraceProjectionCapabilities,
   ): EvidenceAvailability {
-    return this.snapshot.capabilities[capability];
+    // `usage` is optional on snapshots written before it existed.
+    return this.snapshot.capabilities[capability] ?? "unavailable";
   }
 
   /** Whether a capability is reported as available (not partial/unavailable). */
   private isAvailable(capability: keyof TraceProjectionCapabilities): boolean {
-    return this.snapshot.capabilities[capability] === "available";
+    return this.requireCapability(capability) === "available";
   }
 
   /** All chat messages flattened across generation observations, in order. */
@@ -173,6 +204,82 @@ export class TraceView {
   }
 
   /**
+   * Task Turns in invocation order, or `undefined` when timing evidence is
+   * unavailable. Each is one `task.turn` span: the adapter's `sendUserTurn`
+   * for that turn, so its duration is the agent's time on that turn.
+   */
+  get turns(): readonly TraceTurn[] | undefined {
+    if (!this.isAvailable("timing")) return undefined;
+    return this.sortedObservations
+      .filter((o) => o.name === TASK_TURN_SPAN_NAME)
+      .map((o, i) => ({
+        turnNumber: i + 1,
+        spanId: o.spanId,
+        ...(o.durationMs !== undefined ? { durationMs: o.durationMs } : {}),
+        status: o.status,
+      }));
+  }
+
+  /**
+   * Tokens the agent under test spent: usage on observations inside
+   * `task.turn` spans (every turn, or only turn `turn`). Work outside the
+   * turns — the evaluation phase's judges, adapter setup — is not the
+   * agent's and is excluded. `undefined` when usage evidence is unavailable
+   * or the requested turn does not exist.
+   */
+  tokens(kind: TokenKind, opts?: { turn?: number }): TraceTokenTally | undefined {
+    if (!this.isAvailable("usage")) return undefined;
+    const turnSpans = this.sortedObservations.filter((o) => o.name === TASK_TURN_SPAN_NAME);
+    let roots: readonly TraceProjectionObservation[];
+    if (opts?.turn !== undefined) {
+      const one = turnSpans[opts.turn - 1];
+      if (!one) return undefined;
+      roots = [one];
+    } else {
+      roots = turnSpans;
+    }
+    const tally: TraceTokenTally = { tokens: 0, reported: 0, unreported: 0 };
+    for (const obs of this.descendantsOf(roots)) {
+      const { count, complete } = tokenCount(obs, kind);
+      if (count !== undefined) {
+        tally.tokens += count;
+        tally.reported += 1;
+      }
+      const isLlmCall = obs.type === "GENERATION" || obs.usage != null;
+      if (isLlmCall && (!complete || obs.status === "error")) {
+        tally.unreported += 1;
+      }
+    }
+    return tally;
+  }
+
+  /** Every observation strictly below any of `roots`, via `parentSpanId`. */
+  private descendantsOf(
+    roots: readonly TraceProjectionObservation[],
+  ): TraceProjectionObservation[] {
+    const children = new Map<string, TraceProjectionObservation[]>();
+    for (const obs of this.snapshot.observations) {
+      if (obs.parentSpanId === undefined) continue;
+      const list = children.get(obs.parentSpanId);
+      if (list) list.push(obs);
+      else children.set(obs.parentSpanId, [obs]);
+    }
+    const out: TraceProjectionObservation[] = [];
+    const seen = new Set<string>(roots.map((r) => r.spanId));
+    const stack = roots.map((r) => r.spanId);
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      for (const child of children.get(id) ?? []) {
+        if (seen.has(child.spanId)) continue;
+        seen.add(child.spanId);
+        out.push(child);
+        stack.push(child.spanId);
+      }
+    }
+    return out;
+  }
+
+  /**
    * Observations sorted deterministically by invocation time then span ID.
    * Memoized per TraceView instance since the snapshot is immutable.
    */
@@ -194,6 +301,27 @@ export class TraceView {
     return sorted;
   }
   private _sorted: readonly TraceProjectionObservation[] | undefined;
+}
+
+/**
+ * The observation's count for `kind`. `complete` is false when a dimension the
+ * count needs was not reported — a total with only input known is a lower
+ * bound, not a total.
+ */
+function tokenCount(
+  obs: TraceProjectionObservation,
+  kind: TokenKind,
+): { count: number | undefined; complete: boolean } {
+  // Canonical snapshots serialize unreported dimensions as null.
+  const input = typeof obs.usage?.inputTokens === "number" ? obs.usage.inputTokens : undefined;
+  const output = typeof obs.usage?.outputTokens === "number" ? obs.usage.outputTokens : undefined;
+  if (kind === "input") return { count: input, complete: input !== undefined };
+  if (kind === "output") return { count: output, complete: output !== undefined };
+  if (input === undefined && output === undefined) return { count: undefined, complete: false };
+  return {
+    count: (input ?? 0) + (output ?? 0),
+    complete: input !== undefined && output !== undefined,
+  };
 }
 
 // Keep the timestamp sentinel referenced for clarity — documents that empty

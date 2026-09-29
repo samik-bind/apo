@@ -289,6 +289,7 @@ class TestCapabilities:
         assert snap.capabilities.messages.value == "unavailable"
         assert snap.capabilities.skills.value == "unavailable"
         assert snap.capabilities.subagents.value == "unavailable"
+        assert snap.capabilities.usage.value == "unavailable"
 
 
 class TestNondictJsonFields:
@@ -359,3 +360,77 @@ class TestNondictJsonFields:
         assert len(obs.messages) == 1
         assert obs.messages[0].content == "hello world"
         assert snap.capabilities.messages.value == "available"
+
+
+class TestTokenUsage:
+    """Observations carry the call's token counts so agent-task token budgets
+    (``t.maxTokens`` / ``t.minTokens``) can be evaluated against the canonical
+    projection, including on rejudge replay."""
+
+    def test_usage_projected_and_unknown_dimension_stays_null(self):
+        with Session(engine) as session:
+            session.add(_make_run(trace_id="tu", project="p"))
+            with_usage = _make_call(
+                span_id="gen-1",
+                trace_id="tu",
+                project="p",
+                parent_span_id=None,
+                observation_type="GENERATION",
+                step_name="agent-llm-call",
+            )
+            with_usage.prompt_tokens = 1200
+            with_usage.completion_tokens = 0
+            input_only = _make_call(
+                span_id="gen-2",
+                trace_id="tu",
+                project="p",
+                parent_span_id=None,
+                observation_type="GENERATION",
+                step_name="agent-llm-call",
+            )
+            input_only.prompt_tokens = 50
+            session.add(with_usage)
+            session.add(input_only)
+            session.add(
+                _make_call(span_id="tool-1", trace_id="tu", project="p", parent_span_id=None)
+            )
+            session.commit()
+
+        repo = NativeTraceRepository()
+        with Session(engine) as session:
+            snap = repo.get_projection_snapshot(session, project_id="p", trace_id="tu")
+
+        assert snap is not None
+        by_id = {o.span_id: o for o in snap.observations}
+        assert by_id["gen-1"].usage is not None
+        assert by_id["gen-1"].usage.input_tokens == 1200
+        # A reported zero is a measurement, not "unknown".
+        assert by_id["gen-1"].usage.output_tokens == 0
+        assert by_id["gen-2"].usage is not None
+        assert by_id["gen-2"].usage.output_tokens is None
+        assert by_id["tool-1"].usage is None
+        assert snap.capabilities.usage.value == "available"
+
+        dumped = snap.model_dump(by_alias=True, mode="json")
+        gen = [o for o in dumped["observations"] if o["spanId"] == "gen-1"][0]
+        assert gen["usage"] == {"inputTokens": 1200, "outputTokens": 0}
+        assert dumped["capabilities"]["usage"] == "available"
+
+    def test_snapshot_without_usage_capability_still_parses(self):
+        legacy = {
+            "schemaVersion": 1,
+            "projectionVersion": 1,
+            "source": "canonical",
+            "trace": {"traceId": "t", "complete": True},
+            "capabilities": {
+                "messages": "available",
+                "tools": "available",
+                "errors": "available",
+                "timing": "available",
+                "skills": "unavailable",
+                "subagents": "unavailable",
+            },
+            "observations": [],
+        }
+        snap = TraceProjectionSnapshot.model_validate(legacy)
+        assert snap.capabilities.usage.value == "unavailable"

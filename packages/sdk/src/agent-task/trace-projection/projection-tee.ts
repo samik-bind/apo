@@ -25,6 +25,7 @@ import type {
   TraceProjectionCapabilities,
   TraceProjectionObservation,
   TraceProjectionSnapshot,
+  TraceProjectionUsage,
 } from "./types.ts";
 
 function monotonicNowMs(): number {
@@ -78,6 +79,7 @@ function extractText(output: unknown): string {
 
 function deriveCapabilities(
   observations: readonly TraceProjectionObservation[],
+  hierarchyAmbiguous: boolean,
 ): TraceProjectionCapabilities {
   const hasType = (t: TraceProjectionObservation["type"]) =>
     observations.some((o) => o.type === t);
@@ -93,6 +95,26 @@ function deriveCapabilities(
     timing: "available",
     skills: hasType("SKILL") ? "available" : "unavailable",
     subagents: hasType("AGENT") ? "available" : "unavailable",
+    // Usage is attributed to turns through parentSpanId; with an ambiguous
+    // step id the chain is broken, so a per-turn or per-run sum could
+    // silently drop turns.
+    usage: !observations.some((o) => o.usage !== undefined)
+      ? "unavailable"
+      : hierarchyAmbiguous
+        ? "partial"
+        : "available",
+  };
+}
+
+function usageFrom(
+  params: { prompt_tokens?: number; completion_tokens?: number } | undefined,
+): TraceProjectionUsage | undefined {
+  if (params?.prompt_tokens === undefined && params?.completion_tokens === undefined) {
+    return undefined;
+  }
+  return {
+    ...(params.prompt_tokens !== undefined ? { inputTokens: params.prompt_tokens } : {}),
+    ...(params.completion_tokens !== undefined ? { outputTokens: params.completion_tokens } : {}),
   };
 }
 
@@ -118,6 +140,13 @@ export function createProjectionTee(
   // real.createSpan's return value and endSpan can never find the real span —
   // the span is never ended, never exported, and its usage is lost.
   const realIdByTeeId = new Map<string, string>();
+  // `step` hands its callback the REAL span id, so children created inside a
+  // step name that id as their parent. Map it back to the step's tee id so the
+  // snapshot's parentSpanId chain stays connected (turn-scoped usage walks it).
+  // An id seen for two steps (a noop context returns a constant) is ambiguous
+  // and is never translated.
+  const teeIdByRealStepId = new Map<string, string>();
+  const ambiguousRealStepIds = new Set<string>();
   let spanCounter = 0;
 
   // Trace-level timing — captured at tee creation (root span start) and read
@@ -149,6 +178,8 @@ export function createProjectionTee(
     };
     if (p.parentSpanId) obs.parentSpanId = p.parentSpanId;
     if (p.model) obs.model = p.model;
+    const usage = usageFrom(params);
+    if (usage) obs.usage = usage;
     if (isError && params?.status_message) obs.errorMessage = params.status_message;
 
     const meta = params?.metadata as Record<string, unknown> | undefined;
@@ -182,9 +213,10 @@ export function createProjectionTee(
   }): string {
     spanCounter += 1;
     const spanId = `${real.rootSpanId}-${String(spanCounter).padStart(6, "0")}`;
+    const parent = opts.parent_call_id ?? real.rootSpanId;
     pending.set(spanId, {
       spanId,
-      parentSpanId: opts.parent_call_id ?? real.rootSpanId,
+      parentSpanId: teeIdByRealStepId.get(parent) ?? parent,
       type: observationTypeFor(opts.observation_type),
       name: opts.step_name ?? "step",
       toolName: opts.tool_name ?? undefined,
@@ -207,11 +239,22 @@ export function createProjectionTee(
       const obsSpanId = recordStart(opts);
       const start = monotonicNowMs();
       try {
-        const result = await real.step(opts, fn);
+        const result = await real.step(opts, (realSpanId) => {
+          if (realSpanId && !ambiguousRealStepIds.has(realSpanId)) {
+            if (teeIdByRealStepId.has(realSpanId)) {
+              teeIdByRealStepId.delete(realSpanId);
+              ambiguousRealStepIds.add(realSpanId);
+            } else {
+              teeIdByRealStepId.set(realSpanId, obsSpanId);
+            }
+          }
+          return fn(realSpanId);
+        });
         complete(obsSpanId, {
           latency_ms: round3(monotonicNowMs() - start),
           output: opts.summarize?.(result),
           metadata: opts.metadata,
+          ...opts.usage?.(result),
         });
         return result;
       } catch (error) {
@@ -336,7 +379,7 @@ export function createProjectionTee(
           durationMs: round3(endMs - rootStartMs),
           complete: true,
         },
-        capabilities: deriveCapabilities(observations),
+        capabilities: deriveCapabilities(observations, ambiguousRealStepIds.size > 0),
         observations: [...observations],
       };
     },

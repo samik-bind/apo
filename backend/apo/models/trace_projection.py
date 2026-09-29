@@ -48,6 +48,19 @@ class TraceProjectionMessage(BaseModel):
     content: str
 
 
+class TraceProjectionUsage(BaseModel):
+    """Token counts one observation reported.
+
+    Each dimension is ``None`` when the source did not report it — unknown
+    stays unknown, never zero.
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
 class TraceProjectionObservation(BaseModel):
     """A derived interpretation of one Span.
 
@@ -84,6 +97,7 @@ class TraceProjectionObservation(BaseModel):
     tool_parameters: object | None = None
     tool_result: object | None = None
     messages: tuple[TraceProjectionMessage, ...] = ()
+    usage: TraceProjectionUsage | None = None
     metadata: dict[str, object] | None = None
 
 
@@ -96,6 +110,8 @@ class TraceProjectionCapabilities(BaseModel):
     timing: EvidenceAvailability
     skills: EvidenceAvailability
     subagents: EvidenceAvailability
+    # Defaulted so snapshots persisted before usage was projected still parse.
+    usage: EvidenceAvailability = EvidenceAvailability.UNAVAILABLE
 
 
 class TraceProjectionTrace(BaseModel):
