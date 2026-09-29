@@ -132,7 +132,10 @@ async function showJudgment(
 
 function printSummary(judgment: JudgmentSummary, runId: string, opts: { withHint?: boolean } = {}): void {
   const judge = judgment.judge_model ?? "-";
-  const score = `${judgment.passed_checks}/${judgment.total_checks}`;
+  // A null verdict is "no verdict" (the judge never answered, issue #323),
+  // never FAIL; PASS/FAIL judgments speak through their score.
+  const verdict = judgment.pass_result === null ? `${yellow("NO VERDICT")} ` : "";
+  const score = `${verdict}${judgment.passed_checks}/${judgment.total_checks}`;
   const erroredNote =
     judgment.errored_checks && judgment.errored_checks > 0
       ? yellow(` · ${judgment.errored_checks} no verdict`)

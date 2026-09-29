@@ -185,7 +185,8 @@ class TestCreateJudgment:
         assert body["passed_checks"] == 1
         assert body["errored_checks"] == 1
         assert body["failed_checks"] == 0
-        assert body["pass_result"] is False
+        # Nothing genuinely failed: the judgment carries no verdict.
+        assert body["pass_result"] is None
         assert body["stability"][0]["errored"] == 1
 
     def test_unknown_run_returns_404(self, client: TestClient, session: Session) -> None:

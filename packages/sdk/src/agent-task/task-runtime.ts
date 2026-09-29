@@ -14,6 +14,8 @@ export type AgentTaskRunSummary = {
   taskDir: string;
   taskId: string;
   pass: boolean;
+  /** Every failing check got no answer from the judge — see `TaskEvaluationResult.noVerdict`. */
+  noVerdict?: true;
   checks: EvaluationItemResult[];
   /** Adapter that ran the task. Forwarded to the backend when recording locally. */
   adapterName?: string;
@@ -95,6 +97,7 @@ export async function runTaskDir(
     taskDir: loaded.taskDir,
     taskId: loaded.task.id,
     pass: result.result.pass,
+    ...(result.result.noVerdict ? { noVerdict: true as const } : {}),
     checks: result.result.checks,
     adapterName: loaded.adapter.name,
     traceRunId: result.traceRunId,

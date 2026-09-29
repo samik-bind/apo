@@ -80,7 +80,9 @@ export async function runAgentTaskCli(
     if (result.status === "fulfilled") {
       summaries.push(result.value);
       printTaskSummary(result.value, cwd);
-      hasFailures ||= !result.value.pass;
+      // No verdict (issue #323) is an errored run, not a failed one.
+      if (result.value.noVerdict) hasErrors = true;
+      else hasFailures ||= !result.value.pass;
     } else {
       hasErrors = true;
       printTaskError(taskDir, cwd, result.reason);
@@ -139,7 +141,8 @@ function printHelp(): void {
 function printTaskSummary(summary: AgentTaskRunSummary, cwd: string): void {
   const relativeTaskDir = relative(cwd, summary.taskDir);
   console.log("");
-  console.log(`${summary.pass ? "PASS" : "FAIL"} ${summary.taskId}`);
+  const verdict = summary.noVerdict ? "NO VERDICT" : summary.pass ? "PASS" : "FAIL";
+  console.log(`${verdict} ${summary.taskId}`);
   console.log(`Path: ${relativeTaskDir}`);
 
   printResultGroup("Checks", summary.checks);
@@ -181,12 +184,14 @@ function printOverallSummary(
   hasErrors: boolean,
 ): void {
   const passed = summaries.filter((summary) => summary.pass).length;
-  const failed = summaries.length - passed;
+  const noVerdict = summaries.filter((summary) => summary.noVerdict).length;
+  const failed = summaries.length - passed - noVerdict;
 
   console.log("");
   console.log("Summary");
   console.log(`- total: ${summaries.length}`);
   console.log(`- passed: ${passed}`);
   console.log(`- failed: ${failed}`);
+  if (noVerdict > 0) console.log(`- no verdict: ${noVerdict}`);
   console.log(`- errors: ${hasErrors ? "yes" : "no"}`);
 }

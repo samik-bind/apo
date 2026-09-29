@@ -129,6 +129,8 @@ interface DeliverableItem {
 
 interface BackendStub {
   runStatus?: string;
+  /** Extra run-detail fields (verdict scalars) merged over the defaults. */
+  runDetail?: Record<string, unknown>;
   deliverables?: DeliverableItem[];
   revisionOverride?: string;
   noPinnedRevision?: boolean;
@@ -158,6 +160,7 @@ function stubBackend(stub: BackendStub, evalContent: string): ReturnType<typeof 
         deliverables_json: {},
         task_definition: stub.noPinnedRevision ? null : { id: "rev-pinned" },
         judgments_count: 0,
+        ...stub.runDetail,
       });
     }
     if (url === `${BACKEND}/v1/agent-task-runs/${RUN_ID}/deliverables`) {
@@ -358,6 +361,57 @@ describe("rejudgeTaskRun", () => {
     );
 
     expect(outcome.pass).toBe(true);
+  });
+
+  it("re-judges a run that has no verdict because the judge errored (issue #323)", async () => {
+    const taskDir = makeTaskDir("no-verdict-run", evalModule());
+    stubBackend(
+      {
+        runStatus: "error",
+        runDetail: { pass_result: null, failed_checks: 0, errored_checks: 1 },
+      },
+      evalModule(),
+    );
+
+    const outcome = await rejudgeTaskRun(
+      RUN_ID,
+      { backendUrl: BACKEND, authToken: "key" },
+      { taskDir },
+    );
+
+    expect(outcome.pass).toBe(true);
+  });
+
+  it("refuses replay for an executor-errored run", async () => {
+    const taskDir = makeTaskDir("executor-error", evalModule());
+    stubBackend(
+      {
+        runStatus: "error",
+        runDetail: { pass_result: null, failed_checks: 0, errored_checks: 0 },
+      },
+      evalModule(),
+    );
+
+    await expect(
+      rejudgeTaskRun(RUN_ID, { backendUrl: BACKEND, authToken: "key" }, { taskDir }),
+    ).rejects.toThrow(/completed/);
+  });
+
+  it("reports no verdict when the judge never answers the only failing check", async () => {
+    const taskDir = makeTaskDir("judge-outage", evalModule({ withJudge: true }));
+    stubBackend(
+      { judgeResponses: [{ httpStatus: 503 }, { httpStatus: 503 }] },
+      evalModule({ withJudge: true }),
+    );
+
+    const outcome = await rejudgeTaskRun(
+      RUN_ID,
+      { backendUrl: BACKEND, authToken: "key" },
+      { taskDir, judge: { model: "test/judge", baseURL: "http://judge.test" } },
+    );
+
+    expect(outcome.pass).toBe(false);
+    expect(outcome.noVerdict).toBe(true);
   });
 
   it("refuses replay for a non-terminal run", async () => {

@@ -162,6 +162,43 @@ describe("runs rejudge command", () => {
     expect(parsed.checks.map((c: { id: string }) => c.id)).toEqual(["report-title", "judged-quality"]);
   });
 
+  it("reports NO VERDICT and --exit-status 2 when only judge errors fail (issue #323)", async () => {
+    mockedRejudge.mockResolvedValue({
+      ...outcome(),
+      samples: 1,
+      checks: [
+        { id: "report-title", pass: true, reasoning: "passed" },
+        { id: "judged-quality", pass: false, reasoning: "judge failed: 504", outcome: "error" },
+      ],
+      stability: [],
+    } as never);
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(
+      async () => jsonResponse(runDetail()),
+    );
+    const { logs, restore } = capture();
+
+    const code = await run([FULL_ID, "--backend", "http://backend.test", "--dry-run", "--exit-status"]);
+    restore();
+
+    expect(code).toBe(2);
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toMatch(/Verdict:.*— NO VERDICT/);
+    expect(out).not.toMatch(/Verdict:.*— FAIL/);
+  });
+
+  it("keeps --exit-status 1 for a genuine fail", async () => {
+    mockedRejudge.mockResolvedValue(outcome() as never);
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(
+      async () => jsonResponse(runDetail()),
+    );
+    const { restore } = capture();
+
+    const code = await run([FULL_ID, "--backend", "http://backend.test", "--dry-run", "--exit-status"]);
+    restore();
+
+    expect(code).toBe(1);
+  });
+
   it("refuses invalid samples", async () => {
     const { errors, restore } = capture();
     const code = await run([

@@ -328,8 +328,10 @@ export interface CorrectedTestResult {
   recorded_pass: boolean;
   effective_pass: boolean;
   correction: TestResultCorrection | null;
-  run_status: "passed" | "failed";
-  run_pass_result: boolean;
+  /** `error` + null `run_pass_result`: only judge-errored checks are left
+   * non-passing, so the run has no verdict (issue #323). */
+  run_status: "passed" | "failed" | "error";
+  run_pass_result: boolean | null;
   total_tests: number;
   passed_tests: number;
   failed_tests: number;

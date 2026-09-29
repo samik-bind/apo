@@ -4,7 +4,7 @@ import type {
   CheckResult,
 } from "./agent-task-types.ts";
 import { dim, green, passFail, red, yellow } from "./format.ts";
-import { RECEIVED_PREVIEW_CHARS, previewString } from "./runs-truncate.ts";
+import { RECEIVED_PREVIEW_CHARS, previewString, segmentText } from "./runs-truncate.ts";
 
 //─ Second judge: measurements, not diagnoses ──────────────────────────
 //
@@ -222,7 +222,7 @@ function formatCheck(check: CheckResult, verbose: boolean): string {
     }
     if (verbose && check.judge?.response) {
       const model = check.judge.model ?? "?";
-      lines.push(dim(`      judge (${model}): ${trunc(check.judge.response, 400)}`));
+      lines.push(dim(`      judge (${model}): ${trunc(segmentText(check.judge.response), 400)}`));
     }
   }
 
@@ -235,6 +235,18 @@ function formatCheck(check: CheckResult, verbose: boolean): string {
  * VERDICT keeps it visually apart from a red FAIL; the reasoning line below
  * carries the transport error (issue #323).
  */
+/**
+ * The run-level no-verdict rule, from check outcomes: something failed and
+ * every failing check got no answer from the judge. An `"unsupported"` check
+ * or a genuine fail keeps FAIL. Mirrors the SDK's `aggregateResult` and the
+ * backend's `judge_no_verdict_message`; computed here too so the CLI reads
+ * it correctly against SDKs that predate `noVerdict`.
+ */
+export function isNoVerdict(checks: readonly Pick<CheckResult, "pass" | "outcome">[]): boolean {
+  const failing = checks.filter((c) => !c.pass);
+  return failing.length > 0 && failing.every((c) => c.outcome === "error");
+}
+
 function verdictMark(check: CheckResult): string {
   if (!check.pass && check.outcome === "error") return yellow("NO VERDICT");
   return passFail(check.pass);

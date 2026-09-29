@@ -290,6 +290,12 @@ export type EvaluationItemResult = {
 export type TaskEvaluationResult = {
   checks: EvaluationItemResult[];
   pass: boolean;
+  /**
+   * Set when the run has no verdict: every failing check got no answer from
+   * the judge (`outcome: "error"`) and nothing genuinely failed. `pass` stays
+   * `false`; readers should report "no verdict" rather than FAIL (issue #323).
+   */
+  noVerdict?: true;
 };
 
 export type TaskTranscript = {

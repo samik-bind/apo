@@ -174,7 +174,7 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
   console.log(`  Status:   ${run.status}`);
   const beatLine = formatHeartbeatLine(run);
   if (beatLine) console.log(beatLine);
-  console.log(`  Result:   ${run.pass_result === null ? "-" : passFail(run.pass_result)}`);
+  console.log(`  Result:   ${formatResult(run)}`);
 
   if (run.total_checks > 0) {
     const correctedNote =
@@ -291,6 +291,13 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
     console.log(bold("\n  Transcript:"));
     printTranscript(run.transcript_json);
   }
+}
+
+/** PASS / FAIL, NO VERDICT for a terminal run without one (a judge that never
+ * answered, an execution that errored — issue #323), `-` while live. */
+function formatResult(run: RunDetail): string {
+  if (run.pass_result === true || run.pass_result === false) return passFail(run.pass_result);
+  return run.status === "error" ? yellow("NO VERDICT") : "-";
 }
 
 /**

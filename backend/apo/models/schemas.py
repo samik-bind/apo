@@ -886,7 +886,9 @@ class CorrectedTestResult(SQLModel):
     effective_pass: bool
     correction: ActiveTestResultCorrection | None
     run_status: TaskRunStatus
-    run_pass_result: bool
+    # None when the effective report has no verdict — only judge-errored
+    # checks left non-passing (issue #323).
+    run_pass_result: bool | None
     total_tests: int
     passed_tests: int
     failed_tests: int

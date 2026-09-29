@@ -700,7 +700,7 @@ export function createAgentMethod(
         "• OPENROUTER_MODEL + OPENROUTER_API_KEY (OpenRouter — needs a tool-calling-capable model)\n" +
         "• OPENAI_MODEL + OPENAI_API_KEY (OpenAI direct)\n" +
         "Or pass { judge } to runTask() programmatically.",
-        { evaluator_type: "agent", location },
+        { evaluator_type: "agent", location, outcome: "error" },
       );
       return;
     }

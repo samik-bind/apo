@@ -30,7 +30,11 @@ from .agent_task_configuration import normalize_run_configuration
 from .archived_models import set_model_archived
 from .lifecycle import TASK_RUN_TERMINAL
 from .agent_task_discovery import DEFAULT_TASK_ROOT, resolve_task_paths
-from .check_report_storage import persist_check_report
+from .check_report_storage import (
+    generation_errors_dominate,
+    judge_no_verdict_message,
+    persist_check_report,
+)
 from .trace_backend import get_trace_backend
 from .trace_ownership import (
     mark_pending,
@@ -456,7 +460,7 @@ def finalize_task_run_with_result(
         # #154: no judge produced a verdict, so none may be stored — an
         # error run must not render as FAIL.
         task_run.pass_result = None
-    elif _generation_errors_dominate(task_run.generation_execution_json):
+    elif generation_errors_dominate(task_run.generation_execution_json):
         # Issue #149: the checks ran, but they evaluated an execution dominated
         # by failed model calls. Preserve the Check Report as diagnostics while
         # refusing to turn it into a misleading PASS/FAIL control signal.
@@ -465,6 +469,18 @@ def finalize_task_run_with_result(
         generation_execution = task_run.generation_execution_json
         assert generation_execution is not None
         task_run.error_message = _generation_execution_error_message(generation_execution)
+    elif (
+        no_verdict := judge_no_verdict_message(
+            total_checks=task_run.total_checks,
+            failed_checks=task_run.failed_checks,
+            errored_checks=task_run.errored_checks,
+        )
+    ) is not None:
+        # Issue #323: nothing failed, but some checks got no answer from the
+        # judge — the run has no verdict rather than a FAIL on the agent.
+        task_run.pass_result = None
+        task_run.status = "error"
+        task_run.error_message = no_verdict
     else:
         task_run.status = "passed" if task_run.pass_result else "failed"
         task_run.error_message = _resolve_run_error_message(
@@ -472,21 +488,6 @@ def finalize_task_run_with_result(
             checks=checks,
             error_message=error_message,
         )
-
-
-def _generation_errors_dominate(summary: dict[str, object] | None) -> bool:
-    if summary is None:
-        return False
-    total = summary.get("total")
-    errored = summary.get("errored")
-    return (
-        isinstance(total, int)
-        and not isinstance(total, bool)
-        and isinstance(errored, int)
-        and not isinstance(errored, bool)
-        and total > 0
-        and errored * 2 > total
-    )
 
 
 def _generation_execution_error_message(summary: dict[str, object]) -> str:

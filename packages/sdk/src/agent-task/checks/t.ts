@@ -452,7 +452,8 @@ function createJudgeMethod(
         "• OPENROUTER_MODEL + OPENROUTER_API_KEY (OpenRouter — works with 200+ models, one account)\n" +
         "• OPENAI_MODEL + OPENAI_API_KEY (OpenAI direct)\n" +
         "Or pass { judge } to runTask() programmatically.",
-        { evaluator_type: "llm", location },
+        // No judge means no verdict — the same bucket as an unreachable judge.
+        { evaluator_type: "llm", location, outcome: "error" },
       );
       return;
     }

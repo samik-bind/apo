@@ -102,7 +102,10 @@ describe("t.judge", () => {
     expect(result).toMatchObject({
       pass: false,
       evaluator_type: "code",
+      // No judge, no verdict: the same bucket as an unreachable judge (#323).
+      outcome: "error",
     });
+    expect(result.assertions?.[0]?.outcome).toBe("error");
     // The message lists environmental setup options — match the prefix to
     // stay resilient to wording tweaks in the SDK's judge config resolver.
     expect(result.reasoning).toMatch(/^No judge model configured\./);

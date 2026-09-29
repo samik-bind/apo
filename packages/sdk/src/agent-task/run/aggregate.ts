@@ -22,5 +22,18 @@ export function aggregateResult(
     return { checks: checksResults, pass: false };
   }
   const pass = checksResults.every((r) => r.pass);
-  return { checks: checksResults, pass };
+  return isNoVerdict(checksResults)
+    ? { checks: checksResults, pass, noVerdict: true }
+    : { checks: checksResults, pass };
+}
+
+/**
+ * Issue #323: the run-level no-verdict rule — at least one check failed and
+ * every failing check got no answer from the judge (`outcome: "error"`). An
+ * `"unsupported"` check or a genuine fail keeps the FAIL verdict. The backend
+ * applies the same rule to the recorded counts (`judge_no_verdict_message`).
+ */
+export function isNoVerdict(checksResults: EvaluationItemResult[]): boolean {
+  const failing = checksResults.filter((r) => !r.pass);
+  return failing.length > 0 && failing.every((r) => r.outcome === "error");
 }

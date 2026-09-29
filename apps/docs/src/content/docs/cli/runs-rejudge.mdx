@@ -93,7 +93,7 @@ Replay is refused outright when any expected deliverable is missing or not `read
 |---|---|
 | `0` | Replay completed and the judgment was recorded (or `--dry-run` finished). With `--exit-status`, `0` only when the re-judged verdict passes. |
 | `1` | `--exit-status` was set and the re-judged verdict failed. |
-| `2` | Run not found, not completed, deliverables incomplete, eval needs a task dir, or connection failure. |
+| `2` | Run not found, not completed, deliverables incomplete, eval needs a task dir, or connection failure. With `--exit-status`, also a re-judged verdict of `NO VERDICT` (the only non-passing tests got no answer from the judge). |
 
 ## See also
 

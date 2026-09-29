@@ -103,7 +103,7 @@ A failing run exits non-zero, so any script gating on this command catches failu
 |---|---|
 | `0` | The run passed. |
 | `1` | The run completed but one or more tests failed. |
-| `2` | The run errored (adapter crashed, config missing, backend unreachable, etc.). |
+| `2` | The run errored (adapter crashed, config missing, backend unreachable, etc.), or has **no verdict**: the only non-passing tests got no answer from the judge. Printed as `NO VERDICT`, not `FAIL`. |
 
 The `0`/`1`/`2` mapping is always strict (no flag changes it) which is what makes the command safe to gate a pipeline on.
 

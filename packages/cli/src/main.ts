@@ -155,7 +155,7 @@ const commands: Record<string, CommandEntry> = {
       "apo task run ./tasks/my-task",
       "apo task run meeting-summary --no-record",
     ],
-    note: "Always executes on this machine (caller execution). Records the run when backend + project + credential are configured; a configured recording that cannot reach the backend exits 2 — use --no-record to skip recording. Results over the server's advertised size limit are recorded as execution errors (inspectable via the printed run id). Exit codes: 0=pass, 1=fail, 2=error.",
+    note: "Always executes on this machine (caller execution). Records the run when backend + project + credential are configured; a configured recording that cannot reach the backend exits 2 — use --no-record to skip recording. Results over the server's advertised size limit are recorded as execution errors (inspectable via the printed run id). Exit codes: 0=pass, 1=fail, 2=error or NO VERDICT (only judge errors left non-passing).",
   },
   "task publish": {
     handler: loadCommand("task-publish"),
@@ -259,7 +259,7 @@ const commands: Record<string, CommandEntry> = {
       ["--definition-revision <id>", "Score against this revision instead of the run's pinned one (stamped on the judgment)"],
       ["--task-dir <path>", "Local checkout of the task directory (enables relative imports + fixture files)"],
       ["--verbose", "Show all assertions incl. LLM judge responses"],
-      ["--exit-status", "Exit non-zero if the re-judged verdict fails (for CI / scripting)"],
+      ["--exit-status", "Exit 1 if the re-judged verdict fails, 2 if it has no verdict (for CI / scripting)"],
       ["--task <id>", "Filter 'last' to the latest run of a specific task"],
     ],
     examples: [

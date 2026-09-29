@@ -470,6 +470,30 @@ describe("runs show command", () => {
     expect(code).toBe(0);
   });
 
+  it("renders a no-verdict run's Result as NO VERDICT with its explanation (issue #323)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(
+        makeRun({
+          status: "error",
+          pass_result: null,
+          total_checks: 2,
+          passed_checks: 1,
+          failed_checks: 0,
+          errored_checks: 1,
+          error_message:
+            "No verdict: 1 of 2 checks got no answer from the judge (judge error); the other 1 passed.",
+        }),
+      ),
+    );
+    const { logs, restore } = captureLog();
+    await run([FULL_ID, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toMatch(/Result:\s+NO VERDICT/);
+    expect(out).toContain("Error:    No verdict: 1 of 2 checks got no answer from the judge");
+  });
+
   it("returns exit code 1 with --exit-status when a run has no verdict", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       mockResponse(makeRun({ status: "error", pass_result: null })),
