@@ -28,7 +28,9 @@ These read the run's trace, what the agent *did*. Fast, deterministic, free.
 | [`t.calledSubagent(agent)`](#tcalledsubagentagent) | A subagent delegation happened. |
 | [`t.messageIncludes(token)`](#tmessageincludestoken) | The agent's reply contains a substring or matches the RegExp. |
 | [`t.maxTurns(n)`](#tmaxturnsn) | The run took at most `n` turns, anti-flail. |
-| [`t.maxDurationMs(n)`](#tmaxdurationmsn) | The run took at most `n` milliseconds, anti-flail. |
+| [`t.maxDurationMs(n, opts?)`](#tmaxdurationmsn-opts) | The run (or one turn, `{ turn }`) took at most `n` milliseconds, anti-flail. |
+| [`t.maxTokens(n, opts?)`](#tmaxtokensn-opts) | The agent spent at most `n` tokens (whole run, or `{ turn }`). |
+| [`t.minTokens(n, opts?)`](#tmintokensn-opts) | The agent spent at least `n` tokens (whole run, or `{ turn }`). |
 | [`t.assert(label, predicate)`](#tassertlabel-predicate) | Escape hatch: a named predicate over the full normalized run. |
 
 ### `t.calledTool(name, opts?)`
@@ -83,10 +85,35 @@ Matches the name of a `SKILL` observation. Produce one by marking the span that 
 - **Signature:** `(n: number) → void`
 - **Asserts:** the run took at most `n` turns, anti-flail.
 
-### `t.maxDurationMs(n)`
+### `t.maxDurationMs(n, opts?)`
 
-- **Signature:** `(n: number) → void`
-- **Asserts:** the run took at most `n` milliseconds, anti-flail.
+- **Signature:** `(n: number, opts?: { turn?: number }) → void`
+- **Asserts:** the run took at most `n` milliseconds, anti-flail. With `{ turn }` (1-based), bounds that one Task Turn instead: the duration of its `task.turn` span, which is the adapter's `sendUserTurn` for that turn.
+
+```typescript
+t.maxDurationMs(20 * 60_000, { turn: 1 }); // the first turn finished inside 20 minutes
+```
+
+A turn that never ran is a failure, not `unsupported`: the run is evidence that it did not happen.
+
+### `t.maxTokens(n, opts?)`
+
+- **Signature:** `(n: number, opts?: { turn?: number; kind?: "input" | "output" | "total" }) → void`
+- **Asserts:** the agent spent at most `n` tokens. `kind` defaults to `"total"` (input + output).
+
+### `t.minTokens(n, opts?)`
+
+- **Signature:** `(n: number, opts?: { turn?: number; kind?: "input" | "output" | "total" }) → void`
+- **Asserts:** the agent spent at least `n` tokens. A floor catches the agent that answered without doing the work — a review that never read the document spends far fewer input tokens than one that did.
+
+```typescript
+t.maxTokens(400_000, { turn: 1 });
+t.minTokens(20_000, { turn: 1, kind: "input" }); // it actually read the 30-page contract
+```
+
+**Which tokens count.** Token budgets sum the usage recorded on observations *inside* `task.turn` spans, every turn or only `{ turn }`. Work outside the turns is not the agent's and never counts: judge calls in the evaluation phase, and anything the adapter does in `initialize`, `startSession` or `collectDeliverables`. The agent's LLM calls must therefore nest under the turn span; thread `parentSpanId` into your agent's tracing (see [Tracing integrations](/reference/tracing-integrations/)).
+
+**Incomplete usage fails closed.** When an LLM call in scope reported no count for the requested `kind`, or errored (a provider error often drops the final usage event), the sum is only a lower bound. A lower bound cannot prove a maximum, so `maxTokens` records `unsupported`; `minTokens` still passes when the known part already reaches `n`. With no usage-bearing call in scope at all, both record `unsupported` rather than comparing against 0. The breakdown's `received` shows the lower bound and how many calls were missing usage.
 
 ### `t.assert(label, predicate)`
 
@@ -216,6 +243,7 @@ Every `t.*` assertion is gated by an **evidence capability**: whether the trace 
 |---|---|---|---|
 | Positive (`calledTool`, `loadedSkill`, `calledSubagent`, `messageIncludes`) | normal evaluation | `unsupported` (inconclusive) | `unsupported` |
 | Negative / upper-bound (`notCalledTool`, `usedNoTools`, `maxToolCalls`, `maxTurns`, `maxDurationMs`) | normal evaluation | `unsupported` (absence is inconclusive) | `unsupported` |
+| Token budgets (`maxTokens`, `minTokens`), gated on `usage` | normal evaluation (see [incomplete usage](#tmintokensn-opts)) | `unsupported` | `unsupported` |
 | `noFailedActions` | normal evaluation | `unsupported` (inconclusive) | `unsupported` |
 
 When a capability is `partial` or `unavailable`, the assertion immediately records `unsupported` without scanning for matches, a partial projection cannot prove a positive or a negative.

@@ -33,6 +33,7 @@ from ..models.trace_projection import (
     TraceProjectionObservation,
     TraceProjectionSnapshot,
     TraceProjectionTrace,
+    TraceProjectionUsage,
 )
 
 
@@ -206,8 +207,24 @@ def _build_observation(call: LoggedCallDB) -> TraceProjectionObservation:
         tool_parameters=call.tool_parameters,
         tool_result=call.tool_result,
         messages=_messages_for(call),
+        usage=_usage_for(call),
     )
     return obs
+
+
+def _usage_for(call: LoggedCallDB) -> TraceProjectionUsage | None:
+    """The call's recorded token counts, or ``None`` when it recorded none.
+
+    Mirrors the run-level token rollup (``aggregate_costs``), which reads the
+    same columns off every observation type — costed spans can project as
+    plain SPANs.
+    """
+    if call.prompt_tokens is None and call.completion_tokens is None:
+        return None
+    return TraceProjectionUsage(
+        input_tokens=call.prompt_tokens,
+        output_tokens=call.completion_tokens,
+    )
 
 
 def derive_capabilities(
@@ -230,6 +247,11 @@ def derive_capabilities(
         timing=EvidenceAvailability.AVAILABLE if has_timing else EvidenceAvailability.UNAVAILABLE,
         skills=EvidenceAvailability.AVAILABLE if "SKILL" in types else EvidenceAvailability.UNAVAILABLE,
         subagents=EvidenceAvailability.AVAILABLE if "AGENT" in types else EvidenceAvailability.UNAVAILABLE,
+        usage=(
+            EvidenceAvailability.AVAILABLE
+            if any(_usage_for(c) is not None for c in calls)
+            else EvidenceAvailability.UNAVAILABLE
+        ),
     )
 
 

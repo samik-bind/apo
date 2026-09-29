@@ -9,7 +9,7 @@
  * Received) instead of only a prose message.
  */
 
-import { TraceView } from "../trace-projection/view.ts";
+import { TraceView, type TokenKind } from "../trace-projection/view.ts";
 import type { TraceProjectionCapabilities } from "../trace-projection/types.ts";
 import type { AssertionOutcome } from "../run/types.ts";
 import type { Recorder } from "./recorder.ts";
@@ -29,6 +29,21 @@ export type ToolCallOptions = {
   input?: ValueMatcher<unknown>;
   output?: ValueMatcher<unknown>;
   status?: "ok" | "error";
+};
+
+/** Scope for duration budgets: the whole run, or one Task Turn (1-based). */
+export type DurationBudgetOptions = {
+  turn?: number;
+};
+
+/**
+ * Scope for token budgets. Tokens are the agent's: usage inside `task.turn`
+ * spans, summed over every turn or only `turn`. `kind` defaults to `"total"`
+ * (input + output).
+ */
+export type TokenBudgetOptions = {
+  turn?: number;
+  kind?: TokenKind;
 };
 
 /**
@@ -111,8 +126,15 @@ export interface TestContext {
   messageIncludes(token: string | RegExp): void;
   /** Asserts the run took at most `n` turns — anti-flail. */
   maxTurns(n: number): void;
-  /** Asserts the run took at most `n` milliseconds — anti-flail. */
-  maxDurationMs(n: number): void;
+  /**
+   * Asserts the run took at most `n` milliseconds — anti-flail. With
+   * `{ turn }`, bounds that one Task Turn instead.
+   */
+  maxDurationMs(n: number, opts?: DurationBudgetOptions): void;
+  /** Asserts the agent spent at most `n` tokens (whole run, or `{ turn }`). */
+  maxTokens(n: number, opts?: TokenBudgetOptions): void;
+  /** Asserts the agent spent at least `n` tokens (whole run, or `{ turn }`). */
+  minTokens(n: number, opts?: TokenBudgetOptions): void;
   /** Escape hatch for a named predicate over the complete normalized run. */
   assert(label: string, predicate: (flow: TraceView) => boolean): void;
 
@@ -178,6 +200,8 @@ export const TEST_METHOD_NAMES = [
   "messageIncludes",
   "maxTurns",
   "maxDurationMs",
+  "maxTokens",
+  "minTokens",
   "assert",
   "check",
   "judge",
@@ -337,13 +361,25 @@ export function createTestContext(
       });
     },
 
-    maxDurationMs(n) {
+    maxDurationMs(n, opts) {
+      if (opts?.turn !== undefined) {
+        recordTurnDuration(view, rec, n, opts.turn, recordMissingEvidence(rec, view));
+        return;
+      }
       const ms = view.durationMs;
       const pass = ms !== undefined && ms <= n;
       rec.record(`maxDurationMs(${n})`, pass, pass ? "" : `expected ≤ ${n}ms, took ${ms}ms`, {
         expected: `≤ ${n}ms`,
         received: `${ms}ms`,
       });
+    },
+
+    maxTokens(n, opts) {
+      recordTokenBudget(view, rec, "max", n, opts, recordMissingEvidence(rec, view));
+    },
+
+    minTokens(n, opts) {
+      recordTokenBudget(view, rec, "min", n, opts, recordMissingEvidence(rec, view));
     },
 
     check(value, matcher, label) {
@@ -526,6 +562,7 @@ const CAPABILITY_LABELS: Record<keyof TraceProjectionCapabilities, string> = {
   timing: "timing",
   skills: "skill",
   subagents: "subagent",
+  usage: "token usage",
 } as const;
 
 /**
@@ -725,7 +762,11 @@ export function createTraceTestContext(
       });
     },
 
-    maxDurationMs(n) {
+    maxDurationMs(n, opts) {
+      if (opts?.turn !== undefined) {
+        recordTurnDuration(view, rec, n, opts.turn, unsupported);
+        return;
+      }
       if (!isAvailable("timing")) {
         unsupported(`maxDurationMs(${n})`, "timing");
         return;
@@ -739,6 +780,14 @@ export function createTraceTestContext(
         expected: `≤ ${n}ms`,
         received: `${ms}ms`,
       });
+    },
+
+    maxTokens(n, opts) {
+      recordTokenBudget(view, rec, "max", n, opts, unsupported);
+    },
+
+    minTokens(n, opts) {
+      recordTokenBudget(view, rec, "min", n, opts, unsupported);
     },
 
     assert(label, predicate) {
@@ -765,6 +814,125 @@ export function createTraceTestContext(
     judge: trackPending(rec, createJudgeMethod(rec, judgeConfig, judgeScope, judgeTracer)),
     agent: trackPending(rec, createAgentMethod(rec, judgeConfig, judgeScope, agentEvidence ?? { deliverables: {}, view }, judgeTracer)),
   };
+}
+
+type RecordUnsupported = (
+  id: string,
+  capability: keyof TraceProjectionCapabilities,
+) => void;
+
+/** The legacy context's stand-in for the capability-gated `unsupported`. */
+function recordMissingEvidence(rec: Recorder, view: TraceView): RecordUnsupported {
+  return (id, capability) => {
+    rec.record(id, false, `${CAPABILITY_LABELS[capability]} evidence is unavailable in this trace projection`, {
+      outcome: "unsupported" as AssertionOutcome,
+      expected: `${CAPABILITY_LABELS[capability]} evidence available`,
+      received: view.requireCapability(capability),
+    });
+  };
+}
+
+function requireTurnNumber(method: string, turn: number): void {
+  if (!Number.isInteger(turn) || turn < 1) {
+    throw new TypeError(`${method}: turn must be a positive integer (1-based), got ${turn}`);
+  }
+}
+
+function recordTurnDuration(
+  view: TraceView,
+  rec: Recorder,
+  n: number,
+  turn: number,
+  unsupported: RecordUnsupported,
+): void {
+  requireTurnNumber("maxDurationMs", turn);
+  const id = `maxDurationMs(${n}, turn ${turn})`;
+  const turns = view.turns;
+  if (turns === undefined) {
+    unsupported(id, "timing");
+    return;
+  }
+  const record = turns[turn - 1];
+  if (!record) {
+    rec.record(id, false, `turn ${turn} did not run (the run had ${turns.length} turn(s))`, {
+      expected: `turn ${turn} ≤ ${n}ms`,
+      received: `${turns.length} turn(s)`,
+    });
+    return;
+  }
+  const ms = record.durationMs;
+  if (ms === undefined) {
+    unsupported(id, "timing");
+    return;
+  }
+  rec.record(id, ms <= n, ms <= n ? "" : `expected turn ${turn} ≤ ${n}ms, took ${ms}ms`, {
+    expected: `turn ${turn} ≤ ${n}ms`,
+    received: `${ms}ms`,
+  });
+}
+
+/**
+ * Token budgets fail closed on incomplete evidence: an LLM call in scope that
+ * reported no usage makes the sum a lower bound, which cannot prove a
+ * maximum — and proves a minimum only once the known part already reaches it.
+ */
+function recordTokenBudget(
+  view: TraceView,
+  rec: Recorder,
+  bound: "max" | "min",
+  n: number,
+  opts: TokenBudgetOptions | undefined,
+  unsupported: RecordUnsupported,
+): void {
+  const method = bound === "max" ? "maxTokens" : "minTokens";
+  const kind = opts?.kind ?? "total";
+  const turn = opts?.turn;
+  if (turn !== undefined) requireTurnNumber(method, turn);
+  const scope = turn === undefined ? "" : `, turn ${turn}`;
+  const id = `${method}(${n}${kind === "total" ? "" : `, ${kind}`}${scope})`;
+  const op = bound === "max" ? "≤" : "≥";
+  const expected = `${op} ${n} ${kind} tokens${turn === undefined ? "" : ` in turn ${turn}`}`;
+
+  if (view.requireCapability("usage") !== "available") {
+    unsupported(id, "usage");
+    return;
+  }
+  if (turn !== undefined) {
+    const turns = view.turns;
+    if (turns !== undefined && turns[turn - 1] === undefined) {
+      rec.record(id, false, `turn ${turn} did not run (the run had ${turns.length} turn(s))`, {
+        expected,
+        received: `${turns.length} turn(s)`,
+      });
+      return;
+    }
+  }
+  const tally = view.tokens(kind, turn === undefined ? undefined : { turn });
+  if (tally === undefined || (tally.reported === 0 && tally.unreported === 0)) {
+    rec.record(id, false, `no LLM call${turn === undefined ? " inside a turn" : ` in turn ${turn}`} reported ${kind} token usage`, {
+      outcome: "unsupported" as AssertionOutcome,
+      expected,
+      received: "no usage-bearing LLM calls in scope",
+    });
+    return;
+  }
+  const received =
+    tally.unreported > 0
+      ? `≥ ${tally.tokens} (${tally.unreported} LLM call(s) reported no usage)`
+      : `${tally.tokens}`;
+  const within = bound === "max" ? tally.tokens <= n : tally.tokens >= n;
+  if (tally.unreported > 0 && !(bound === "min" && within)) {
+    rec.record(id, false, `usage is incomplete: ${tally.unreported} LLM call(s) in scope reported no ${kind} tokens`, {
+      outcome: "unsupported" as AssertionOutcome,
+      expected,
+      received,
+    });
+    return;
+  }
+  rec.record(id, within, within ? "" : `expected ${expected}, got ${tally.tokens}`, {
+    expected,
+    received,
+  });
 }
 
 function matchesTraceToolCall(

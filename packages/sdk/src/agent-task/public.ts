@@ -74,6 +74,8 @@ export type {
   TestContext,
   NameMatcher,
   ToolCallOptions,
+  DurationBudgetOptions,
+  TokenBudgetOptions,
   JudgeConfig,
   JudgeScope,
 } from "./checks/t.ts";

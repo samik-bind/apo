@@ -394,6 +394,7 @@ function degenerateSnapshot(runId: string): TraceProjectionSnapshot {
       timing: "unavailable",
       skills: "unavailable",
       subagents: "unavailable",
+      usage: "unavailable",
     },
     observations: [],
   };

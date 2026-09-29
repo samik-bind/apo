@@ -55,6 +55,20 @@ export interface TraceProjectionCapabilities {
   timing: EvidenceAvailability;
   skills: EvidenceAvailability;
   subagents: EvidenceAvailability;
+  /**
+   * Token usage on observations. Optional for snapshots written before usage
+   * was projected: absent reads as `unavailable`.
+   */
+  usage?: EvidenceAvailability;
+}
+
+/**
+ * Token counts one observation reported. Each dimension is present only when
+ * the source reported it — unknown stays unknown, never zero.
+ */
+export interface TraceProjectionUsage {
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 /** One chat message reconstructed from a generation observation. */
@@ -85,6 +99,8 @@ export interface TraceProjectionObservation {
   toolParameters?: unknown;
   toolResult?: unknown;
   messages?: readonly TraceProjectionMessage[];
+  /** Token usage this observation reported. Absent when none was recorded. */
+  usage?: TraceProjectionUsage;
   metadata?: Readonly<Record<string, unknown>>;
 }
 
