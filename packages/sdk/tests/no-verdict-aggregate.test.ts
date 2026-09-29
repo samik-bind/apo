@@ -33,6 +33,27 @@ describe("aggregateResult no-verdict rule", () => {
     expect(result.noVerdict).toBeUndefined();
   });
 
+  it("derives the outcome from assertions like the backend", () => {
+    // Check-level outcome missing, assertions say judge error → no verdict.
+    const fromAssertions: EvaluationItemResult = {
+      id: "memo",
+      pass: false,
+      reasoning: "judge failed",
+      assertions: [
+        { id: "a", pass: true, reasoning: "ok" },
+        { id: "judge", pass: false, reasoning: "judge failed", outcome: "error" },
+      ],
+    };
+    expect(aggregateResult([fromAssertions]).noVerdict).toBe(true);
+
+    // A stale check-level "error" over a genuinely failing assertion is a FAIL.
+    const genuine: EvaluationItemResult = {
+      ...judgeError,
+      assertions: [{ id: "shape", pass: false, reasoning: "missing field" }],
+    };
+    expect(aggregateResult([genuine]).noVerdict).toBeUndefined();
+  });
+
   it("leaves passing and empty runs alone", () => {
     expect(aggregateResult([ok]).noVerdict).toBeUndefined();
     expect(aggregateResult([]).noVerdict).toBeUndefined();

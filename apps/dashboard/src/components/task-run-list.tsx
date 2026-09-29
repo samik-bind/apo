@@ -9,6 +9,7 @@ import { TriggerBadge } from "@/components/trigger-badge";
 import { DeleteRunButton } from "@/components/runs/DeleteRunButton";
 import { TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { isJudgeNoVerdictRun, runStatusLabel } from "@/lib/run-verdict";
 import { formatCostMicro, formatTokenTotal } from "@/lib/format";
 import { formatRunExecution, formatRunExecutionFull } from "@/lib/run-configuration";
 import {
@@ -144,7 +145,7 @@ export function TaskRunRow({
             {run.task_id}
           </Link>
           <span className={cn("shrink-0 text-[11px] font-medium uppercase tracking-wide", statusConfig.text)}>
-            {statusConfig.label}
+            {runStatusLabel(run, statusConfig.label)}
           </span>
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-[12px] text-muted-foreground">
@@ -161,7 +162,13 @@ export function TaskRunRow({
             </>
           )}
           {run.error_message && (
-            <span className="truncate text-destructive" title={run.error_message}>
+            <span
+              className={cn(
+                "truncate",
+                isJudgeNoVerdictRun(run) ? "text-warning" : "text-destructive",
+              )}
+              title={run.error_message}
+            >
               {run.error_message.slice(0, 80)}
             </span>
           )}

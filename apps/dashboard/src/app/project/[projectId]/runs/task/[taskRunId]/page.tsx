@@ -19,7 +19,12 @@ import {
 import { cn } from "@/lib/utils";
 import { taskDetailHref } from "@/lib/task-routes";
 import { hrefWithRunCohort, parseDrilldownCohort } from "@/lib/run-cohort";
-import { isJudgeNoVerdictRun } from "@/lib/run-verdict";
+import {
+  acceptsCorrections,
+  isJudgeNoVerdictRun,
+  isVerdictSuppressedByGenerations,
+  runStatusLabel,
+} from "@/lib/run-verdict";
 import { TriggerInline } from "@/components/trigger-badge";
 import { DeleteRunButton } from "@/components/runs/DeleteRunButton";
 import { TaskRunDetailBody } from "./task-run-detail-body";
@@ -179,25 +184,23 @@ export default async function TaskRunDetailPage({
   // Issue #323: only judge-errored checks left non-passing — the run has no
   // verdict, which is not the agent failing (nor an execution error).
   const judgeNoVerdict = isJudgeNoVerdictRun(taskRun);
-  const statusLabel = judgeNoVerdict
-    ? "No verdict"
-    : taskRun.status.charAt(0).toUpperCase() + taskRun.status.slice(1);
+  const statusLabel = runStatusLabel(
+    taskRun,
+    taskRun.status.charAt(0).toUpperCase() + taskRun.status.slice(1),
+  );
 
   const isRunning = ["running", "pending", "queued"].includes(taskRun.status);
   const generationErrors = taskRun.generation_execution?.errored ?? 0;
-  const verdictSuppressed =
-    taskRun.status === "error" &&
-    taskRun.pass_result === null &&
-    generationErrors > 0;
+  // #149 withholds the verdict only when errored generations dominate; a
+  // recovered minority keeps the verdict (and the error banner below).
+  const verdictSuppressed = isVerdictSuppressedByGenerations(taskRun);
   const costIsPartial = generationErrors > 0 || (taskRun.unpriced_call_count ?? 0) > 0;
   // Corrections apply to terminal verdict-bearing runs — and judge
   // no-verdict runs, where a human decision supplies the missing verdict —
   // with recorded checks, and only for roles that may edit scores: viewers
   // (and the anonymous demo visitor) never see the affordance at all.
   const correctable =
-    (((taskRun.status === "passed" || taskRun.status === "failed") &&
-      taskRun.pass_result !== null) ||
-      judgeNoVerdict) &&
+    acceptsCorrections(taskRun) &&
     checks.length > 0 &&
     project?.permissions?.can_edit_scores === true;
 
@@ -406,7 +409,7 @@ export default async function TaskRunDetailPage({
         />
 
         {/* Error banner */}
-        {taskRun.error_message && generationErrors === 0 && (
+        {taskRun.error_message && !verdictSuppressed && (
           <div
             className={cn(
               "mx-6 mt-4 border px-4 py-3 text-[13px]",

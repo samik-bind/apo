@@ -481,7 +481,7 @@ describe("runs show command", () => {
           failed_checks: 0,
           errored_checks: 1,
           error_message:
-            "No verdict: 1 of 2 checks got no answer from the judge (judge error); the other 1 passed.",
+            "No verdict: 1 of 2 checks got no verdict from the judge (judge error or no judge configured); the other 1 passed.",
         }),
       ),
     );
@@ -491,10 +491,10 @@ describe("runs show command", () => {
 
     const out = stripAnsi(logs.join("\n"));
     expect(out).toMatch(/Result:\s+NO VERDICT/);
-    expect(out).toContain("Error:    No verdict: 1 of 2 checks got no answer from the judge");
+    expect(out).toContain("Error:    No verdict: 1 of 2 checks got no verdict from the judge");
   });
 
-  it("returns exit code 1 with --exit-status when a run has no verdict", async () => {
+  it("returns exit code 2 with --exit-status when a run has no verdict (issue #323)", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       mockResponse(makeRun({ status: "error", pass_result: null })),
     );
@@ -502,7 +502,32 @@ describe("runs show command", () => {
     const code = await run([FULL_ID, "--backend", "http://backend.test", "--exit-status"]);
     restore();
 
-    expect(code).toBe(1);
+    expect(code).toBe(2);
+  });
+
+  it.each([
+    ["a live run", { status: "running", pass_result: null }],
+    [
+      "an adapter crash",
+      {
+        status: "error",
+        pass_result: null,
+        total_checks: 2,
+        passed_checks: 1,
+        failed_checks: 0,
+        errored_checks: 1,
+        error_message: "adapter crashed",
+      },
+    ],
+  ])("keeps Result '-' for %s — NO VERDICT is the judge's", async (_label, overrides) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(mockResponse(makeRun(overrides)));
+    const { logs, restore } = captureLog();
+    await run([FULL_ID, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toMatch(/Result:\s+-$/m);
+    expect(out).not.toContain("NO VERDICT");
   });
 
   // Issue #8: a failed run with zero checks must explain itself, not render a

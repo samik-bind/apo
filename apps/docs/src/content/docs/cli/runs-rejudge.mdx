@@ -41,7 +41,7 @@ The whole test set replays every time. There is deliberately no way to re-judge 
 | `--task-dir <path>` | auto | Local checkout of the task directory. Enables relative imports and `files/` fixtures in the replayed eval. Auto-derived from `--dir` or the run's task path when they exist. |
 | `--dry-run` | - | Replay but record nothing. The judge calls still happen and still cost money. |
 | `--verbose` | - | Show all assertions including judge prompts and responses. |
-| `--exit-status` | - | Exit non-zero if the re-judged verdict fails (for CI). |
+| `--exit-status` | - | Exit `1` if the re-judged verdict fails, `2` if it is NO VERDICT (for CI). |
 | `--task <id>` | - | When using `last`, scope to the latest run of this task. |
 
 The judge API key comes from `OPENROUTER_API_KEY` or `OPENAI_API_KEY`, it is used locally and never recorded on the judgment (only the model and base URL are).
@@ -77,7 +77,7 @@ apo runs rejudge last --judge-model anthropic/claude-sonnet-4.5 --samples 2 --la
 
 `tone-is-executive` passing 1 of 2 samples is the honest signal: that test is decided by judge draw, not by the agent. Spend agent budget on the tests that fail every time, not the unstable ones.
 
-A sample whose judge produced no verdict (transport error, after the one retry) counts as neither pass nor fail: the fraction shows judged samples only, with a `(N no verdict)` note beside it. An unreachable judge says nothing about stability, so it must not read as a flaky fail.
+A sample whose judge produced no verdict (transport error, after the one retry) counts as neither pass nor fail: the fraction shows judged samples only, with a `(N no verdict)` note beside it. An unreachable judge says nothing about stability, so it must not read as a flaky fail. The judgment's verdict (PASS, FAIL or NO VERDICT) comes from the first sample, like its recorded checks; the other samples only feed the stability table.
 
 ## What replay can and cannot see
 
@@ -93,7 +93,7 @@ Replay is refused outright when any expected deliverable is missing or not `read
 |---|---|
 | `0` | Replay completed and the judgment was recorded (or `--dry-run` finished). With `--exit-status`, `0` only when the re-judged verdict passes. |
 | `1` | `--exit-status` was set and the re-judged verdict failed. |
-| `2` | Run not found, not completed, deliverables incomplete, eval needs a task dir, or connection failure. With `--exit-status`, also a re-judged verdict of `NO VERDICT` (the only non-passing tests got no answer from the judge). |
+| `2` | Run not found, not completed, deliverables incomplete, eval needs a task dir, or connection failure. With `--exit-status`, also a re-judged verdict of `NO VERDICT` (the only non-passing tests got no verdict from the judge). |
 
 ## See also
 

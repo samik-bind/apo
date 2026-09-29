@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { formatCostMicro, formatTokenTotal } from "@/lib/format";
 import { formatRunExecution, formatRunExecutionFull } from "@/lib/run-configuration";
 import { hrefWithRunCohort, parseDrilldownCohort } from "@/lib/run-cohort";
-import { isJudgeNoVerdictRun } from "@/lib/run-verdict";
+import { isJudgeNoVerdictRun, runStatusLabel } from "@/lib/run-verdict";
 
 import { formatDuration, formatRelative } from "./runs-utils";
 
@@ -51,7 +51,7 @@ export function InlineTaskRunRow({
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
             <span className={cn("h-2 w-2 shrink-0 rounded-full", statusConfig.dot)} aria-hidden />
-            <span className="sr-only">{statusConfig.label}</span>
+            <span className="sr-only">{runStatusLabel(run, statusConfig.label)}</span>
             <Link
               href={runHref}
               className="truncate text-[13px] font-medium text-foreground hover:text-primary"

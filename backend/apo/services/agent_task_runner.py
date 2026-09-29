@@ -31,6 +31,7 @@ from .archived_models import set_model_archived
 from .lifecycle import TASK_RUN_TERMINAL
 from .agent_task_discovery import DEFAULT_TASK_ROOT, resolve_task_paths
 from .check_report_storage import (
+    compose_no_verdict_error_message,
     generation_errors_dominate,
     judge_no_verdict_message,
     persist_check_report,
@@ -476,11 +477,12 @@ def finalize_task_run_with_result(
             errored_checks=task_run.errored_checks,
         )
     ) is not None:
-        # Issue #323: nothing failed, but some checks got no answer from the
-        # judge — the run has no verdict rather than a FAIL on the agent.
+        # Issue #323: nothing failed, but some checks got no verdict from the
+        # judge — the run has no verdict rather than a FAIL on the agent. A
+        # caller-supplied message is kept after the rule's own.
         task_run.pass_result = None
         task_run.status = "error"
-        task_run.error_message = no_verdict
+        task_run.error_message = compose_no_verdict_error_message(no_verdict, error_message)
     else:
         task_run.status = "passed" if task_run.pass_result else "failed"
         task_run.error_message = _resolve_run_error_message(

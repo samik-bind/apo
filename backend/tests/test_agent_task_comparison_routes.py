@@ -314,6 +314,34 @@ async def test_overview_returns_every_frozen_run_as_summaries(
             assert cell.b_run_id in run_ids_in_summaries
 
 
+async def test_overview_overlays_a_frozen_no_verdict_whole(session: Session) -> None:
+    """Issue #323: a snapshot that froze a no-verdict run (status ``error``,
+    pass_result None) keeps showing it after a later correction flips the
+    live run to PASS — status, pass_result and counts all stay frozen."""
+    _seed_project(session)
+    _batch(session, "ba")
+    _batch(session, "bb")
+    ra = _run(session, "ra-nv", "ba", task_id="t-nv", status="error", model="claude-sonnet")
+    ra.pass_result = None
+    ra.total_checks, ra.passed_checks, ra.failed_checks, ra.errored_checks = 3, 2, 0, 1
+    _run(session, "rb-nv", "bb", task_id="t-nv", status="passed", pass_result=True, model="gpt-4o")
+    session.commit()
+
+    snap = _make_comparison(session, task_ids=["t-nv"], side_a_runs={}, side_b_runs={})
+
+    # A later correction supplies the verdict on the live run.
+    ra.status, ra.pass_result = "passed", True
+    ra.passed_checks, ra.errored_checks = 3, 0
+    session.commit()
+
+    result = await get_task_view_comparison_overview(_PROJECT, snap.id, _req(), session)
+
+    summary = next(r for r in result.runs if r.id == "ra-nv")
+    assert summary.status == "error"
+    assert summary.pass_result is None
+    assert (summary.passed_checks, summary.errored_checks, summary.failed_checks) == (2, 1, 0)
+
+
 async def test_overview_404_for_missing_comparison(session: Session) -> None:
     _seed_project(session)
     with pytest.raises(HTTPException) as exc:

@@ -116,6 +116,7 @@ interface RunDetailResponse {
   task_id: string;
   status: string;
   pass_result?: boolean | null;
+  error_message?: string | null;
   failed_checks?: number;
   errored_checks?: number;
   generation_execution?: { total: number; errored: number } | null;
@@ -144,10 +145,15 @@ interface DefinitionSourceResponse {
 }
 
 /**
- * An `error` run that landed there only because the judge never answered
- * (issue #323) — exactly the run worth re-judging. Executor errors and
- * generation-dominated runs (#149) stay refused, as the backend refuses them.
+ * An `error` run that landed there only because the judge gave no verdict
+ * (issue #323) — exactly the run worth re-judging. The backend stamps such a
+ * run's message with the rule's own "No verdict:" text; an executor-errored
+ * run (#13) can carry the same counts but never that message. Executor
+ * errors and generation-dominated runs (#149) stay refused, as the backend
+ * refuses them.
  */
+const NO_VERDICT_MESSAGE_PREFIX = "No verdict: ";
+
 function isJudgeNoVerdictRun(detail: RunDetailResponse): boolean {
   const generations = detail.generation_execution;
   const generationsDominate =
@@ -155,6 +161,7 @@ function isJudgeNoVerdictRun(detail: RunDetailResponse): boolean {
   return (
     detail.status === "error" &&
     detail.pass_result == null &&
+    (detail.error_message ?? "").startsWith(NO_VERDICT_MESSAGE_PREFIX) &&
     detail.failed_checks === 0 &&
     (detail.errored_checks ?? 0) > 0 &&
     !generationsDominate

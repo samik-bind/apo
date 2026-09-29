@@ -28,6 +28,7 @@ from ..models.schemas import (
     TaskViewCreateRequest,
     TaskViewResponse,
     TaskViewUpdateRequest,
+    as_task_run_status,
 )
 from ..services.agent_task_run_details import load_task_run_details, load_task_run_summaries
 from ..services.project_memberships import enforce_project_read_from_request
@@ -133,7 +134,9 @@ async def get_task_view_comparison_overview(
         cell = frozen_by_run.get(summary.id)
         if cell is None:
             continue
-        pass_result = cell.a_pass_result if cell.a_run_id == summary.id else cell.b_pass_result
+        is_a = cell.a_run_id == summary.id
+        status = cell.a_status if is_a else cell.b_status
+        pass_result = cell.a_pass_result if is_a else cell.b_pass_result
         total = cell.a_total_checks if cell.a_run_id == summary.id else cell.b_total_checks
         passed = cell.a_passed_checks if cell.a_run_id == summary.id else cell.b_passed_checks
         errored = (
@@ -142,7 +145,15 @@ async def get_task_view_comparison_overview(
         corrected = (
             cell.a_corrected_tests if cell.a_run_id == summary.id else cell.b_corrected_tests
         )
-        if pass_result is not None:
+        # Verdict and counts come from the same frozen moment: a snapshot
+        # that froze its scalars (``total`` set) overlays status and
+        # pass_result together — including a frozen no-verdict ``None``
+        # (#323) — so a later correction can't mix live and frozen state.
+        if total is not None:
+            if status is not None:
+                summary.status = as_task_run_status(status)
+            summary.pass_result = pass_result
+        elif pass_result is not None:
             summary.pass_result = pass_result
             summary.status = "passed" if pass_result else "failed"
         if total is not None:

@@ -1529,6 +1529,81 @@ def _migrate_to_v48() -> None:
     logger.info("Schema v48: %d judgments examined", len(judgment_ids))
 
 
+def _migrate_to_v49() -> None:
+    """Version 49 (issue #323): the run-level no-verdict rule on old rows.
+
+    v48 moved judge-errored checks into ``errored_checks`` but left those
+    runs' verdict alone, so a run whose only non-passing checks were judge
+    errors still reads ``failed``. This applies the rule finalization now
+    applies: terminal ``failed`` runs with ``failed_checks = 0`` and
+    ``errored_checks > 0`` (and not generation-dominated, #149 — those keep
+    their own rule) become status ``error``, ``pass_result`` None, with the
+    rule's message ahead of any stored one. Rejudge judgments get
+    ``pass_result`` None under the same counts. Affected batches are
+    re-rolled. Idempotent: an updated run is no longer ``failed``.
+    """
+    import logging
+
+    from sqlmodel import Session, col, select as sqlmodel_select
+
+    from .models.db import AgentTaskBatchRunDB, AgentTaskJudgmentDB, AgentTaskRunDB
+    from .services.check_report_storage import (
+        compose_no_verdict_error_message,
+        generation_errors_dominate,
+        judge_no_verdict_message,
+    )
+    from .services.test_result_corrections import stage_batch_rollup
+
+    logger = logging.getLogger(__name__)
+
+    with Session(engine) as session:
+        runs = session.exec(
+            sqlmodel_select(AgentTaskRunDB).where(
+                col(AgentTaskRunDB.status) == "failed",
+                col(AgentTaskRunDB.failed_checks) == 0,
+                col(AgentTaskRunDB.errored_checks) > 0,
+            )
+        ).all()
+        batch_ids: set[str] = set()
+        for run in runs:
+            if generation_errors_dominate(run.generation_execution_json):
+                continue
+            rule = judge_no_verdict_message(
+                total_checks=run.total_checks,
+                failed_checks=run.failed_checks,
+                errored_checks=run.errored_checks,
+            )
+            if rule is None:
+                continue
+            run.status = "error"
+            run.pass_result = None
+            run.error_message = compose_no_verdict_error_message(rule, run.error_message)
+            session.add(run)
+            batch_ids.add(run.batch_run_id)
+        session.flush()
+        for batch_id in batch_ids:
+            batch = session.get(AgentTaskBatchRunDB, batch_id)
+            if batch is not None:
+                stage_batch_rollup(session, batch)
+
+        judgments = session.exec(
+            sqlmodel_select(AgentTaskJudgmentDB).where(
+                col(AgentTaskJudgmentDB.pass_result) == False,  # noqa: E712
+                col(AgentTaskJudgmentDB.failed_checks) == 0,
+                col(AgentTaskJudgmentDB.errored_checks) > 0,
+            )
+        ).all()
+        for judgment in judgments:
+            judgment.pass_result = None
+            session.add(judgment)
+        session.commit()
+    logger.info(
+        "Schema v49: %d candidate runs and %d judgments examined for no verdict",
+        len(runs),
+        len(judgments),
+    )
+
+
 def _migrate_to_v4() -> None:
     """Version 4: check-level rollup columns on agent_task_batch_runs.
 
@@ -2848,7 +2923,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 48
+LATEST_SCHEMA_VERSION = 49
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -2899,6 +2974,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     46: _migrate_to_v46,
     47: _migrate_to_v47,
     48: _migrate_to_v48,
+    49: _migrate_to_v49,
 }
 
 

@@ -35,8 +35,11 @@ import { externalizeResultEvidence, ResultEvidenceTooLargeError } from "../lib/r
 type LocalRunSummary = {
   taskId: string;
   pass: boolean;
-  /** Every failing check got no answer from the judge (issue #323). */
+  /** Every failing check got no verdict from the judge (issue #323). */
   noVerdict?: boolean;
+  /** The backend recorded the run with no verdict — whatever the local checks
+   * said (the #174 recovery poll found it `error`). */
+  recordedNoVerdict?: boolean;
   checks: CheckResult[];
   adapterName?: string;
   traceRunId?: string;
@@ -45,7 +48,11 @@ type LocalRunSummary = {
   runConfiguration?: { model: string; effort?: string };
 };
 
-export async function run(argv: string[]): Promise<number> {
+/** Told whether a finished run's verdict was NO VERDICT — exit code 2 alone
+ * can't tell it apart from an execution error (`apo run` labels by it). */
+export type VerdictObserver = (noVerdict: boolean) => void;
+
+export async function run(argv: string[], observeVerdict?: VerdictObserver): Promise<number> {
   const { positional, flags } = parseArgs(argv);
   const config = resolveConfig(flags);
   const taskRef = requirePositional(positional, 0, "task-id | path");
@@ -78,13 +85,13 @@ export async function run(argv: string[]): Promise<number> {
   // caller execution is the only recorded runtime. --no-record
   // forces an unrecorded local run.
   if (noRecord) {
-    return runLocally(config, resolved.taskDir);
+    return runLocally(config, resolved.taskDir, observeVerdict);
   }
 
   // Default recorded path: caller create-and-claim.
   if (config.projectId && config.apiKey) {
     if (await isBackendReachable(config.backendUrl)) {
-      return runCallerRecorded(config, resolved);
+      return runCallerRecorded(config, resolved, observeVerdict);
     }
     console.error(`${red("error:")} backend unreachable; configured recording failed (use --no-record to run unrecorded)`);
     return 2;
@@ -92,7 +99,7 @@ export async function run(argv: string[]): Promise<number> {
 
   // No project or credential configured → run unrecorded with a notice.
   console.error(`${dim("note:")} run is not being recorded (no project or credential configured)`);
-  return runLocally(config, resolved.taskDir);
+  return runLocally(config, resolved.taskDir, observeVerdict);
 }
 
 /**
@@ -126,7 +133,11 @@ function resolveTask(ref: string, taskRoot: string): ResolvedTask | null {
   };
 }
 
-async function runLocally(config: Config, taskDir: string): Promise<number> {
+async function runLocally(
+  config: Config,
+  taskDir: string,
+  observeVerdict?: VerdictObserver,
+): Promise<number> {
   loadEnvFiles(taskDir);
   const { runTaskDir } = await import("@apo-ai/sdk/agent-task");
 
@@ -143,9 +154,10 @@ async function runLocally(config: Config, taskDir: string): Promise<number> {
   if (config.json) {
     console.log(formatJson(summary));
   } else {
-    printLocalRunSummary(summary);
+    printLocalRunSummary(summary, null);
   }
 
+  observeVerdict?.(summary.noVerdict === true);
   return verdictExitCode(summary.pass, summary.noVerdict === true);
 }
 
@@ -166,7 +178,11 @@ function withNoVerdict(summary: LocalRunSummary): LocalRunSummary {
  * in the child env (never the Project API key), heartbeats, and submits the
  * result/failure through the scoped protocol.
  */
-async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promise<number> {
+async function runCallerRecorded(
+  config: Config,
+  resolved: ResolvedTask,
+  observeVerdict?: VerdictObserver,
+): Promise<number> {
   const taskDir = resolved.taskDir;
   const taskId = resolved.taskId ?? taskDir;
   const backendUrl = config.backendUrl;
@@ -400,7 +416,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
           externalized.body as unknown as CallerResultBody,
           rePrepared.serialized,
         );
-        exitCode = renderRecordedResult(config, summary, jsonDeliverables, created.taskRunId);
+        exitCode = renderRecordedResult(config, summary, jsonDeliverables, created.taskRunId, observeVerdict);
       } catch (error) {
         if (error instanceof ResultEvidenceTooLargeError) {
           // Even out of band the result could not fit: fall through to the
@@ -425,7 +441,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
       await submitCallerResult(backendUrl, created.lease, resultBody, prepared.serialized);
       // render the result so the CLI shows PASS/FAIL + checks,
       // just like the local and backend paths it replaced.
-      exitCode = renderRecordedResult(config, summary, jsonDeliverables, created.taskRunId);
+      exitCode = renderRecordedResult(config, summary, jsonDeliverables, created.taskRunId, observeVerdict);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -461,7 +477,12 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
       const verdict = await pollRunVerdict(config, created.taskRunId);
       if (verdict && summary) {
         console.error(dim(`Result recorded: run ${created.taskRunId} is ${verdict}.`));
-        exitCode = renderRecordedResult(config, summary, jsonDeliverables, created.taskRunId);
+        // The recorded verdict is authoritative: a run the backend stored
+        // without one (#323, #149) is NO VERDICT whatever the local checks said.
+        const recorded: LocalRunSummary = verdict === "error"
+          ? { ...summary, pass: false, noVerdict: true, recordedNoVerdict: true }
+          : summary;
+        exitCode = renderRecordedResult(config, recorded, jsonDeliverables, created.taskRunId, observeVerdict);
       } else {
         console.error(
           red(`Error: result submission outcome unknown: ${message}`) + "\n" +
@@ -498,7 +519,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   return exitCode;
 }
 
-function printLocalRunSummary(summary: LocalRunSummary): void {
+function printLocalRunSummary(summary: LocalRunSummary, taskRunId: string | null): void {
   console.log("");
   const noVerdict = summary.noVerdict === true;
   console.log(`${runVerdict(summary.pass, noVerdict)} ${bold(summary.taskId)}`);
@@ -508,15 +529,43 @@ function printLocalRunSummary(summary: LocalRunSummary): void {
     console.log(formatChecks(summary.checks));
     const sjSummary = secondJudgeSummary(summary.checks);
     if (sjSummary) console.log(dim(`\n  ${sjSummary}`));
-    if (noVerdict) {
-      console.log(dim("\n  No verdict: the judge never answered for the non-passing checks — re-run or `apo runs rejudge`."));
-    }
-  } else if (!summary.pass) {
+  } else if (!summary.pass && !noVerdict) {
     // Issue #8: a failed run with zero checks is almost always a silent
     // registration bug (e.g. a double-import that wiped the check registry).
     // Don't leave the user staring at a bare FAIL — say what went wrong.
     console.log(`  ${NO_CHECKS_REGISTERED_MESSAGE}`);
   }
+  if (noVerdict) console.log(dim(`\n  ${noVerdictHint(summary, taskRunId)}`));
+}
+
+const NO_JUDGE_CONFIGURED = "No judge model configured";
+
+/**
+ * What to do about a NO VERDICT, per cause: a missing judge needs
+ * configuring; a judge that never answered needs a re-run, or — on a
+ * recorded run — a human verdict via `apo runs correct` (`apo runs rejudge`
+ * records a separate judgment and leaves the run's own verdict unchanged).
+ */
+function noVerdictHint(summary: LocalRunSummary, taskRunId: string | null): string {
+  if (summary.recordedNoVerdict) {
+    return `No verdict: the backend recorded this run without one — see apo runs show ${taskRunId ?? "<run-id>"} for why.`;
+  }
+  const failing = summary.checks.filter((c) => !c.pass);
+  const unconfigured = failing.every((c) =>
+    [c.reasoning, ...(c.assertions ?? []).map((a) => a.reasoning)].some((r) =>
+      r?.startsWith(NO_JUDGE_CONFIGURED),
+    ),
+  );
+  if (unconfigured) {
+    return "No verdict: no judge model is configured — set OPENROUTER_MODEL (or OPENAI_MODEL) and its API key, then re-run.";
+  }
+  const base = "No verdict: the judge gave no answer for the non-passing checks.";
+  if (!taskRunId) return `${base} Re-run the task.`;
+  return (
+    `${base} Re-run the task, or record the verdict yourself with ` +
+    `apo runs correct ${taskRunId} <test-id> --pass|--fail --reason <why> ` +
+    `(apo runs rejudge records a separate judgment; the run's verdict stays as is).`
+  );
 }
 
 /** Render a recorded run's verdict and hand over its exact identity. */
@@ -525,16 +574,18 @@ function renderRecordedResult(
   summary: LocalRunSummary,
   jsonDeliverables: Record<string, unknown>,
   taskRunId: string,
+  observeVerdict?: VerdictObserver,
 ): number {
   if (config.json) {
     console.log(JSON.stringify({ ...summary, deliverables: jsonDeliverables }));
   } else {
-    printLocalRunSummary(summary);
+    printLocalRunSummary(summary, taskRunId);
     // Hand over the exact recorded identity — onboarding copy
     // must never rely on "latest run" lookup.
     console.log(`\nRun:     ${bold(taskRunId)}`);
     console.log(`Inspect: ${dim(`apo runs show ${taskRunId}`)}`);
   }
+  observeVerdict?.(summary.noVerdict === true);
   return verdictExitCode(summary.pass, summary.noVerdict === true);
 }
 

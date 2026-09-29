@@ -40,6 +40,8 @@ from apo.models.schemas import (
     CorrectedTestResult,
 )
 from apo.services.check_report_storage import (
+    caller_error_message,
+    compose_no_verdict_error_message,
     derive_check_outcome,
     is_judge_no_verdict_run,
     judge_no_verdict_message,
@@ -247,36 +249,36 @@ def correct_test_result(
         )
 
     current = active.get(test_id)
-    if (
+    # Idempotent retry: same latest action and reason — no duplicate row.
+    # The projection is still re-derived and persisted below, like any
+    # correction, so a retry leaves Run and Batch consistent.
+    is_retry = (
         current is not None
         and current.action == action
         and (current.reason or "") == (normalized_reason or "")
-    ):
-        # Idempotent retry: same latest action and reason — return the
-        # current projection without appending a duplicate row.
-        return _derive(session, task_run, recorded, corrections, test_id)
-
-    session.add(
-        AgentTaskTestResultCorrectionDB(
-            task_run_id=task_run.id,
-            project=project,
-            test_id=test_id,
-            action=action,
-            reason=normalized_reason,
-            corrected_by_user_id=actor.user_id,
-            corrected_via=actor.via,
-            api_key_id=actor.api_key_id,
-        )
     )
-    session.flush()
+    if not is_retry:
+        session.add(
+            AgentTaskTestResultCorrectionDB(
+                task_run_id=task_run.id,
+                project=project,
+                test_id=test_id,
+                action=action,
+                reason=normalized_reason,
+                corrected_by_user_id=actor.user_id,
+                corrected_via=actor.via,
+                api_key_id=actor.api_key_id,
+            )
+        )
+        session.flush()
+        corrections = load_corrections(session, [task_run.id]).get(task_run.id, [])
 
-    corrections = load_corrections(session, [task_run.id]).get(task_run.id, [])
     result = _derive(session, task_run, recorded, corrections, test_id)
 
     # Batch rollup from child Run scalars, staged (never committed) here.
     batch = session.get(AgentTaskBatchRunDB, task_run.batch_run_id)
     if batch is not None:
-        _stage_batch_rollup(session, batch)
+        stage_batch_rollup(session, batch)
     session.commit()
     return result
 
@@ -304,7 +306,9 @@ def _derive(
     )
 
     failed = total - passed - errored
-    was_no_verdict = task_run.status == "error"
+    # Only the rule's own message is rewritten; a caller-supplied message
+    # (an executor's) survives every correction and clear.
+    caller_message = caller_error_message(task_run)
     no_verdict = judge_no_verdict_message(
         total_checks=total, failed_checks=failed, errored_checks=errored
     )
@@ -313,12 +317,11 @@ def _derive(
         # judge-errored checks left non-passing means no verdict.
         task_run.status = "error"
         task_run.pass_result = None
-        task_run.error_message = no_verdict
+        task_run.error_message = compose_no_verdict_error_message(no_verdict, caller_message)
     else:
         task_run.status = "passed" if passed == total and total > 0 else "failed"
         task_run.pass_result = task_run.status == "passed"
-        if was_no_verdict:
-            task_run.error_message = None
+        task_run.error_message = caller_message
     task_run.total_checks = total
     task_run.passed_checks = passed
     task_run.errored_checks = errored
@@ -344,12 +347,13 @@ def _derive(
         run_pass_result=task_run.pass_result,
         total_tests=total,
         passed_tests=passed,
-        failed_tests=total - passed,
+        failed_tests=failed,
+        errored_tests=errored,
         corrected_tests=corrected_count,
     )
 
 
-def _stage_batch_rollup(session: Session, batch: AgentTaskBatchRunDB) -> None:
+def stage_batch_rollup(session: Session, batch: AgentTaskBatchRunDB) -> None:
     """Recompute Batch scalars from children without committing.
 
     Same arithmetic as ``agent_task_runner.update_batch_run_status`` minus

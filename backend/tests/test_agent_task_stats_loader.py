@@ -21,7 +21,7 @@ from sqlalchemy import event
 from sqlmodel import Session
 
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskRunDB
-from apo.services.agent_task_stats import RunStatFields, load_run_stat_fields
+from apo.services.agent_task_stats import RunStatFields, compute_run_stats, load_run_stat_fields
 
 # Reuse the in-memory test engine from conftest so the cursor-event listener
 # actually sees the loader's queries.
@@ -206,3 +206,42 @@ def test_stats_loader_excludes_other_projects(session: Session) -> None:
 
 def test_stats_loader_empty_task_ids_returns_empty(session: Session) -> None:
     assert load_run_stat_fields(session, "project-1", []) == {}
+
+
+def test_stats_loader_carries_errored_checks(session: Session) -> None:
+    """Issue #323: judge-errored checks reach the stats rollup, not a silent 0."""
+    session.add_all([_batch("batch-1", "project-1")])
+    run = _run(
+        "run-nv",
+        "batch-1",
+        "task-a",
+        status="error",
+        pass_result=None,
+        checks=[{"pass": True}, {"pass": False}],
+    )
+    run.errored_checks = 1
+    run.error_message = (
+        "No verdict: 1 of 2 checks got no verdict from the judge "
+        "(judge error or no judge configured); the other 1 passed."
+    )
+    crash = _run(
+        "run-crash",
+        "batch-1",
+        "task-b",
+        status="error",
+        pass_result=None,
+        checks=[{"pass": True}, {"pass": False}],
+    )
+    crash.errored_checks = 1
+    crash.error_message = "adapter crashed"
+    session.add_all([run, crash])
+    session.commit()
+
+    grouped = load_run_stat_fields(session, "project-1", ["task-a", "task-b"])
+
+    assert grouped["task-a"][0].errored_checks == 1
+    # The Tasks page tells a judge no-verdict apart from an execution error.
+    assert grouped["task-a"][0].judge_no_verdict is True
+    assert grouped["task-b"][0].judge_no_verdict is False
+    assert compute_run_stats(grouped["task-a"]).last_run_no_verdict is True
+    assert compute_run_stats(grouped["task-b"]).last_run_no_verdict is False

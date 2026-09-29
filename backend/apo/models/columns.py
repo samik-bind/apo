@@ -86,6 +86,13 @@ AGENT_TASK_RUN_TOTAL_CHECKS_COL: ColumnElement[int] = as_column(cast(object, Age
 AGENT_TASK_RUN_PASSED_CHECKS_COL: ColumnElement[int] = as_column(cast(object, AgentTaskRunDB.passed_checks))
 AGENT_TASK_RUN_ERRORED_CHECKS_COL: ColumnElement[int] = as_column(cast(object, AgentTaskRunDB.errored_checks))
 AGENT_TASK_RUN_CORRECTED_TESTS_COL: ColumnElement[int] = as_column(cast(object, AgentTaskRunDB.corrected_tests))
+AGENT_TASK_RUN_FAILED_CHECKS_COL: ColumnElement[int] = as_column(cast(object, AgentTaskRunDB.failed_checks))
+AGENT_TASK_RUN_ERROR_MESSAGE_COL: ColumnElement[str | None] = as_column(
+    cast(object, AgentTaskRunDB.error_message)
+)
+AGENT_TASK_RUN_GENERATION_EXECUTION_COL: ColumnElement[dict[str, object] | None] = as_column(
+    cast(object, AgentTaskRunDB.generation_execution_json)
+)
 AGENT_TASK_RUN_DEFINITION_REVISION_COL: ColumnElement[str | None] = as_column(
     cast(object, AgentTaskRunDB.task_definition_revision_id)
 )
