@@ -301,16 +301,17 @@ class NativeTraceRepository:
 
         from .projection_io import hydrate_calls_from_spans
 
-        _resolved = hydrate_calls_from_spans(session, list(calls))
-        # Errored generations as the run rollup defines them (OTel error
-        # status or an error finish reason), so the snapshot's status agrees
-        # with the dashboard's partial-usage accounting.
+        # One load of the trace's spans serves both slim-mode hydration and
+        # errored-generation detection (as the run rollup defines it: OTel
+        # error status or an error finish reason, so the snapshot's status
+        # agrees with the dashboard's partial-usage accounting).
         spans = session.exec(
             select(OtlpSpanDB).where(
                 col(OtlpSpanDB.trace_id) == trace_id,
                 col(OtlpSpanDB.project_id) == project_id,
             )
         ).all()
+        _resolved = hydrate_calls_from_spans(session, list(calls), spans)
         from .trace_backend import generation_execution_facts
 
         _summary, errored_ids = generation_execution_facts(calls, spans)
