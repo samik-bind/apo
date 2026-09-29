@@ -20,7 +20,7 @@ import pytest
 from sqlmodel import Session, text
 
 from apo.db import engine, init_db
-from apo.models.db import LoggedCallDB, RunDB
+from apo.models.db import LoggedCallDB, OtlpSpanDB, RunDB
 from apo.models.trace_projection import TraceProjectionSnapshot
 from apo.services.trace_repository import NativeTraceRepository
 
@@ -31,6 +31,7 @@ def setup_database():
     yield
     with Session(engine) as session:
         session.execute(text("DELETE FROM logged_calls"))
+        session.execute(text("DELETE FROM otlp_spans"))
         session.execute(text("DELETE FROM runs"))
         session.commit()
 
@@ -415,6 +416,47 @@ class TestTokenUsage:
         gen = [o for o in dumped["observations"] if o["spanId"] == "gen-1"][0]
         assert gen["usage"] == {"inputTokens": 1200, "outputTokens": 0}
         assert dumped["capabilities"]["usage"] == "available"
+
+    def test_errored_generation_usage_is_unknown_not_zero(self):
+        """A provider error often drops the final usage event; like the run
+        rollup, the projection must not present that count as complete."""
+        with Session(engine) as session:
+            session.add(_make_run(trace_id="te", project="p"))
+            for span_id, attrs in (
+                ("gen-ok", {}),
+                ("gen-finish-error", {"gen_ai.response.finish_reasons": ["error"]}),
+            ):
+                call = _make_call(
+                    span_id=span_id,
+                    trace_id="te",
+                    project="p",
+                    parent_span_id=None,
+                    observation_type="GENERATION",
+                    step_name="agent-llm-call",
+                )
+                call.prompt_tokens = 10
+                call.completion_tokens = 0
+                session.add(call)
+                session.add(
+                    OtlpSpanDB(
+                        project_id="p",
+                        trace_id="te",
+                        span_id=span_id,
+                        name="agent-llm-call",
+                        attributes=attrs,
+                        created_at=_iso("2026-07-10T10:00:01Z"),
+                    )
+                )
+            session.commit()
+
+        repo = NativeTraceRepository()
+        with Session(engine) as session:
+            snap = repo.get_projection_snapshot(session, project_id="p", trace_id="te")
+
+        assert snap is not None
+        by_id = {o.span_id: o for o in snap.observations}
+        assert by_id["gen-ok"].usage is not None
+        assert by_id["gen-finish-error"].usage is None
 
     def test_snapshot_without_usage_capability_still_parses(self):
         legacy = {

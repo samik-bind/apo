@@ -216,7 +216,8 @@ exposes only the deliverables selected by that task.
 `calledTool(name, opts?)`, `notCalledTool(name, opts?)`, `toolOrder([...])`,
 `usedNoTools()`, `maxToolCalls(n)`, `noFailedActions()`, `loadedSkill(skill)`,
 `calledSubagent(agent)`, `messageIncludes(token)`, `maxTurns(n)`,
-`maxDurationMs(n)`, `assert(label, predicate)`.
+`maxDurationMs(n, { turn? })`, `maxTokens(n, { turn?, kind? })`,
+`minTokens(n, { turn?, kind? })`, `assert(label, predicate)`.
 
 `calledTool` / `notCalledTool` take optional constraints to match a call's
 **input**, **output**, and **status** (and `count` for an exact number). Each

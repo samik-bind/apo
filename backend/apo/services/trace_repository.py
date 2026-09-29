@@ -174,7 +174,9 @@ _ObservationTypeLit = Literal[
 ]
 
 
-def _build_observation(call: LoggedCallDB) -> TraceProjectionObservation:
+def _build_observation(
+    call: LoggedCallDB, errored_generation_ids: frozenset[str] = frozenset()
+) -> TraceProjectionObservation:
     # Narrow the free-form DB string to the projection's closed Literal set;
     # anything unrecognized survives as SPAN.
     raw_type = call.observation_type
@@ -207,7 +209,7 @@ def _build_observation(call: LoggedCallDB) -> TraceProjectionObservation:
         tool_parameters=call.tool_parameters,
         tool_result=call.tool_result,
         messages=_messages_for(call),
-        usage=_usage_for(call),
+        usage=None if call.id in errored_generation_ids else _usage_for(call),
     )
     return obs
 
@@ -217,7 +219,10 @@ def _usage_for(call: LoggedCallDB) -> TraceProjectionUsage | None:
 
     Mirrors the run-level token rollup (``aggregate_costs``), which reads the
     same columns off every observation type — costed spans can project as
-    plain SPANs.
+    plain SPANs. Like that rollup, an errored generation's counts are not
+    trusted (a provider error often drops the final usage event and projects
+    as a plausible zero): the caller omits them, so consumers see the call's
+    usage as unknown rather than as a complete measurement.
     """
     if call.prompt_tokens is None and call.completion_tokens is None:
         return None
@@ -293,7 +298,17 @@ class NativeTraceRepository:
         from .projection_io import hydrate_calls_from_spans
 
         _resolved = hydrate_calls_from_spans(session, list(calls))
-        observations = tuple(_build_observation(c) for c in calls)
+        spans = session.exec(
+            select(OtlpSpanDB).where(
+                col(OtlpSpanDB.trace_id) == trace_id,
+                col(OtlpSpanDB.project_id) == project_id,
+            )
+        ).all()
+        from .trace_backend import generation_execution_facts
+
+        _summary, errored_ids = generation_execution_facts(calls, spans)
+        errored = frozenset(errored_ids)
+        observations = tuple(_build_observation(c, errored) for c in calls)
 
         # Projection version: the max version stamped on the trace's canonical
         # OTel spans. Falls back to 0 when no canonical spans exist.

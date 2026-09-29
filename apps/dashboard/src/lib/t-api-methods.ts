@@ -21,6 +21,8 @@ export const TEST_METHOD_NAMES = [
   "messageIncludes",
   "maxTurns",
   "maxDurationMs",
+  "maxTokens",
+  "minTokens",
   "assert",
   "check",
   "judge",
