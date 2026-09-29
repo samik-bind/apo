@@ -13,6 +13,8 @@
  * rather than a standalone context.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import type { AgentTaskTraceContext } from "../tracing.ts";
 import type {
   CreateSpanParams,
@@ -147,6 +149,12 @@ export function createProjectionTee(
   // and is never translated.
   const teeIdByRealStepId = new Map<string, string>();
   const ambiguousRealStepIds = new Set<string>();
+  // The innermost tee step the current async context runs inside. A span
+  // opened without an explicit parent nests under it — the real OTel client
+  // parents such spans to the active span, so the local snapshot must too,
+  // or a turn's LLM call lands under the root locally and inside the turn
+  // on the canonical trace.
+  const activeStep = new AsyncLocalStorage<string>();
   let spanCounter = 0;
 
   // Trace-level timing — captured at tee creation (root span start) and read
@@ -213,7 +221,7 @@ export function createProjectionTee(
   }): string {
     spanCounter += 1;
     const spanId = `${real.rootSpanId}-${String(spanCounter).padStart(6, "0")}`;
-    const parent = opts.parent_call_id ?? real.rootSpanId;
+    const parent = opts.parent_call_id ?? activeStep.getStore() ?? real.rootSpanId;
     pending.set(spanId, {
       spanId,
       parentSpanId: teeIdByRealStepId.get(parent) ?? parent,
@@ -248,7 +256,7 @@ export function createProjectionTee(
               teeIdByRealStepId.set(realSpanId, obsSpanId);
             }
           }
-          return fn(realSpanId);
+          return activeStep.run(obsSpanId, () => fn(realSpanId));
         });
         complete(obsSpanId, {
           latency_ms: round3(monotonicNowMs() - start),

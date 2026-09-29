@@ -200,7 +200,11 @@ def _build_observation(
         started_at=started_at,
         ended_at=ended_at,
         duration_ms=duration_ms,
-        status=_status_for(call),
+        status=(
+            ObservationStatus.ERROR
+            if call.id in errored_generation_ids
+            else _status_for(call)
+        ),
         error_message=call.status_message if call.level == "ERROR" else None,
         model=call.model if call.model and call.model != "unknown" else None,
         input=call.input or None,
@@ -209,7 +213,7 @@ def _build_observation(
         tool_parameters=call.tool_parameters,
         tool_result=call.tool_result,
         messages=_messages_for(call),
-        usage=None if call.id in errored_generation_ids else _usage_for(call),
+        usage=_usage_for(call),
     )
     return obs
 
@@ -219,10 +223,10 @@ def _usage_for(call: LoggedCallDB) -> TraceProjectionUsage | None:
 
     Mirrors the run-level token rollup (``aggregate_costs``), which reads the
     same columns off every observation type — costed spans can project as
-    plain SPANs. Like that rollup, an errored generation's counts are not
-    trusted (a provider error often drops the final usage event and projects
-    as a plausible zero): the caller omits them, so consumers see the call's
-    usage as unknown rather than as a complete measurement.
+    plain SPANs. An errored generation keeps its counts — they are at least
+    what was spent — and the caller marks its status ``error`` so consumers
+    read them as a lower bound (a provider error often drops the final usage
+    event), the same distrust the rollup applies by excluding them.
     """
     if call.prompt_tokens is None and call.completion_tokens is None:
         return None
@@ -298,20 +302,15 @@ class NativeTraceRepository:
         from .projection_io import hydrate_calls_from_spans
 
         _resolved = hydrate_calls_from_spans(session, list(calls))
-        # Only generations can be errored-with-untrusted-usage; load just
-        # their spans rather than every span (with attributes) in the trace.
-        generation_ids = [c.id for c in calls if c.observation_type == "GENERATION"]
-        spans = (
-            session.exec(
-                select(OtlpSpanDB).where(
-                    col(OtlpSpanDB.trace_id) == trace_id,
-                    col(OtlpSpanDB.project_id) == project_id,
-                    col(OtlpSpanDB.span_id).in_(generation_ids),
-                )
-            ).all()
-            if generation_ids
-            else []
-        )
+        # Errored generations as the run rollup defines them (OTel error
+        # status or an error finish reason), so the snapshot's status agrees
+        # with the dashboard's partial-usage accounting.
+        spans = session.exec(
+            select(OtlpSpanDB).where(
+                col(OtlpSpanDB.trace_id) == trace_id,
+                col(OtlpSpanDB.project_id) == project_id,
+            )
+        ).all()
         from .trace_backend import generation_execution_facts
 
         _summary, errored_ids = generation_execution_facts(calls, spans)

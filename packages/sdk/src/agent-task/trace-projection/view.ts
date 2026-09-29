@@ -69,12 +69,16 @@ export type TokenKind = "input" | "output" | "total";
  */
 export interface TraceTokenTally {
   tokens: number;
-  /** Observations that contributed a count. */
+  /**
+   * Observations that reported a count, including a step whose count its
+   * parent call's own larger count superseded.
+   */
   reported: number;
   /**
    * LLM calls in scope whose count is unknown or untrustworthy: a GENERATION
    * that reported no usage for the dimension, or an errored call (a provider
-   * error often drops the final usage event, so its count may be short).
+   * error often drops the final usage event, so its count may be short) —
+   * except a step beneath a call whose own count is complete, which covers it.
    */
   unreported: number;
 }
@@ -205,7 +209,7 @@ export class TraceView {
 
   /**
    * Task Turns in invocation order, or `undefined` when timing evidence is
-   * unavailable. Each is one `task.turn` span: the adapter's whole
+   * not available. Each is one `task.turn` span: the adapter's whole
    * `sendUserTurn` call for that turn.
    */
   get turns(): readonly TraceTurn[] | undefined {
@@ -223,9 +227,14 @@ export class TraceView {
    * Tokens the agent under test spent: usage on observations inside
    * `task.turn` spans (every turn, or only turn `turn`). Work outside the
    * turns — the evaluation phase's judges, adapter setup — is not the
-   * agent's and is excluded. `undefined` when usage evidence is unavailable
-   * or the requested turn does not exist.
+   * agent's and is excluded. `undefined` when usage evidence is not
+   * available or the requested turn does not exist.
    */
+  /** How many Task Turns ran — independent of timing evidence. */
+  get turnCountFromSpans(): number {
+    return this.turnSpans.length;
+  }
+
   tokens(kind: TokenKind, opts?: { turn?: number }): TraceTokenTally | undefined {
     if (!this.isAvailable("usage")) return undefined;
     const turnSpans = this.turnSpans;
@@ -387,9 +396,12 @@ function tokenCount(
   obs: TraceProjectionObservation,
   kind: TokenKind,
 ): { count: number | undefined; complete: boolean } {
-  // Canonical snapshots serialize unreported dimensions as null.
-  const input = typeof obs.usage?.inputTokens === "number" ? obs.usage.inputTokens : undefined;
-  const output = typeof obs.usage?.outputTokens === "number" ? obs.usage.outputTokens : undefined;
+  // Canonical snapshots serialize unreported dimensions as null, and some
+  // SDKs record NaN for "provider reported nothing": both are unknown.
+  const known = (v: unknown): number | undefined =>
+    typeof v === "number" && Number.isFinite(v) ? v : undefined;
+  const input = known(obs.usage?.inputTokens);
+  const output = known(obs.usage?.outputTokens);
   if (kind === "input") return { count: input, complete: input !== undefined };
   if (kind === "output") return { count: output, complete: output !== undefined };
   if (input === undefined && output === undefined) return { count: undefined, complete: false };

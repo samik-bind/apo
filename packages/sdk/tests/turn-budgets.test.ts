@@ -156,7 +156,7 @@ describe("t.maxTokens / t.minTokens", () => {
 
     const fail = await runOne((t) => t.maxTokens(5000), snapshot(TWO_TURNS));
     expect(fail.pass).toBe(false);
-    expect(fail.assertions![0]!.received).toBe("5050");
+    expect(fail.assertions![0]!.received).toBe("5050 tokens");
   });
 
   it("scopes to one turn and one kind", async () => {
@@ -319,6 +319,32 @@ describe("nesting", () => {
     expect(new TraceView(snapshot(bare)).tokens("total")?.unreported).toBeGreaterThan(0);
   });
 
+  it("keeps an errored step's known count, so a small wrapper cannot hide it", async () => {
+    // Canonical shape after an error: the step keeps its counts, flagged by
+    // its error status; the wrapper's own count is far below the real spend.
+    const obs = [
+      turnSpan(1, 10),
+      llmCall("w", "turn-1", { inputTokens: 100, outputTokens: 10 }, { name: "ai.generateText" }),
+      llmCall("s0", "w", { inputTokens: 5000, outputTokens: 3000 }, { name: "ai.generateText.doGenerate", status: "error" }),
+      llmCall("s1", "w", { inputTokens: 100, outputTokens: 10 }, { name: "ai.generateText.doGenerate" }),
+    ];
+    const r = await runOne((t) => t.maxTokens(1000), snapshot(obs));
+    expect(r.pass).toBe(false);
+    expect(r.assertions![0]!.received).toBe("8110 tokens");
+  });
+
+  it("treats NaN usage as unknown, not as a count", async () => {
+    const obs = [turnSpan(1, 10), llmCall("g", "turn-1", { inputTokens: Number.NaN, outputTokens: Number.NaN })];
+    const r = await runOne((t) => t.maxTokens(1000), snapshot(obs));
+    expect(r.outcome).toBe("unsupported");
+  });
+
+  it("reports a missing turn as 'did not run' even without timing evidence", async () => {
+    const r = await runOne((t) => t.maxTokens(10, { turn: 5 }), snapshot(TWO_TURNS, { timing: "unavailable" }));
+    expect(r.pass).toBe(false);
+    expect(r.assertions![0]!.reasoning).toContain("turn 5 did not run");
+  });
+
   it("handles a span with a very large number of direct children", async () => {
     const n = 200_000;
     const obs: Obs[] = [
@@ -418,6 +444,20 @@ describe("projection tee", () => {
     expect(snap.capabilities.usage).toBe("partial");
     const r = await runOne((t) => t.maxTokens(1_000_000), snap);
     expect(r.outcome).toBe("unsupported");
+  });
+
+  it("nests a span opened without a parent under the active step, as the OTel client does", async () => {
+    const { trace, getSnapshot } = createProjectionTee(uniqueIdReal());
+    await trace.step({ step_name: "task.turn" }, async () => {
+      await trace.step(
+        { step_name: "agent.llm", observation_type: "GENERATION", usage: () => ({ prompt_tokens: 5000, completion_tokens: 0 }) },
+        async () => "reply",
+      );
+      const id = trace.createSpan({ step_name: "llm", observation_type: "GENERATION" });
+      trace.endSpan(id, { prompt_tokens: 100, completion_tokens: 0 });
+    });
+    const view = new TraceView(getSnapshot());
+    expect(view.tokens("input", { turn: 1 })?.tokens).toBe(5100);
   });
 
   it("records a step's post-hoc usage extractor", async () => {

@@ -881,9 +881,10 @@ function recordTurnDuration(
 }
 
 /**
- * Token budgets fail closed on incomplete evidence: an LLM call in scope that
- * reported no usage makes the sum a lower bound, which cannot prove a
- * maximum — and proves a minimum only once the known part already reaches it.
+ * Token budgets fail closed on incomplete evidence: an LLM call in scope with
+ * unknown or errored usage (not covered by a complete count on the call
+ * above it) makes the sum a lower bound, which cannot prove a maximum — and
+ * proves a minimum only once the known part already reaches it.
  */
 function recordTokenBudget(
   view: TraceView,
@@ -911,11 +912,11 @@ function recordTokenBudget(
     return;
   }
   if (turn !== undefined) {
-    const turns = view.turns;
-    if (turns !== undefined && turns[turn - 1] === undefined) {
-      rec.record(id, false, `turn ${turn} did not run (the run had ${turns.length} turn(s))`, {
+    const turnCount = view.turnCountFromSpans;
+    if (turn > turnCount) {
+      rec.record(id, false, `turn ${turn} did not run (the run had ${turnCount} turn(s))`, {
         expected,
-        received: `${turns.length} turn(s)`,
+        received: `${turnCount} turn(s)`,
       });
       return;
     }
@@ -931,11 +932,11 @@ function recordTokenBudget(
   }
   const received =
     tally.unreported > 0
-      ? `≥ ${tally.tokens} (${tally.unreported} LLM call(s) reported no usage)`
-      : `${tally.tokens}`;
+      ? `≥ ${tally.tokens} tokens (${tally.unreported} LLM call(s) with unknown or errored usage)`
+      : `${tally.tokens} tokens`;
   const within = bound === "max" ? tally.tokens <= n : tally.tokens >= n;
   if (tally.unreported > 0 && !(bound === "min" && within)) {
-    rec.record(id, false, `usage is incomplete: ${tally.unreported} LLM call(s) in scope reported no ${kind} tokens`, {
+    rec.record(id, false, `usage is incomplete: ${tally.unreported} LLM call(s) in scope have unknown or errored ${kind} usage`, {
       outcome: "unsupported" as AssertionOutcome,
       expected,
       received,
