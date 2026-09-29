@@ -29,8 +29,10 @@ type CorrectedTestResult = {
     corrected_via: "session" | "api_key" | "open_dev";
     created_at: string;
   } | null;
-  run_status: "passed" | "failed";
-  run_pass_result: boolean;
+  /** `error` + null `run_pass_result`: only judge-errored checks are left
+   * non-passing, so the run has no verdict (issue #323). */
+  run_status: "passed" | "failed" | "error";
+  run_pass_result: boolean | null;
   total_tests: number;
   passed_tests: number;
   failed_tests: number;
@@ -103,7 +105,8 @@ export async function run(argv: string[]): Promise<number> {
 function printTransition(result: CorrectedTestResult): void {
   const transition = `recorded ${passFail(result.recorded_pass)} → effective ${passFail(result.effective_pass)}`;
   console.log(`${bold(result.test_id)}: ${transition}`);
-  const verdict = `${result.run_status.toUpperCase()}  ${result.passed_tests}/${result.total_tests} tests passing`;
+  const status = result.run_pass_result === null ? "NO VERDICT" : result.run_status.toUpperCase();
+  const verdict = `${status}  ${result.passed_tests}/${result.total_tests} tests passing`;
   console.log(`Run: ${verdict}${result.corrected_tests > 0 ? dim(`  (${result.corrected_tests} corrected)`) : ""}`);
   if (result.correction) {
     const who = result.correction.corrected_by_label ?? result.correction.corrected_by_user_id ?? "unknown";

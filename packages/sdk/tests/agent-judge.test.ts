@@ -173,6 +173,7 @@ describe("t.agent — agentic judge sessions", () => {
     const assertion = results[0]!.assertions[0]!;
     expect(assertion.pass).toBe(false);
     expect(assertion.reasoning).toContain("No judge model configured");
+    expect(assertion.outcome).toBe("error");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

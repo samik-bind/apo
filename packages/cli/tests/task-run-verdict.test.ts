@@ -49,6 +49,15 @@ describe("pollRunVerdict (issue #174 recovery)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("reports a recorded no-verdict run — an error run that carries checks (issue #323)", async () => {
+    const fetchMock = vi.fn(async () => mockResponse({ status: "error", total_checks: 3 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const verdict = await pollRunVerdict(config, "run_123", 5, 1);
+    expect(verdict).toBe("error");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps polling through fetch failures within the budget", async () => {
     let calls = 0;
     const fetchMock = vi.fn(async () => {

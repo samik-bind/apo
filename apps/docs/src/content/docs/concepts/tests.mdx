@@ -77,13 +77,15 @@ A judge's model, prompt, and response stay inspectable inside the test that used
 
 A PASS/FAIL verdict claims "the agent ran, and here is what it produced." When the model backend itself failed (rate limits, outages, bad credentials) that claim would be a lie. So apo watches the run's generations, and when **most of them ended in error**, it records **no verdict**:
 
-- The run lands with status `error` and no PASS/FAIL, the dashboard shows **no verdict**, and the CLI shows `Result: -` with a `Generations: 17/22 errored` line.
+- The run lands with status `error` and no PASS/FAIL, the dashboard shows **no verdict**, and the CLI shows `Result: NO VERDICT` with a `Generations: 17/22 errored` line.
 - The tests are still computed and stored, as **diagnostic evidence**, not as a control signal. A "PASS" over a run where 17 of 22 model calls died says nothing about your prompt.
 - Cost and token totals are marked **partial**: errored generations are excluded (a failed provider call often reports no usage at all, which would otherwise project as a suspiciously cheap run), and unpriced calls are excluded from cost the same way.
 
 A minority of errored generations (the run recovered) keeps its normal PASS/FAIL verdict; the totals are still disclosed as partial. The strict rule is: silence beats a wrong signal.
 
-The same rule applies one level down, per check. When an LLM judge never answers — unreachable endpoint, HTTP error, empty or truncated reply after its one retry — the check records `outcome: "error"` (`pass: false`) instead of pretending the judge said FAIL. The dashboard badges it **No verdict** (warning, not red), the run's checks line counts it as `N no verdict` apart from failures, and rejudge stability skips the sample rather than reading it as a flaky fail. The check still fails the run — a pass can't be confirmed — but it never masquerades as evidence the agent did something wrong.
+The same rule applies one level down, per check. When an LLM judge never answers — unreachable endpoint, HTTP error, empty or truncated reply after its one retry — the check records `outcome: "error"` (`pass: false`) instead of pretending the judge said FAIL. The dashboard badges it **No verdict** (warning, not red), the run's checks line counts it as `N no verdict` apart from failures, and rejudge stability skips the sample rather than reading it as a flaky fail. A check that genuinely fails beside it still fails the run. But when judge errors are the **only** non-passing checks, nothing was judged a failure and not everything was judged, so the run records **no verdict** too: status `error`, no PASS/FAIL, and a message that names the cause (`No verdict: 1 of 12 checks got no answer from the judge (judge error); the other 11 passed.`). `apo task run` prints `NO VERDICT` and exits `2`. A missing judge configuration counts the same way. `unsupported` checks (missing trace evidence) are not judge errors: they keep the FAIL.
+
+Such a run is still re-judgeable (`apo runs rejudge`) and correctable (`apo runs correct`): a correction on the errored check supplies the missing verdict and the run becomes PASS or FAIL.
 
 ## The second judge
 

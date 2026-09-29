@@ -12,6 +12,7 @@ import type {
   CheckAssertionResult,
   CheckJudgeMetadata,
   CheckResult,
+  JudgeSegment,
 } from "./agent-task-types.ts";
 
 /** Max chars shown verbatim before a value is replaced by a manifest. Below
@@ -107,9 +108,18 @@ function conciseJudge(j: CheckJudgeMetadata): CheckJudgeMetadata {
   };
 }
 
-function truncateStr(s: string | undefined): string | undefined {
-  if (s === undefined) return undefined;
+function truncateStr(s: JudgeSegment | undefined): JudgeSegment | undefined {
+  // A truncation marker is already bounded server-side — keep it as is.
+  if (typeof s !== "string") return s;
   return previewString(s, RECEIVED_PREVIEW_CHARS);
+}
+
+/** Render a judge segment as text; a truncation marker becomes its preview
+ * plus the size the backend cut it from. */
+export function segmentText(segment: JudgeSegment): string {
+  if (typeof segment === "string") return segment;
+  const size = typeof segment.size_bytes === "number" ? segment.size_bytes.toLocaleString() : "?";
+  return `${segment.preview ?? ""}… ⟨truncated, ${size} bytes⟩`;
 }
 
 function safeStringify(value: unknown): string {

@@ -39,7 +39,12 @@ from apo.models.schemas import (
     CorrectionAction,
     CorrectedTestResult,
 )
-from apo.services.check_report_storage import derive_check_outcome, load_check_report
+from apo.services.check_report_storage import (
+    derive_check_outcome,
+    is_judge_no_verdict_run,
+    judge_no_verdict_message,
+    load_check_report,
+)
 
 CORRECTABLE_RUN_STATUSES = ("passed", "failed")
 
@@ -198,7 +203,10 @@ def correct_test_result(
     """
     if action not in ("set_pass", "set_fail", "clear"):
         raise CorrectionError("invalid_action", f"unknown correction action {action!r}")
-    if task_run.status not in CORRECTABLE_RUN_STATUSES or task_run.pass_result is None:
+    verdict_bearing = (
+        task_run.status in CORRECTABLE_RUN_STATUSES and task_run.pass_result is not None
+    )
+    if not verdict_bearing and not is_judge_no_verdict_run(task_run):
         raise CorrectionError(
             "run_not_correctable",
             f"only terminal verdict-bearing runs can be corrected; status is {task_run.status!r}",
@@ -287,16 +295,34 @@ def _derive(
     passed = sum(1 for c in effective if c.get("pass") is True)
     total = len(effective)
     corrected_count = sum(1 for c in effective if "correction" in c)
-    # A correction can flip a judge-errored check to an effective PASS —
-    # recompute the errored bucket from the effective report, not the raw one.
-    errored = sum(1 for c in effective if derive_check_outcome(c) == "error")
+    # A correction is a human verdict on the check — PASS or FAIL — so a
+    # corrected judge-errored check leaves the errored bucket either way.
+    errored = sum(
+        1
+        for c in effective
+        if "correction" not in c and derive_check_outcome(c) == "error"
+    )
 
-    task_run.status = "passed" if passed == total and total > 0 else "failed"
-    task_run.pass_result = task_run.status == "passed"
+    failed = total - passed - errored
+    was_no_verdict = task_run.status == "error"
+    no_verdict = judge_no_verdict_message(
+        total_checks=total, failed_checks=failed, errored_checks=errored
+    )
+    if no_verdict is not None:
+        # Issue #323: the same run-level rule as finalization — only
+        # judge-errored checks left non-passing means no verdict.
+        task_run.status = "error"
+        task_run.pass_result = None
+        task_run.error_message = no_verdict
+    else:
+        task_run.status = "passed" if passed == total and total > 0 else "failed"
+        task_run.pass_result = task_run.status == "passed"
+        if was_no_verdict:
+            task_run.error_message = None
     task_run.total_checks = total
     task_run.passed_checks = passed
     task_run.errored_checks = errored
-    task_run.failed_checks = total - passed - errored
+    task_run.failed_checks = failed
     task_run.corrected_tests = corrected_count
     session.add(task_run)
     session.flush()
@@ -315,7 +341,7 @@ def _derive(
         effective_pass=target.get("pass") is True,
         correction=correction_obj,
         run_status=task_run.status,  # type: ignore[arg-type]
-        run_pass_result=task_run.pass_result is True,
+        run_pass_result=task_run.pass_result,
         total_tests=total,
         passed_tests=passed,
         failed_tests=total - passed,

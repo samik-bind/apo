@@ -15,8 +15,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs, getFlagValue, getBoolFlag } from "../lib/args.ts";
 import { resolveConfig } from "../lib/config.ts";
-import { bold, dim, formatJson, passFail, yellow } from "../lib/format.ts";
-import { formatChecks, secondJudgeSummary } from "../lib/checks-format.ts";
+import { bold, dim, formatJson, runVerdict, verdictExitCode, yellow } from "../lib/format.ts";
+import { formatChecks, isNoVerdict, secondJudgeSummary } from "../lib/checks-format.ts";
 import { apiGet, apiPost } from "../lib/api.ts";
 import { resolveRunId } from "../lib/runs-resolve.ts";
 import { reportCommandError } from "../lib/command-error.ts";
@@ -136,13 +136,21 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   if (config.json) {
-    console.log(formatJson({ ...outcome, dry_run: dryRun, judgment_id: judgmentId }));
+    const noVerdict = isNoVerdict(outcome.checks);
+    console.log(
+      formatJson({
+        ...outcome,
+        ...(noVerdict ? { noVerdict: true } : {}),
+        dry_run: dryRun,
+        judgment_id: judgmentId,
+      }),
+    );
   } else {
     printOutcome(outcome, { verbose, dryRun, judgmentId, runId, taskDir });
   }
 
   if (exitStatus) {
-    return outcome.pass ? 0 : 1;
+    return verdictExitCode(outcome.pass, isNoVerdict(outcome.checks));
   }
   return 0;
 }
@@ -227,7 +235,7 @@ function printOutcome(
   const erroredSummary =
     erroredChecks > 0 ? yellow(` · ${erroredChecks} no verdict`) : "";
   console.log(
-    `\n  Verdict:  ${passed}/${outcome.checks.length} checks passed${erroredSummary} — ${passFail(outcome.pass)}`,
+    `\n  Verdict:  ${passed}/${outcome.checks.length} checks passed${erroredSummary} — ${runVerdict(outcome.pass, isNoVerdict(outcome.checks))}`,
   );
 
   if (meta.dryRun) {

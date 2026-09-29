@@ -4,9 +4,14 @@ import { getBoolFlag, parseArgs, requirePositional } from "../lib/args.ts";
 import { resolveConfig, type Config } from "../lib/config.ts";
 import { apiGet, isBackendReachable } from "../lib/api.ts";
 import { discoverTaskMeta, findTaskMetaById } from "../lib/task-meta.ts";
-import { bold, dim, formatJson, passFail, red } from "../lib/format.ts";
+import { bold, dim, formatJson, red, runVerdict, verdictExitCode } from "../lib/format.ts";
 import type { CheckResult } from "../lib/agent-task-types.ts";
-import { formatChecks, NO_CHECKS_REGISTERED_MESSAGE, secondJudgeSummary } from "../lib/checks-format.ts";
+import {
+  formatChecks,
+  isNoVerdict,
+  NO_CHECKS_REGISTERED_MESSAGE,
+  secondJudgeSummary,
+} from "../lib/checks-format.ts";
 import { walkWorkspaceForRevision } from "../lib/task-revision.ts";
 import { prepareTaskDefinition } from "../lib/task-definition.ts";
 import { readGitProvenance, buildCallerIdentity } from "../lib/git-provenance.ts";
@@ -30,6 +35,8 @@ import { externalizeResultEvidence, ResultEvidenceTooLargeError } from "../lib/r
 type LocalRunSummary = {
   taskId: string;
   pass: boolean;
+  /** Every failing check got no answer from the judge (issue #323). */
+  noVerdict?: boolean;
   checks: CheckResult[];
   adapterName?: string;
   traceRunId?: string;
@@ -126,7 +133,7 @@ async function runLocally(config: Config, taskDir: string): Promise<number> {
   let summary: LocalRunSummary;
   try {
     console.log(dim(`Running task from ${taskDir}...`));
-    summary = await runTaskDir(taskDir);
+    summary = withNoVerdict(await runTaskDir(taskDir));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(red(`Error: ${message}`));
@@ -139,7 +146,18 @@ async function runLocally(config: Config, taskDir: string): Promise<number> {
     printLocalRunSummary(summary);
   }
 
-  return summary.pass ? 0 : 1;
+  return verdictExitCode(summary.pass, summary.noVerdict === true);
+}
+
+/**
+ * Stamp `noVerdict` from the check outcomes. Newer SDKs set it themselves;
+ * deriving it here keeps the verdict right against older ones. `pass` and
+ * the `pass_result` sent to the backend are unchanged — the backend applies
+ * the same rule to the recorded checks.
+ */
+function withNoVerdict(summary: LocalRunSummary): LocalRunSummary {
+  const noVerdict = summary.noVerdict === true || isNoVerdict(summary.checks);
+  return noVerdict ? { ...summary, noVerdict: true } : summary;
 }
 
 /**
@@ -284,7 +302,7 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
   // branch so its diagnostic can name bytes/limit/fields (issue #249).
   let measuredSize: ResultBodySize | null = null;
   try {
-    summary = await runTaskDirImpl(taskDir) as LocalRunSummary;
+    summary = withNoVerdict(await runTaskDirImpl(taskDir) as LocalRunSummary);
 
     // Upload file artifacts after checks, before result submission.
     // Issue #176: the heartbeat stays alive through this and the /result
@@ -319,7 +337,10 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
       // A compaction failure is a recording error, not a reason to upload
       // the raw checks: report it instead of attempting a huge body (issue #249).
       try {
-        checksForSubmission = compactChecksImpl(summary.checks).checks;
+        // Fresh SDK results: judge segments are strings, never stored markers.
+        checksForSubmission = compactChecksImpl(
+          summary.checks as Parameters<typeof compactChecksImpl>[0],
+        ).checks;
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         throw new Error(`check compaction failed: ${detail}`);
@@ -479,13 +500,17 @@ async function runCallerRecorded(config: Config, resolved: ResolvedTask): Promis
 
 function printLocalRunSummary(summary: LocalRunSummary): void {
   console.log("");
-  console.log(`${passFail(summary.pass)} ${bold(summary.taskId)}`);
+  const noVerdict = summary.noVerdict === true;
+  console.log(`${runVerdict(summary.pass, noVerdict)} ${bold(summary.taskId)}`);
 
   if (summary.checks.length > 0) {
     console.log(bold("  Checks:"));
     console.log(formatChecks(summary.checks));
     const sjSummary = secondJudgeSummary(summary.checks);
     if (sjSummary) console.log(dim(`\n  ${sjSummary}`));
+    if (noVerdict) {
+      console.log(dim("\n  No verdict: the judge never answered for the non-passing checks — re-run or `apo runs rejudge`."));
+    }
   } else if (!summary.pass) {
     // Issue #8: a failed run with zero checks is almost always a silent
     // registration bug (e.g. a double-import that wiped the check registry).
@@ -510,7 +535,7 @@ function renderRecordedResult(
     console.log(`\nRun:     ${bold(taskRunId)}`);
     console.log(`Inspect: ${dim(`apo runs show ${taskRunId}`)}`);
   }
-  return summary.pass ? 0 : 1;
+  return verdictExitCode(summary.pass, summary.noVerdict === true);
 }
 
 /**
@@ -565,16 +590,18 @@ async function finalizeResultInvalid(
  * the result even though the transport gave up on it — the run is safe and
  * the CLI can report the verdict instead of exiting "outcome unknown".
  * Returns the terminal status, or null while the run is still undecided.
+ * An ``error`` run that carries checks got our result and landed without a
+ * verdict (a judge that never answered, issue #323).
  */
 export async function pollRunVerdict(
   config: Config,
   taskRunId: string,
   attempts: number = 5,
   intervalMs: number = 2_000,
-): Promise<"passed" | "failed" | null> {
+): Promise<"passed" | "failed" | "error" | null> {
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      const run = await apiGet<{ status: string }>(
+      const run = await apiGet<{ status: string; total_checks?: number }>(
         config.backendUrl,
         `/v1/agent-task-runs/${encodeURIComponent(taskRunId)}`,
         undefined,
@@ -584,8 +611,9 @@ export async function pollRunVerdict(
         return run.status;
       }
       if (run.status === "error") {
-        // Terminal without our verdict — the result never landed.
-        return null;
+        // Checks are only persisted from a result: with them, it landed as
+        // no verdict; without them, the result never landed.
+        return (run.total_checks ?? 0) > 0 ? "error" : null;
       }
     } catch {
       // An unreachable or flaky run endpoint is not evidence about the

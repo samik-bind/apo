@@ -44,7 +44,7 @@ The effective result is what every current surface uses: run and batch verdicts,
 
 ## Requirements
 
-The run must be terminal with a verdict (`passed`/`failed`) and a recorded check report. Running, errored, or no-verdict runs are read-only, apo refuses with exit code `2` rather than guessing.
+The run must be terminal with a verdict (`passed`/`failed`) and a recorded check report. The one exception is a run with no verdict because the judge never answered for its only non-passing tests: correcting those tests supplies the missing verdict. Running, otherwise errored, or generation-dominated no-verdict runs are read-only, apo refuses with exit code `2` rather than guessing.
 
 Corrections need human authority: a browser session member, a full-scope project API key, or open-dev mode. Ingest keys and executor credentials are refused.
 

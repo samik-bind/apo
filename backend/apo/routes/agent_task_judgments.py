@@ -28,7 +28,7 @@ from ..models.schemas import (
     CreateAgentTaskJudgmentRequest,
 )
 from ..services.agent_task_run_access import require_task_run_access
-from ..services.check_report_storage import load_check_report
+from ..services.check_report_storage import is_judge_no_verdict_run, load_check_report
 from ..services.check_report_storage import normalize_check_report
 from ..services.judgments import (
     MAX_JUDGMENT_SAMPLES,
@@ -177,7 +177,10 @@ async def record_run_judgment(
     task_run = _load_task_run(session, task_run_id)
     project = require_task_run_access(request, session, task_run, write=True)
 
-    if task_run.status not in _TERMINAL_VERDICT_STATUSES:
+    if task_run.status not in _TERMINAL_VERDICT_STATUSES and not is_judge_no_verdict_run(
+        task_run
+    ):
+        # A judge no-verdict run (#323) is exactly the one worth re-judging.
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail={

@@ -17,6 +17,7 @@ from apo.models.db import AgentTaskJudgmentDB, AgentTaskRunDB
 from apo.models.schemas import AgentTaskJudgmentSummary
 from apo.services.check_report_storage import (
     derive_check_outcome,
+    judge_no_verdict_message,
     load_check_report,
     normalize_check_report,
 )
@@ -54,7 +55,7 @@ def create_judgment(
         judge_base_url=judge_base_url,
         task_definition_revision_id=task_definition_revision_id,
         samples=samples,
-        pass_result=passed == len(checks) and len(checks) > 0,
+        pass_result=_judgment_pass_result(len(checks), passed, errored),
         total_checks=len(checks),
         passed_checks=passed,
         errored_checks=errored,
@@ -146,7 +147,7 @@ def synthesize_original_judgment(
         task_definition_revision_id=task_run.task_definition_revision_id,
         definition_revision_matches_run=True,
         samples=1,
-        pass_result=recorded_pass == len(checks) and len(checks) > 0,
+        pass_result=_judgment_pass_result(len(checks), recorded_pass, recorded_errored),
         total_checks=len(checks),
         passed_checks=recorded_pass,
         errored_checks=recorded_errored,
@@ -164,6 +165,18 @@ def list_judgments(session: Session, task_run: AgentTaskRunDB) -> list[AgentTask
             build_judgment_summary(row, canonical_revision_id=canonical)
         )
     return judgments
+
+
+def _judgment_pass_result(total: int, passed: int, errored: int) -> bool | None:
+    """PASS/FAIL, or None under the run-level no-verdict rule (issue #323)."""
+    if (
+        judge_no_verdict_message(
+            total_checks=total, failed_checks=total - passed - errored, errored_checks=errored
+        )
+        is not None
+    ):
+        return None
+    return passed == total and total > 0
 
 
 def _recover_judge_model(checks: list[dict[str, object]]) -> str | None:

@@ -128,6 +128,70 @@ def derive_check_outcome(check: dict[str, object]) -> str | None:
     return outcome if outcome in ("error", "unsupported") else None
 
 
+def judge_no_verdict_message(
+    *,
+    total_checks: int,
+    failed_checks: int,
+    errored_checks: int,
+) -> str | None:
+    """The run-level "no verdict" rule for judge-errored checks (issue #323).
+
+    A run whose only non-passing checks got no answer from the judge has no
+    PASS/FAIL verdict: nothing it did was judged a failure, but not everything
+    was judged. Returns the explanatory ``error_message`` for such a run —
+    status ``error``, ``pass_result`` None — or ``None`` when the run carries
+    a verdict (a genuine fail, ``unsupported`` included, or no errored check).
+    Every path that derives a verdict from check counts goes through here.
+    """
+    if failed_checks != 0 or errored_checks <= 0:
+        return None
+    noun = "check" if total_checks == 1 else "checks"
+    message = (
+        f"No verdict: {errored_checks} of {total_checks} {noun} got no answer "
+        "from the judge (judge error)"
+    )
+    passed = total_checks - errored_checks
+    if passed > 0:
+        message += f"; the other {passed} passed"
+    return message + "."
+
+
+def generation_errors_dominate(summary: dict[str, object] | None) -> bool:
+    """Issue #149: most of the run's model generations ended in error."""
+    if summary is None:
+        return False
+    total = summary.get("total")
+    errored = summary.get("errored")
+    return (
+        isinstance(total, int)
+        and not isinstance(total, bool)
+        and isinstance(errored, int)
+        and not isinstance(errored, bool)
+        and total > 0
+        and errored * 2 > total
+    )
+
+
+def is_judge_no_verdict_run(run: AgentTaskRunDB) -> bool:
+    """Whether an ``error`` run landed there only under the no-verdict rule.
+
+    Such a run is still correctable and re-judgeable — the judge, not the
+    execution, is what failed. Executor errors and generation-dominated runs
+    (#149) are not: their checks evaluated nothing trustworthy.
+    """
+    return (
+        run.status == "error"
+        and run.pass_result is None
+        and judge_no_verdict_message(
+            total_checks=run.total_checks,
+            failed_checks=run.failed_checks,
+            errored_checks=run.errored_checks,
+        )
+        is not None
+        and not generation_errors_dominate(run.generation_execution_json)
+    )
+
+
 def load_check_report(
     session: Session,
     run_id: str,

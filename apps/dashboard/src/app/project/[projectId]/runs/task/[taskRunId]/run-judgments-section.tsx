@@ -76,9 +76,21 @@ export function RunJudgmentsSection({ taskRunId, judgments }: RunJudgmentsSectio
                 )}
               </td>
               <td className="py-1.5 pr-3 font-mono tabular-nums">
-                <span className={cn(judgment.passed_checks === judgment.total_checks && judgment.total_checks > 0 ? "text-success" : "text-destructive")}>
+                <span
+                  className={cn(
+                    judgment.pass_result === true
+                      ? "text-success"
+                      : judgment.pass_result == null
+                        ? "text-warning"
+                        : "text-destructive",
+                  )}
+                >
                   {judgment.passed_checks}/{judgment.total_checks}
                 </span>
+                {/* A null verdict is "no verdict", never FAIL (issue #323). */}
+                {judgment.pass_result == null && (
+                  <span className="ml-1.5 font-sans text-warning">No verdict</span>
+                )}
                 {(judgment.errored_checks ?? 0) > 0 && (
                   <span
                     className="ml-1 text-warning"

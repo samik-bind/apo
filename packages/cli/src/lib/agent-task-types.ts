@@ -97,10 +97,24 @@ export type SecondJudgeEvidence = {
   error?: string;
 };
 
+/**
+ * An oversized judge segment the backend stored as a marker instead of text
+ * (`check_report_storage.py` `_marker`). Older runs carry these in place of
+ * `prompt.system` / `prompt.user` / `response`.
+ */
+export type TruncatedSegment = {
+  kind: "truncated";
+  preview: string;
+  size_bytes: number;
+  sha256: string;
+};
+
+export type JudgeSegment = string | TruncatedSegment;
+
 export type CheckJudgeMetadata = {
   model?: string;
-  prompt?: { system?: string; user?: string };
-  response?: string;
+  prompt?: { system?: JudgeSegment; user?: JudgeSegment };
+  response?: JudgeSegment;
   tokens?: { input: number; output: number };
   cost?: number;
   latency_ms?: number;

@@ -129,6 +129,26 @@ describe("runs correct command", () => {
     });
   });
 
+  it("prints NO VERDICT when the effective run has no verdict (issue #323)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(
+        corrected({
+          run_status: "error",
+          run_pass_result: null,
+          passed_tests: 2,
+          failed_tests: 1,
+        }),
+      ),
+    );
+    const { logs, restore } = captureLog();
+    const code = await run([FULL_ID, "no-failed-actions", "--pass", "--reason", "The judge misread it"]);
+    restore();
+
+    expect(code).toBe(0);
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("Run: NO VERDICT  2/3 tests passing");
+  });
+
   it("sends clear without a reason", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")

@@ -90,6 +90,8 @@ export interface RejudgeOutcome {
   /** Full check results from the primary (first) sample. */
   checks: EvaluationItemResult[];
   pass: boolean;
+  /** Every failing check got no answer from the judge — see {@link TaskEvaluationResult.noVerdict}. */
+  noVerdict?: true;
   /** Only meaningful with samples > 1; ordered like the primary sample. */
   stability: RejudgeCheckStability[];
   /** False when the trace projection was unreadable — trajectory assertions were unsupported. */
@@ -113,6 +115,10 @@ interface RunDetailResponse {
   id: string;
   task_id: string;
   status: string;
+  pass_result?: boolean | null;
+  failed_checks?: number;
+  errored_checks?: number;
+  generation_execution?: { total: number; errored: number } | null;
   deliverables_json?: Record<string, unknown>;
   task_definition?: { id?: string } | null;
 }
@@ -137,6 +143,24 @@ interface DefinitionSourceResponse {
   files: Array<{ path: string; content: string }>;
 }
 
+/**
+ * An `error` run that landed there only because the judge never answered
+ * (issue #323) — exactly the run worth re-judging. Executor errors and
+ * generation-dominated runs (#149) stay refused, as the backend refuses them.
+ */
+function isJudgeNoVerdictRun(detail: RunDetailResponse): boolean {
+  const generations = detail.generation_execution;
+  const generationsDominate =
+    generations != null && generations.total > 0 && generations.errored * 2 > generations.total;
+  return (
+    detail.status === "error" &&
+    detail.pass_result == null &&
+    detail.failed_checks === 0 &&
+    (detail.errored_checks ?? 0) > 0 &&
+    !generationsDominate
+  );
+}
+
 export async function rejudgeTaskRun(
   runId: string,
   endpoints: RejudgeEndpoints,
@@ -146,7 +170,7 @@ export async function rejudgeTaskRun(
   const progress = options.onProgress ?? (() => {});
 
   const detail = await api.get<RunDetailResponse>(`/v1/agent-task-runs/${runId}`);
-  if (!TERMINAL_VERDICT_STATUSES.has(detail.status)) {
+  if (!TERMINAL_VERDICT_STATUSES.has(detail.status) && !isJudgeNoVerdictRun(detail)) {
     throw new RejudgeError(
       `Run ${runId} is '${detail.status}', not a completed run with a verdict — ` +
         `there is nothing to replay against yet`,
@@ -279,6 +303,7 @@ export async function rejudgeTaskRun(
       samples,
       checks: aggregate.checks,
       pass: aggregate.pass,
+      ...(aggregate.noVerdict ? { noVerdict: true as const } : {}),
       stability,
       traceSnapshotAvailable: snapshotResult.available,
       taskDirUsed: taskDir,

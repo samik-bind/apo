@@ -19,6 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 import { taskDetailHref } from "@/lib/task-routes";
 import { hrefWithRunCohort, parseDrilldownCohort } from "@/lib/run-cohort";
+import { isJudgeNoVerdictRun } from "@/lib/run-verdict";
 import { TriggerInline } from "@/components/trigger-badge";
 import { DeleteRunButton } from "@/components/runs/DeleteRunButton";
 import { TaskRunDetailBody } from "./task-run-detail-body";
@@ -175,7 +176,12 @@ export default async function TaskRunDetailPage({
     (c) => c.pass !== true && c.outcome === "error",
   ).length;
   const statusConf = STATUS_DOT[taskRun.status] ?? UNKNOWN_STATUS_DOT;
-  const statusLabel = taskRun.status.charAt(0).toUpperCase() + taskRun.status.slice(1);
+  // Issue #323: only judge-errored checks left non-passing — the run has no
+  // verdict, which is not the agent failing (nor an execution error).
+  const judgeNoVerdict = isJudgeNoVerdictRun(taskRun);
+  const statusLabel = judgeNoVerdict
+    ? "No verdict"
+    : taskRun.status.charAt(0).toUpperCase() + taskRun.status.slice(1);
 
   const isRunning = ["running", "pending", "queued"].includes(taskRun.status);
   const generationErrors = taskRun.generation_execution?.errored ?? 0;
@@ -184,14 +190,14 @@ export default async function TaskRunDetailPage({
     taskRun.pass_result === null &&
     generationErrors > 0;
   const costIsPartial = generationErrors > 0 || (taskRun.unpriced_call_count ?? 0) > 0;
-  // Corrections apply to terminal verdict-bearing runs with
-  // recorded checks. Running/error/no-verdict runs render read-only.
-  // Corrections apply to terminal verdict-bearing runs with recorded
-  // checks — and only for roles that may edit scores: viewers (and the
-  // anonymous demo visitor) never see the affordance at all.
+  // Corrections apply to terminal verdict-bearing runs — and judge
+  // no-verdict runs, where a human decision supplies the missing verdict —
+  // with recorded checks, and only for roles that may edit scores: viewers
+  // (and the anonymous demo visitor) never see the affordance at all.
   const correctable =
-    (taskRun.status === "passed" || taskRun.status === "failed") &&
-    taskRun.pass_result !== null &&
+    (((taskRun.status === "passed" || taskRun.status === "failed") &&
+      taskRun.pass_result !== null) ||
+      judgeNoVerdict) &&
     checks.length > 0 &&
     project?.permissions?.can_edit_scores === true;
 
@@ -323,7 +329,7 @@ export default async function TaskRunDetailPage({
             }}
             unit="checks"
             running={isRunning}
-            verdictUnavailable={verdictSuppressed}
+            verdictUnavailable={verdictSuppressed || judgeNoVerdict}
             metadata={[
               {
                 icon: Clock,
@@ -401,7 +407,14 @@ export default async function TaskRunDetailPage({
 
         {/* Error banner */}
         {taskRun.error_message && generationErrors === 0 && (
-          <div className="mx-6 mt-4 border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-destructive">
+          <div
+            className={cn(
+              "mx-6 mt-4 border px-4 py-3 text-[13px]",
+              judgeNoVerdict
+                ? "border-warning/30 bg-warning/10 text-warning"
+                : "border-destructive/30 bg-destructive/10 text-destructive",
+            )}
+          >
             {taskRun.error_message.slice(0, 200)}
           </div>
         )}
