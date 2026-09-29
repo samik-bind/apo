@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -141,7 +142,9 @@ def resolve_call_io(span: OtlpSpanDB) -> ResolvedCallIO:
 
 
 def hydrate_calls_from_spans(
-    session: Session, calls: list[LoggedCallDB]
+    session: Session,
+    calls: list[LoggedCallDB],
+    spans: Sequence[OtlpSpanDB] | None = None,
 ) -> int:
     """Slim-mode read path: populate call I/O from canonical spans, in memory.
 
@@ -150,15 +153,19 @@ def hydrate_calls_from_spans(
     persisted, and no lazy-load fires. Calls WITHOUT a canonical span (dev
     seeding, legacy direct writes) keep their stored column values: the
     permanent fallback. No-op outside slim mode. Returns span-backed count.
+
+    ``spans`` lets a caller that already loaded the trace's spans skip the
+    lookup; unrelated spans are ignored.
     """
     if projection_write_mode() != "slim" or not calls:
         return 0
     calls_by_id = {c.id: c for c in calls if c.id}
     if not calls_by_id:
         return 0
-    spans = session.exec(
-        select(OtlpSpanDB).where(col(OtlpSpanDB.span_id).in_(list(calls_by_id)))
-    ).all()
+    if spans is None:
+        spans = session.exec(
+            select(OtlpSpanDB).where(col(OtlpSpanDB.span_id).in_(list(calls_by_id)))
+        ).all()
     resolved = 0
     for span in spans:
         call = calls_by_id.get(span.span_id)
