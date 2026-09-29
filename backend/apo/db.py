@@ -1542,65 +1542,106 @@ def _migrate_to_v49() -> None:
     ``pass_result`` None under the same counts. Affected batches are
     re-rolled. Idempotent: an updated run is no longer ``failed``.
     """
+    import json
     import logging
+    from typing import cast
 
-    from sqlmodel import Session, col, select as sqlmodel_select
-
-    from .models.db import AgentTaskBatchRunDB, AgentTaskJudgmentDB, AgentTaskRunDB
     from .services.check_report_storage import (
         compose_no_verdict_error_message,
         generation_errors_dominate,
         judge_no_verdict_message,
     )
-    from .services.test_result_corrections import stage_batch_rollup
 
     logger = logging.getLogger(__name__)
 
-    with Session(engine) as session:
-        runs = session.exec(
-            sqlmodel_select(AgentTaskRunDB).where(
-                col(AgentTaskRunDB.status) == "failed",
-                col(AgentTaskRunDB.failed_checks) == 0,
-                col(AgentTaskRunDB.errored_checks) > 0,
-            )
-        ).all()
+    def parsed_generations(raw: object) -> dict[str, object] | None:
+        # SQLite hands back the JSON column as text; postgres as a dict.
+        if isinstance(raw, dict):
+            return cast("dict[str, object]", raw)
+        if isinstance(raw, (str, bytes)):
+            try:
+                loaded = json.loads(raw)
+            except (TypeError, ValueError):
+                return None
+            return loaded if isinstance(loaded, dict) else None
+        return None
+
+    # Column-limited SQL only, never ORM rows: the model classes declare
+    # every column, including ones LATER migrations add, but a database
+    # upgrading through this rung does not have those yet — a full-row
+    # SELECT would crash with "no such column" the moment the schema grows
+    # past v49 (the upgrade-crash class behind issue #307). Same arithmetic
+    # as ``stage_batch_rollup`` for the re-roll, so no service import drags
+    # full-row ORM loads into the ladder either.
+    with engine.begin() as conn:
+        run_rows = conn.exec_driver_sql(
+            "SELECT id, total_checks, errored_checks, error_message,"
+            " generation_execution_json, batch_run_id FROM agent_task_runs"
+            " WHERE status = 'failed' AND failed_checks = 0 AND errored_checks > 0"
+        ).fetchall()
+        examined = len(run_rows)
+        updated = 0
         batch_ids: set[str] = set()
-        for run in runs:
-            if generation_errors_dominate(run.generation_execution_json):
+        for run_id, total, errored, message, generations_raw, batch_id in run_rows:
+            if generation_errors_dominate(parsed_generations(generations_raw)):
                 continue
             rule = judge_no_verdict_message(
-                total_checks=run.total_checks,
-                failed_checks=run.failed_checks,
-                errored_checks=run.errored_checks,
+                total_checks=total, failed_checks=0, errored_checks=errored
             )
             if rule is None:
                 continue
-            run.status = "error"
-            run.pass_result = None
-            run.error_message = compose_no_verdict_error_message(rule, run.error_message)
-            session.add(run)
-            batch_ids.add(run.batch_run_id)
-        session.flush()
-        for batch_id in batch_ids:
-            batch = session.get(AgentTaskBatchRunDB, batch_id)
-            if batch is not None:
-                stage_batch_rollup(session, batch)
-
-        judgments = session.exec(
-            sqlmodel_select(AgentTaskJudgmentDB).where(
-                col(AgentTaskJudgmentDB.pass_result) == False,  # noqa: E712
-                col(AgentTaskJudgmentDB.failed_checks) == 0,
-                col(AgentTaskJudgmentDB.errored_checks) > 0,
+            conn.exec_driver_sql(
+                "UPDATE agent_task_runs SET status = 'error', pass_result = NULL,"
+                " error_message = :message WHERE id = :run_id",
+                {
+                    "message": compose_no_verdict_error_message(rule, message),
+                    "run_id": run_id,
+                },
             )
-        ).all()
-        for judgment in judgments:
-            judgment.pass_result = None
-            session.add(judgment)
-        session.commit()
+            batch_ids.add(batch_id)
+            updated += 1
+        for batch_id in batch_ids:
+            conn.exec_driver_sql(
+                """
+                UPDATE agent_task_batch_runs SET
+                  total_tasks = (
+                    SELECT COUNT(*) FROM agent_task_runs r
+                    WHERE r.batch_run_id = agent_task_batch_runs.id),
+                  passed_tasks = (
+                    SELECT COUNT(*) FROM agent_task_runs r
+                    WHERE r.batch_run_id = agent_task_batch_runs.id
+                      AND r.status = 'passed'),
+                  failed_tasks = (
+                    SELECT COUNT(*) FROM agent_task_runs r
+                    WHERE r.batch_run_id = agent_task_batch_runs.id
+                      AND r.status = 'failed'),
+                  errored_tasks = (
+                    SELECT COUNT(*) FROM agent_task_runs r
+                    WHERE r.batch_run_id = agent_task_batch_runs.id
+                      AND r.status = 'error'),
+                  total_checks = (
+                    SELECT COALESCE(SUM(r.total_checks), 0) FROM agent_task_runs r
+                    WHERE r.batch_run_id = agent_task_batch_runs.id),
+                  passed_checks = (
+                    SELECT COALESCE(SUM(r.passed_checks), 0) FROM agent_task_runs r
+                    WHERE r.batch_run_id = agent_task_batch_runs.id)
+                WHERE id = :batch_id
+                """,
+                {"batch_id": batch_id},
+            )
+        cleared_judgments = (
+            conn.exec_driver_sql(
+                "UPDATE agent_task_judgments SET pass_result = NULL"
+                " WHERE pass_result = 0 AND failed_checks = 0 AND errored_checks > 0"
+            ).rowcount
+            or 0
+        )
     logger.info(
-        "Schema v49: %d candidate runs and %d judgments examined for no verdict",
-        len(runs),
-        len(judgments),
+        "Schema v49: %d candidate runs examined, %d moved to no verdict, "
+        "%d judgments cleared",
+        examined,
+        updated,
+        cleared_judgments,
     )
 
 

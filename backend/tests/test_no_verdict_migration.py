@@ -134,3 +134,60 @@ def test_v49_applies_the_no_verdict_rule(engine: Engine, monkeypatch: MonkeyPatc
         judgment = session.get(AgentTaskJudgmentDB, "jdg_1")
         assert judgment is not None
         assert judgment.pass_result is None
+
+
+def test_v49_never_reads_columns_beyond_its_own_set(
+    engine: Engine, monkeypatch: MonkeyPatch
+) -> None:
+    """The v49 backfill must stay column-limited as the schema grows.
+
+    The model classes declare every column, including ones later migrations
+    will add, but a database upgrading through v49 does not have those yet —
+    a full-row SELECT inside the migration crashes with "no such column"
+    the moment the schema grows past v49 (the upgrade-crash class behind
+    issue #307). Dropping a model-declared column the migration never reads
+    stands in for that future database.
+    """
+    with Session(engine) as session:
+        session.add(
+            AgentTaskBatchRunDB(
+                id="batch-1",
+                project="p1",
+                status="completed",
+                total_tasks=1,
+                failed_tasks=1,
+                selection_type="task",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        session.flush()
+        session.add(_run("run-outage", failed=0, errored=1, error_message="adapter note"))
+        session.commit()
+
+    with engine.connect() as conn:
+        conn.exec_driver_sql("ALTER TABLE agent_task_runs DROP COLUMN transcript_json")
+        conn.commit()
+
+    monkeypatch.setattr(apo_db, "engine", engine)
+    apo_db._migrate_to_v49()
+
+    # Assertions by column-limited driver SQL: full-row ORM loads cannot
+    # read this database either, which is the point.
+    with engine.connect() as conn:
+        run_row = conn.exec_driver_sql(
+            """
+            SELECT status, pass_result, error_message FROM agent_task_runs
+            WHERE id = 'run-outage'
+            """
+        ).one()
+        batch_row = conn.exec_driver_sql(
+            """
+            SELECT failed_tasks, errored_tasks FROM agent_task_batch_runs
+            WHERE id = 'batch-1'
+            """
+        ).one()
+    assert run_row.status == "error"
+    assert run_row.pass_result is None
+    assert run_row.error_message is not None
+    assert run_row.error_message.startswith("No verdict: ")
+    assert (batch_row.failed_tasks, batch_row.errored_tasks) == (0, 1)
