@@ -417,9 +417,9 @@ class TestTokenUsage:
         assert gen["usage"] == {"inputTokens": 1200, "outputTokens": 0}
         assert dumped["capabilities"]["usage"] == "available"
 
-    def test_errored_generation_usage_is_unknown_not_zero(self):
-        """A provider error often drops the final usage event; like the run
-        rollup, the projection must not present that count as complete."""
+    def test_errored_generation_keeps_usage_and_is_marked_errored(self):
+        """A provider error often drops the final usage event, so the count is
+        a lower bound: kept (it was spent) and flagged by an error status."""
         with Session(engine) as session:
             session.add(_make_run(trace_id="te", project="p"))
             for span_id, attrs in (
@@ -456,7 +456,10 @@ class TestTokenUsage:
         assert snap is not None
         by_id = {o.span_id: o for o in snap.observations}
         assert by_id["gen-ok"].usage is not None
-        assert by_id["gen-finish-error"].usage is None
+        assert by_id["gen-ok"].status.value == "ok"
+        assert by_id["gen-finish-error"].usage is not None
+        assert by_id["gen-finish-error"].usage.input_tokens == 10
+        assert by_id["gen-finish-error"].status.value == "error"
 
     def test_snapshot_without_usage_capability_still_parses(self):
         legacy = {

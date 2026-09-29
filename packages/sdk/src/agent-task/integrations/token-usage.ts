@@ -71,7 +71,7 @@ export function extractTokenUsage(attrs: SpanAttributes): {
  * parses finite numeric strings; ignores everything else.
  */
 function toNum(val: unknown): number | undefined {
-  if (typeof val === "number") return val;
+  if (typeof val === "number") return Number.isFinite(val) ? val : undefined;
   if (typeof val === "string") {
     const n = Number(val);
     return Number.isFinite(n) ? n : undefined;
