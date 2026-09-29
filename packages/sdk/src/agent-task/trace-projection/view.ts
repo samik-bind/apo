@@ -239,34 +239,56 @@ export class TraceView {
     }
     const tally: TraceTokenTally = { tokens: 0, reported: 0, unreported: 0 };
     const children = this.childrenByParent;
-    const visited = new Set<string>();
-    // Usage nests: a wrapper span can carry the sum of the calls below it
-    // (Vercel's ai.generateText over its doGenerate steps), and which of the
-    // two a trace carries differs between producers. A node therefore counts
-    // the larger of its own count and its children's sum — never both.
-    const effective = (obs: TraceProjectionObservation): number | undefined => {
+    const isLlmCall = (o: TraceProjectionObservation): boolean =>
+      o.type === "GENERATION" || o.usage != null;
+
+    // Every observation below the roots, each visited once, parents first.
+    const order: TraceProjectionObservation[] = [];
+    const visited = new Set<string>(roots.map((r) => r.spanId));
+    const stack = roots.flatMap((r) => children.get(r.spanId) ?? []);
+    const scopeChildren = new Map<string, TraceProjectionObservation[]>();
+    const topLevel: TraceProjectionObservation[] = [...stack];
+    while (stack.length > 0) {
+      const obs = stack.pop()!;
+      if (visited.has(obs.spanId)) continue;
+      visited.add(obs.spanId);
+      order.push(obs);
+      const kids = (children.get(obs.spanId) ?? []).filter((c) => !visited.has(c.spanId));
+      scopeChildren.set(obs.spanId, kids);
+      stack.push(...kids);
+    }
+
+    // Usage nests: an LLM call can carry the sum of its per-step calls
+    // directly beneath it (Vercel's ai.generateText over its doGenerate
+    // steps), and which of the two a producer records differs between the
+    // local and canonical paths. So a node's own count covers its direct
+    // LLM-call children — it counts the larger of the two, never both.
+    // Anything reached through another span (a tool that runs a subagent)
+    // is a separate call and adds.
+    const effective = new Map<string, number | undefined>();
+    for (let i = order.length - 1; i >= 0; i--) {
+      const obs = order[i]!;
       const { count, complete } = tokenCount(obs, kind);
       if (count !== undefined) tally.reported += 1;
-      const isLlmCall = obs.type === "GENERATION" || obs.usage != null;
-      if (isLlmCall && (!complete || obs.status === "error")) tally.unreported += 1;
-      let below: number | undefined;
-      for (const child of children.get(obs.spanId) ?? []) {
-        if (visited.has(child.spanId)) continue;
-        visited.add(child.spanId);
-        const c = effective(child);
-        if (c !== undefined) below = (below ?? 0) + c;
+      if (isLlmCall(obs) && (!complete || obs.status === "error")) tally.unreported += 1;
+      let steps: number | undefined;
+      let separate: number | undefined;
+      for (const child of scopeChildren.get(obs.spanId) ?? []) {
+        const c = effective.get(child.spanId);
+        if (c === undefined) continue;
+        if (isLlmCall(child)) steps = (steps ?? 0) + c;
+        else separate = (separate ?? 0) + c;
       }
-      if (count === undefined) return below;
-      if (below === undefined) return count;
-      return Math.max(count, below);
-    };
-    for (const root of roots) visited.add(root.spanId);
-    for (const root of roots) {
-      for (const child of children.get(root.spanId) ?? []) {
-        if (visited.has(child.spanId)) continue;
-        visited.add(child.spanId);
-        tally.tokens += effective(child) ?? 0;
-      }
+      const own =
+        count === undefined ? steps : steps === undefined ? count : Math.max(count, steps);
+      effective.set(
+        obs.spanId,
+        own === undefined && separate === undefined ? undefined : (own ?? 0) + (separate ?? 0),
+      );
+    }
+    for (const obs of topLevel) {
+      if (effective.has(obs.spanId)) tally.tokens += effective.get(obs.spanId) ?? 0;
+      effective.delete(obs.spanId);
     }
     return tally;
   }

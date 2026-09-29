@@ -115,7 +115,7 @@ t.minTokens(20_000, { turn: 1, kind: "input" }); // it actually read the 30-page
 
 **What a token is.** Input tokens are what the provider reported as the prompt, which for most providers includes cached prompt reads and writes; output tokens include reasoning tokens where the provider counts them as output. A cache-heavy agent can read hundreds of thousands of input tokens for a few cents — set the budget from measured runs, not from cost.
 
-**Nested usage counts once.** When a span that carries usage wraps calls that carry usage too (the AI SDK's `ai.generateText` over its per-step `doGenerate` calls), the span counts the larger of its own count and its children's sum, never both.
+**Nested usage counts once.** When an LLM call's span carries usage and so do the LLM-call spans directly beneath it (the AI SDK's `ai.generateText` over its per-step `doGenerate` calls), the parent counts the larger of its own count and its children's sum, never both. Calls reached through another span — a subagent run inside a tool call — are separate calls and add to the total.
 
 **Incomplete usage fails closed.** When an LLM call in scope reported no count for the requested `kind`, or errored (a provider error often drops the final usage event), the sum is only a lower bound. A lower bound cannot prove a maximum, so `maxTokens` records `unsupported`; `minTokens` still passes when the known part already reaches `n`. With no usage-bearing call in scope at all, both record `unsupported` rather than comparing against 0. The breakdown's `received` shows the lower bound and how many calls were missing usage.
 

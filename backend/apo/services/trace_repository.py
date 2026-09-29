@@ -298,12 +298,20 @@ class NativeTraceRepository:
         from .projection_io import hydrate_calls_from_spans
 
         _resolved = hydrate_calls_from_spans(session, list(calls))
-        spans = session.exec(
-            select(OtlpSpanDB).where(
-                col(OtlpSpanDB.trace_id) == trace_id,
-                col(OtlpSpanDB.project_id) == project_id,
-            )
-        ).all()
+        # Only generations can be errored-with-untrusted-usage; load just
+        # their spans rather than every span (with attributes) in the trace.
+        generation_ids = [c.id for c in calls if c.observation_type == "GENERATION"]
+        spans = (
+            session.exec(
+                select(OtlpSpanDB).where(
+                    col(OtlpSpanDB.trace_id) == trace_id,
+                    col(OtlpSpanDB.project_id) == project_id,
+                    col(OtlpSpanDB.span_id).in_(generation_ids),
+                )
+            ).all()
+            if generation_ids
+            else []
+        )
         from .trace_backend import generation_execution_facts
 
         _summary, errored_ids = generation_execution_facts(calls, spans)
