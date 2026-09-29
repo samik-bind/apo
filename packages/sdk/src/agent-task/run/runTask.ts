@@ -37,7 +37,7 @@ import { aggregateResult } from "./aggregate.ts";
 import type { AgentTaskTraceContext, AgentTaskTraceOptions } from "../tracing.ts";
 import { createNoopAgentTaskTraceContext } from "../tracing.ts";
 import type { LoadedTask } from "../task/loadTask.ts";
-import { withApoRun } from "../integrations/run-context.ts";
+import { getActiveApoRun, withApoRun } from "../integrations/run-context.ts";
 
 /**
  * Error thrown when a Task Run fails after the adapter's Run Configuration
@@ -654,12 +654,19 @@ async function runTurnLoop(
         metadata: { turnNumber: turnNum },
         summarize: (r) => ({ response: (r as { response: unknown }).response }),
       },
-      async (spanId) =>
-        session.sendUserTurn(userTurn, {
-          trace,
-          turnNumber: turnNum,
-          parentSpanId: spanId,
-        }),
+      // Re-scope the run context to this turn so GenAI spans the OTel
+      // processor captures parent under the turn span, not the run root —
+      // turn-scoped assertions (t.maxTokens({ turn })) walk that chain.
+      async (spanId) => {
+        const run = getActiveApoRun();
+        const send = () =>
+          session.sendUserTurn(userTurn, {
+            trace,
+            turnNumber: turnNum,
+            parentSpanId: spanId,
+          });
+        return run ? withApoRun({ ...run, parentSpanId: spanId, turnNumber: turnNum }, send) : send();
+      },
     );
 
     turnTranscript.push({

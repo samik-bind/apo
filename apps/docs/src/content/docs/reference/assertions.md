@@ -88,7 +88,7 @@ Matches the name of a `SKILL` observation. Produce one by marking the span that 
 ### `t.maxDurationMs(n, opts?)`
 
 - **Signature:** `(n: number, opts?: { turn?: number }) → void`
-- **Asserts:** the run took at most `n` milliseconds, anti-flail. With `{ turn }` (1-based), bounds that one Task Turn instead: the duration of its `task.turn` span, which is the adapter's `sendUserTurn` for that turn.
+- **Asserts:** the run took at most `n` milliseconds, anti-flail. With `{ turn }` (1-based), bounds that one Task Turn instead: the duration of its `task.turn` span, which is the adapter's whole `sendUserTurn` call for that turn — the agent's work plus anything else the adapter does inside it.
 
 ```typescript
 t.maxDurationMs(20 * 60_000, { turn: 1 }); // the first turn finished inside 20 minutes
@@ -111,7 +111,11 @@ t.maxTokens(400_000, { turn: 1 });
 t.minTokens(20_000, { turn: 1, kind: "input" }); // it actually read the 30-page contract
 ```
 
-**Which tokens count.** Token budgets sum the usage recorded on observations *inside* `task.turn` spans, every turn or only `{ turn }`. Work outside the turns is not the agent's and never counts: judge calls in the evaluation phase, and anything the adapter does in `initialize`, `startSession` or `collectDeliverables`. The agent's LLM calls must therefore nest under the turn span; thread `parentSpanId` into your agent's tracing (see [Tracing integrations](/reference/tracing-integrations/)).
+**Which tokens count.** Token budgets sum the usage recorded on observations *inside* `task.turn` spans, every turn or only `{ turn }`. Work outside the turns never counts: judge calls in the evaluation phase, and anything the adapter does in `initialize`, `startSession` or `collectDeliverables`. Everything inside `sendUserTurn` does — so if the adapter makes its own traced LLM calls there (a simulated user, a completion check), they count with the agent's. The agent's LLM calls must nest under the turn span: the `ApoSpanProcessor` parents them there automatically, and the explicit integrations do when you pass them the `parentSpanId` `sendUserTurn` receives (see [Tracing integrations](/reference/tracing-integrations/)). Token budgets need a traced run; an untraced local run cannot attribute calls to turns and records `unsupported`.
+
+**What a token is.** Input tokens are what the provider reported as the prompt, which for most providers includes cached prompt reads and writes; output tokens include reasoning tokens where the provider counts them as output. A cache-heavy agent can read hundreds of thousands of input tokens for a few cents — set the budget from measured runs, not from cost.
+
+**Nested usage counts once.** When a span that carries usage wraps calls that carry usage too (the AI SDK's `ai.generateText` over its per-step `doGenerate` calls), the span counts the larger of its own count and its children's sum, never both.
 
 **Incomplete usage fails closed.** When an LLM call in scope reported no count for the requested `kind`, or errored (a provider error often drops the final usage event), the sum is only a lower bound. A lower bound cannot prove a maximum, so `maxTokens` records `unsupported`; `minTokens` still passes when the known part already reaches `n`. With no usage-bearing call in scope at all, both record `unsupported` rather than comparing against 0. The breakdown's `received` shows the lower bound and how many calls were missing usage.
 

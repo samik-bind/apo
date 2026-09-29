@@ -258,6 +258,60 @@ describe("t.maxTokens / t.minTokens", () => {
   });
 });
 
+describe("nesting", () => {
+  it("counts a wrapper and the calls it wraps once (canonical Vercel AI SDK shape)", async () => {
+    // Canonical: ai.generateText carries the total, each doGenerate its step.
+    const obs = [
+      turnSpan(1, 10),
+      llmCall("wrap", "turn-1", { inputTokens: 1000, outputTokens: 100 }, { name: "ai.generateText" }),
+      llmCall("step-a", "wrap", { inputTokens: 600, outputTokens: 60 }, { name: "ai.generateText.doGenerate" }),
+      llmCall("step-b", "wrap", { inputTokens: 400, outputTokens: 40 }, { name: "ai.generateText.doGenerate" }),
+    ];
+    expect(new TraceView(snapshot(obs)).tokens("total")?.tokens).toBe(1100);
+    // Local tee: the doGenerate children are dropped, the wrapper alone counts.
+    expect(new TraceView(snapshot(obs.slice(0, 2))).tokens("total")?.tokens).toBe(1100);
+  });
+
+  it("keeps a child sum that exceeds its parent's own count", async () => {
+    const obs = [
+      turnSpan(1, 10),
+      { spanId: "agent", parentSpanId: "turn-1", type: "AGENT" as const, name: "pi.turn", status: "ok" as const, usage: { inputTokens: 10, outputTokens: 0 } },
+      llmCall("g1", "agent", { inputTokens: 500, outputTokens: 50 }),
+      llmCall("g2", "agent", { inputTokens: 500, outputTokens: 50 }),
+    ];
+    expect(new TraceView(snapshot(obs)).tokens("total")?.tokens).toBe(1100);
+  });
+
+  it("does not treat a task.turn span nested inside a turn as a turn of its own", async () => {
+    const obs = [
+      turnSpan(1, 900_000),
+      { ...turnSpan(9, 1), spanId: "nested-turn", parentSpanId: "turn-1", startedAt: "2026-09-29T10:01:30Z" },
+      turnSpan(2, 700_000),
+      llmCall("g", "nested-turn", { inputTokens: 5, outputTokens: 5 }),
+    ];
+    const view = new TraceView(snapshot(obs));
+    expect(view.turns?.map((t) => t.spanId)).toEqual(["turn-1", "turn-2"]);
+    // The nested span's usage still belongs to the enclosing turn.
+    expect(view.tokens("total", { turn: 1 })?.tokens).toBe(10);
+    const r = await runOne((t) => t.maxDurationMs(10, { turn: 2 }), snapshot(obs));
+    expect(r.pass).toBe(false);
+    expect(r.assertions![0]!.received).toBe("700000ms");
+  });
+});
+
+describe("authoring errors", () => {
+  it.each([
+    ["negative budget", (t: Parameters<Parameters<typeof defineCheck>[1]>[0]) => t.minTokens(-1)],
+    ["NaN budget", (t: Parameters<Parameters<typeof defineCheck>[1]>[0]) => t.maxDurationMs(Number.NaN, { turn: 1 })],
+    ["unknown kind", (t: Parameters<Parameters<typeof defineCheck>[1]>[0]) =>
+      t.maxTokens(10, { kind: "reasoning" as unknown as "total" })],
+  ])("rejects a %s instead of recording a verdict", async (_label, check) => {
+    const r = await runOne(check, snapshot(TWO_TURNS));
+    expect(r.pass).toBe(false);
+    expect(r.assertions!.some((a) => a.id === "minTokens(-1)" || a.id.startsWith("maxTokens(") || a.id.startsWith("maxDurationMs("))).toBe(false);
+  });
+});
+
 /** A real-ish context that issues a unique id per step, like the OTel context. */
 function uniqueIdReal(): AgentTaskTraceContext {
   const noop = createNoopAgentTaskTraceContext();

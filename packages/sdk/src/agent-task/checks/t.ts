@@ -832,6 +832,14 @@ function recordMissingEvidence(rec: Recorder, view: TraceView): RecordUnsupporte
   };
 }
 
+function requireBudget(method: string, n: number): void {
+  if (!Number.isFinite(n) || n < 0) {
+    throw new TypeError(`${method}: the budget must be a finite, non-negative number, got ${n}`);
+  }
+}
+
+const TOKEN_KINDS: readonly TokenKind[] = ["input", "output", "total"];
+
 function requireTurnNumber(method: string, turn: number): void {
   if (!Number.isInteger(turn) || turn < 1) {
     throw new TypeError(`${method}: turn must be a positive integer (1-based), got ${turn}`);
@@ -845,6 +853,7 @@ function recordTurnDuration(
   turn: number,
   unsupported: RecordUnsupported,
 ): void {
+  requireBudget("maxDurationMs", n);
   requireTurnNumber("maxDurationMs", turn);
   const id = `maxDurationMs(${n}, turn ${turn})`;
   const turns = view.turns;
@@ -887,6 +896,10 @@ function recordTokenBudget(
   const method = bound === "max" ? "maxTokens" : "minTokens";
   const kind = opts?.kind ?? "total";
   const turn = opts?.turn;
+  requireBudget(method, n);
+  if (!TOKEN_KINDS.includes(kind)) {
+    throw new TypeError(`${method}: kind must be one of ${TOKEN_KINDS.join(", ")}, got ${String(kind)}`);
+  }
   if (turn !== undefined) requireTurnNumber(method, turn);
   const scope = turn === undefined ? "" : `, turn ${turn}`;
   const id = `${method}(${n}${kind === "total" ? "" : `, ${kind}`}${scope})`;

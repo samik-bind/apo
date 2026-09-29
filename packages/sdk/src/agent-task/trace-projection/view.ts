@@ -205,13 +205,12 @@ export class TraceView {
 
   /**
    * Task Turns in invocation order, or `undefined` when timing evidence is
-   * unavailable. Each is one `task.turn` span: the adapter's `sendUserTurn`
-   * for that turn, so its duration is the agent's time on that turn.
+   * unavailable. Each is one `task.turn` span: the adapter's whole
+   * `sendUserTurn` call for that turn.
    */
   get turns(): readonly TraceTurn[] | undefined {
     if (!this.isAvailable("timing")) return undefined;
-    return this.sortedObservations
-      .filter((o) => o.name === TASK_TURN_SPAN_NAME)
+    return this.turnSpans
       .map((o, i) => ({
         turnNumber: i + 1,
         spanId: o.spanId,
@@ -229,7 +228,7 @@ export class TraceView {
    */
   tokens(kind: TokenKind, opts?: { turn?: number }): TraceTokenTally | undefined {
     if (!this.isAvailable("usage")) return undefined;
-    const turnSpans = this.sortedObservations.filter((o) => o.name === TASK_TURN_SPAN_NAME);
+    const turnSpans = this.turnSpans;
     let roots: readonly TraceProjectionObservation[];
     if (opts?.turn !== undefined) {
       const one = turnSpans[opts.turn - 1];
@@ -239,45 +238,80 @@ export class TraceView {
       roots = turnSpans;
     }
     const tally: TraceTokenTally = { tokens: 0, reported: 0, unreported: 0 };
-    for (const obs of this.descendantsOf(roots)) {
+    const children = this.childrenByParent;
+    const visited = new Set<string>();
+    // Usage nests: a wrapper span can carry the sum of the calls below it
+    // (Vercel's ai.generateText over its doGenerate steps), and which of the
+    // two a trace carries differs between producers. A node therefore counts
+    // the larger of its own count and its children's sum — never both.
+    const effective = (obs: TraceProjectionObservation): number | undefined => {
       const { count, complete } = tokenCount(obs, kind);
-      if (count !== undefined) {
-        tally.tokens += count;
-        tally.reported += 1;
-      }
+      if (count !== undefined) tally.reported += 1;
       const isLlmCall = obs.type === "GENERATION" || obs.usage != null;
-      if (isLlmCall && (!complete || obs.status === "error")) {
-        tally.unreported += 1;
+      if (isLlmCall && (!complete || obs.status === "error")) tally.unreported += 1;
+      let below: number | undefined;
+      for (const child of children.get(obs.spanId) ?? []) {
+        if (visited.has(child.spanId)) continue;
+        visited.add(child.spanId);
+        const c = effective(child);
+        if (c !== undefined) below = (below ?? 0) + c;
+      }
+      if (count === undefined) return below;
+      if (below === undefined) return count;
+      return Math.max(count, below);
+    };
+    for (const root of roots) visited.add(root.spanId);
+    for (const root of roots) {
+      for (const child of children.get(root.spanId) ?? []) {
+        if (visited.has(child.spanId)) continue;
+        visited.add(child.spanId);
+        tally.tokens += effective(child) ?? 0;
       }
     }
     return tally;
   }
 
-  /** Every observation strictly below any of `roots`, via `parentSpanId`. */
-  private descendantsOf(
-    roots: readonly TraceProjectionObservation[],
-  ): TraceProjectionObservation[] {
+  /**
+   * The run's own Task Turns: `task.turn` observations with no `task.turn`
+   * ancestor (a nested run or a user span of the same name inside a turn is
+   * part of that turn, not a turn of its own). Turns run sequentially, so
+   * invocation order is turn order.
+   */
+  private get turnSpans(): readonly TraceProjectionObservation[] {
+    if (this._turnSpans !== undefined) return this._turnSpans;
+    const byId = new Map(this.snapshot.observations.map((o) => [o.spanId, o]));
+    const insideAnotherTurn = (obs: TraceProjectionObservation): boolean => {
+      const visited = new Set<string>([obs.spanId]);
+      let parentId = obs.parentSpanId;
+      while (parentId !== undefined && !visited.has(parentId)) {
+        visited.add(parentId);
+        const parent = byId.get(parentId);
+        if (!parent) return false;
+        if (parent.name === TASK_TURN_SPAN_NAME) return true;
+        parentId = parent.parentSpanId;
+      }
+      return false;
+    };
+    this._turnSpans = this.sortedObservations.filter(
+      (o) => o.name === TASK_TURN_SPAN_NAME && !insideAnotherTurn(o),
+    );
+    return this._turnSpans;
+  }
+  private _turnSpans: readonly TraceProjectionObservation[] | undefined;
+
+  private get childrenByParent(): ReadonlyMap<string, TraceProjectionObservation[]> {
+    if (this._children !== undefined) return this._children;
     const children = new Map<string, TraceProjectionObservation[]>();
     for (const obs of this.snapshot.observations) {
-      if (obs.parentSpanId === undefined) continue;
+      if (obs.parentSpanId == null) continue;
       const list = children.get(obs.parentSpanId);
       if (list) list.push(obs);
       else children.set(obs.parentSpanId, [obs]);
     }
-    const out: TraceProjectionObservation[] = [];
-    const seen = new Set<string>(roots.map((r) => r.spanId));
-    const stack = roots.map((r) => r.spanId);
-    while (stack.length > 0) {
-      const id = stack.pop()!;
-      for (const child of children.get(id) ?? []) {
-        if (seen.has(child.spanId)) continue;
-        seen.add(child.spanId);
-        out.push(child);
-        stack.push(child.spanId);
-      }
-    }
-    return out;
+    this._children = children;
+    return children;
   }
+  private _children: ReadonlyMap<string, TraceProjectionObservation[]> | undefined;
 
   /**
    * Observations sorted deterministically by invocation time then span ID.
