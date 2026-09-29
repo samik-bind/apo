@@ -69,6 +69,25 @@ describe("runs judgments command", () => {
     expect(out).not.toContain("FAIL");
   });
 
+  it("keeps a genuine FAIL beside a judge error off NO VERDICT", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      jsonResponse({
+        task_run_id: FULL_ID,
+        judgments: [
+          judgment(FULL_ID, { pass_result: false, passed_checks: 1, failed_checks: 1, errored_checks: 1 }),
+          judgment("jdg_null", { pass_result: null, passed_checks: 2, failed_checks: 0, errored_checks: 0 }),
+        ],
+      }),
+    );
+    const { logs, restore } = captureLog();
+    await run([FULL_ID, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("— 1/3 checks · 1 no verdict");
+    expect(out).toContain("— NO VERDICT 2/3 checks");
+  });
+
   it("lists original and rejudge judgments", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       jsonResponse({

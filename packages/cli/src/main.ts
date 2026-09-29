@@ -214,7 +214,7 @@ const commands: Record<string, CommandEntry> = {
     ],
     options: [
       ["--verbose", "Show all assertions (incl. passing) + LLM judge responses"],
-      ["--exit-status", "Exit non-zero if the run failed (for CI / scripting)"],
+      ["--exit-status", "Exit 1 if the run failed, 2 if it has no verdict (for CI / scripting)"],
       ["--task <id>", "Filter 'last' to the latest run of a specific task"],
     ],
     examples: [

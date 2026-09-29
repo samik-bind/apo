@@ -8,13 +8,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // stubbed; the CLI derives the verdict from check outcomes so it holds even
 // against SDKs that predate `noVerdict`.
 let _checks: Array<Record<string, unknown>> = [];
+let _pass = false;
 
 vi.mock("@apo-ai/sdk/agent-task", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@apo-ai/sdk/agent-task")>();
   return {
     ...actual,
     runTaskDir: async () => ({
-      taskId: "t", pass: false, checks: _checks, adapterName: null, traceRunId: null,
+      taskId: "t", pass: _pass, checks: _checks, adapterName: null, traceRunId: null,
       deliverables: {},
     }),
   };
@@ -22,6 +23,7 @@ vi.mock("@apo-ai/sdk/agent-task", async (importOriginal) => {
 
 import * as credentials from "../src/lib/credentials.ts";
 import { run } from "../src/commands/task-run.ts";
+import { resultLabel, summaryExitCode } from "../src/commands/run.ts";
 import { stripAnsi } from "../src/lib/format.ts";
 
 const OK = { id: "ok", pass: true, reasoning: "passed" };
@@ -42,6 +44,9 @@ function captureStdout(): { lines: string[]; restore: () => void } {
 describe("task run no-verdict result (issue #323)", () => {
   let testDir: string;
   let resultBody: Record<string, unknown> | undefined;
+  // Set to make the result POST die at the transport (issue #174 recovery).
+  let resultTransportFails = false;
+  let recordedStatus: Record<string, unknown> = {};
 
   beforeEach(() => {
     vi.spyOn(credentials, "readCredentials").mockReturnValue({
@@ -57,6 +62,9 @@ describe("task run no-verdict result (issue #323)", () => {
       `import { task } from "@apo-ai/sdk/agent-task";\ntask("nv-task", { adapter: "a" });`,
     );
     resultBody = undefined;
+    resultTransportFails = false;
+    recordedStatus = {};
+    _pass = false;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes("/health")) return new Response("ok", { status: 200 });
@@ -70,9 +78,11 @@ describe("task run no-verdict result (issue #323)", () => {
       if (url.includes("/attempts/a1/start")) return mockResp({ status: "running" });
       if (url.includes("/attempts/a1/heartbeat")) return mockResp({ cancel_requested: false });
       if (url.includes("/attempts/a1/result")) {
+        if (resultTransportFails) throw new Error("socket hang up");
         resultBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
         return mockResp({ status: "succeeded" });
       }
+      if (url.endsWith("/v1/agent-task-runs/r1")) return mockResp(recordedStatus);
       return mockResp({}, 404);
     });
   });
@@ -124,6 +134,80 @@ describe("task run no-verdict result (issue #323)", () => {
     expect(parsed.noVerdict).toBe(true);
   });
 
+  it("recovery: a run the backend recorded without a verdict exits 2, whatever the local checks said", async () => {
+    _pass = true;
+    _checks = [OK];
+    resultTransportFails = true;
+    recordedStatus = { status: "error", total_checks: 1 };
+    const { lines, restore } = captureStdout();
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => {
+      errors.push(a.join(" "));
+    });
+    const code = await run(args());
+    spy.mockRestore();
+    restore();
+
+    const out = stripAnsi(lines.join("\n"));
+    expect(code).toBe(2);
+    expect(out).toContain("NO VERDICT t");
+    expect(out).toContain("recorded this run without one");
+    expect(out).not.toMatch(/^PASS /m);
+  });
+
+  it("hints at runs correct on a recorded run — rejudge leaves the run as is", async () => {
+    _checks = [OK, JUDGE_ERROR];
+    const { lines, restore } = captureStdout();
+    await run(args());
+    restore();
+
+    const out = stripAnsi(lines.join("\n"));
+    expect(out).toContain("apo runs correct r1 <test-id> --pass|--fail");
+    expect(out).toContain("apo runs rejudge records a separate judgment");
+  });
+
+  it("hints at configuring the judge when none is configured", async () => {
+    _checks = [
+      OK,
+      {
+        id: "memo",
+        pass: false,
+        outcome: "error",
+        reasoning: "No judge model configured. Set one of: ...",
+      },
+    ];
+    const { lines, restore } = captureStdout();
+    await run(args());
+    restore();
+
+    const out = stripAnsi(lines.join("\n"));
+    expect(out).toContain("no judge model is configured");
+    expect(out).not.toContain("apo runs correct");
+  });
+
+  it("--no-record hints at a re-run only — there is no recorded run to correct", async () => {
+    _checks = [JUDGE_ERROR];
+    const { lines, restore } = captureStdout();
+    await run([...args(), "--no-record"]);
+    restore();
+
+    const out = stripAnsi(lines.join("\n"));
+    expect(out).toContain("Re-run the task.");
+    expect(out).not.toContain("apo runs correct");
+  });
+
+  it("tells the verdict observer (apo run) about a no verdict", async () => {
+    _checks = [JUDGE_ERROR];
+    const seen: boolean[] = [];
+    const { restore } = captureStdout();
+    await run(args(), (nv) => seen.push(nv));
+    _checks = [GENUINE_FAIL];
+    await run(args(), (nv) => seen.push(nv));
+    restore();
+
+    expect(seen).toEqual([true, false]);
+  });
+
   it("--no-record exits 2 on no verdict", async () => {
     _checks = [JUDGE_ERROR];
     const { restore } = captureStdout();
@@ -131,5 +215,24 @@ describe("task run no-verdict result (issue #323)", () => {
     restore();
 
     expect(code).toBe(2);
+  });
+});
+
+describe("apo run summary (issue #323)", () => {
+  it("labels a no-verdict task NO VERDICT, an execution error ERROR", () => {
+    expect(stripAnsi(resultLabel({ code: 2, noVerdict: true }))).toBe("NO VERDICT");
+    expect(stripAnsi(resultLabel({ code: 2, noVerdict: false }))).toBe("ERROR");
+    expect(stripAnsi(resultLabel({ code: 1, noVerdict: false }))).toBe("FAIL");
+  });
+
+  it("a genuine FAIL is not hidden by a no verdict; execution errors still win", () => {
+    const nv = { code: 2, noVerdict: true };
+    const fail = { code: 1, noVerdict: false };
+    const pass = { code: 0, noVerdict: false };
+    const error = { code: 2, noVerdict: false };
+    expect(summaryExitCode([nv, fail])).toBe(1);
+    expect(summaryExitCode([nv, pass])).toBe(2);
+    expect(summaryExitCode([nv, fail, error])).toBe(2);
+    expect(summaryExitCode([pass])).toBe(0);
   });
 });

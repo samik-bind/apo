@@ -3,7 +3,12 @@ import { resolveConfig } from "../lib/config.ts";
 import { bold, dim, formatCost, formatJson, formatTime, passFail, yellow } from "../lib/format.ts";
 import { apiGet } from "../lib/api.ts";
 import type { CheckResult, DeliverableSummary } from "../lib/agent-task-types.ts";
-import { formatChecks, NO_CHECKS_REGISTERED_MESSAGE, secondJudgeSummary } from "../lib/checks-format.ts";
+import {
+  formatChecks,
+  isJudgeNoVerdictRun,
+  NO_CHECKS_REGISTERED_MESSAGE,
+  secondJudgeSummary,
+} from "../lib/checks-format.ts";
 import { conciseChecks, conciseDeliverables } from "../lib/runs-truncate.ts";
 import { resolveRunId, resolveLatestRunId } from "../lib/runs-resolve.ts";
 import { reportCommandError } from "../lib/command-error.ts";
@@ -152,7 +157,10 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   if (exitStatus) {
-    return runDetail.pass_result === true ? 0 : 1;
+    // 0 pass / 1 fail / 2 no verdict — an `error` run has none, whether the
+    // judge gave none (issue #323) or the execution failed; like `task run`.
+    if (runDetail.pass_result === true) return 0;
+    return runDetail.status === "error" ? 2 : 1;
   }
   return 0;
 }
@@ -293,11 +301,12 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
   }
 }
 
-/** PASS / FAIL, NO VERDICT for a terminal run without one (a judge that never
- * answered, an execution that errored — issue #323), `-` while live. */
+/** PASS / FAIL, NO VERDICT for a run the judge gave no verdict on (issue
+ * #323); `-` otherwise — live runs and execution errors, whose Error line
+ * says why. */
 function formatResult(run: RunDetail): string {
   if (run.pass_result === true || run.pass_result === false) return passFail(run.pass_result);
-  return run.status === "error" ? yellow("NO VERDICT") : "-";
+  return isJudgeNoVerdictRun(run) ? yellow("NO VERDICT") : "-";
 }
 
 /**

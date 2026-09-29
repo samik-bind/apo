@@ -35,7 +35,9 @@ type CorrectedTestResult = {
   run_pass_result: boolean | null;
   total_tests: number;
   passed_tests: number;
+  /** Genuine fails only; tests the judge gave no verdict on are errored_tests. */
   failed_tests: number;
+  errored_tests?: number;
   corrected_tests: number;
 };
 

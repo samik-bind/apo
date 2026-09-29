@@ -16,7 +16,7 @@ import {
 } from "../lib/env-view.ts";
 import { fetchModelOptions, type ModelOption } from "../lib/models-list.ts";
 import { askText, pickTree, shutdownInput, waitKey, type TreeNode } from "../lib/tui.ts";
-import { bold, cyan, dim, formatTable, green, passFail, red } from "../lib/format.ts";
+import { bold, cyan, dim, formatTable, green, passFail, red, yellow } from "../lib/format.ts";
 import { run as runTaskCommand } from "./task-run.ts";
 
 export async function run(argv: string[]): Promise<number> {
@@ -300,20 +300,38 @@ async function execute(tasks: TaskMeta[], model: string | undefined): Promise<nu
   console.clear();
   if (model) process.env.OPENROUTER_MODEL = model;
 
-  const results: { task: TaskMeta; code: number }[] = [];
+  const results: { task: TaskMeta; code: number; noVerdict: boolean }[] = [];
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i]!;
     console.log(bold(`\n[${i + 1}/${tasks.length}] ${t.id}`) + dim(" — running…"));
-    results.push({ task: t, code: await runTaskCommand([t.id]) });
+    let noVerdict = false;
+    const code = await runTaskCommand([t.id], (nv) => {
+      noVerdict = nv;
+    });
+    results.push({ task: t, code, noVerdict: code === 2 && noVerdict });
   }
 
   console.log(`\n${bold("Results")}`);
   for (const r of results) {
-    const verdict = r.code === 0 ? passFail(true) : r.code === 1 ? passFail(false) : red("ERROR");
-    console.log(`  ${verdict}  ${r.task.id}`);
+    console.log(`  ${resultLabel(r)}  ${r.task.id}`);
   }
-  if (results.some((r) => r.code === 2)) return 2;
+  return summaryExitCode(results);
+}
+
+/** One task's line in the results summary. */
+export function resultLabel(r: { code: number; noVerdict: boolean }): string {
+  if (r.noVerdict) return yellow("NO VERDICT");
+  return r.code === 0 ? passFail(true) : r.code === 1 ? passFail(false) : red("ERROR");
+}
+
+/**
+ * Execution errors first, then genuine fails; a NO VERDICT (issue #323)
+ * exits 2 only when nothing else failed — it must not hide a real FAIL.
+ */
+export function summaryExitCode(results: readonly { code: number; noVerdict: boolean }[]): number {
+  if (results.some((r) => r.code === 2 && !r.noVerdict)) return 2;
   if (results.some((r) => r.code === 1)) return 1;
+  if (results.some((r) => r.noVerdict)) return 2;
   return 0;
 }
 

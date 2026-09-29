@@ -199,6 +199,15 @@ function stubBackend(stub: BackendStub, evalContent: string): ReturnType<typeof 
   return fetchMock;
 }
 
+const NO_VERDICT_DETAIL = {
+  pass_result: null,
+  failed_checks: 0,
+  errored_checks: 1,
+  error_message:
+    "No verdict: 1 of 2 checks got no verdict from the judge " +
+    "(judge error or no judge configured); the other 1 passed.",
+};
+
 describe("rejudgeTaskRun", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -368,7 +377,7 @@ describe("rejudgeTaskRun", () => {
     stubBackend(
       {
         runStatus: "error",
-        runDetail: { pass_result: null, failed_checks: 0, errored_checks: 1 },
+        runDetail: NO_VERDICT_DETAIL,
       },
       evalModule(),
     );
@@ -380,6 +389,25 @@ describe("rejudgeTaskRun", () => {
     );
 
     expect(outcome.pass).toBe(true);
+  });
+
+  it.each([
+    ["an executor error with judge-error counts", { error_message: "adapter crashed" }],
+    ["a genuine fail beside the judge error", { failed_checks: 1 }],
+    [
+      "a generation-dominated run (#149)",
+      { generation_execution: { total: 4, errored: 3, error_finish_reasons: {} } },
+    ],
+  ])("refuses replay for %s", async (_label, override) => {
+    const taskDir = makeTaskDir(`refuse-${_label.length}`, evalModule());
+    stubBackend(
+      { runStatus: "error", runDetail: { ...NO_VERDICT_DETAIL, ...override } },
+      evalModule(),
+    );
+
+    await expect(
+      rejudgeTaskRun(RUN_ID, { backendUrl: BACKEND, authToken: "key" }, { taskDir }),
+    ).rejects.toThrow(/completed/);
   });
 
   it("refuses replay for an executor-errored run", async () => {

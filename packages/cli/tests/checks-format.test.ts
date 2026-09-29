@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatChecks, NO_CHECKS_REGISTERED_MESSAGE } from "../src/lib/checks-format.ts";
+import { formatChecks, isNoVerdict, NO_CHECKS_REGISTERED_MESSAGE } from "../src/lib/checks-format.ts";
 import { stripAnsi } from "../src/lib/format.ts";
 import type { CheckResult } from "../src/lib/agent-task-types.ts";
 
@@ -422,5 +422,34 @@ describe("NO_CHECKS_REGISTERED_MESSAGE", () => {
     expect(out).toMatch(/no tests were registered/i);
     expect(out).toContain("test()");
     expect(out).toMatch(/at least one/i);
+  });
+});
+
+// Issue #323: the run-level rule derives each check's outcome like the
+// backend's derive_check_outcome — from the failing assertions when present.
+describe("isNoVerdict", () => {
+  it("rolls the outcome up from assertions when the check carries none", () => {
+    const checks: CheckResult[] = [
+      {
+        id: "memo",
+        pass: false,
+        reasoning: "judge failed",
+        assertions: [{ id: "judge", pass: false, reasoning: "judge failed", outcome: "error" }],
+      },
+    ];
+    expect(isNoVerdict(checks)).toBe(true);
+  });
+
+  it("a genuinely failing assertion beats a stale check-level error", () => {
+    const checks: CheckResult[] = [
+      {
+        id: "memo",
+        pass: false,
+        outcome: "error",
+        reasoning: "missing field",
+        assertions: [{ id: "shape", pass: false, reasoning: "missing field" }],
+      },
+    ];
+    expect(isNoVerdict(checks)).toBe(false);
   });
 });

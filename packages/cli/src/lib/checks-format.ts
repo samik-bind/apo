@@ -230,23 +230,69 @@ function formatCheck(check: CheckResult, verbose: boolean): string {
 }
 
 /**
+ * The run-level no-verdict rule, from check outcomes: something failed and
+ * every failing check got no verdict from the judge. An `"unsupported"` check
+ * or a genuine fail keeps FAIL. Mirrors the SDK's `aggregateResult` and the
+ * backend's `judge_no_verdict_message`; computed here too so the CLI reads
+ * it correctly against SDKs that predate `noVerdict`.
+ */
+export function isNoVerdict(
+  checks: readonly Pick<CheckResult, "pass" | "outcome" | "assertions">[],
+): boolean {
+  const failing = checks.filter((c) => !c.pass);
+  return failing.length > 0 && failing.every((c) => checkOutcome(c) === "error");
+}
+
+/**
+ * A recorded run with no verdict only because the judge gave none for its
+ * non-passing checks (issue #323). The backend stamps such a run's message
+ * with the rule's own "No verdict:" text — an adapter crash or a
+ * generation-dominated run (#149) is an `error` run too, but never that.
+ */
+export function isJudgeNoVerdictRun(run: {
+  status: string;
+  pass_result: boolean | null;
+  total_checks?: number;
+  failed_checks?: number;
+  errored_checks?: number;
+  error_message?: string | null;
+}): boolean {
+  return (
+    run.status === "error" &&
+    run.pass_result === null &&
+    (run.total_checks ?? 0) > 0 &&
+    (run.failed_checks ?? 0) === 0 &&
+    (run.errored_checks ?? 0) > 0 &&
+    (run.error_message ?? "").startsWith("No verdict: ")
+  );
+}
+
+/**
+ * A failed check's outcome, derived like the backend's
+ * `derive_check_outcome`: rolled up from the failing assertions when there
+ * are any (every one must lack a verdict; `"error"` wins over
+ * `"unsupported"`), else the check-level `outcome`.
+ */
+function checkOutcome(
+  check: Pick<CheckResult, "pass" | "outcome" | "assertions">,
+): CheckResult["outcome"] {
+  if (check.pass) return undefined;
+  const assertions = check.assertions;
+  if (assertions && assertions.length > 0) {
+    const failed = assertions.filter((a) => !a.pass).map((a) => a.outcome);
+    if (failed.length === 0) return undefined;
+    if (!failed.every((o) => o === "error" || o === "unsupported")) return undefined;
+    return failed.includes("error") ? "error" : "unsupported";
+  }
+  return check.outcome;
+}
+
+/**
  * A judge error is not a FAIL: the check's quality is unknown because the
  * judge never answered (unreachable, HTTP error, empty reply). Yellow NO
  * VERDICT keeps it visually apart from a red FAIL; the reasoning line below
  * carries the transport error (issue #323).
  */
-/**
- * The run-level no-verdict rule, from check outcomes: something failed and
- * every failing check got no answer from the judge. An `"unsupported"` check
- * or a genuine fail keeps FAIL. Mirrors the SDK's `aggregateResult` and the
- * backend's `judge_no_verdict_message`; computed here too so the CLI reads
- * it correctly against SDKs that predate `noVerdict`.
- */
-export function isNoVerdict(checks: readonly Pick<CheckResult, "pass" | "outcome">[]): boolean {
-  const failing = checks.filter((c) => !c.pass);
-  return failing.length > 0 && failing.every((c) => c.outcome === "error");
-}
-
 function verdictMark(check: CheckResult): string {
   if (!check.pass && check.outcome === "error") return yellow("NO VERDICT");
   return passFail(check.pass);

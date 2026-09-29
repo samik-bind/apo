@@ -21,6 +21,7 @@ from sqlmodel import Session
 from apo.models.db import AgentTaskBatchRunDB, AgentTaskRunDB, ProjectDB, UserDB
 from apo.services.agent_task_runner import finalize_task_run_with_result
 from apo.services.check_report_storage import (
+    is_judge_no_verdict_run,
     judge_no_verdict_message,
     persist_check_report,
 )
@@ -47,18 +48,24 @@ def _passing(n: int) -> list[dict[str, object]]:
     return [{"id": f"ok-{i}", "pass": True, "reasoning": "ok"} for i in range(n)]
 
 
-def _seed(session: Session, *, status: str = "running") -> tuple[AgentTaskBatchRunDB, AgentTaskRunDB]:
+def _seed(
+    session: Session,
+    *,
+    status: str = "running",
+    run_id: str = "r1",
+    batch_id: str = "b1",
+) -> tuple[AgentTaskBatchRunDB, AgentTaskRunDB]:
     if not session.get(UserDB, "u1"):
         session.add(UserDB(id="u1", email="u1@test.com", name="U1", password_hash="x"))
     if not session.get(ProjectDB, "p1"):
         session.add(ProjectDB(id="p1", name="P1", created_by="u1"))
     session.flush()
     batch = AgentTaskBatchRunDB(
-        id="b1", project="p1", selection_type="task", status="running", created_at=NOW
+        id=batch_id, project="p1", selection_type="task", status="running", created_at=NOW
     )
     run = AgentTaskRunDB(
-        id="r1",
-        batch_run_id="b1",
+        id=run_id,
+        batch_run_id=batch_id,
         task_id="demo",
         task_path="/tasks/demo",
         status=status,
@@ -76,6 +83,9 @@ def _finalize(
     run: AgentTaskRunDB,
     batch: AgentTaskBatchRunDB,
     checks: list[dict[str, object]],
+    *,
+    errored: bool = False,
+    error_message: str | None = None,
 ) -> None:
     finalize_task_run_with_result(
         session,
@@ -87,20 +97,29 @@ def _finalize(
         checks=checks,
         transcript=None,
         deliverables=None,
+        errored=errored,
+        error_message=error_message,
     )
     session.commit()
+
+
+RULE_1_OF_3 = (
+    "No verdict: 1 of 3 checks got no verdict from the judge "
+    "(judge error or no judge configured); the other 2 passed."
+)
 
 
 class TestMessage:
     def test_names_cause_and_the_rest(self) -> None:
         assert judge_no_verdict_message(total_checks=12, failed_checks=0, errored_checks=1) == (
-            "No verdict: 1 of 12 checks got no answer from the judge (judge error); "
-            "the other 11 passed."
+            "No verdict: 1 of 12 checks got no verdict from the judge "
+            "(judge error or no judge configured); the other 11 passed."
         )
 
     def test_all_errored(self) -> None:
         assert judge_no_verdict_message(total_checks=1, failed_checks=0, errored_checks=1) == (
-            "No verdict: 1 of 1 check got no answer from the judge (judge error)."
+            "No verdict: 1 of 1 check got no verdict from the judge "
+            "(judge error or no judge configured)."
         )
 
     def test_genuine_fail_keeps_verdict(self) -> None:
@@ -120,8 +139,8 @@ class TestFinalize:
         assert run.errored_checks == 1
         assert run.failed_checks == 0
         assert run.error_message == (
-            "No verdict: 1 of 12 checks got no answer from the judge (judge error); "
-            "the other 11 passed."
+            "No verdict: 1 of 12 checks got no verdict from the judge "
+            "(judge error or no judge configured); the other 11 passed."
         )
 
     def test_genuine_fail_beside_judge_error_is_failed(self, session: Session) -> None:
@@ -147,6 +166,30 @@ class TestFinalize:
 
         assert run.status == "failed"
         assert run.pass_result is False
+
+    def test_caller_message_is_kept_after_the_rule(self, session: Session) -> None:
+        batch, run = _seed(session)
+        _finalize(session, run, batch, [*_passing(2), JUDGE_ERROR], error_message="adapter note")
+
+        assert run.status == "error"
+        assert run.error_message == f"{RULE_1_OF_3}\nadapter note"
+        assert is_judge_no_verdict_run(run)
+
+    def test_generation_rule_takes_precedence(self, session: Session) -> None:
+        """#149 is checked before the judge rule: a generation-dominated run
+        keeps the generation message even when only judge errors failed."""
+        batch, run = _seed(session)
+        run.generation_execution_json = {
+            "total": 4,
+            "errored": 3,
+            "error_finish_reasons": {"error": 3},
+        }
+        _finalize(session, run, batch, [*_passing(2), JUDGE_ERROR])
+
+        assert run.status == "error"
+        assert run.error_message is not None
+        assert run.error_message.startswith("3 of 4 generations ended in error")
+        assert not is_judge_no_verdict_run(run)
 
     def test_executor_error_keeps_its_message(self, session: Session) -> None:
         batch, run = _seed(session)
@@ -274,6 +317,121 @@ class TestCorrections:
         assert result.run_status == "error"
         assert result.run_pass_result is None
 
+    def test_executor_error_with_judge_error_checks_is_uncorrectable(
+        self, session: Session
+    ) -> None:
+        """An executor-errored run (#13) can carry judge-error-only counts —
+        it is still not a judge no-verdict run: its message is the executor's."""
+        batch, run = _seed(session)
+        _finalize(
+            session,
+            run,
+            batch,
+            [*_passing(2), JUDGE_ERROR],
+            errored=True,
+            error_message="adapter crashed",
+        )
+        assert (run.failed_checks, run.errored_checks) == (0, 1)
+        assert not is_judge_no_verdict_run(run)
+
+        with pytest.raises(CorrectionError) as exc:
+            correct_test_result(
+                session,
+                task_run=run,
+                project="p1",
+                test_id="blacked-out",
+                action="set_pass",
+                reason="it is fine really",
+                actor=ACTOR,
+            )
+        assert exc.value.kind == "run_not_correctable"
+        assert run.error_message == "adapter crashed"
+
+    def test_corrections_never_erase_a_caller_message(self, session: Session) -> None:
+        batch, run = _seed(session)
+        _finalize(
+            session,
+            run,
+            batch,
+            [*_passing(1), JUDGE_ERROR, {"id": "bad", "pass": False, "reasoning": "x"}],
+            error_message="adapter note",
+        )
+        assert (run.status, run.error_message) == ("failed", "adapter note")
+
+        correct_test_result(
+            session,
+            task_run=run,
+            project="p1",
+            test_id="bad",
+            action="set_pass",
+            reason="the judge misread it",
+            actor=ACTOR,
+        )
+        assert run.status == "error"
+        assert run.error_message == f"{RULE_1_OF_3}\nadapter note"
+
+        correct_test_result(
+            session,
+            task_run=run,
+            project="p1",
+            test_id="bad",
+            action="clear",
+            reason=None,
+            actor=ACTOR,
+        )
+        assert (run.status, run.error_message) == ("failed", "adapter note")
+
+    def test_counts_split_failed_and_errored(
+        self, session: Session, no_verdict_run: AgentTaskRunDB
+    ) -> None:
+        batch, run = _seed(session, run_id="r2", batch_id="b2")
+        _finalize(
+            session,
+            run,
+            batch,
+            [JUDGE_ERROR, {"id": "bad", "pass": False}, *_passing(1)],
+        )
+        result = correct_test_result(
+            session,
+            task_run=run,
+            project="p1",
+            test_id="ok-0",
+            action="set_pass",
+            reason="reaffirming the pass",
+            actor=ACTOR,
+        )
+        assert (result.failed_tests, result.errored_tests) == (1, 1)
+        assert result.failed_tests == run.failed_checks
+
+    def test_idempotent_retry_persists_the_projection(
+        self, session: Session, no_verdict_run: AgentTaskRunDB
+    ) -> None:
+        kwargs = dict(
+            task_run=no_verdict_run,
+            project="p1",
+            test_id="blacked-out",
+            action="set_pass",
+            reason="read the deliverable; it is there",
+            actor=ACTOR,
+        )
+        correct_test_result(session, **kwargs)  # type: ignore[arg-type]
+        # Simulate drift, then retry: the retry re-derives and commits.
+        no_verdict_run.corrected_tests = 0
+        batch = session.get(AgentTaskBatchRunDB, "b1")
+        assert batch is not None
+        batch.passed_tasks = 0
+        session.commit()
+
+        correct_test_result(session, **kwargs)  # type: ignore[arg-type]
+        session.expire_all()
+
+        run = session.get(AgentTaskRunDB, "r1")
+        batch = session.get(AgentTaskBatchRunDB, "b1")
+        assert run is not None and batch is not None
+        assert run.status == "passed"
+        assert run.corrected_tests == 1
+        assert batch.passed_tasks == 1
+
     def test_executor_error_run_stays_uncorrectable(self, session: Session) -> None:
         batch, run = _seed(session)
         finalize_task_run_with_result(
@@ -360,6 +518,26 @@ class TestJudgments:
         assert response.status_code == 201, response.text
         assert response.json()["pass_result"] is True
 
+    def test_executor_error_with_judge_error_checks_cannot_be_rejudged(
+        self, client: TestClient, session: Session
+    ) -> None:
+        batch, run = _seed(session)
+        _finalize(
+            session,
+            run,
+            batch,
+            [*_passing(1), JUDGE_ERROR],
+            errored=True,
+            error_message="adapter crashed",
+        )
+
+        response = client.post(
+            f"/v1/agent-task-runs/{run.id}/judgments",
+            json={"checks": _passing(2)},
+        )
+
+        assert response.status_code == 409
+
     def test_executor_error_run_cannot_be_rejudged(
         self, client: TestClient, session: Session
     ) -> None:
@@ -381,3 +559,24 @@ def test_persisted_run_scalars_drive_the_rule(session: Session) -> None:
         session, run, [JUDGE_ERROR, {"id": "u", "pass": False, "outcome": "unsupported"}]
     )
     assert (run.failed_checks, run.errored_checks) == (1, 1)
+
+
+def test_gate_excludes_generation_dominated_runs() -> None:
+    """Even carrying the rule's own message, a #149 run is never correctable."""
+    run = AgentTaskRunDB(
+        id="r9",
+        batch_run_id="b9",
+        task_id="t",
+        task_path="/t",
+        status="error",
+        pass_result=None,
+        total_checks=3,
+        passed_checks=2,
+        failed_checks=0,
+        errored_checks=1,
+        error_message=RULE_1_OF_3,
+        generation_execution_json={"total": 4, "errored": 3, "error_finish_reasons": {}},
+    )
+    assert not is_judge_no_verdict_run(run)
+    run.generation_execution_json = None
+    assert is_judge_no_verdict_run(run)

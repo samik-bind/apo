@@ -186,6 +186,25 @@ describe("runs rejudge command", () => {
     expect(out).not.toMatch(/Verdict:.*— FAIL/);
   });
 
+  it("--json carries noVerdict", async () => {
+    mockedRejudge.mockResolvedValue({
+      ...outcome(),
+      samples: 1,
+      checks: [{ id: "judged-quality", pass: false, reasoning: "judge failed: 504", outcome: "error" }],
+      stability: [],
+    } as never);
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(
+      async () => jsonResponse(runDetail()),
+    );
+    const { logs, restore } = capture();
+
+    const code = await run([FULL_ID, "--backend", "http://backend.test", "--dry-run", "--json"]);
+    restore();
+
+    expect(code).toBe(0);
+    expect(JSON.parse(logs.join("\n")).noVerdict).toBe(true);
+  });
+
   it("keeps --exit-status 1 for a genuine fail", async () => {
     mockedRejudge.mockResolvedValue(outcome() as never);
     vi.spyOn(globalThis, "fetch").mockImplementationOnce(

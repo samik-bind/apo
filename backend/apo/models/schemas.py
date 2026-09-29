@@ -326,6 +326,9 @@ class AgentTaskRunStats(SQLModel):
     last_run_at: datetime | None = None
     last_run_status: str | None = None
     last_run_passed: bool | None = None
+    # The latest run is ``error`` only because the judge gave no verdict
+    # (issue #323), not because the execution failed.
+    last_run_no_verdict: bool = False
     total_checks: int = 0
     checks_pass_rate: float = 0.0
     # Checks that produced no verdict (judge error) — inside total_checks
@@ -891,7 +894,10 @@ class CorrectedTestResult(SQLModel):
     run_pass_result: bool | None
     total_tests: int
     passed_tests: int
+    # Genuine fails only — the same bucket as the run's failed_checks.
     failed_tests: int
+    # Tests with no verdict from the judge, apart from fails (issue #323).
+    errored_tests: int = 0
     corrected_tests: int
 
 

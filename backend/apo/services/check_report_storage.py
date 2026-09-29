@@ -30,6 +30,7 @@ import hashlib
 import json
 from collections.abc import Sequence
 from datetime import datetime, timezone
+from typing import Protocol
 
 from sqlmodel import Session, col, select
 
@@ -136,24 +137,45 @@ def judge_no_verdict_message(
 ) -> str | None:
     """The run-level "no verdict" rule for judge-errored checks (issue #323).
 
-    A run whose only non-passing checks got no answer from the judge has no
-    PASS/FAIL verdict: nothing it did was judged a failure, but not everything
-    was judged. Returns the explanatory ``error_message`` for such a run —
-    status ``error``, ``pass_result`` None — or ``None`` when the run carries
-    a verdict (a genuine fail, ``unsupported`` included, or no errored check).
+    A run whose only non-passing checks got no verdict from the judge (it
+    never answered, or none was configured) has no PASS/FAIL verdict:
+    nothing it did was judged a failure, but not everything was judged.
+    Returns the rule's explanatory message for such a run — status
+    ``error``, ``pass_result`` None — or ``None`` when the run carries a
+    verdict (a genuine fail, ``unsupported`` included, or no errored check).
     Every path that derives a verdict from check counts goes through here.
     """
     if failed_checks != 0 or errored_checks <= 0:
         return None
     noun = "check" if total_checks == 1 else "checks"
     message = (
-        f"No verdict: {errored_checks} of {total_checks} {noun} got no answer "
-        "from the judge (judge error)"
+        f"No verdict: {errored_checks} of {total_checks} {noun} got no verdict "
+        "from the judge (judge error or no judge configured)"
     )
     passed = total_checks - errored_checks
     if passed > 0:
         message += f"; the other {passed} passed"
     return message + "."
+
+
+def compose_no_verdict_error_message(rule_message: str, caller_message: str | None) -> str:
+    """The stored ``error_message`` of a no-verdict run: the rule's own
+    message first (the discriminator :func:`is_judge_no_verdict_run` checks),
+    then any caller-supplied message, which is kept rather than overwritten."""
+    return f"{rule_message}\n{caller_message}" if caller_message else rule_message
+
+
+def caller_error_message(run: VerdictFields) -> str | None:
+    """The part of ``run.error_message`` that did not come from the rule.
+
+    For a judge no-verdict run that is whatever followed the rule's message;
+    for any other run it is the whole message.
+    """
+    message = run.error_message
+    rule = _own_no_verdict_message(run)
+    if message is None or rule is None:
+        return message
+    return message[len(rule):].lstrip("\n") or None
 
 
 def generation_errors_dominate(summary: dict[str, object] | None) -> bool:
@@ -172,24 +194,50 @@ def generation_errors_dominate(summary: dict[str, object] | None) -> bool:
     )
 
 
-def is_judge_no_verdict_run(run: AgentTaskRunDB) -> bool:
+class VerdictFields(Protocol):
+    """The run scalars the no-verdict gate reads — a run row or a projection."""
+
+    @property
+    def status(self) -> str: ...
+    @property
+    def pass_result(self) -> bool | None: ...
+    @property
+    def total_checks(self) -> int: ...
+    @property
+    def failed_checks(self) -> int: ...
+    @property
+    def errored_checks(self) -> int: ...
+    @property
+    def error_message(self) -> str | None: ...
+    @property
+    def generation_execution_json(self) -> dict[str, object] | None: ...
+
+
+def is_judge_no_verdict_run(run: VerdictFields) -> bool:
     """Whether an ``error`` run landed there only under the no-verdict rule.
 
     Such a run is still correctable and re-judgeable — the judge, not the
-    execution, is what failed. Executor errors and generation-dominated runs
-    (#149) are not: their checks evaluated nothing trustworthy.
+    execution, is what failed. The discriminator is the rule's own message
+    at the head of ``error_message``: an executor-errored run (#13) can carry
+    the same counts but never that message. Generation-dominated runs (#149)
+    are excluded too: their checks evaluated nothing trustworthy.
     """
-    return (
-        run.status == "error"
-        and run.pass_result is None
-        and judge_no_verdict_message(
-            total_checks=run.total_checks,
-            failed_checks=run.failed_checks,
-            errored_checks=run.errored_checks,
-        )
-        is not None
-        and not generation_errors_dominate(run.generation_execution_json)
+    return _own_no_verdict_message(run) is not None
+
+
+def _own_no_verdict_message(run: VerdictFields) -> str | None:
+    if run.status != "error" or run.pass_result is not None:
+        return None
+    if generation_errors_dominate(run.generation_execution_json):
+        return None
+    rule = judge_no_verdict_message(
+        total_checks=run.total_checks,
+        failed_checks=run.failed_checks,
+        errored_checks=run.errored_checks,
     )
+    if rule is None or not (run.error_message or "").startswith(rule):
+        return None
+    return rule
 
 
 def load_check_report(
