@@ -138,7 +138,9 @@ function printBatchDetail(batch: BatchDetail): void {
         const errorLine = lines.find((l) =>
           /^[\w ]*Error\b.*:/.test(l) && !l.startsWith("at ") && !l.startsWith("node:")
         ) ?? lines.find((l) => !l.startsWith("at ") && !l.includes("Warning") && !l.includes("Reparsing")) ?? lines[0];
-        console.log(dim(`        ${errorLine.slice(0, 200)}`));
+        // A corrected PASS keeps the executor's note; it is not an error.
+        const label = tr.pass_result === true ? "note: " : "";
+        console.log(dim(`        ${label}${errorLine.slice(0, 200)}`));
       }
     }
   }

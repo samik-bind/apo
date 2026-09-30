@@ -145,6 +145,11 @@ describe("generationNoticeProps (the run page's notice wiring)", () => {
     expect(generationNoticeProps({ ...base, status: "failed", pass_result: false }).verdict).toBe("kept");
   });
 
+  it("an old error run stored with pass_result false is an execution error, not kept", () => {
+    const run = { ...base, pass_result: false, error_message: "adapter crashed" };
+    expect(generationNoticeProps(run).verdict).toBe("execution-error");
+  });
+
   it("a judge no-verdict and an executor error read differently", () => {
     expect(generationNoticeProps({ ...base, no_verdict_reason: "judge" }).verdict).toBe("judge-no-verdict");
     expect(generationNoticeProps({ ...base, no_verdict_reason: "executor" }).verdict).toBe("execution-error");

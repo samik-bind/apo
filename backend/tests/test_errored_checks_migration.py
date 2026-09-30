@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
@@ -24,6 +25,8 @@ from apo.models.db import (
     AgentTaskCheckReportDB,
     AgentTaskJudgmentDB,
     AgentTaskRunDB,
+    LoggedCallDB,
+    OtlpSpanDB,
 )
 
 
@@ -257,3 +260,125 @@ def test_v47_and_v48_climb_without_later_columns(
             " WHERE id = 'run-errored'"
         ).one()
     assert (row.failed_checks, row.errored_checks) == (0, 1)
+
+
+def test_climb_v46_to_v50_loads_only_the_columns_it_reads(
+    engine: StaticPool, monkeypatch: MonkeyPatch
+) -> None:
+    """The model classes declare columns a climbing database may not have.
+    Drop ones no rung reads (``logged_calls.tool_name``,
+    ``agent_task_judgments.stability_json``, ...): v47's logged-call load and
+    v48's judgment load must select only what they use (issue #307)."""
+    now = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    with Session(engine) as session:
+        session.add(
+            AgentTaskBatchRunDB(
+                id="batch-1",
+                project="p1",
+                status="completed",
+                total_tasks=1,
+                selection_type="task",
+                created_at=now,
+            )
+        )
+        _seed_run(
+            session,
+            run_id="run-errored",
+            checks=[{"id": "ok", "pass": True}, ERRORED_CHECK],
+        )
+        # g2's generation errored: reasoning skips it, latency keeps it; the
+        # SPAN is not a generation at all.
+        for call_id, latency, reasoning, observation_type in (
+            ("g1", 1000.0, 50, "GENERATION"),
+            ("g2", 4000.0, 900, "GENERATION"),
+            ("t1", 99999.0, None, "SPAN"),
+        ):
+            session.add(
+                LoggedCallDB(
+                    id=call_id,
+                    project="p1",
+                    task_id="run-errored",
+                    run_id="trace-1",
+                    model="m",
+                    observation_type=observation_type,
+                    created_at=now,
+                    latency_ms=latency,
+                    cost=1,
+                    raw_usage={"reasoning": reasoning} if reasoning else None,
+                )
+            )
+        for span_id, status_code in (("g1", 1), ("g2", 2)):
+            session.add(
+                OtlpSpanDB(
+                    project_id="p1",
+                    trace_id="trace-1",
+                    span_id=span_id,
+                    span_name="gen",
+                    status_code=status_code,
+                    attributes={},
+                    start_time=now,
+                    end_time=now,
+                )
+            )
+        session.add(
+            AgentTaskJudgmentDB(
+                id="jdg_1",
+                task_run_id="run-errored",
+                project="p1",
+                trigger="rejudge",
+                samples=1,
+                pass_result=False,
+                total_checks=2,
+                passed_checks=1,
+                failed_checks=1,
+                checks_json=[{"id": "ok", "pass": True}, ERRORED_CHECK],
+                created_at=now,
+            )
+        )
+        session.commit()
+
+    with engine.connect() as conn:
+        conn.exec_driver_sql("UPDATE agent_task_runs SET trace_run_id = 'trace-1'")
+        for column in (
+            "no_verdict_reason",
+            "errored_checks",
+            "total_reasoning_tokens",
+            "max_call_reasoning_tokens",
+            "max_call_reasoning_call_id",
+            "max_call_latency_ms",
+            "max_call_latency_call_id",
+            "total_model_time_ms",
+        ):
+            conn.exec_driver_sql(f"ALTER TABLE agent_task_runs DROP COLUMN {column}")
+        conn.exec_driver_sql("ALTER TABLE agent_task_judgments DROP COLUMN errored_checks")
+        # Model-declared columns no rung of the ladder reads.
+        conn.exec_driver_sql("ALTER TABLE logged_calls DROP COLUMN tool_name")
+        conn.exec_driver_sql("ALTER TABLE otlp_spans DROP COLUMN content_policy")
+        conn.exec_driver_sql("ALTER TABLE agent_task_judgments DROP COLUMN stability_json")
+        conn.exec_driver_sql("ALTER TABLE agent_task_check_reports DROP COLUMN created_at")
+        conn.commit()
+
+    monkeypatch.setattr(apo_db, "engine", engine)
+    apo_db._migrate_to_v46()
+    apo_db._migrate_to_v47()
+    apo_db._migrate_to_v48()
+    apo_db._migrate_to_v49()
+    apo_db._migrate_to_v50()
+
+    with engine.connect() as conn:
+        run = conn.execute(
+            text(
+                "SELECT total_reasoning_tokens, max_call_reasoning_call_id,"
+                " max_call_latency_ms, max_call_latency_call_id, total_model_time_ms,"
+                " failed_checks, errored_checks, status, pass_result, no_verdict_reason"
+                " FROM agent_task_runs WHERE id = 'run-errored'"
+            )
+        ).one()
+        judgment = conn.execute(
+            text(
+                "SELECT failed_checks, errored_checks, pass_result"
+                " FROM agent_task_judgments WHERE id = 'jdg_1'"
+            )
+        ).one()
+    assert tuple(run) == (50, "g1", 4000.0, "g2", 5000.0, 0, 1, "error", None, "judge")
+    assert tuple(judgment) == (0, 1, None)
