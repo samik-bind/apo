@@ -323,6 +323,7 @@ async def test_overview_overlays_a_frozen_no_verdict_whole(session: Session) -> 
     _batch(session, "bb")
     ra = _run(session, "ra-nv", "ba", task_id="t-nv", status="error", model="claude-sonnet")
     ra.pass_result = None
+    ra.no_verdict_reason = "judge"
     ra.total_checks, ra.passed_checks, ra.failed_checks, ra.errored_checks = 3, 2, 0, 1
     _run(session, "rb-nv", "bb", task_id="t-nv", status="passed", pass_result=True, model="gpt-4o")
     session.commit()
@@ -330,7 +331,7 @@ async def test_overview_overlays_a_frozen_no_verdict_whole(session: Session) -> 
     snap = _make_comparison(session, task_ids=["t-nv"], side_a_runs={}, side_b_runs={})
 
     # A later correction supplies the verdict on the live run.
-    ra.status, ra.pass_result = "passed", True
+    ra.status, ra.pass_result, ra.no_verdict_reason = "passed", True, None
     ra.passed_checks, ra.errored_checks = 3, 0
     session.commit()
 
@@ -339,7 +340,69 @@ async def test_overview_overlays_a_frozen_no_verdict_whole(session: Session) -> 
     summary = next(r for r in result.runs if r.id == "ra-nv")
     assert summary.status == "error"
     assert summary.pass_result is None
+    # The discriminator is frozen too, so consumers read a frozen judge
+    # no-verdict without parsing the (live) message.
+    assert summary.no_verdict_reason == "judge"
     assert (summary.passed_checks, summary.errored_checks, summary.failed_checks) == (2, 1, 0)
+
+
+async def test_overview_keeps_the_live_reason_on_a_snapshot_that_predates_it(
+    session: Session,
+) -> None:
+    """A snapshot frozen before ``no_verdict_reason`` existed must not blank
+    the live reason of a run still in its frozen ``error`` state."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from apo.models.db import TaskViewComparisonDB
+
+    _seed_project(session)
+    _batch(session, "ba")
+    _batch(session, "bb")
+    ra = _run(session, "ra-old", "ba", task_id="t-old", status="error", model="claude-sonnet")
+    ra.pass_result = None
+    ra.no_verdict_reason = "judge"
+    ra.total_checks, ra.passed_checks, ra.failed_checks, ra.errored_checks = 3, 2, 0, 1
+    _run(session, "rb-old", "bb", task_id="t-old", status="passed", pass_result=True, model="gpt-4o")
+    session.commit()
+    snap = _make_comparison(session, task_ids=["t-old"], side_a_runs={}, side_b_runs={})
+    row = session.get(TaskViewComparisonDB, snap.id)
+    assert row is not None
+    row.resolved = [
+        {k: v for k, v in cell.items() if not k.endswith("_no_verdict_reason")}
+        for cell in row.resolved
+    ]
+    flag_modified(row, "resolved")
+    session.commit()
+
+    result = await get_task_view_comparison_overview(_PROJECT, snap.id, _req(), session)
+
+    summary = next(r for r in result.runs if r.id == "ra-old")
+    assert summary.status == "error"
+    assert summary.no_verdict_reason == "judge"
+
+
+async def test_overview_keeps_the_live_verdict_of_a_run_frozen_while_running(
+    session: Session,
+) -> None:
+    """A snapshot taken while a run was still live froze placeholders; the
+    completed run's live verdict must show, not a pinned ``running``."""
+    _seed_project(session)
+    _batch(session, "ba")
+    _batch(session, "bb")
+    ra = _run(session, "ra-live", "ba", task_id="t-live", status="running", model="claude-sonnet")
+    ra.pass_result = None
+    _run(session, "rb-live", "bb", task_id="t-live", status="passed", pass_result=True, model="gpt-4o")
+    session.commit()
+    snap = _make_comparison(session, task_ids=["t-live"], side_a_runs={}, side_b_runs={})
+    ra.status, ra.pass_result, ra.total_checks, ra.passed_checks = "passed", True, 2, 2
+    session.commit()
+
+    result = await get_task_view_comparison_overview(_PROJECT, snap.id, _req(), session)
+
+    summary = next(r for r in result.runs if r.id == "ra-live")
+    assert summary.status == "passed"
+    assert summary.pass_result is True
+    assert summary.passed_checks == 2
 
 
 async def test_overview_404_for_missing_comparison(session: Session) -> None:

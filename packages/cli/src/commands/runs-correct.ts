@@ -33,6 +33,8 @@ type CorrectedTestResult = {
    * non-passing, so the run has no verdict (issue #323). */
   run_status: "passed" | "failed" | "error";
   run_pass_result: boolean | null;
+  /** Why the run has no verdict; absent on backends that predate it. */
+  run_no_verdict_reason?: "judge" | "generations" | "executor" | null;
   total_tests: number;
   passed_tests: number;
   /** Genuine fails only; tests the judge gave no verdict on are errored_tests. */
@@ -107,7 +109,13 @@ export async function run(argv: string[]): Promise<number> {
 function printTransition(result: CorrectedTestResult): void {
   const transition = `recorded ${passFail(result.recorded_pass)} → effective ${passFail(result.effective_pass)}`;
   console.log(`${bold(result.test_id)}: ${transition}`);
-  const status = result.run_pass_result === null ? "NO VERDICT" : result.run_status.toUpperCase();
+  // The structured reason when the backend sends it. An older backend only
+  // accepts corrections on runs with a verdict or a judge no-verdict, so
+  // there a null verdict is a judge no-verdict.
+  const noVerdict = result.run_no_verdict_reason !== undefined
+    ? result.run_no_verdict_reason === "judge"
+    : result.run_pass_result === null;
+  const status = noVerdict ? "NO VERDICT" : result.run_status.toUpperCase();
   const verdict = `${status}  ${result.passed_tests}/${result.total_tests} tests passing`;
   console.log(`Run: ${verdict}${result.corrected_tests > 0 ? dim(`  (${result.corrected_tests} corrected)`) : ""}`);
   if (result.correction) {

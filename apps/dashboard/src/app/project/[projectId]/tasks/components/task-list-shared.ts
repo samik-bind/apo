@@ -23,10 +23,10 @@ export interface ViewTab {
 // entities' vocabularies; the filter bar consumes it from there directly.
 export const STATUS_FILTER_KEYS = TASK_STATUS_FILTERS.map((s) => s.value);
 
-export function taskFilterStatus(task: AgentTaskSummary): string {
+export function taskFilterStatus(task: AgentTaskSummary): TaskStatus {
   const stats = task.run_stats;
   if (!stats || !stats.last_run_status) return "idle";
-  if (stats.last_run_status === "error") return "errored";
+  if (stats.last_run_status === "error") return stats.last_run_no_verdict ? "no_verdict" : "errored";
   if (stats.last_run_status === "running" || stats.last_run_status === "pending") return "running";
   if (stats.last_run_passed === true) return "passed";
   return "failed";
@@ -48,12 +48,8 @@ export type TaskStatus = "passed" | "failed" | "errored" | "no_verdict" | "runni
  * run is never FAILED: a judge that gave no verdict (issue #323) reads "No
  * verdict", an execution error "Errored". */
 export function getTaskStatus(task: AgentTaskSummary): TaskStatus {
-  const stats = task.run_stats;
-  if (!stats || !stats.last_run_status) return "idle";
-  if (stats.last_run_status === "error") return stats.last_run_no_verdict ? "no_verdict" : "errored";
-  if (stats.last_run_status === "running" || stats.last_run_status === "pending") return "running";
-  if (stats.last_run_passed === true) return "passed";
-  return "failed";
+  // One mapping for the card and the filter, so they can't disagree.
+  return taskFilterStatus(task);
 }
 
 export const STATUS_CONFIG: Record<Exclude<TaskStatus, "idle">, { label: string; dot: string; text: string }> = {

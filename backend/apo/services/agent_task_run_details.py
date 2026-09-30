@@ -26,6 +26,7 @@ from ..models.schemas import (
     AgentTaskRunTrigger,
     GenerationExecutionSummary,
     GenerationUsageSummary,
+    as_no_verdict_reason,
     as_task_run_status,
     as_trace_persistence_status,
 )
@@ -121,6 +122,7 @@ def _to_summary(
         passed_checks=run.passed_checks,
         failed_checks=run.failed_checks,
         errored_checks=run.errored_checks,
+        no_verdict_reason=as_no_verdict_reason(run.no_verdict_reason),
         corrected_tests=run.corrected_tests,
         trigger=trigger,
         error_category=classify_run_outcome(
@@ -282,6 +284,7 @@ def _to_detail(
         passed_checks=run.passed_checks,
         failed_checks=run.failed_checks,
         errored_checks=run.errored_checks,
+        no_verdict_reason=as_no_verdict_reason(run.no_verdict_reason),
         corrected_tests=run.corrected_tests,
         trigger=trigger,
         checks_json=checks,

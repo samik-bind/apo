@@ -40,9 +40,8 @@ from ..models.columns import (
     AGENT_TASK_RUN_CORRECTED_TESTS_COL,
     AGENT_TASK_RUN_DEFINITION_REVISION_COL,
     AGENT_TASK_RUN_ERRORED_CHECKS_COL,
-    AGENT_TASK_RUN_ERROR_MESSAGE_COL,
     AGENT_TASK_RUN_FAILED_CHECKS_COL,
-    AGENT_TASK_RUN_GENERATION_EXECUTION_COL,
+    AGENT_TASK_RUN_NO_VERDICT_REASON_COL,
     AGENT_TASK_RUN_ID_COL,
     AGENT_TASK_RUN_PASSED_CHECKS_COL,
     AGENT_TASK_RUN_PASS_RESULT_COL,
@@ -80,11 +79,9 @@ class ViewRun:
     # Effective-projection correction count (hot run scalar).
     corrected_tests: int
     task_definition_revision_id: str | None
-    # What the judge no-verdict rule reads (issue #323) — small scalars, the
-    # generation summary is a few ints.
+    # What the judge no-verdict gate reads (issue #323) — two small scalars.
     failed_checks: int = 0
-    error_message: str | None = None
-    generation_execution_json: dict[str, object] | None = None
+    no_verdict_reason: str | None = None
 
 
 def since_cutoff(since: str | None) -> datetime | None:
@@ -171,8 +168,7 @@ def runs_in_view(
             AGENT_TASK_RUN_CORRECTED_TESTS_COL,
             AGENT_TASK_RUN_DEFINITION_REVISION_COL,
             AGENT_TASK_RUN_FAILED_CHECKS_COL,
-            AGENT_TASK_RUN_ERROR_MESSAGE_COL,
-            AGENT_TASK_RUN_GENERATION_EXECUTION_COL,
+            AGENT_TASK_RUN_NO_VERDICT_REASON_COL,
         )
         .join(AgentTaskBatchRunDB, AGENT_TASK_RUN_BATCH_RUN_ID_COL == AGENT_TASK_BATCH_ID_COL)
         .where(*conditions)
@@ -194,8 +190,7 @@ def runs_in_view(
         corrected_tests,
         def_rev,
         failed_checks,
-        error_message,
-        generation_execution,
+        no_verdict_reason,
     ) in session.execute(stmt).all():
         runs.append(
             ViewRun(
@@ -212,8 +207,7 @@ def runs_in_view(
                 corrected_tests=corrected_tests,
                 task_definition_revision_id=def_rev,
                 failed_checks=failed_checks,
-                error_message=error_message,
-                generation_execution_json=generation_execution,
+                no_verdict_reason=no_verdict_reason,
             )
         )
     return runs

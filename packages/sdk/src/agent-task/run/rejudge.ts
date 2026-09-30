@@ -33,7 +33,7 @@ import { validateDeliverables } from "../deliverables/validate.ts";
 import { loadEvalSource } from "../task/loadTask.ts";
 import { readTaskRunProjection } from "../trace-projection/remote-capture.ts";
 import type { TraceProjectionSnapshot } from "../trace-projection/types.ts";
-import { aggregateResult } from "./aggregate.ts";
+import { aggregateResult, checkOutcome } from "./aggregate.ts";
 import type { EvaluationItemResult } from "./types.ts";
 
 /** Backend coordinates for every read replay performs. */
@@ -116,6 +116,8 @@ interface RunDetailResponse {
   task_id: string;
   status: string;
   pass_result?: boolean | null;
+  /** Why an `error` run has no verdict; absent on backends that predate it. */
+  no_verdict_reason?: "judge" | "generations" | "executor" | null;
   error_message?: string | null;
   failed_checks?: number;
   errored_checks?: number;
@@ -144,23 +146,23 @@ interface DefinitionSourceResponse {
   files: Array<{ path: string; content: string }>;
 }
 
-/**
- * An `error` run that landed there only because the judge gave no verdict
- * (issue #323) — exactly the run worth re-judging. The backend stamps such a
- * run's message with the rule's own "No verdict:" text; an executor-errored
- * run (#13) can carry the same counts but never that message. Executor
- * errors and generation-dominated runs (#149) stay refused, as the backend
- * refuses them.
- */
 const NO_VERDICT_MESSAGE_PREFIX = "No verdict: ";
 
+/**
+ * An `error` run that landed there only because the judge gave no verdict
+ * (issue #323) — exactly the run worth re-judging. Read from the backend's
+ * structured `no_verdict_reason`; executor errors (#13) and
+ * generation-dominated runs (#149) stay refused, as the backend refuses
+ * them. Only a backend that predates the field (the unreleased builds that
+ * first shipped the rule) is recognised by its message and counts instead.
+ */
 function isJudgeNoVerdictRun(detail: RunDetailResponse): boolean {
+  if (detail.status !== "error" || detail.pass_result != null) return false;
+  if (detail.no_verdict_reason !== undefined) return detail.no_verdict_reason === "judge";
   const generations = detail.generation_execution;
   const generationsDominate =
     generations != null && generations.total > 0 && generations.errored * 2 > generations.total;
   return (
-    detail.status === "error" &&
-    detail.pass_result == null &&
     (detail.error_message ?? "").startsWith(NO_VERDICT_MESSAGE_PREFIX) &&
     detail.failed_checks === 0 &&
     (detail.errored_checks ?? 0) > 0 &&
@@ -282,7 +284,7 @@ export async function rejudgeTaskRun(
         passCounts.set(result.id, (passCounts.get(result.id) ?? 0) + (result.pass ? 1 : 0));
         // A judge error is not a fail: it must not depress the stability
         // reading, only shrink the judged denominator (#323).
-        if (!result.pass && result.outcome === "error") {
+        if (checkOutcome(result) === "error") {
           errorCounts.set(result.id, (errorCounts.get(result.id) ?? 0) + 1);
         }
       }

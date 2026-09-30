@@ -427,6 +427,11 @@ class TestQueueRecovery:
         session.refresh(attempt)
         assert attempt.status == "failed"
         assert attempt.failure_kind == "task_not_in_catalog"
+        run = session.get(AgentTaskRunDB, attempt.task_run_id)
+        assert run is not None
+        assert (run.status, run.pass_result) == ("error", None)
+        # An execution failure, not a judge no-verdict (issue #323).
+        assert run.no_verdict_reason == "executor"
 
 
 # ============================================================================

@@ -149,6 +149,27 @@ describe("runs correct command", () => {
     expect(out).toContain("Run: NO VERDICT  2/3 tests passing");
   });
 
+  it("reads the structured run_no_verdict_reason when the backend sends it", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonResponse(
+        corrected({
+          run_status: "error",
+          run_pass_result: null,
+          run_no_verdict_reason: "executor",
+          passed_tests: 2,
+          failed_tests: 1,
+        }),
+      ),
+    );
+    const { logs, restore } = captureLog();
+    await run([FULL_ID, "no-failed-actions", "--pass", "--reason", "The judge misread it"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("Run: ERROR  2/3 tests passing");
+    expect(out).not.toContain("NO VERDICT");
+  });
+
   it("sends clear without a reason", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")

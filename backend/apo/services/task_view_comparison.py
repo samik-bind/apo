@@ -28,6 +28,7 @@ from ..models.schemas import (
     ResolvedComparisonCell,
     TaskViewComparisonSnapshot,
     TaskViewConfig,
+    as_no_verdict_reason,
 )
 from .view_runs import ViewRun, runs_in_view
 
@@ -47,6 +48,7 @@ class _ResolvedRun:
     passed_checks: int | None
     errored_checks: int
     corrected_tests: int
+    no_verdict_reason: str | None
 
 
 def _short_id() -> str:
@@ -98,6 +100,7 @@ def _resolve_side(
             passed_checks=run.passed_checks,
             errored_checks=run.errored_checks,
             corrected_tests=run.corrected_tests,
+            no_verdict_reason=run.no_verdict_reason,
         )
         for task_id, run in latest_by_task.items()
     }
@@ -179,11 +182,13 @@ def create_comparison(
                 a_passed_checks=a.passed_checks if a else None,
                 a_errored_checks=a.errored_checks if a else None,
                 a_corrected_tests=a.corrected_tests if a else None,
+                a_no_verdict_reason=as_no_verdict_reason(a.no_verdict_reason) if a else None,
                 b_pass_result=b.pass_result if b else None,
                 b_total_checks=b.total_checks if b else None,
                 b_passed_checks=b.passed_checks if b else None,
                 b_errored_checks=b.errored_checks if b else None,
                 b_corrected_tests=b.corrected_tests if b else None,
+                b_no_verdict_reason=as_no_verdict_reason(b.no_verdict_reason) if b else None,
             )
         )
 

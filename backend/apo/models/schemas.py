@@ -29,6 +29,9 @@ type JsonValue = str | int | float | bool | list[object] | dict[str, object]
 # ============================================================================
 
 
+# Why an ``error`` run has no verdict (issue #323); None when it has one.
+NoVerdictReason = Literal["judge", "generations", "executor"]
+
 class Run(SQLModel):
     """Run model for API responses."""
 
@@ -329,6 +332,7 @@ class AgentTaskRunStats(SQLModel):
     # The latest run is ``error`` only because the judge gave no verdict
     # (issue #323), not because the execution failed.
     last_run_no_verdict: bool = False
+    last_run_no_verdict_reason: NoVerdictReason | None = None
     total_checks: int = 0
     checks_pass_rate: float = 0.0
     # Checks that produced no verdict (judge error) — inside total_checks
@@ -429,11 +433,14 @@ class ResolvedComparisonCell(SQLModel):
     # Nullable: pre-#323 snapshot JSON hydrates without it.
     a_errored_checks: int | None = None
     a_corrected_tests: int | None = None
+    # Frozen with the verdict (issue #323); None on older snapshots.
+    a_no_verdict_reason: NoVerdictReason | None = None
     b_pass_result: bool | None = None
     b_total_checks: int | None = None
     b_passed_checks: int | None = None
     b_errored_checks: int | None = None
     b_corrected_tests: int | None = None
+    b_no_verdict_reason: NoVerdictReason | None = None
 
 
 class TaskViewComparisonSnapshot(SQLModel):
@@ -667,6 +674,13 @@ TRACE_PERSISTENCE_STATUSES: frozenset[str] = frozenset(
 )
 
 
+def as_no_verdict_reason(reason: str | None) -> NoVerdictReason | None:
+    """Narrow a persisted ``no_verdict_reason``; unknown values read as None."""
+    if reason in ("judge", "generations", "executor"):
+        return cast("NoVerdictReason", reason)
+    return None
+
+
 def as_task_run_status(status: str) -> TaskRunStatus:
     """Narrow a persisted status to the canonical run lifecycle.
 
@@ -734,6 +748,8 @@ class AgentTaskRunSummary(SQLModel):
     # Checks that produced no verdict (judge error) — reported apart from
     # failed_checks so a judge outage never reads as a FAIL wave (#323).
     errored_checks: int = 0
+    # Why an ``error`` run has no verdict: judge | generations | executor.
+    no_verdict_reason: NoVerdictReason | None = None
     trigger: AgentTaskRunTrigger | None = None
     error_category: str | None = None
     # adapter-reported model/effort for this Task Run. Absent when
@@ -779,6 +795,8 @@ class AgentTaskRunDetail(SQLModel):
     failed_checks: int = 0
     # Checks that produced no verdict (judge error), apart from fails (#323).
     errored_checks: int = 0
+    # Why an ``error`` run has no verdict: judge | generations | executor.
+    no_verdict_reason: NoVerdictReason | None = None
     trigger: AgentTaskRunTrigger | None = None
     checks_json: list[dict[str, object]] | None = None
     transcript_json: dict[str, object] | None = None
@@ -892,6 +910,7 @@ class CorrectedTestResult(SQLModel):
     # None when the effective report has no verdict — only judge-errored
     # checks left non-passing (issue #323).
     run_pass_result: bool | None
+    run_no_verdict_reason: NoVerdictReason | None = None
     total_tests: int
     passed_tests: int
     # Genuine fails only — the same bucket as the run's failed_checks.

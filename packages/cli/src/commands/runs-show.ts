@@ -1,11 +1,11 @@
 import { parseArgs, getFlagValue } from "../lib/args.ts";
 import { resolveConfig } from "../lib/config.ts";
-import { bold, dim, formatCost, formatJson, formatTime, passFail, yellow } from "../lib/format.ts";
+import { bold, dim, formatCost, formatJson, formatTime, yellow } from "../lib/format.ts";
 import { apiGet } from "../lib/api.ts";
 import type { CheckResult, DeliverableSummary } from "../lib/agent-task-types.ts";
 import {
   formatChecks,
-  isJudgeNoVerdictRun,
+  formatRunResult,
   NO_CHECKS_REGISTERED_MESSAGE,
   secondJudgeSummary,
 } from "../lib/checks-format.ts";
@@ -42,6 +42,7 @@ type RunDetail = {
   passed_checks: number;
   failed_checks: number;
   errored_checks?: number;
+  no_verdict_reason?: "judge" | "generations" | "executor" | null;
   trigger: {
     source: string | null;
     actor: string | null;
@@ -305,8 +306,7 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
  * #323); `-` otherwise — live runs and execution errors, whose Error line
  * says why. */
 function formatResult(run: RunDetail): string {
-  if (run.pass_result === true || run.pass_result === false) return passFail(run.pass_result);
-  return isJudgeNoVerdictRun(run) ? yellow("NO VERDICT") : "-";
+  return formatRunResult(run);
 }
 
 /**

@@ -9,13 +9,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // against SDKs that predate `noVerdict`.
 let _checks: Array<Record<string, unknown>> = [];
 let _pass = false;
+let _noVerdictFromSdk = false;
 
 vi.mock("@apo-ai/sdk/agent-task", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@apo-ai/sdk/agent-task")>();
   return {
     ...actual,
     runTaskDir: async () => ({
-      taskId: "t", pass: _pass, checks: _checks, adapterName: null, traceRunId: null,
+      taskId: "t", pass: _pass, checks: _checks, ...(_noVerdictFromSdk ? { noVerdict: true } : {}), adapterName: null, traceRunId: null,
       deliverables: {},
     }),
   };
@@ -134,25 +135,120 @@ describe("task run no-verdict result (issue #323)", () => {
     expect(parsed.noVerdict).toBe(true);
   });
 
-  it("recovery: a run the backend recorded without a verdict exits 2, whatever the local checks said", async () => {
+  async function runCapturing(extra: string[] = []): Promise<{ code: number; out: string; lines: string[] }> {
+    const { lines, restore } = captureStdout();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = await run([...args(), ...extra]);
+    spy.mockRestore();
+    restore();
+    return { code, out: stripAnsi(lines.join("\n")), lines };
+  }
+
+  it("recovery: a judge no-verdict the backend recorded exits 2, whatever the local checks said", async () => {
     _pass = true;
     _checks = [OK];
     resultTransportFails = true;
-    recordedStatus = { status: "error", total_checks: 1 };
-    const { lines, restore } = captureStdout();
-    const errors: string[] = [];
-    const spy = vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => {
-      errors.push(a.join(" "));
-    });
-    const code = await run(args());
-    spy.mockRestore();
-    restore();
+    recordedStatus = { status: "error", total_checks: 1, no_verdict_reason: "judge" };
+    const { code, out } = await runCapturing();
 
-    const out = stripAnsi(lines.join("\n"));
     expect(code).toBe(2);
     expect(out).toContain("NO VERDICT t");
     expect(out).toContain("recorded this run without one");
     expect(out).not.toMatch(/^PASS /m);
+  });
+
+  it("recovery --json reports the recorded verdict, not the local pass", async () => {
+    _pass = true;
+    _checks = [OK];
+    resultTransportFails = true;
+    recordedStatus = { status: "error", total_checks: 1, no_verdict_reason: "judge" };
+    const { code, lines } = await runCapturing(["--json"]);
+
+    expect(code).toBe(2);
+    const parsed = JSON.parse(lines.find((l) => l.startsWith("{")) ?? "") as {
+      pass: boolean;
+      noVerdict?: boolean;
+    };
+    expect(parsed.pass).toBe(false);
+    expect(parsed.noVerdict).toBe(true);
+  });
+
+  it.each([
+    ["the normal submit path", false],
+    ["the recovery path", true],
+  ])("%s: a #149 run the backend recorded is an ERROR with its message (exit 2)", async (_l, fails) => {
+    _pass = true;
+    _checks = [OK];
+    resultTransportFails = fails;
+    recordedStatus = {
+      status: "error",
+      total_checks: 1,
+      no_verdict_reason: "generations",
+      error_message: "17 of 22 generations ended in error.",
+    };
+    const seen: boolean[] = [];
+    const { lines, restore } = captureStdout();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = await run(args(), (nv) => seen.push(nv));
+    spy.mockRestore();
+    restore();
+    const out = stripAnsi(lines.join("\n"));
+
+    expect(code).toBe(2);
+    expect(out).toContain("ERROR t");
+    expect(out).toContain("Error: 17 of 22 generations ended in error.");
+    expect(out).not.toMatch(/^PASS /m);
+    expect(out).not.toContain("NO VERDICT");
+    expect(seen).toEqual([false]);
+  });
+
+  it("--json after a normal submit reports the backend's no verdict, not the local pass", async () => {
+    _pass = true;
+    _checks = [OK];
+    recordedStatus = {
+      status: "error",
+      total_checks: 1,
+      no_verdict_reason: "generations",
+      error_message: "17 of 22 generations ended in error.",
+    };
+    const { code, lines } = await runCapturing(["--json"]);
+
+    expect(code).toBe(2);
+    const parsed = JSON.parse(lines.find((l) => l.startsWith("{")) ?? "") as {
+      pass: boolean;
+      recordedError?: string;
+    };
+    expect(parsed.pass).toBe(false);
+    expect(parsed.recordedError).toBe("17 of 22 generations ended in error.");
+  });
+
+  it("a recorded judge no-verdict with no local checks isn't blamed on registration (#8)", async () => {
+    _checks = [];
+    recordedStatus = { status: "error", total_checks: 1, no_verdict_reason: "judge" };
+    const { code, out } = await runCapturing();
+
+    expect(code).toBe(2);
+    expect(out).toContain("NO VERDICT t");
+    expect(out).not.toContain("No tests were registered");
+  });
+
+  it("follows the backend when it recorded FAIL for a local no-verdict (version skew)", async () => {
+    _checks = [JUDGE_ERROR];
+    recordedStatus = { status: "failed", total_checks: 1, no_verdict_reason: null };
+    const { code, out } = await runCapturing();
+
+    expect(code).toBe(1);
+    expect(out).toMatch(/^FAIL t/m);
+    expect(out).not.toMatch(/^NO VERDICT t/m);
+  });
+
+  it("falls back to the local verdict when the recorded one can't be read", async () => {
+    _checks = [OK, JUDGE_ERROR];
+    recordedStatus = {};
+    const { code, out } = await runCapturing();
+
+    expect(code).toBe(2);
+    expect(out).toContain("NO VERDICT t");
   });
 
   it("hints at runs correct on a recorded run — rejudge leaves the run as is", async () => {
@@ -164,6 +260,26 @@ describe("task run no-verdict result (issue #323)", () => {
     const out = stripAnsi(lines.join("\n"));
     expect(out).toContain("apo runs correct r1 <test-id> --pass|--fail");
     expect(out).toContain("apo runs rejudge records a separate judgment");
+  });
+
+  it("keeps the generic hint when only some failing checks lacked a judge", async () => {
+    _checks = [
+      { id: "memo", pass: false, outcome: "error", reasoning: "No judge model configured. Set one of: ..." },
+      { id: "tone", pass: false, outcome: "error", reasoning: "judge failed: 504" },
+    ];
+    const { out } = await runCapturing();
+
+    expect(out).not.toContain("no judge model is configured");
+    expect(out).toContain("apo runs correct r1");
+  });
+
+  it("offers rejudge --judge-model on a recorded run once the SDK knows the rule", async () => {
+    _noVerdictFromSdk = true;
+    _checks = [{ id: "memo", pass: false, outcome: "error", reasoning: "No judge model configured. Set one of: ..." }];
+    const { out } = await runCapturing();
+    _noVerdictFromSdk = false;
+
+    expect(out).toContain("apo runs rejudge r1 --judge-model <model>");
   });
 
   it("hints at configuring the judge when none is configured", async () => {
@@ -183,6 +299,8 @@ describe("task run no-verdict result (issue #323)", () => {
     const out = stripAnsi(lines.join("\n"));
     expect(out).toContain("no judge model is configured");
     expect(out).not.toContain("apo runs correct");
+    // An SDK that predates the rule can't rejudge a no-verdict run.
+    expect(out).not.toContain("apo runs rejudge");
   });
 
   it("--no-record hints at a re-run only — there is no recorded run to correct", async () => {
@@ -194,6 +312,16 @@ describe("task run no-verdict result (issue #323)", () => {
     const out = stripAnsi(lines.join("\n"));
     expect(out).toContain("Re-run the task.");
     expect(out).not.toContain("apo runs correct");
+  });
+
+  it("tells the verdict observer about an unrecorded (--no-record) no verdict too", async () => {
+    _checks = [JUDGE_ERROR];
+    const seen: boolean[] = [];
+    const { restore } = captureStdout();
+    await run([...args(), "--no-record"], (nv) => seen.push(nv));
+    restore();
+
+    expect(seen).toEqual([true]);
   });
 
   it("tells the verdict observer (apo run) about a no verdict", async () => {

@@ -3,11 +3,14 @@ import type { GenerationExecutionSummary } from "@/lib/agent-task-api";
 interface GenerationExecutionNoticeProps {
   execution: GenerationExecutionSummary | null;
   verdictSuppressed: boolean;
+  /** The run carries a PASS/FAIL verdict. */
+  verdictKept: boolean;
 }
 
 export default function GenerationExecutionNotice({
   execution,
   verdictSuppressed,
+  verdictKept,
 }: GenerationExecutionNoticeProps) {
   if (!execution || execution.errored <= 0) return null;
 
@@ -23,7 +26,9 @@ export default function GenerationExecutionNotice({
       <p className="mt-1 text-warning/80">
         {verdictSuppressed
           ? "APO recorded no PASS/FAIL verdict. The checks remain available as diagnostic evidence. "
-          : "The run recovered and kept its verdict. "}
+          : verdictKept
+            ? "The run recovered and kept its verdict. "
+            : "Too few to withhold the verdict on their own. "}
         Cost and token totals are partial because errored generations are excluded.
       </p>
       {reasons && (

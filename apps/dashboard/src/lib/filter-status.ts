@@ -27,6 +27,7 @@ export const TASK_STATUS_FILTERS: StatusFilterOption[] = [
   { value: "passed", label: "Passed", dot: "bg-success" },
   { value: "failed", label: "Failed", dot: "bg-destructive" },
   { value: "errored", label: "Errored", dot: "bg-warning" },
+  { value: "no_verdict", label: "No verdict", dot: "bg-warning" },
   { value: "idle", label: "Not Run", dot: "bg-muted-foreground/30" },
 ];
 

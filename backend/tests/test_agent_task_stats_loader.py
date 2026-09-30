@@ -220,10 +220,7 @@ def test_stats_loader_carries_errored_checks(session: Session) -> None:
         checks=[{"pass": True}, {"pass": False}],
     )
     run.errored_checks = 1
-    run.error_message = (
-        "No verdict: 1 of 2 checks got no verdict from the judge "
-        "(judge error or no judge configured); the other 1 passed."
-    )
+    run.no_verdict_reason = "judge"
     crash = _run(
         "run-crash",
         "batch-1",
@@ -234,6 +231,7 @@ def test_stats_loader_carries_errored_checks(session: Session) -> None:
     )
     crash.errored_checks = 1
     crash.error_message = "adapter crashed"
+    crash.no_verdict_reason = "executor"
     session.add_all([run, crash])
     session.commit()
 
@@ -245,3 +243,5 @@ def test_stats_loader_carries_errored_checks(session: Session) -> None:
     assert grouped["task-b"][0].judge_no_verdict is False
     assert compute_run_stats(grouped["task-a"]).last_run_no_verdict is True
     assert compute_run_stats(grouped["task-b"]).last_run_no_verdict is False
+    assert compute_run_stats(grouped["task-a"]).last_run_no_verdict_reason == "judge"
+    assert compute_run_stats(grouped["task-b"]).last_run_no_verdict_reason == "executor"

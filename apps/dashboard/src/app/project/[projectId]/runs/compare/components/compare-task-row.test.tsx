@@ -715,3 +715,38 @@ describe("CompareTaskRow run-level usage rows", () => {
     expect(screen.queryByText("reasoning")).not.toBeInTheDocument();
   });
 });
+
+// Issue #323: a judge no-verdict run is not an execution error and its
+// judge-errored checks are not failures.
+describe("CompareTaskRow no-verdict cell", () => {
+  it("shows No verdict and paints judge-errored checks as warning, not failed", () => {
+    const run = {
+      id: "run-a",
+      status: "error",
+      pass_result: null,
+      no_verdict_reason: "judge",
+      total_checks: 3,
+      passed_checks: 2,
+      failed_checks: 0,
+      errored_checks: 1,
+    } as unknown as ComparisonTask["left"]["run"];
+    render(
+      <CompareTaskRow
+        task={makeTask({ left: { run } })}
+        expanded={new Set()}
+        onToggleExpand={noopToggle}
+        projectId="proj"
+        evidenceLoader={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText("No verdict").length).toBeGreaterThan(0);
+    // Each cell variant renders once per side: the left (no-verdict) run
+    // contributes errored segments only, the right (a genuine 0/1 FAIL) the
+    // failed ones — so the two counts match.
+    const errored = screen.getAllByTestId("checks-bar-errored");
+    expect(errored.length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("checks-bar-failed")).toHaveLength(errored.length);
+  });
+});
+

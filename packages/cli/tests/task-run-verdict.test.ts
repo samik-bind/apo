@@ -27,7 +27,7 @@ describe("pollRunVerdict (issue #174 recovery)", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const verdict = await pollRunVerdict(config, "run_123", 5, 1);
-    expect(verdict).toBe("passed");
+    expect(verdict?.status).toBe("passed");
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
@@ -54,8 +54,17 @@ describe("pollRunVerdict (issue #174 recovery)", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const verdict = await pollRunVerdict(config, "run_123", 5, 1);
-    expect(verdict).toBe("error");
+    expect(verdict?.status).toBe("error");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries the structured no-verdict reason and message", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      mockResponse({ status: "error", total_checks: 0, no_verdict_reason: "generations", error_message: "3 of 4" }),
+    ));
+
+    const verdict = await pollRunVerdict(config, "run_123", 1, 1);
+    expect(verdict).toEqual({ status: "error", noVerdictReason: "generations", errorMessage: "3 of 4" });
   });
 
   it("keeps polling through fetch failures within the budget", async () => {
@@ -68,7 +77,7 @@ describe("pollRunVerdict (issue #174 recovery)", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const verdict = await pollRunVerdict(config, "run_123", 5, 1);
-    expect(verdict).toBe("failed");
+    expect(verdict?.status).toBe("failed");
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentTaskRunStats, AgentTaskSummary } from "@/lib/agent-task-api";
+import { TASK_STATUS_FILTERS } from "@/lib/filter-status";
 import { STATUS_CONFIG, getTaskStatus, taskFilterStatus } from "../task-list-shared";
 
 function task(stats: Partial<AgentTaskRunStats>): AgentTaskSummary {
@@ -44,6 +45,16 @@ describe("getTaskStatus", () => {
     expect(getTaskStatus(t)).toBe("errored");
     expect(taskFilterStatus(t)).toBe("errored");
     expect(STATUS_CONFIG.errored.text).toBe("text-warning");
+  });
+
+  it("reads a pending latest run as running, never FAILED", () => {
+    expect(getTaskStatus(task({ last_run_status: "pending", last_run_passed: null }))).toBe("running");
+  });
+
+  it("filters a judge no-verdict task under its own No verdict value", () => {
+    const t = task({ last_run_no_verdict: true });
+    expect(taskFilterStatus(t)).toBe("no_verdict");
+    expect(TASK_STATUS_FILTERS.map((f) => f.value)).toContain("no_verdict");
   });
 
   it("keeps passed and failed", () => {

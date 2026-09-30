@@ -8,6 +8,9 @@ import type { DeliverableSummary } from "./agent-task-deliverables-api";
 
 export type TracePersistenceStatus = "pending" | "persisted" | "failed";
 
+/** Why an `error` run has no PASS/FAIL verdict (issue #323). */
+export type NoVerdictReason = "judge" | "generations" | "executor";
+
 export interface AgentTaskRunStats {
   total_runs: number;
   passed_runs: number;
@@ -20,6 +23,7 @@ export interface AgentTaskRunStats {
   last_run_passed: boolean | null;
   /** The latest run is `error` only because the judge gave no verdict (#323). */
   last_run_no_verdict?: boolean;
+  last_run_no_verdict_reason?: NoVerdictReason | null;
   total_checks: number;
   checks_pass_rate: number;
   /** Checks inside total that produced no verdict (judge error), not fails. */
@@ -152,6 +156,8 @@ export interface AgentTaskRunSummary {
   failed_checks: number;
   /** Checks inside total that produced no verdict (judge error), not fails. */
   errored_checks?: number;
+  /** Why an `error` run has no verdict (issue #323); absent on older backends. */
+  no_verdict_reason?: NoVerdictReason | null;
   /** Tests whose effective result differs from the recorded one. */
   corrected_tests?: number;
   trigger: AgentTaskRunTrigger | null;
