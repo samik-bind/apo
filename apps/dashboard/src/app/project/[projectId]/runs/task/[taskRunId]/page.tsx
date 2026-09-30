@@ -21,6 +21,8 @@ import { taskDetailHref } from "@/lib/task-routes";
 import { hrefWithRunCohort, parseDrilldownCohort } from "@/lib/run-cohort";
 import {
   acceptsCorrections,
+  errorMessageTone,
+  generationNoticeProps,
   isJudgeNoVerdictRun,
   isVerdictSuppressedByGenerations,
   runStatusLabel,
@@ -37,6 +39,12 @@ import GenerationExecutionNotice from "@/components/generation-execution-notice"
 import { RunJudgmentsSection } from "./run-judgments-section";
 
 export const dynamic = "force-dynamic";
+
+const ERROR_BANNER_TONE = {
+  note: "border-border bg-muted text-muted-foreground",
+  warning: "border-warning/30 bg-warning/10 text-warning",
+  error: "border-destructive/30 bg-destructive/10 text-destructive",
+} as const;
 
 // Per-request memo so generateMetadata and the page body share one fetch.
 const getAgentTaskRunCached = cache(getAgentTaskRun);
@@ -404,20 +412,14 @@ export default async function TaskRunDetailPage({
           <RunJudgmentsSection taskRunId={taskRun.id} judgments={judgments.judgments} />
         )}
 
-        <GenerationExecutionNotice
-          execution={taskRun.generation_execution ?? null}
-          verdictSuppressed={verdictSuppressed}
-          verdictKept={taskRun.pass_result != null}
-        />
+        <GenerationExecutionNotice {...generationNoticeProps(taskRun)} />
 
         {/* Error banner */}
         {showsErrorBanner(taskRun) && taskRun.error_message && (
           <div
             className={cn(
               "mx-6 mt-4 border px-4 py-3 text-[13px]",
-              judgeNoVerdict
-                ? "border-warning/30 bg-warning/10 text-warning"
-                : "border-destructive/30 bg-destructive/10 text-destructive",
+              ERROR_BANNER_TONE[errorMessageTone(taskRun)],
             )}
           >
             {taskRun.error_message.slice(0, 200)}

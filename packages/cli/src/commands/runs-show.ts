@@ -247,7 +247,10 @@ function printRunDetail(run: RunDetail, verbose: boolean): void {
   if (run.trace_run_id) {
     console.log(`  Trace:    ${run.trace_run_id} ${dim("(apo traces show " + run.trace_run_id + ")")}`);
   }
-  if (run.error_message) {
+  if (run.error_message && run.pass_result === true) {
+    // A corrected PASS keeps the executor's note; it is not an error.
+    console.log(dim(`  Note:     ${run.error_message.slice(0, 500)}`));
+  } else if (run.error_message) {
     console.log(`  Error:    ${run.error_message.slice(0, 500)}`);
   }
 

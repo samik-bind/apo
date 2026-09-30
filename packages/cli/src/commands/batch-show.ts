@@ -130,7 +130,8 @@ function printBatchDetail(batch: BatchDetail): void {
         console.log(dim(`        trace: ${tr.trace_run_id}`));
       }
       if (tr.error_message && isJudgeNoVerdictRun(tr)) {
-        // The rule's own line says why; a caller's note follows it.
+        // Only the rule's own line, which says why; a caller's note after it
+        // is left to `apo runs show`.
         console.log(dim(`        ${tr.error_message.split("\n")[0]!.slice(0, 200)}`));
       } else if (tr.error_message) {
         const lines = tr.error_message.split("\n").map((l) => l.trim()).filter(Boolean);

@@ -270,32 +270,16 @@ export async function rejudgeTaskRun(
     );
     const proxied = proxyBrokenDeliverables(deliverables, validation.brokenDeliverables);
 
-    const passCounts = new Map<string, number>();
-    const errorCounts = new Map<string, number>();
-    let primary: EvaluationItemResult[] = [];
+    const sampled: EvaluationItemResult[][] = [];
     // Task-level judge config beats the caller-supplied one (#161), same as
     // a live run. The key never reaches the resolved config's report below.
     const judgeConfig = resolveJudgeConfig(options.judge, loaded.task.judge);
     for (let sample = 0; sample < samples; sample++) {
       if (samples > 1) progress(`judging sample ${sample + 1}/${samples}`);
-      const results = await runChecksOnce(loaded, proxied, snapshot, judgeConfig);
-      if (sample === 0) primary = results;
-      for (const result of results) {
-        passCounts.set(result.id, (passCounts.get(result.id) ?? 0) + (result.pass ? 1 : 0));
-        // A judge error is not a fail: it must not depress the stability
-        // reading, only shrink the judged denominator (#323).
-        if (checkOutcome(result) === "error") {
-          errorCounts.set(result.id, (errorCounts.get(result.id) ?? 0) + 1);
-        }
-      }
+      sampled.push(await runChecksOnce(loaded, proxied, snapshot, judgeConfig));
     }
-
-    const stability = primary.map((result) => ({
-      check_id: result.id,
-      passes: passCounts.get(result.id) ?? 0,
-      samples,
-      ...(errorCounts.get(result.id) ? { errored: errorCounts.get(result.id) } : {}),
-    }));
+    const primary = sampled[0] ?? [];
+    const stability = checkStability(sampled);
     const aggregate = aggregateResult(primary);
 
     return {
@@ -324,6 +308,31 @@ export async function rejudgeTaskRun(
     rmSync(artifactDir, { recursive: true, force: true });
     if (scaffoldDir) rmSync(scaffoldDir, { recursive: true, force: true });
   }
+}
+
+/**
+ * Per-check stability across samples, keyed by the first sample's checks. A
+ * sample whose check errored — by the same assertion roll-up as the run's
+ * verdict ({@link checkOutcome}) — is neither a pass nor a fail: it must not
+ * depress the stability reading, only shrink the judged denominator (#323).
+ */
+export function checkStability(sampled: EvaluationItemResult[][]): RejudgeCheckStability[] {
+  const passCounts = new Map<string, number>();
+  const errorCounts = new Map<string, number>();
+  for (const results of sampled) {
+    for (const result of results) {
+      passCounts.set(result.id, (passCounts.get(result.id) ?? 0) + (result.pass ? 1 : 0));
+      if (checkOutcome(result) === "error") {
+        errorCounts.set(result.id, (errorCounts.get(result.id) ?? 0) + 1);
+      }
+    }
+  }
+  return (sampled[0] ?? []).map((result) => ({
+    check_id: result.id,
+    passes: passCounts.get(result.id) ?? 0,
+    samples: sampled.length,
+    ...(errorCounts.get(result.id) ? { errored: errorCounts.get(result.id) } : {}),
+  }));
 }
 
 async function runChecksOnce(

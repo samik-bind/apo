@@ -498,6 +498,7 @@ def test_post_start_lease_expiry_becomes_lost_and_never_requeues(session: Sessio
     task_run = session.get(AgentTaskRunDB, atts[0].task_run_id)
     batch = session.get(AgentTaskBatchRunDB, atts[0].batch_run_id)
     assert task_run is not None and task_run.status == "error"
+    assert task_run.no_verdict_reason == "executor"
     assert batch is not None and batch.status == "completed"
     # never requeued: claim finds nothing
     claimed = claim_next_attempt(

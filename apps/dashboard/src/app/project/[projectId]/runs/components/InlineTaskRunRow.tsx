@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { formatCostMicro, formatTokenTotal } from "@/lib/format";
 import { formatRunExecution, formatRunExecutionFull } from "@/lib/run-configuration";
 import { hrefWithRunCohort, parseDrilldownCohort } from "@/lib/run-cohort";
-import { isJudgeNoVerdictRun, runStatusLabel } from "@/lib/run-verdict";
+import { errorMessageTextClass, runStatusLabel } from "@/lib/run-verdict";
 
 import { formatDuration, formatRelative } from "./runs-utils";
 
@@ -69,7 +69,7 @@ export function InlineTaskRunRow({
                 <span
                   className={cn(
                     "truncate",
-                    isJudgeNoVerdictRun(run) ? "text-warning" : "text-destructive",
+                    errorMessageTextClass(run),
                   )}
                 >
                   {run.error_message.slice(0, 80)}

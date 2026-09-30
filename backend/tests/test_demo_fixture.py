@@ -122,6 +122,16 @@ class TestFixtureLoads:
         )
         assert revision.id is not None  # dedupe on content digest returned a row
 
+    def test_error_runs_carry_a_no_verdict_reason(self, session: Session) -> None:
+        """Every consumer reads ``no_verdict_reason``, so a demo ``error`` run
+        without one would render as neither an executor error nor a no-verdict."""
+        assert _load(session)
+        runs = session.exec(select(AgentTaskRunDB)).all()
+        errored = [r for r in runs if r.status == "error"]
+        assert errored
+        assert {r.no_verdict_reason for r in errored} == {"executor"}
+        assert all(r.no_verdict_reason is None for r in runs if r.status != "error")
+
     def test_runs_pinned_to_definition_revisions(self, session: Session) -> None:
         """Every catalog task ships a definition and every run is pinned to
         it, so the run page can render check source through the run-bound

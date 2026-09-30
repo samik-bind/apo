@@ -297,6 +297,7 @@ def _load_batches(
         loaded[batch.id] = batch
 
         for run_spec in batch_spec.get("runs", []):
+            run_status = str(run_spec.get("status", "passed"))
             run = AgentTaskRunDB(
                 id=str(run_spec["id"]),
                 batch_run_id=batch.id,
@@ -304,8 +305,13 @@ def _load_batches(
                 task_path=run_spec.get("task_path", ""),
                 sequence_index=int(run_spec.get("sequence_index", 0)),
                 adapter_name=run_spec.get("adapter_name", "real-agent"),
-                status=str(run_spec.get("status", "passed")),
+                status=run_status,
                 pass_result=run_spec.get("pass_result"),
+                # The document's error runs are execution failures (no
+                # checks, no generations): #13's executor reason.
+                no_verdict_reason=run_spec.get(
+                    "no_verdict_reason", "executor" if run_status == "error" else None
+                ),
                 started_at=_parse_dt(run_spec.get("started_at")),
                 completed_at=_parse_dt(run_spec.get("completed_at")),
                 trace_run_id=run_spec.get("trace_run_id"),

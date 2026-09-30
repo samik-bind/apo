@@ -149,13 +149,13 @@ describe("runs correct command", () => {
     expect(out).toContain("Run: NO VERDICT  2/3 tests passing");
   });
 
-  it("reads the structured run_no_verdict_reason when the backend sends it", async () => {
+  it.each(["executor", null])("reads the structured run_no_verdict_reason (%s) when the backend sends it", async (reason) => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       jsonResponse(
         corrected({
           run_status: "error",
           run_pass_result: null,
-          run_no_verdict_reason: "executor",
+          run_no_verdict_reason: reason,
           passed_tests: 2,
           failed_tests: 1,
         }),

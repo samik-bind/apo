@@ -243,6 +243,10 @@ export function isNoVerdict(
   return failing.length > 0 && failing.every((c) => checkOutcome(c) === "error");
 }
 
+/** Fallback only: the rule's message head on a backend without
+ * `no_verdict_reason`. */
+export const NO_VERDICT_MESSAGE_PREFIX = "No verdict: ";
+
 /**
  * A recorded run with no verdict only because the judge gave none for its
  * non-passing checks (issue #323), read from the backend's structured
@@ -260,7 +264,7 @@ export function isJudgeNoVerdictRun(run: RunVerdictFields): boolean {
   return (
     (run.failed_checks ?? 0) === 0 &&
     (run.errored_checks ?? 0) > 0 &&
-    (run.error_message ?? "").startsWith("No verdict: ") &&
+    (run.error_message ?? "").startsWith(NO_VERDICT_MESSAGE_PREFIX) &&
     !generationsDominate
   );
 }

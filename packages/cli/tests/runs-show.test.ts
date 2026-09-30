@@ -87,6 +87,19 @@ describe("runs show command", () => {
     expect(out).toContain("trace-1");
   });
 
+  it("shows a passed run's kept executor note as a note, not an error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(makeRun({ status: "passed", pass_result: true, error_message: "adapter note" })),
+    );
+    const { logs, restore } = captureLog();
+    await run([FULL_ID, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("Note:     adapter note");
+    expect(out).not.toContain("Error:");
+  });
+
   it("surfaces the batch id with a navigation hint", async () => {
     // Regression: the batch id must be visible so agents/users can navigate
     // from a task run to its parent batch (apo batch show <id>).

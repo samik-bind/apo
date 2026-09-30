@@ -91,8 +91,10 @@ The result is the verdict and the per-check breakdown. The verdict is `PASS` (gr
 
 On a recorded run, the trailing `Run:` / `Inspect:` lines hand you the exact run identity, use the printed command for the full record (batch, cost, tokens, trace id, timestamps) and [`apo traces show`](/cli/traces-show/) for the call tree. With `--no-record` there is no run id, so the output ends after the checks.
 
-:::caution[The printed verdict can differ from the recorded one]
-If most of the run's model generations ended in error, apo records **no verdict** (the run lands with status `error` and no PASS/FAIL) even though this command printed one from its local checks. See [Verdict validity](/concepts/tests/#verdict-validity).
+:::note[The printed verdict is the recorded one]
+On a recorded run the command reads back the verdict the backend recorded and prints that, whatever the local checks said. If most of the run's model generations ended in error, apo records **no verdict** (status `error`, no PASS/FAIL): the command prints `ERROR` with the recorded message and exits `2`. See [Verdict validity](/concepts/tests/#verdict-validity). If the recorded verdict can't be read back (auth, not found, timeout), a dim line says so and the local verdict is shown.
+
+Against a backend that predates the no-verdict rule, a run whose only non-passing checks got no verdict from the judge is recorded as a FAIL. The command follows the recorded run (`FAIL`, exit `1`) and adds a dim line: *Recorded as FAIL by this backend (it predates the no-verdict rule)*.
 :::
 
 ## Exit codes

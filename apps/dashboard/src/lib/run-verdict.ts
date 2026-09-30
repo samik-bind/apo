@@ -48,6 +48,44 @@ export function isVerdictSuppressedByGenerations(run: RunVerdictFields): boolean
 }
 
 /**
+ * How a run's `error_message` reads: a judge no-verdict's rule is a
+ * `warning`; a passed run keeps an executor's note through a human PASS
+ * correction, which is a `note`, not an error; anything else is an `error`.
+ */
+export function errorMessageTone(run: RunVerdictFields): "note" | "warning" | "error" {
+  if (run.pass_result === true) return "note";
+  return isJudgeNoVerdictRun(run) ? "warning" : "error";
+}
+
+const MESSAGE_TEXT_CLASS = {
+  note: "text-muted-foreground",
+  warning: "text-warning",
+  error: "text-destructive",
+} as const;
+
+/** The text colour of a run's `error_message` in run rows. */
+export function errorMessageTextClass(run: RunVerdictFields): string {
+  return MESSAGE_TEXT_CLASS[errorMessageTone(run)];
+}
+
+/** What the generation notice says about the run's verdict (#149, #323). */
+export type GenerationNoticeVerdict = "withheld" | "kept" | "judge-no-verdict" | "execution-error";
+
+/** The generation notice's props for a run — derived here, not in the page. */
+export function generationNoticeProps(
+  run: RunVerdictFields,
+): { execution: GenerationExecutionSummary | null; verdict: GenerationNoticeVerdict } {
+  const verdict: GenerationNoticeVerdict = isVerdictSuppressedByGenerations(run)
+    ? "withheld"
+    : run.pass_result != null
+      ? "kept"
+      : isJudgeNoVerdictRun(run)
+        ? "judge-no-verdict"
+        : "execution-error";
+  return { execution: run.generation_execution ?? null, verdict };
+}
+
+/**
  * Whether the run page shows the `error_message` banner. A #149 run's
  * message is carried by the generation notice instead; every other message —
  * an executor's, a judge no-verdict's — gets the banner.

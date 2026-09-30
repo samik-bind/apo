@@ -11,7 +11,7 @@
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { join } from "path";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { rejudgeTaskRun, RejudgeError } from "../src/agent-task/run/rejudge";
+import { checkStability, rejudgeTaskRun, RejudgeError } from "../src/agent-task/run/rejudge";
 
 const TMP_ROOT = join(import.meta.dirname, "__rejudge_test__");
 const LOCAL_ADAPTER_IMPORT = "../../../src/agent-task/adapter/defineAdapter";
@@ -413,6 +413,8 @@ describe("rejudgeTaskRun", () => {
   it.each([
     ["an executor error carrying the rule's message", { no_verdict_reason: "executor" }],
     ["a #149 run carrying the rule's message", { no_verdict_reason: "generations" }],
+    // A backend that sends the field decides by it: null is not "judge".
+    ["a null reason carrying the rule's message", { no_verdict_reason: null }],
     ["an executor error with judge-error counts", { error_message: "adapter crashed" }],
     ["a genuine fail beside the judge error", { failed_checks: 1 }],
     [
@@ -507,5 +509,29 @@ describe("rejudgeTaskRun", () => {
       .map((c) => String(c[0]))
       .find((u) => u.includes("definition-source"));
     expect(sourceUrl).toContain("revision=rev-other");
+  });
+});
+
+describe("checkStability", () => {
+  const judgeError = { id: "judge", pass: false, reasoning: "504", outcome: "error" as const };
+  const genuine = { id: "code", pass: false, reasoning: "wrong" };
+
+  it("counts errored samples by the assertion roll-up, like the run's verdict", () => {
+    // No check-level outcome, but every failing assertion is a judge error.
+    const rolledUp = { id: "q", pass: false, reasoning: "504", assertions: [judgeError] };
+    // A check-level "error" beside a genuine failing assertion is a FAIL.
+    const masked = {
+      id: "m",
+      pass: false,
+      reasoning: "wrong; 504",
+      outcome: "error" as const,
+      assertions: [genuine, judgeError],
+    };
+    const pass = { id: "q", pass: true, reasoning: "ok" };
+
+    expect(checkStability([[rolledUp, masked], [{ ...pass }, { ...masked }]])).toEqual([
+      { check_id: "q", passes: 1, samples: 2, errored: 1 },
+      { check_id: "m", passes: 0, samples: 2 },
+    ]);
   });
 });

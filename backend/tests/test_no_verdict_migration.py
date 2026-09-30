@@ -12,7 +12,7 @@ runs v49 wrongly moved to no verdict.
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
@@ -23,11 +23,17 @@ from sqlmodel import Session, SQLModel, create_engine, select
 import apo.db as apo_db
 from apo.models.db import (
     AgentTaskBatchRunDB,
+    AgentTaskCheckReportDB,
     AgentTaskJudgmentDB,
     AgentTaskRunDB,
     AgentTaskTestResultCorrectionDB,
 )
 from apo.services.check_report_storage import is_judge_no_verdict_run
+from apo.services.test_result_corrections import (
+    effective_check_report,
+    effective_verdict_counts,
+    load_corrections,
+)
 from tests.test_judge_no_verdict import JUDGE_ERROR, RULE_1_OF_3, _finalize, _passing, _seed
 
 
@@ -448,3 +454,191 @@ def test_v50_never_reads_columns_beyond_its_own_set(
         ).one()
     assert rows == {"run-outage": "judge", "run-crash": "executor"}
     assert (batch_row.failed_tasks, batch_row.errored_tasks) == (0, 2)
+
+
+# --- review-e mutations, killed: ordered corrections, clears, caller text ---
+
+_T0 = datetime(2026, 8, 1, 10, 0, 0)
+
+
+def _err(check_id: str) -> dict[str, object]:
+    return {**JUDGE_ERROR, "id": check_id}
+
+
+def _pre_323_run(
+    session: Session,
+    run_id: str,
+    checks: list[dict[str, object]],
+    corrections: list[tuple[str, str, str, int]],
+    *,
+    caller: str | None = "adapter note",
+) -> None:
+    """A run as the pre-#323 correction service left it: ``corrections`` are
+    ``(row id, test id, action, seconds after _T0)``; errored checks counted
+    as failed, the verdict from the effective report."""
+    batch, run = _seed(session, run_id=run_id, batch_id=f"b-{run_id}")
+    _finalize(session, run, batch, checks)
+    for row_id, test_id, action, seconds in corrections:
+        session.add(
+            AgentTaskTestResultCorrectionDB(
+                id=row_id,
+                task_run_id=run_id,
+                project="p1",
+                test_id=test_id,
+                action=action,
+                reason=None if action == "clear" else "human looked",
+                corrected_by_user_id="u1",
+                corrected_via="session",
+                created_at=_T0 + timedelta(seconds=seconds),
+            )
+        )
+    session.flush()
+    effective = effective_check_report(checks, load_corrections(session, [run_id])[run_id])
+    passed = sum(1 for c in effective if c.get("pass") is True)
+    run.status = "passed" if passed == len(checks) else "failed"
+    run.pass_result = run.status == "passed"
+    run.no_verdict_reason = None
+    run.error_message = None if run.pass_result else caller
+    run.total_checks, run.passed_checks = len(checks), passed
+    run.failed_checks, run.errored_checks = len(checks) - passed, 0
+    run.corrected_tests = sum(1 for c in effective if "correction" in c)
+    session.add(run)
+    session.commit()
+
+
+def _climb(session: Session, monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr(apo_db, "engine", session.get_bind())
+    apo_db._migrate_to_v48()
+    apo_db._migrate_to_v49()
+    apo_db._migrate_to_v50()
+    session.expire_all()
+
+
+def _state(session: Session, run_id: str) -> tuple[object, ...]:
+    run = session.get(AgentTaskRunDB, run_id)
+    assert run is not None
+    return (
+        run.status,
+        run.pass_result,
+        run.no_verdict_reason,
+        run.passed_checks,
+        run.failed_checks,
+        run.errored_checks,
+        run.error_message,
+    )
+
+
+def test_v50_recount_reads_the_latest_correction_per_test(
+    session: Session, monkeypatch: MonkeyPatch
+) -> None:
+    """Newest correction per test decides, a ``clear`` leaves the check
+    uncorrected, and ties break on id exactly as ``_active_by_test`` does."""
+    # x was set_fail then cleared: still judge-errored; y is a corrected PASS.
+    _pre_323_run(
+        session, "r-clear", [*_passing(1), _err("x"), _err("y")],
+        [("c1", "x", "set_fail", 0), ("c2", "x", "clear", 1), ("c3", "y", "set_pass", 2)],
+    )
+    # set_pass then set_fail: the later FAIL stands.
+    _pre_323_run(
+        session, "r-latest", [*_passing(2), _err("x")],
+        [("c4", "x", "set_pass", 0), ("c5", "x", "set_fail", 1)],
+    )
+    # Same timestamp: the higher id is the newer row.
+    _pre_323_run(
+        session, "r-tie", [*_passing(2), _err("x")],
+        [("c6-a", "x", "set_pass", 0), ("c6-b", "x", "set_fail", 0)],
+    )
+
+    _climb(session, monkeypatch)
+
+    assert _state(session, "r-clear") == (
+        "error", None, "judge", 2, 0, 1, f"{RULE_1_OF_3}\nadapter note"
+    )
+    assert _state(session, "r-latest") == ("failed", False, None, 2, 1, 0, "adapter note")
+    assert _state(session, "r-tie") == ("failed", False, None, 2, 1, 0, "adapter note")
+    # The same counts the correction service derives.
+    for run_id in ("r-clear", "r-latest", "r-tie"):
+        run = session.get(AgentTaskRunDB, run_id)
+        assert run is not None
+        report = session.get(AgentTaskCheckReportDB, run_id)
+        assert report is not None and report.value_json is not None
+        effective = effective_check_report(
+            report.value_json, load_corrections(session, [run_id])[run_id]
+        )
+        assert effective_verdict_counts(effective) == (
+            run.total_checks, run.passed_checks, run.failed_checks, run.errored_checks
+        )
+
+
+def test_v50_alone_keeps_the_caller_message_when_applying_the_rule(
+    engine: Engine, monkeypatch: MonkeyPatch
+) -> None:
+    with Session(engine) as session:
+        _batch(session, 1)
+        session.add(_run("run-outage", failed=0, errored=1, error_message="adapter note"))
+        session.commit()
+
+    monkeypatch.setattr(apo_db, "engine", engine)
+    apo_db._migrate_to_v50()
+
+    with Session(engine) as session:
+        run = session.get(AgentTaskRunDB, "run-outage")
+        assert run is not None
+        assert (run.status, run.no_verdict_reason) == ("error", "judge")
+        assert run.error_message == f"{RULE_1_OF_3}\nadapter note"
+
+
+def test_v50_executor_error_mimicking_the_rule_stays_an_executor_error(
+    engine: Engine, monkeypatch: MonkeyPatch
+) -> None:
+    """An uncorrected ``error`` run whose own message starts like the rule,
+    beside a genuine fail, is an execution failure — not a v49 flip to undo."""
+    with Session(engine) as session:
+        _batch(session, 1)
+        session.add(
+            _run(
+                "run-mimic",
+                failed=1,
+                errored=1,
+                status="error",
+                error_message=f"{RULE_1_OF_3}\nadapter crashed afterwards",
+            )
+        )
+        session.commit()
+
+    monkeypatch.setattr(apo_db, "engine", engine)
+    apo_db._migrate_to_v50()
+
+    with Session(engine) as session:
+        run = session.get(AgentTaskRunDB, "run-mimic")
+        assert run is not None
+        assert (run.status, run.pass_result, run.no_verdict_reason) == ("error", None, "executor")
+
+
+def test_v50_repairs_a_flipped_run_whose_corrections_pass_every_check(
+    session: Session, monkeypatch: MonkeyPatch
+) -> None:
+    """Stale scalars that still read no verdict while every check carries a
+    human PASS restore to ``passed``, keeping the caller's note."""
+    batch, run = _seed(session)
+    _finalize(session, run, batch, [*_passing(2), JUDGE_ERROR], error_message="adapter note")
+    session.add(
+        AgentTaskTestResultCorrectionDB(
+            task_run_id=run.id,
+            project="p1",
+            test_id="blacked-out",
+            action="set_pass",
+            reason="human looked",
+            corrected_by_user_id="u1",
+            corrected_via="session",
+        )
+    )
+    run.corrected_tests = 1
+    session.add(run)
+    session.commit()
+
+    monkeypatch.setattr(apo_db, "engine", session.get_bind())
+    apo_db._migrate_to_v50()
+    session.expire_all()
+
+    assert _state(session, run.id) == ("passed", True, None, 3, 0, 0, "adapter note")
