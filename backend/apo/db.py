@@ -2,9 +2,11 @@
 
 import os
 from collections.abc import Callable
+from typing import cast
 
 from sqlalchemy import bindparam, event, text
 from sqlalchemy.engine import Connection
+from sqlalchemy.orm.interfaces import ORMOption
 from sqlalchemy.pool import NullPool
 from sqlmodel import JSON, SQLModel, create_engine, Session
 
@@ -1111,6 +1113,18 @@ def _migrate_to_v43() -> None:
         )
 
 
+def _load_only_columns(*columns: object) -> ORMOption:
+    """``load_only`` over model attributes, for migration-time ORM loads.
+
+    The model classes declare every column, including ones later migrations
+    add, but a database climbing the ladder does not have those yet — a
+    full-row load crashes with "no such column" (issue #307).
+    """
+    from sqlalchemy.orm import QueryableAttribute, load_only
+
+    return load_only(*cast("tuple[QueryableAttribute[object], ...]", columns))
+
+
 def _migrate_to_v44() -> None:
     """Version 44: the ``agent_task_result_evidence`` staging table.
 
@@ -1119,6 +1133,9 @@ def _migrate_to_v44() -> None:
     table from ``create_all``; existing DBs create it here, idempotently.
     Rows are transient (deleted at finalization) — no data backfill.
     """
+    # Postgres has no DATETIME type; TIMESTAMP matches what ``create_all``
+    # emits for the model's naive ``datetime`` fields.
+    ts = "DATETIME" if is_sqlite() else "TIMESTAMP"
     with engine.begin() as conn:
         conn.exec_driver_sql(
             "CREATE TABLE IF NOT EXISTS agent_task_result_evidence ("
@@ -1136,8 +1153,8 @@ def _migrate_to_v44() -> None:
             " size_bytes INTEGER NOT NULL,"
             " sha256 VARCHAR NOT NULL,"
             " stored_size_bytes INTEGER,"
-            " created_at DATETIME NOT NULL,"
-            " ready_at DATETIME)"
+            f" created_at {ts} NOT NULL,"
+            f" ready_at {ts})"
         )
         _create_index_if_not_exists(
             conn, "ix_result_evidence_attempt", "agent_task_result_evidence", "attempt_id"
@@ -1400,7 +1417,11 @@ def _migrate_to_v47() -> None:
     processed = 0
     with Session(engine) as session:
         for run_id, project in run_refs:
-            task_run = session.get(AgentTaskRunDB, run_id)
+            task_run = session.get(
+                AgentTaskRunDB,
+                run_id,
+                options=[_load_only_columns(AgentTaskRunDB.id, AgentTaskRunDB.trace_run_id)],
+            )
             if task_run is None or not task_run.trace_run_id:
                 continue
             calls = session.exec(
@@ -1489,7 +1510,19 @@ def _migrate_to_v48() -> None:
             report = session.get(AgentTaskCheckReportDB, run_id)
             errored = _errored_count(report.value_json if report else None)
             if errored:
-                run = session.get(AgentTaskRunDB, run_id)
+                run = session.get(
+                    AgentTaskRunDB,
+                    run_id,
+                    options=[
+                        _load_only_columns(
+                            AgentTaskRunDB.id,
+                            AgentTaskRunDB.total_checks,
+                            AgentTaskRunDB.passed_checks,
+                            AgentTaskRunDB.failed_checks,
+                            AgentTaskRunDB.errored_checks,
+                        )
+                    ],
+                )
                 if run is not None:
                     run.errored_checks = errored
                     run.failed_checks = max(
@@ -1603,11 +1636,18 @@ def _migrate_to_v49() -> None:
     # past v49 (the upgrade-crash class behind issue #307). Same arithmetic
     # as ``stage_batch_rollup`` for the re-roll, so no service import drags
     # full-row ORM loads into the ladder either.
+    #
+    # ``text()`` with bound parameters, never ``exec_driver_sql``: the driver
+    # SQL path hands ``:name`` placeholders to the DBAPI verbatim, which
+    # psycopg2 rejects. Booleans are bound too — Postgres has no
+    # ``boolean = integer`` operator.
     with engine.begin() as conn:
-        run_rows = conn.exec_driver_sql(
-            "SELECT id, total_checks, errored_checks, error_message,"
-            " generation_execution_json, batch_run_id FROM agent_task_runs"
-            " WHERE status = 'failed' AND failed_checks = 0 AND errored_checks > 0"
+        run_rows = conn.execute(
+            text(
+                "SELECT id, total_checks, errored_checks, error_message,"
+                " generation_execution_json, batch_run_id FROM agent_task_runs"
+                " WHERE status = 'failed' AND failed_checks = 0 AND errored_checks > 0"
+            )
         ).fetchall()
         examined = len(run_rows)
         updated = 0
@@ -1620,9 +1660,11 @@ def _migrate_to_v49() -> None:
             )
             if rule is None:
                 continue
-            conn.exec_driver_sql(
-                "UPDATE agent_task_runs SET status = 'error', pass_result = NULL,"
-                " error_message = :message WHERE id = :run_id",
+            conn.execute(
+                text(
+                    "UPDATE agent_task_runs SET status = 'error', pass_result = NULL,"
+                    " error_message = :message WHERE id = :run_id"
+                ),
                 {
                     "message": compose_no_verdict_error_message(rule, message),
                     "run_id": run_id,
@@ -1631,11 +1673,15 @@ def _migrate_to_v49() -> None:
             batch_ids.add(batch_id)
             updated += 1
         for batch_id in batch_ids:
-            conn.exec_driver_sql(_BATCH_REROLL_SQL, {"batch_id": batch_id})
+            conn.execute(text(_BATCH_REROLL_SQL), {"batch_id": batch_id})
         cleared_judgments = (
-            conn.exec_driver_sql(
-                "UPDATE agent_task_judgments SET pass_result = NULL"
-                " WHERE pass_result = 0 AND failed_checks = 0 AND errored_checks > 0"
+            conn.execute(
+                text(
+                    "UPDATE agent_task_judgments SET pass_result = NULL"
+                    " WHERE pass_result = :false AND failed_checks = 0"
+                    " AND errored_checks > 0"
+                ),
+                {"false": False},
             ).rowcount
             or 0
         )
