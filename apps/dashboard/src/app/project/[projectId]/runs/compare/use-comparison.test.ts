@@ -47,4 +47,14 @@ describe("useComparison verdicts (issue #323)", () => {
       ),
     ).toBe(true);
   });
+
+  it("differs on errored_checks alone", () => {
+    // A snapshot frozen before errored_checks existed overlays total/passed
+    // and reads every non-passing check as failed; errored stays live. Two
+    // FAILs 2/3 differ when one of them has a judge-errored check.
+    const failed = { status: "failed", pass_result: false, no_verdict_reason: null, failed_checks: 1 };
+    expect(
+      differs(run({ id: "a", ...failed, errored_checks: 1 }), run({ id: "b", ...failed, errored_checks: 0 })),
+    ).toBe(true);
+  });
 });

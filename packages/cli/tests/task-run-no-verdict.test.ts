@@ -249,6 +249,68 @@ describe("task run no-verdict result (issue #323)", () => {
 
     expect(code).toBe(2);
     expect(out).toContain("NO VERDICT t");
+    expect(out).toContain("Could not confirm the verdict the backend recorded; showing the local verdict.");
+  });
+
+  it("says nothing about confirming when the recorded verdict was read", async () => {
+    _checks = [OK, JUDGE_ERROR];
+    recordedStatus = { status: "error", total_checks: 2, no_verdict_reason: "judge" };
+    const { out } = await runCapturing();
+
+    expect(out).not.toContain("Could not confirm");
+  });
+
+  it("follows a pre-#333 backend's FAIL but says why it disagrees with the checks", async () => {
+    _checks = [OK, JUDGE_ERROR];
+    // No `no_verdict_reason` at all: the backend predates the rule.
+    recordedStatus = { status: "failed", total_checks: 2 };
+    const { code, out } = await runCapturing();
+
+    expect(code).toBe(1);
+    expect(out).toMatch(/^FAIL t/m);
+    expect(out).toContain("Recorded as FAIL by this backend (it predates the no-verdict rule)");
+  });
+
+  it("no predates-the-rule line when the backend knows the rule and still says FAIL", async () => {
+    _checks = [OK, JUDGE_ERROR];
+    recordedStatus = { status: "failed", total_checks: 2, no_verdict_reason: null };
+    const { out } = await runCapturing();
+
+    expect(out).not.toContain("predates the no-verdict rule");
+  });
+
+  describe("a backend without no_verdict_reason (field absent)", () => {
+    it("a #149 run is an ERROR although the local checks read no verdict", async () => {
+      _checks = [OK, JUDGE_ERROR];
+      recordedStatus = {
+        status: "error",
+        total_checks: 2,
+        error_message: "17 of 22 generations ended in error. No PASS/FAIL verdict was recorded.",
+      };
+      const { code, out } = await runCapturing();
+
+      expect(code).toBe(2);
+      expect(out).toMatch(/^ERROR t/m);
+      expect(out).not.toMatch(/^NO VERDICT t/m);
+      expect(out).not.toContain("recorded this run without one");
+      expect(out).toContain("Error: 17 of 22 generations ended in error.");
+    });
+
+    it("a recorded judge no-verdict is NO VERDICT although the local checks passed", async () => {
+      _pass = true;
+      _checks = [OK];
+      recordedStatus = {
+        status: "error",
+        total_checks: 1,
+        error_message:
+          "No verdict: 1 of 1 check got no verdict from the judge (judge error or no judge configured).",
+      };
+      const { code, out } = await runCapturing();
+
+      expect(code).toBe(2);
+      expect(out).toMatch(/^NO VERDICT t/m);
+      expect(out).toContain("recorded this run without one");
+    });
   });
 
   it("hints at runs correct on a recorded run — rejudge leaves the run as is", async () => {

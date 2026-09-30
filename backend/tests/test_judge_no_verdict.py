@@ -636,15 +636,43 @@ def test_caller_message_keeps_its_leading_newlines(session: Session) -> None:
     assert caller_error_message(run) == "\n\nindented note"
 
 
-def test_no_verdict_to_pass_clears_the_caller_message(session: Session) -> None:
+def test_no_verdict_to_pass_to_clear_keeps_the_caller_message(session: Session) -> None:
+    """A corrected PASS keeps the executor's note, so a later clear restores
+    the no-verdict run with it — a correction never drops caller data."""
     batch, run = _seed(session)
     _finalize(session, run, batch, [*_passing(2), JUDGE_ERROR], error_message="adapter note")
+    assert run.error_message == f"{RULE_1_OF_3}\nadapter note"
     correct_test_result(
         session, task_run=run, project="p1", test_id="blacked-out",
         action="set_pass", reason="human verified this is correct", actor=ACTOR,
     )
-    assert run.status == "passed"
-    assert run.error_message is None
+    assert (run.status, run.error_message) == ("passed", "adapter note")
+    correct_test_result(
+        session, task_run=run, project="p1", test_id="blacked-out",
+        action="clear", reason=None, actor=ACTOR,
+    )
+    assert (run.status, run.no_verdict_reason) == ("error", "judge")
+    assert run.error_message == f"{RULE_1_OF_3}\nadapter note"
+
+
+def test_failed_to_pass_to_clear_keeps_the_caller_message(session: Session) -> None:
+    batch, run = _seed(session)
+    _finalize(
+        session, run, batch,
+        [*_passing(2), {"id": "bad", "pass": False, "reasoning": "x"}],
+        error_message="adapter note",
+    )
+    assert (run.status, run.error_message) == ("failed", "adapter note")
+    correct_test_result(
+        session, task_run=run, project="p1", test_id="bad",
+        action="set_pass", reason="human verified this is correct", actor=ACTOR,
+    )
+    assert (run.status, run.error_message) == ("passed", "adapter note")
+    correct_test_result(
+        session, task_run=run, project="p1", test_id="bad",
+        action="clear", reason=None, actor=ACTOR,
+    )
+    assert (run.status, run.error_message) == ("failed", "adapter note")
 
 
 def test_run_payloads_expose_the_reason(client: TestClient, session: Session) -> None:

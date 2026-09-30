@@ -333,9 +333,11 @@ def _derive(
         task_run.status = "passed" if passed == total and total > 0 else "failed"
         task_run.pass_result = task_run.status == "passed"
         task_run.no_verdict_reason = None
-        # A passing run carries no error (finalize's _resolve_run_error_message
-        # rule); a failing one keeps the caller's message.
-        task_run.error_message = None if task_run.pass_result else caller_message
+        # Kept on a corrected PASS too: a correction reinterprets checks, it
+        # does not retract what the executor reported, and a later clear must
+        # be able to bring the run back with it. Surfaces show it on a passed
+        # run as a note, not an error.
+        task_run.error_message = caller_message
     task_run.total_checks = total
     task_run.passed_checks = passed
     task_run.errored_checks = errored

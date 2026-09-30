@@ -23,7 +23,6 @@ export interface AgentTaskRunStats {
   last_run_passed: boolean | null;
   /** The latest run is `error` only because the judge gave no verdict (#323). */
   last_run_no_verdict?: boolean;
-  last_run_no_verdict_reason?: NoVerdictReason | null;
   total_checks: number;
   checks_pass_rate: number;
   /** Checks inside total that produced no verdict (judge error), not fails. */

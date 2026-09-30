@@ -381,6 +381,41 @@ async def test_overview_keeps_the_live_reason_on_a_snapshot_that_predates_it(
     assert summary.no_verdict_reason == "judge"
 
 
+async def test_overview_drops_the_live_reason_when_a_pre_field_snapshot_froze_another_status(
+    session: Session,
+) -> None:
+    """A pre-field snapshot froze ``failed``; the live run has since become a
+    judge no-verdict. The frozen FAIL must not wear the live ``judge`` reason."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from apo.models.db import TaskViewComparisonDB
+
+    _seed_project(session)
+    _batch(session, "ba")
+    _batch(session, "bb")
+    ra = _run(session, "ra-mix", "ba", task_id="t-mix", status="failed", pass_result=False, model="claude-sonnet")
+    ra.total_checks, ra.passed_checks, ra.failed_checks, ra.errored_checks = 3, 2, 1, 0
+    _run(session, "rb-mix", "bb", task_id="t-mix", status="passed", pass_result=True, model="gpt-4o")
+    session.commit()
+    snap = _make_comparison(session, task_ids=["t-mix"], side_a_runs={}, side_b_runs={})
+    row = session.get(TaskViewComparisonDB, snap.id)
+    assert row is not None
+    row.resolved = [
+        {k: v for k, v in cell.items() if not k.endswith("_no_verdict_reason")}
+        for cell in row.resolved
+    ]
+    flag_modified(row, "resolved")
+    ra.status, ra.pass_result, ra.no_verdict_reason = "error", None, "judge"
+    ra.failed_checks, ra.errored_checks = 0, 1
+    session.commit()
+
+    result = await get_task_view_comparison_overview(_PROJECT, snap.id, _req(), session)
+
+    summary = next(r for r in result.runs if r.id == "ra-mix")
+    assert (summary.status, summary.pass_result) == ("failed", False)
+    assert summary.no_verdict_reason is None
+
+
 async def test_overview_keeps_the_live_verdict_of_a_run_frozen_while_running(
     session: Session,
 ) -> None:

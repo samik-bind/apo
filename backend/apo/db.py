@@ -1424,14 +1424,33 @@ def _migrate_to_v47() -> None:
             )
             if task_run is None or not task_run.trace_run_id:
                 continue
+            # Only the fields the rollups read, so later columns on these
+            # tables cannot crash a climbing database (issue #307).
             calls = session.exec(
-                sqlmodel_select(LoggedCallDB).where(
+                sqlmodel_select(LoggedCallDB)
+                .options(
+                    _load_only_columns(
+                        LoggedCallDB.id,
+                        LoggedCallDB.observation_type,
+                        LoggedCallDB.latency_ms,
+                        LoggedCallDB.raw_usage,
+                    )
+                )
+                .where(
                     LoggedCallDB.run_id == task_run.trace_run_id,
                     LoggedCallDB.project == project,
                 )
             ).all()
             spans = session.exec(
-                sqlmodel_select(OtlpSpanDB).where(
+                sqlmodel_select(OtlpSpanDB)
+                .options(
+                    _load_only_columns(
+                        OtlpSpanDB.span_id,
+                        OtlpSpanDB.attributes,
+                        OtlpSpanDB.status_code,
+                    )
+                )
+                .where(
                     OtlpSpanDB.trace_id == task_run.trace_run_id,
                     OtlpSpanDB.project_id == project,
                 )
@@ -1507,7 +1526,15 @@ def _migrate_to_v48() -> None:
             sqlmodel_select(AgentTaskRunDB.id).where(col(AgentTaskRunDB.failed_checks) > 0)
         ).all()
         for run_id in run_ids:
-            report = session.get(AgentTaskCheckReportDB, run_id)
+            report = session.get(
+                AgentTaskCheckReportDB,
+                run_id,
+                options=[
+                    _load_only_columns(
+                        AgentTaskCheckReportDB.run_id, AgentTaskCheckReportDB.value_json
+                    )
+                ],
+            )
             errored = _errored_count(report.value_json if report else None)
             if errored:
                 run = session.get(
@@ -1546,7 +1573,20 @@ def _migrate_to_v48() -> None:
             sqlmodel_select(AgentTaskJudgmentDB.id).where(col(AgentTaskJudgmentDB.failed_checks) > 0)
         ).all()
         for judgment_id in judgment_ids:
-            judgment = session.get(AgentTaskJudgmentDB, judgment_id)
+            judgment = session.get(
+                AgentTaskJudgmentDB,
+                judgment_id,
+                options=[
+                    _load_only_columns(
+                        AgentTaskJudgmentDB.id,
+                        AgentTaskJudgmentDB.checks_json,
+                        AgentTaskJudgmentDB.total_checks,
+                        AgentTaskJudgmentDB.passed_checks,
+                        AgentTaskJudgmentDB.failed_checks,
+                        AgentTaskJudgmentDB.errored_checks,
+                    )
+                ],
+            )
             if judgment is None:
                 continue
             errored = _errored_count(judgment.checks_json)
@@ -1769,13 +1809,15 @@ def _migrate_to_v50() -> None:
                 effective.append({**check, "pass": action == "set_pass", "correction": True})
         return effective_verdict_counts(effective)
 
-    def active_actions(rows: list[tuple[str, str, object, str]]) -> dict[str, str]:
-        """Latest non-clear action per test, as ``_active_by_test`` decides."""
+    def active_actions(rows: list[tuple[str, str]]) -> dict[str, str]:
+        """Latest non-clear action per test, as ``_active_by_test`` decides.
+
+        ``rows`` arrive newest-first in ``load_corrections``' SQL order
+        (``created_at DESC, id DESC``), so the first row per test decides.
+        """
         active: dict[str, str] = {}
         decided: set[str] = set()
-        for test_id, action, _created_at, _row_id in sorted(
-            rows, key=lambda row: (str(row[2]), row[3]), reverse=True
-        ):
+        for test_id, action in rows:
             if test_id in decided:
                 continue
             decided.add(test_id)
@@ -1793,8 +1835,9 @@ def _migrate_to_v50() -> None:
         "SELECT run_id, value_json FROM agent_task_check_reports WHERE run_id IN :ids"
     ).bindparams(bindparam("ids", expanding=True))
     correction_select = text(
-        "SELECT task_run_id, test_id, action, created_at, id"
+        "SELECT task_run_id, test_id, action"
         " FROM agent_task_test_result_corrections WHERE task_run_id IN :ids"
+        " ORDER BY created_at DESC, id DESC"
     ).bindparams(bindparam("ids", expanding=True))
     run_update = text(
         "UPDATE agent_task_runs SET status = :status, pass_result = :pass_result,"
@@ -1826,18 +1869,16 @@ def _migrate_to_v50() -> None:
             rows = conn.execute(run_select, {"ids": ids}).fetchall()
             corrected_ids: list[str] = [row[0] for row in rows if row[7] > 0]
             reports: dict[str, object] = {}
-            corrections: dict[str, list[tuple[str, str, object, str]]] = {}
+            corrections: dict[str, list[tuple[str, str]]] = {}
             if corrected_ids:
                 for run_id, value_json in conn.execute(
                     report_select, {"ids": corrected_ids}
                 ).fetchall():
                     reports[run_id] = parsed(value_json)
-                for run_id, test_id, action, created_at, row_id in conn.execute(
+                for run_id, test_id, action in conn.execute(
                     correction_select, {"ids": corrected_ids}
                 ).fetchall():
-                    corrections.setdefault(run_id, []).append(
-                        (test_id, action, created_at, row_id)
-                    )
+                    corrections.setdefault(run_id, []).append((test_id, action))
             for (
                 run_id,
                 status,
@@ -1871,6 +1912,8 @@ def _migrate_to_v50() -> None:
                 stored_message: str = message or ""
                 head, _, caller = stored_message.partition("\n")
                 if status == "error":
+                    # Both conditions, not the message alone: an executor
+                    # error whose text mimics #149's must not read as one.
                     if dominated and " generations ended in error." in head:
                         reason = "generations"
                     elif stored_message.startswith(rule_prefix) and rule is not None:
@@ -1880,7 +1923,8 @@ def _migrate_to_v50() -> None:
                         # v49 moved a human FAIL to no verdict: restore it.
                         status = "passed" if total > 0 and passed == total else "failed"
                         pass_result = status == "passed"
-                        message = None if pass_result else (caller or None)
+                        # The caller's part survives, as it does a correction.
+                        message = caller or None
                         reason = None
                         repaired += 1
                     elif reason is None:

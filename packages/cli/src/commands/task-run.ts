@@ -7,6 +7,7 @@ import { discoverTaskMeta, findTaskMetaById } from "../lib/task-meta.ts";
 import { bold, dim, formatJson, red, runVerdict, verdictExitCode } from "../lib/format.ts";
 import type { CheckResult } from "../lib/agent-task-types.ts";
 import {
+  NO_VERDICT_MESSAGE_PREFIX,
   formatChecks,
   isNoVerdict,
   NO_CHECKS_REGISTERED_MESSAGE,
@@ -43,6 +44,12 @@ export type LocalRunSummary = {
   /** The backend recorded the run as an execution error (#149 generations,
    * #13 executor): no verdict, and not the judge's doing. Its message. */
   recordedError?: string;
+  /** The backend recorded a plain FAIL where the local checks read no
+   * verdict: it predates the judge no-verdict rule (#323). */
+  recordedFailPredatesRule?: boolean;
+  /** The recorded verdict could not be read back after the result was
+   * accepted, so the local verdict is shown. */
+  recordedVerdictUnconfirmed?: boolean;
   /** The SDK reported `noVerdict` itself — 0.8+, whose rejudge accepts a
    * no-verdict run. */
   sdkReportsNoVerdict?: boolean;
@@ -565,6 +572,19 @@ function printLocalRunSummary(summary: LocalRunSummary, taskRunId: string | null
     console.log(`\n  ${red("Error:")} ${summary.recordedError.slice(0, 500)}`);
   }
   if (noVerdict) console.log(dim(`\n  ${noVerdictHint(summary, taskRunId)}`));
+  if (summary.recordedFailPredatesRule) {
+    console.log(
+      dim(
+        "\n  Recorded as FAIL by this backend (it predates the no-verdict rule): " +
+          "the only non-passing checks above got no verdict from the judge.",
+      ),
+    );
+  }
+  if (summary.recordedVerdictUnconfirmed) {
+    console.log(
+      dim("\n  Could not confirm the verdict the backend recorded; showing the local verdict."),
+    );
+  }
 }
 
 const NO_JUDGE_CONFIGURED = "No judge model configured";
@@ -637,13 +657,26 @@ export function withRecordedVerdict(
   summary: LocalRunSummary,
   recorded: RecordedVerdict | null,
 ): LocalRunSummary {
-  if (!recorded) return summary;
+  if (!recorded) return { ...summary, recordedVerdictUnconfirmed: true };
   if (recorded.status === "passed" || recorded.status === "failed") {
-    return { ...summary, pass: recorded.status === "passed", noVerdict: false };
+    const predatesRule =
+      recorded.status === "failed" &&
+      recorded.noVerdictReason === undefined &&
+      summary.noVerdict === true;
+    return {
+      ...summary,
+      pass: recorded.status === "passed",
+      noVerdict: false,
+      ...(predatesRule ? { recordedFailPredatesRule: true } : {}),
+    };
   }
+  // A backend without the field is read by the rule's own message, as every
+  // other fallback does: the local checks can disagree with the recorded run
+  // (#149 dominated, or SDK/backend skew).
   const judge =
     recorded.noVerdictReason === "judge" ||
-    (recorded.noVerdictReason === undefined && summary.noVerdict === true);
+    (recorded.noVerdictReason === undefined &&
+      (recorded.errorMessage ?? "").startsWith(NO_VERDICT_MESSAGE_PREFIX));
   if (judge) {
     return { ...summary, pass: false, noVerdict: true, recordedNoVerdict: summary.noVerdict !== true };
   }

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   acceptsCorrections,
+  errorMessageTextClass,
+  errorMessageTone,
   generationErrorsDominate,
+  generationNoticeProps,
   isJudgeNoVerdictRun,
   isVerdictSuppressedByGenerations,
   runStatusLabel,
@@ -111,5 +114,46 @@ describe("run page verdict helpers", () => {
     expect(acceptsCorrections(noVerdict)).toBe(true);
     expect(acceptsCorrections({ ...noVerdict, error_message: "adapter crashed" })).toBe(false);
     expect(acceptsCorrections({ status: "running", pass_result: null })).toBe(false);
+  });
+});
+
+describe("error message tone", () => {
+  it("a passed run's kept executor note is a note, not an error", () => {
+    const passed = { status: "passed", pass_result: true, error_message: "adapter note" };
+    expect(errorMessageTone(passed)).toBe("note");
+    expect(errorMessageTextClass(passed)).toBe("text-muted-foreground");
+  });
+
+  it("a judge no-verdict is a warning; a failed run or executor error is an error", () => {
+    expect(errorMessageTone(noVerdict)).toBe("warning");
+    expect(errorMessageTone({ status: "failed", pass_result: false, error_message: "x" })).toBe("error");
+    expect(errorMessageTone({ ...noVerdict, no_verdict_reason: "executor" })).toBe("error");
+    expect(errorMessageTextClass({ ...noVerdict, no_verdict_reason: "executor" })).toBe("text-destructive");
+  });
+});
+
+describe("generationNoticeProps (the run page's notice wiring)", () => {
+  const base = { status: "error", pass_result: null, generation_execution: minority };
+
+  it("withheld when generations dominated (#149)", () => {
+    const run = { ...base, no_verdict_reason: "generations" as const, generation_execution: dominated };
+    expect(generationNoticeProps(run)).toEqual({ execution: dominated, verdict: "withheld" });
+  });
+
+  it("kept only when the run has a verdict", () => {
+    expect(generationNoticeProps({ ...base, status: "passed", pass_result: true }).verdict).toBe("kept");
+    expect(generationNoticeProps({ ...base, status: "failed", pass_result: false }).verdict).toBe("kept");
+  });
+
+  it("a judge no-verdict and an executor error read differently", () => {
+    expect(generationNoticeProps({ ...base, no_verdict_reason: "judge" }).verdict).toBe("judge-no-verdict");
+    expect(generationNoticeProps({ ...base, no_verdict_reason: "executor" }).verdict).toBe("execution-error");
+    expect(
+      generationNoticeProps({ ...base, no_verdict_reason: "executor", generation_execution: dominated }).verdict,
+    ).toBe("execution-error");
+  });
+
+  it("passes no execution through when the run has none", () => {
+    expect(generationNoticeProps({ status: "passed", pass_result: true }).execution).toBeNull();
   });
 });

@@ -200,4 +200,66 @@ describe("task run large-evidence recording", () => {
       "result_too_large",
     );
   });
+
+  it("reads the recorded verdict back after an out-of-band submit (#323)", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async (input: URL | Request | string, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/health")) return new Response("ok", { status: 200 });
+        if (url.includes("/agent-task-batch-runs/caller")) {
+          return mockResp(
+            {
+              batch_run_id: "b1",
+              task_run_id: "r1",
+              attempt_id: "a1",
+              lease_generation: 1,
+              lease_expires_at: "2026-01-01T00:00:00Z",
+              attempt_jwt: "jwt-1",
+              trace_endpoint: "http://backend.test",
+              trace_project: "proj-test",
+              result_max_bytes: 4096,
+              result_evidence_supported: true,
+              result_evidence_max_item_bytes: 10 * 1024 * 1024,
+              result_evidence_max_total_bytes: 512 * 1024 * 1024,
+            },
+            201,
+          );
+        }
+        if (url.endsWith("/attempts/a1/start")) return mockResp({ status: "running" });
+        if (url.endsWith("/attempts/a1/heartbeat")) return mockResp({ cancel_requested: false });
+        if (url.endsWith("/result-evidence") && init?.method === "POST") {
+          return mockResp(
+            {
+              id: "rev-1",
+              slot: "transcript",
+              status: "pending",
+              upload_url: "/v1/executor-protocol/result-evidence/rev-1",
+              upload_max_bytes: 104857600,
+            },
+            201,
+          );
+        }
+        if (url.includes("/result-evidence/rev-1")) return mockResp({ id: "rev-1", status: "ready" });
+        if (url.endsWith("/attempts/a1/result")) return mockResp({ status: "succeeded" });
+        // The backend applied the no-verdict rule the local checks missed.
+        if (url.endsWith("/v1/agent-task-runs/r1")) {
+          return mockResp({ status: "error", total_checks: 1, no_verdict_reason: "judge" });
+        }
+        return mockResp({}, 404);
+      },
+    );
+    const lines: string[] = [];
+    const log = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+      lines.push(a.join(" "));
+    });
+
+    const code = await run([
+      "caller-task", "--dir", testDir, "--backend", "http://backend.test",
+      "--project", "proj-test", "--api-key", "sk-apo-test",
+    ]);
+    log.mockRestore();
+
+    expect(code).toBe(2);
+    expect(lines.join("\n")).toContain("NO VERDICT");
+  });
 });
