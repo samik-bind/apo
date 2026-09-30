@@ -100,6 +100,19 @@ describe("runs show command", () => {
     expect(out).not.toContain("Error:");
   });
 
+  it("shows a failed run's message as an error, not a note", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(makeRun({ status: "failed", pass_result: false, error_message: "adapter crashed" })),
+    );
+    const { logs, restore } = captureLog();
+    await run([FULL_ID, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("Error:    adapter crashed");
+    expect(out).not.toContain("Note:");
+  });
+
   it("surfaces the batch id with a navigation hint", async () => {
     // Regression: the batch id must be visible so agents/users can navigate
     // from a task run to its parent batch (apo batch show <id>).

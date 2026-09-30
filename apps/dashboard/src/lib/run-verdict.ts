@@ -77,7 +77,7 @@ export function generationNoticeProps(
 ): { execution: GenerationExecutionSummary | null; verdict: GenerationNoticeVerdict } {
   const verdict: GenerationNoticeVerdict = isVerdictSuppressedByGenerations(run)
     ? "withheld"
-    : run.pass_result != null
+    : (run.status === "passed" || run.status === "failed") && run.pass_result != null
       ? "kept"
       : isJudgeNoVerdictRun(run)
         ? "judge-no-verdict"

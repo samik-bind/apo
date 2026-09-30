@@ -163,4 +163,35 @@ describe("runs list / batch show", () => {
     expect(out).toContain(RULE);
     expect(out).not.toContain("TypeError: caller note");
   });
+
+  it("batch show labels a passed run's kept message a note; a failed run's stays unlabelled", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      json({
+        id: `batch-${ID}`,
+        project: "p",
+        status: "completed",
+        total_tasks: 2,
+        passed_tasks: 1,
+        failed_tasks: 1,
+        errored_tasks: 0,
+        total_cost: null,
+        created_at: "2026-06-29T10:00:00Z",
+        started_at: null,
+        completed_at: null,
+        trigger: null,
+        task_runs: [
+          noVerdictRun({ status: "passed", pass_result: true, no_verdict_reason: null, error_message: "adapter note" }),
+          noVerdictRun({ status: "failed", pass_result: false, no_verdict_reason: null, error_message: "adapter crashed" }),
+        ],
+      }),
+    );
+    const { lines, restore } = capture();
+    await batchShow([`batch-${ID}`, "--backend", "http://backend.test"]);
+    restore();
+
+    const out = stripAnsi(lines.join("\n"));
+    expect(out).toContain("        note: adapter note");
+    expect(out).toContain("        adapter crashed");
+    expect(out).not.toContain("note: adapter crashed");
+  });
 });

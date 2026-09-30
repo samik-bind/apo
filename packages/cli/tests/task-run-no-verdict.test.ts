@@ -279,6 +279,15 @@ describe("task run no-verdict result (issue #323)", () => {
     expect(out).not.toContain("predates the no-verdict rule");
   });
 
+  it("no predates-the-rule line when a pre-#333 backend recorded PASS", async () => {
+    _checks = [OK, JUDGE_ERROR];
+    recordedStatus = { status: "passed", total_checks: 2 };
+    const { code, out } = await runCapturing();
+
+    expect(code).toBe(0);
+    expect(out).not.toContain("predates the no-verdict rule");
+  });
+
   describe("a backend without no_verdict_reason (field absent)", () => {
     it("a #149 run is an ERROR although the local checks read no verdict", async () => {
       _checks = [OK, JUDGE_ERROR];
