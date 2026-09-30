@@ -7,6 +7,7 @@ import type {
   AgentTaskSummary,
 } from "@/lib/agent-task-api";
 import type { ComparisonState } from "@/lib/agent-task-view-api";
+import { isJudgeNoVerdictRun } from "@/lib/run-verdict";
 
 /**
  * Comparison model for the batch-vs-batch compare view.
@@ -91,7 +92,9 @@ export interface ComparisonModel {
 function verdictKey(run: AgentTaskRunSummary | null): string | null {
   if (!run) return null;
   if (run.status === "running" || run.status === "pending") return run.status;
-  // Terminal: distinguish pass / fail / error by status + pass_result.
+  // Terminal: distinguish pass / fail / error by status + pass_result; a
+  // judge no-verdict (#323) is its own state, not an execution error.
+  if (isJudgeNoVerdictRun(run)) return "no_verdict";
   if (run.status === "error") return "error";
   return run.pass_result === true ? "passed" : "failed";
 }
@@ -170,6 +173,7 @@ export function useComparison(
         bothRan &&
         (left.passed_checks !== right.passed_checks ||
           left.failed_checks !== right.failed_checks ||
+          (left.errored_checks ?? 0) !== (right.errored_checks ?? 0) ||
           left.total_checks !== right.total_checks);
       const differs = Boolean(verdictDiffers || checksDiffer);
       // Expandable whenever checks exist on either side — the check reasoning

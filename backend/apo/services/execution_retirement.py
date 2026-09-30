@@ -168,6 +168,7 @@ def _roll_up_logical_run(session: Session, attempt: TaskExecutionAttemptDB, ts: 
     task_run = session.get(AgentTaskRunDB, attempt.task_run_id)
     if task_run is not None and task_run.status not in (*TASK_RUN_TERMINAL, "cancelled"):
         task_run.status = "error"
+        task_run.no_verdict_reason = "executor"
         task_run.error_message = "bundled execution retired"
         task_run.completed_at = ts
         session.add(task_run)

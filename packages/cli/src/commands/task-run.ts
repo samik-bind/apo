@@ -32,14 +32,20 @@ import {
 } from "../lib/result-submission.ts";
 import { externalizeResultEvidence, ResultEvidenceTooLargeError } from "../lib/result-evidence.ts";
 
-type LocalRunSummary = {
+export type LocalRunSummary = {
   taskId: string;
   pass: boolean;
   /** Every failing check got no verdict from the judge (issue #323). */
   noVerdict?: boolean;
-  /** The backend recorded the run with no verdict — whatever the local checks
-   * said (the #174 recovery poll found it `error`). */
+  /** The backend recorded the run as a judge no-verdict although the local
+   * checks said otherwise (version skew between SDK and backend). */
   recordedNoVerdict?: boolean;
+  /** The backend recorded the run as an execution error (#149 generations,
+   * #13 executor): no verdict, and not the judge's doing. Its message. */
+  recordedError?: string;
+  /** The SDK reported `noVerdict` itself — 0.8+, whose rejudge accepts a
+   * no-verdict run. */
+  sdkReportsNoVerdict?: boolean;
   checks: CheckResult[];
   adapterName?: string;
   traceRunId?: string;
@@ -168,8 +174,9 @@ async function runLocally(
  * the same rule to the recorded checks.
  */
 function withNoVerdict(summary: LocalRunSummary): LocalRunSummary {
-  const noVerdict = summary.noVerdict === true || isNoVerdict(summary.checks);
-  return noVerdict ? { ...summary, noVerdict: true } : summary;
+  const sdkReportsNoVerdict = summary.noVerdict === true;
+  const noVerdict = sdkReportsNoVerdict || isNoVerdict(summary.checks);
+  return noVerdict ? { ...summary, noVerdict: true, sdkReportsNoVerdict } : summary;
 }
 
 /**
@@ -416,7 +423,14 @@ async function runCallerRecorded(
           externalized.body as unknown as CallerResultBody,
           rePrepared.serialized,
         );
-        exitCode = renderRecordedResult(config, summary, jsonDeliverables, created.taskRunId, observeVerdict);
+        const recorded = await pollRunVerdict(config, created.taskRunId, 1, 0);
+        exitCode = renderRecordedResult(
+          config,
+          withRecordedVerdict(summary, recorded),
+          jsonDeliverables,
+          created.taskRunId,
+          observeVerdict,
+        );
       } catch (error) {
         if (error instanceof ResultEvidenceTooLargeError) {
           // Even out of band the result could not fit: fall through to the
@@ -440,8 +454,16 @@ async function runCallerRecorded(
     } else {
       await submitCallerResult(backendUrl, created.lease, resultBody, prepared.serialized);
       // render the result so the CLI shows PASS/FAIL + checks,
-      // just like the local and backend paths it replaced.
-      exitCode = renderRecordedResult(config, summary, jsonDeliverables, created.taskRunId, observeVerdict);
+      // just like the local and backend paths it replaced — with the
+      // verdict the backend recorded, which is authoritative (#149, #323).
+      const recorded = await pollRunVerdict(config, created.taskRunId, 1, 0);
+      exitCode = renderRecordedResult(
+        config,
+        withRecordedVerdict(summary, recorded),
+        jsonDeliverables,
+        created.taskRunId,
+        observeVerdict,
+      );
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -476,13 +498,16 @@ async function runCallerRecorded(
       console.error(dim("Checking whether the backend still recorded the run..."));
       const verdict = await pollRunVerdict(config, created.taskRunId);
       if (verdict && summary) {
-        console.error(dim(`Result recorded: run ${created.taskRunId} is ${verdict}.`));
-        // The recorded verdict is authoritative: a run the backend stored
-        // without one (#323, #149) is NO VERDICT whatever the local checks said.
-        const recorded: LocalRunSummary = verdict === "error"
-          ? { ...summary, pass: false, noVerdict: true, recordedNoVerdict: true }
-          : summary;
-        exitCode = renderRecordedResult(config, recorded, jsonDeliverables, created.taskRunId, observeVerdict);
+        console.error(dim(`Result recorded: run ${created.taskRunId} is ${verdict.status}.`));
+        // The recorded verdict is authoritative, the same mapping as a
+        // normal submit: whatever the local checks said.
+        exitCode = renderRecordedResult(
+          config,
+          withRecordedVerdict(summary, verdict),
+          jsonDeliverables,
+          created.taskRunId,
+          observeVerdict,
+        );
       } else {
         console.error(
           red(`Error: result submission outcome unknown: ${message}`) + "\n" +
@@ -522,18 +547,22 @@ async function runCallerRecorded(
 function printLocalRunSummary(summary: LocalRunSummary, taskRunId: string | null): void {
   console.log("");
   const noVerdict = summary.noVerdict === true;
-  console.log(`${runVerdict(summary.pass, noVerdict)} ${bold(summary.taskId)}`);
+  const header = summary.recordedError !== undefined ? red("ERROR") : runVerdict(summary.pass, noVerdict);
+  console.log(`${header} ${bold(summary.taskId)}`);
 
   if (summary.checks.length > 0) {
     console.log(bold("  Checks:"));
     console.log(formatChecks(summary.checks));
     const sjSummary = secondJudgeSummary(summary.checks);
     if (sjSummary) console.log(dim(`\n  ${sjSummary}`));
-  } else if (!summary.pass && !noVerdict) {
+  } else if (!summary.pass && !noVerdict && summary.recordedError === undefined) {
     // Issue #8: a failed run with zero checks is almost always a silent
     // registration bug (e.g. a double-import that wiped the check registry).
     // Don't leave the user staring at a bare FAIL — say what went wrong.
     console.log(`  ${NO_CHECKS_REGISTERED_MESSAGE}`);
+  }
+  if (summary.recordedError !== undefined) {
+    console.log(`\n  ${red("Error:")} ${summary.recordedError.slice(0, 500)}`);
   }
   if (noVerdict) console.log(dim(`\n  ${noVerdictHint(summary, taskRunId)}`));
 }
@@ -557,7 +586,14 @@ function noVerdictHint(summary: LocalRunSummary, taskRunId: string | null): stri
     ),
   );
   if (unconfigured) {
-    return "No verdict: no judge model is configured — set OPENROUTER_MODEL (or OPENAI_MODEL) and its API key, then re-run.";
+    const configure =
+      "No verdict: no judge model is configured — set OPENROUTER_MODEL (or OPENAI_MODEL) and its API key, then re-run";
+    // Re-judging a no-verdict run needs an SDK that knows the rule (0.8+);
+    // an older one refuses it, so don't offer what would fail.
+    if (taskRunId && summary.sdkReportsNoVerdict) {
+      return `${configure}, or judge this run as recorded: apo runs rejudge ${taskRunId} --judge-model <model>.`;
+    }
+    return `${configure}.`;
   }
   const base = "No verdict: the judge gave no answer for the non-passing checks.";
   if (!taskRunId) return `${base} Re-run the task.`;
@@ -586,7 +622,37 @@ function renderRecordedResult(
     console.log(`Inspect: ${dim(`apo runs show ${taskRunId}`)}`);
   }
   observeVerdict?.(summary.noVerdict === true);
+  if (summary.recordedError !== undefined) return 2;
   return verdictExitCode(summary.pass, summary.noVerdict === true);
+}
+
+/**
+ * Map the verdict the backend recorded onto the local summary — the
+ * backend is authoritative (it applies #149 and the judge no-verdict rule to
+ * the recorded checks). PASS/FAIL as recorded; a judge no-verdict is NO
+ * VERDICT; any other `error` is an execution error with its message. With
+ * no readable verdict (`null`) the local summary stands.
+ */
+export function withRecordedVerdict(
+  summary: LocalRunSummary,
+  recorded: RecordedVerdict | null,
+): LocalRunSummary {
+  if (!recorded) return summary;
+  if (recorded.status === "passed" || recorded.status === "failed") {
+    return { ...summary, pass: recorded.status === "passed", noVerdict: false };
+  }
+  const judge =
+    recorded.noVerdictReason === "judge" ||
+    (recorded.noVerdictReason === undefined && summary.noVerdict === true);
+  if (judge) {
+    return { ...summary, pass: false, noVerdict: true, recordedNoVerdict: summary.noVerdict !== true };
+  }
+  return {
+    ...summary,
+    pass: false,
+    noVerdict: false,
+    recordedError: recorded.errorMessage ?? "the run errored",
+  };
 }
 
 /**
@@ -625,7 +691,7 @@ async function finalizeResultInvalid(
     await heartbeat.stop();
     const verdict = await pollRunVerdict(config, created.taskRunId);
     if (verdict) {
-      console.error(dim(`Result recorded: run ${created.taskRunId} is ${verdict}.`));
+      console.error(dim(`Result recorded: run ${created.taskRunId} is ${verdict.status}.`));
     } else {
       console.error(
         red(`Error: outcome uncertain after result rejection: ${reportMessage}`),
@@ -635,36 +701,56 @@ async function finalizeResultInvalid(
   }
 }
 
+/** The verdict the backend recorded for a run. `noVerdictReason` is
+ * `undefined` when the backend predates the field. */
+export type RecordedVerdict = {
+  status: "passed" | "failed" | "error";
+  noVerdictReason: "judge" | "generations" | "executor" | null | undefined;
+  errorMessage: string | null;
+};
+
 /**
- * Issue #174: after a failed result submission, poll the run's authoritative
- * state. A terminal ``passed``/``failed`` verdict means the backend committed
- * the result even though the transport gave up on it — the run is safe and
- * the CLI can report the verdict instead of exiting "outcome unknown".
- * Returns the terminal status, or null while the run is still undecided.
- * An ``error`` run that carries checks got our result and landed without a
- * verdict (a judge that never answered, issue #323).
+ * Read the run's authoritative recorded verdict — once right after a result
+ * was accepted, or (issue #174) polled after a failed submission: a terminal
+ * ``passed``/``failed`` verdict means the backend committed the result even
+ * though the transport gave up on it. Returns null while the run is still
+ * undecided. An ``error`` run landed with our result when it carries checks
+ * or a result-derived no-verdict reason (#323 judge, #149 generations);
+ * otherwise the result never landed.
  */
 export async function pollRunVerdict(
   config: Config,
   taskRunId: string,
   attempts: number = 5,
   intervalMs: number = 2_000,
-): Promise<"passed" | "failed" | "error" | null> {
+): Promise<RecordedVerdict | null> {
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      const run = await apiGet<{ status: string; total_checks?: number }>(
+      const run = await apiGet<{
+        status: string;
+        total_checks?: number;
+        no_verdict_reason?: RecordedVerdict["noVerdictReason"];
+        error_message?: string | null;
+      }>(
         config.backendUrl,
         `/v1/agent-task-runs/${encodeURIComponent(taskRunId)}`,
         undefined,
         config,
       );
+      const recorded = (status: RecordedVerdict["status"]): RecordedVerdict => ({
+        status,
+        noVerdictReason: run.no_verdict_reason,
+        errorMessage: run.error_message ?? null,
+      });
       if (run.status === "passed" || run.status === "failed") {
-        return run.status;
+        return recorded(run.status);
       }
       if (run.status === "error") {
-        // Checks are only persisted from a result: with them, it landed as
-        // no verdict; without them, the result never landed.
-        return (run.total_checks ?? 0) > 0 ? "error" : null;
+        const landed =
+          (run.total_checks ?? 0) > 0 ||
+          run.no_verdict_reason === "judge" ||
+          run.no_verdict_reason === "generations";
+        return landed ? recorded("error") : null;
       }
     } catch {
       // An unreachable or flaky run endpoint is not evidence about the

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateResult } from "../src/agent-task/run/aggregate.ts";
+import { aggregateResult, checkOutcome } from "../src/agent-task/run/aggregate.ts";
 import type { EvaluationItemResult } from "../src/agent-task/run/types.ts";
 
 // Issue #323: a run whose only failing checks got no answer from the judge
@@ -52,6 +52,44 @@ describe("aggregateResult no-verdict rule", () => {
       assertions: [{ id: "shape", pass: false, reasoning: "missing field" }],
     };
     expect(aggregateResult([genuine]).noVerdict).toBeUndefined();
+  });
+
+  it("rolls unsupported-only assertions up to unsupported — a FAIL, not no verdict", () => {
+    const unsupportedOnly: EvaluationItemResult = {
+      id: "timing",
+      pass: false,
+      reasoning: "no timing evidence",
+      assertions: [{ id: "t", pass: false, reasoning: "no timing", outcome: "unsupported" }],
+    };
+    expect(checkOutcome(unsupportedOnly)).toBe("unsupported");
+    expect(aggregateResult([unsupportedOnly]).noVerdict).toBeUndefined();
+  });
+
+  it("a genuine failing assertion beside a judge error keeps the check a genuine FAIL", () => {
+    const mixed: EvaluationItemResult = {
+      id: "memo",
+      pass: false,
+      reasoning: "missing; judge failed",
+      assertions: [
+        { id: "shape", pass: false, reasoning: "missing field" },
+        { id: "judge", pass: false, reasoning: "judge failed", outcome: "error" },
+      ],
+    };
+    expect(checkOutcome(mixed)).toBeUndefined();
+    expect(aggregateResult([mixed]).noVerdict).toBeUndefined();
+  });
+
+  it("a failing check whose assertions all pass is a genuine FAIL, whatever its outcome", () => {
+    // Same as the backend: failed with no failing assertion → no outcome.
+    const odd: EvaluationItemResult = {
+      id: "memo",
+      pass: false,
+      reasoning: "check body threw after its assertions",
+      outcome: "error",
+      assertions: [{ id: "a", pass: true, reasoning: "ok" }],
+    };
+    expect(checkOutcome(odd)).toBeUndefined();
+    expect(aggregateResult([odd]).noVerdict).toBeUndefined();
   });
 
   it("leaves passing and empty runs alone", () => {

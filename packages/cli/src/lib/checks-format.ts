@@ -245,26 +245,44 @@ export function isNoVerdict(
 
 /**
  * A recorded run with no verdict only because the judge gave none for its
- * non-passing checks (issue #323). The backend stamps such a run's message
- * with the rule's own "No verdict:" text — an adapter crash or a
- * generation-dominated run (#149) is an `error` run too, but never that.
+ * non-passing checks (issue #323), read from the backend's structured
+ * `no_verdict_reason` — an adapter crash (`executor`) or a
+ * generation-dominated run (`generations`, #149) is an `error` run too.
  */
-export function isJudgeNoVerdictRun(run: {
+export function isJudgeNoVerdictRun(run: RunVerdictFields): boolean {
+  if (run.status !== "error" || run.pass_result !== null) return false;
+  if (run.no_verdict_reason !== undefined) return run.no_verdict_reason === "judge";
+  // Fallback for a backend that predates `no_verdict_reason` (the unreleased
+  // builds that first shipped the rule): its message and counts.
+  const generations = run.generation_execution;
+  const generationsDominate =
+    generations != null && generations.total > 0 && generations.errored * 2 > generations.total;
+  return (
+    (run.failed_checks ?? 0) === 0 &&
+    (run.errored_checks ?? 0) > 0 &&
+    (run.error_message ?? "").startsWith("No verdict: ") &&
+    !generationsDominate
+  );
+}
+
+/** The run fields the verdict helpers read (run list/detail/batch payloads). */
+export type RunVerdictFields = {
   status: string;
   pass_result: boolean | null;
+  /** Why an `error` run has no verdict; absent on backends that predate it. */
+  no_verdict_reason?: "judge" | "generations" | "executor" | null;
   total_checks?: number;
   failed_checks?: number;
   errored_checks?: number;
   error_message?: string | null;
-}): boolean {
-  return (
-    run.status === "error" &&
-    run.pass_result === null &&
-    (run.total_checks ?? 0) > 0 &&
-    (run.failed_checks ?? 0) === 0 &&
-    (run.errored_checks ?? 0) > 0 &&
-    (run.error_message ?? "").startsWith("No verdict: ")
-  );
+  generation_execution?: { total: number; errored: number } | null;
+};
+
+/** A recorded run's Result cell: PASS / FAIL, NO VERDICT for a judge
+ * no-verdict run, `-` otherwise (live runs, execution errors). */
+export function formatRunResult(run: RunVerdictFields): string {
+  if (run.pass_result === true || run.pass_result === false) return passFail(run.pass_result);
+  return isJudgeNoVerdictRun(run) ? yellow("NO VERDICT") : "-";
 }
 
 /**

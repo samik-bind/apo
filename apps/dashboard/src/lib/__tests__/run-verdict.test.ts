@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   acceptsCorrections,
+  generationErrorsDominate,
   isJudgeNoVerdictRun,
   isVerdictSuppressedByGenerations,
   runStatusLabel,
+  showsErrorBanner,
 } from "@/lib/run-verdict";
 
 // Issue #323: the run page reads a judge no-verdict run as "No verdict" and
@@ -45,6 +47,51 @@ describe("isJudgeNoVerdictRun", () => {
   it("rejects a generation-dominated run (#149), not a recovered minority", () => {
     expect(isJudgeNoVerdictRun({ ...noVerdict, generation_execution: dominated })).toBe(false);
     expect(isJudgeNoVerdictRun({ ...noVerdict, generation_execution: minority })).toBe(true);
+  });
+});
+
+describe("structured no_verdict_reason (issue #323)", () => {
+  const base = { status: "error", pass_result: null, failed_checks: 0, errored_checks: 1 };
+
+  it("reads the reason, never the message, when the backend sends it", () => {
+    expect(isJudgeNoVerdictRun({ ...base, no_verdict_reason: "judge", error_message: "reworded" })).toBe(true);
+    expect(isJudgeNoVerdictRun({ ...base, no_verdict_reason: "executor", error_message: noVerdict.error_message })).toBe(false);
+    expect(isJudgeNoVerdictRun({ ...base, no_verdict_reason: null, error_message: noVerdict.error_message })).toBe(false);
+  });
+
+  it("falls back to the exact 'No verdict: ' prefix only without the field", () => {
+    expect(isJudgeNoVerdictRun({ ...base, error_message: "No verdict: 1 of 2 …" })).toBe(true);
+    expect(isJudgeNoVerdictRun({ ...base, error_message: "No verdicts were needed" })).toBe(false);
+  });
+
+  it("suppresses by the reason: an executor error with dominated generations keeps its banner", () => {
+    const crash = {
+      ...base,
+      no_verdict_reason: "executor" as const,
+      error_message: "adapter crashed",
+      generation_execution: dominated,
+    };
+    expect(isVerdictSuppressedByGenerations(crash)).toBe(false);
+    expect(showsErrorBanner(crash)).toBe(true);
+    const gens = { ...crash, no_verdict_reason: "generations" as const, error_message: "3 of 4" };
+    expect(isVerdictSuppressedByGenerations(gens)).toBe(true);
+    expect(showsErrorBanner(gens)).toBe(false);
+  });
+
+  it("shows the judge no-verdict banner beside a minority of errored generations", () => {
+    expect(showsErrorBanner({ ...noVerdict, generation_execution: minority })).toBe(true);
+    expect(showsErrorBanner({ ...noVerdict, error_message: null })).toBe(false);
+  });
+
+  it("only an error run has its verdict suppressed by generations", () => {
+    const live = { status: "running", pass_result: null, generation_execution: dominated };
+    expect(isVerdictSuppressedByGenerations(live)).toBe(false);
+    expect(isVerdictSuppressedByGenerations({ ...live, status: "error" })).toBe(true);
+  });
+
+  it("dominance is a strict majority: half errored does not dominate", () => {
+    expect(generationErrorsDominate({ total: 4, errored: 2, error_finish_reasons: {} })).toBe(false);
+    expect(generationErrorsDominate({ total: 4, errored: 3, error_finish_reasons: {} })).toBe(true);
   });
 });
 

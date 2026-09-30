@@ -523,6 +523,11 @@ class AgentTaskRunDB(SQLModel, table=True):
     # default mirrors the v48 migration's column add so raw-SQL writers see
     # the same 0 the ORM default produces.
     errored_checks: int = Field(default=0, sa_column_kwargs={"server_default": text("0")})
+    # Why an ``error`` run has no PASS/FAIL verdict (issue #323): ``judge``
+    # (only judge-errored checks left non-passing), ``generations`` (#149)
+    # or ``executor`` (#13). NULL on runs with a verdict. The structured
+    # discriminator every consumer reads; ``error_message`` is display-only.
+    no_verdict_reason: str | None = None
     transcript_json: dict[str, object] | None = Field(
         default=None, sa_column=Column("transcript_json", JSON)
     )

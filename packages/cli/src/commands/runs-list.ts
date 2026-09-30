@@ -4,6 +4,7 @@ import { dim, formatCost, formatJson, formatTable, formatTime } from "../lib/for
 import { apiGet } from "../lib/api.ts";
 import { highlightIds } from "../lib/prefix.ts";
 import { reportCommandError } from "../lib/command-error.ts";
+import { formatRunResult } from "../lib/checks-format.ts";
 
 type RunConfiguration = { model: string; effort?: string | null } | null;
 
@@ -20,6 +21,9 @@ type RunSummary = {
   total_checks: number;
   passed_checks: number;
   failed_checks: number;
+  errored_checks?: number;
+  error_message?: string | null;
+  no_verdict_reason?: "judge" | "generations" | "executor" | null;
   adapter_name: string;
   run_configuration?: RunConfiguration;
   generation_execution?: {
@@ -90,7 +94,7 @@ export async function run(argv: string[]): Promise<number> {
     r.task_id,
     r.batch_run_id.slice(0, 8),
     r.status,
-    r.pass_result === null ? "-" : r.pass_result ? "PASS" : "FAIL",
+    formatRunResult(r),
     formatGenerationExecution(r.generation_execution),
     formatExecution(r.run_configuration),
     formatRunCost(r),

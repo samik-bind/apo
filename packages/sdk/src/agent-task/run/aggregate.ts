@@ -44,7 +44,7 @@ export function isNoVerdict(checksResults: EvaluationItemResult[]): boolean {
  * are any (every one must lack a verdict; `"error"` wins over
  * `"unsupported"`), else the check-level `outcome`.
  */
-function checkOutcome(check: EvaluationItemResult): EvaluationItemResult["outcome"] {
+export function checkOutcome(check: EvaluationItemResult): EvaluationItemResult["outcome"] {
   if (check.pass) return undefined;
   const assertions = check.assertions;
   if (assertions && assertions.length > 0) {

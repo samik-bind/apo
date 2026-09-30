@@ -24,6 +24,7 @@ import {
   isJudgeNoVerdictRun,
   isVerdictSuppressedByGenerations,
   runStatusLabel,
+  showsErrorBanner,
 } from "@/lib/run-verdict";
 import { TriggerInline } from "@/components/trigger-badge";
 import { DeleteRunButton } from "@/components/runs/DeleteRunButton";
@@ -406,10 +407,11 @@ export default async function TaskRunDetailPage({
         <GenerationExecutionNotice
           execution={taskRun.generation_execution ?? null}
           verdictSuppressed={verdictSuppressed}
+          verdictKept={taskRun.pass_result != null}
         />
 
         {/* Error banner */}
-        {taskRun.error_message && !verdictSuppressed && (
+        {showsErrorBanner(taskRun) && taskRun.error_message && (
           <div
             className={cn(
               "mx-6 mt-4 border px-4 py-3 text-[13px]",

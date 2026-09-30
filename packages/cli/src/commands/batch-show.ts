@@ -1,9 +1,10 @@
 import { parseArgs, requirePositional } from "../lib/args.ts";
 import { resolveConfig } from "../lib/config.ts";
-import { bold, dim, formatCost, formatDuration, formatJson, formatTime, passFail } from "../lib/format.ts";
+import { bold, dim, formatCost, formatDuration, formatJson, formatTime } from "../lib/format.ts";
 import { apiGet } from "../lib/api.ts";
 import { resolveBatchId } from "../lib/batch-resolve.ts";
 import { reportCommandError } from "../lib/command-error.ts";
+import { formatRunResult, isJudgeNoVerdictRun } from "../lib/checks-format.ts";
 
 type TaskRunSummary = {
   id: string;
@@ -20,6 +21,8 @@ type TaskRunSummary = {
   total_checks: number;
   passed_checks: number;
   failed_checks: number;
+  errored_checks?: number;
+  no_verdict_reason?: "judge" | "generations" | "executor" | null;
 };
 
 type BatchDetail = {
@@ -114,7 +117,7 @@ function printBatchDetail(batch: BatchDetail): void {
   if (batch.task_runs.length > 0) {
     console.log(bold("\n  Task Runs:"));
     for (const tr of batch.task_runs) {
-      const result = tr.pass_result === null ? "-" : passFail(tr.pass_result);
+      const result = formatRunResult(tr);
       const cost = tr.total_cost != null ? dim(` ${formatCost(tr.total_cost)}`) : "";
       const duration = formatDuration(tr.started_at, tr.completed_at);
       const adapter = tr.adapter_name ? dim(` [${tr.adapter_name}]`) : "";
@@ -126,7 +129,10 @@ function printBatchDetail(batch: BatchDetail): void {
       if (tr.trace_run_id) {
         console.log(dim(`        trace: ${tr.trace_run_id}`));
       }
-      if (tr.error_message) {
+      if (tr.error_message && isJudgeNoVerdictRun(tr)) {
+        // The rule's own line says why; a caller's note follows it.
+        console.log(dim(`        ${tr.error_message.split("\n")[0]!.slice(0, 200)}`));
+      } else if (tr.error_message) {
         const lines = tr.error_message.split("\n").map((l) => l.trim()).filter(Boolean);
         const errorLine = lines.find((l) =>
           /^[\w ]*Error\b.*:/.test(l) && !l.startsWith("at ") && !l.startsWith("node:")

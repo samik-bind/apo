@@ -16,6 +16,7 @@ import {
 } from "@/lib/agent-task-api";
 import { loadCheckSource, type DefinitionRef } from "@/lib/load-check-source";
 import type { TaskComparisonEvidenceLoader } from "@/lib/agent-task-view-api";
+import { isJudgeNoVerdictRun } from "@/lib/run-verdict";
 import { cn } from "@/lib/utils";
 import { formatDuration, formatInterval, runDurationMs, formatCostMicro, formatTokenTotal, tokenFormat } from "@/lib/format";
 import { extractJudgeReasoning } from "@/lib/judge-reasoning";
@@ -187,14 +188,17 @@ function ChecksCell({
   const verdict = runVerdict(run);
   const hasChecks = run.total_checks > 0;
   const passedChecks = run.passed_checks ?? 0;
-  const failedChecks = Math.max(0, run.total_checks - passedChecks);
+  // Judge-errored checks are unknown, not failed (#323): their own segment.
+  const erroredChecks = run.errored_checks ?? 0;
+  const failedChecks = Math.max(0, run.total_checks - passedChecks - erroredChecks);
   const passedPct = hasChecks ? (passedChecks / run.total_checks) * 100 : 0;
   const failedPct = hasChecks ? (failedChecks / run.total_checks) * 100 : 0;
+  const erroredPct = hasChecks ? (erroredChecks / run.total_checks) * 100 : 0;
 
   const dotColor =
     verdict === "running"
       ? "bg-foreground/40"
-      : verdict === "errored"
+      : verdict === "errored" || verdict === "no_verdict"
         ? "bg-warning"
         : verdict === "passed"
           ? "bg-success"
@@ -202,7 +206,7 @@ function ChecksCell({
   const countColor =
     verdict === "running"
       ? "text-muted-foreground"
-      : verdict === "errored"
+      : verdict === "errored" || verdict === "no_verdict"
         ? "text-warning"
         : verdict === "passed"
           ? "text-success"
@@ -239,6 +243,13 @@ function ChecksCell({
               style={{ width: `${failedPct}%` }}
             />
           )}
+          {erroredChecks > 0 && (
+            <div
+              data-testid="checks-bar-errored"
+              className="h-full min-w-[3px] bg-warning"
+              style={{ width: `${erroredPct}%` }}
+            />
+          )}
         </div>
       )}
       <span
@@ -249,6 +260,7 @@ function ChecksCell({
         )}
       >
         {hideCount || !hasChecks ? "" : `${passedChecks}/${run.total_checks}`}
+        {!hideCount && verdict === "no_verdict" && <span className="ml-1.5 font-sans">No verdict</span>}
         {!hideCount && hasChecks && delta !== undefined && delta !== 0 && (
           <span className={cn("ml-1", delta > 0 ? "text-success" : "text-destructive")}>
             ({delta > 0 ? "+" : "−"}
@@ -260,13 +272,14 @@ function ChecksCell({
   );
 }
 
-type RunVerdict = "running" | "errored" | "passed" | "failed";
+type RunVerdict = "running" | "errored" | "no_verdict" | "passed" | "failed";
 
 /** Task-level verdict for the cell colour. `pass_result` is the recorded
  *  verdict; when it is missing we fall back to "every check passed" so a run
  *  with checks still gets a colour. */
 function runVerdict(run: AgentTaskRunDetail | AgentTaskRunSummary): RunVerdict {
   if (run.status === "running" || run.status === "pending") return "running";
+  if (isJudgeNoVerdictRun(run)) return "no_verdict";
   if (run.status === "error") return "errored";
   if (run.pass_result !== null && run.pass_result !== undefined) {
     return run.pass_result ? "passed" : "failed";

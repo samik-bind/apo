@@ -35,6 +35,7 @@ from ..models import (
 )
 from ..models.db import TaskExecutionAttemptDB
 from ..models.schemas import (
+    as_no_verdict_reason,
     as_task_run_status,
     as_trace_persistence_status,
 )
@@ -228,6 +229,7 @@ def _build_task_run_detail(
         passed_checks=task_run.passed_checks,
         failed_checks=task_run.failed_checks,
         errored_checks=task_run.errored_checks,
+        no_verdict_reason=as_no_verdict_reason(task_run.no_verdict_reason),
         corrected_tests=task_run.corrected_tests,
         trigger=trigger,
         # Current surfaces show the effective projection —

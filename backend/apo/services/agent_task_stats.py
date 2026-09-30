@@ -35,7 +35,13 @@ from ..models.columns import (
     AGENT_TASK_RUN_CONFIGURED_MODEL_COL,
 )
 from ..models.db import AgentTaskBatchRunDB
-from ..models.schemas import AgentTaskRunStats, RunConfigEffortFacet, RunConfigModelFacet, TaskViewConfig
+from ..models.schemas import (
+    AgentTaskRunStats,
+    RunConfigEffortFacet,
+    RunConfigModelFacet,
+    TaskViewConfig,
+    as_no_verdict_reason,
+)
 from .archived_models import load_archived_models
 from .check_report_storage import is_judge_no_verdict_run
 from .view_runs import runs_in_view
@@ -64,6 +70,7 @@ class RunStatFields:
     # An ``error`` run with no verdict only because the judge gave none
     # (issue #323) — told apart from an execution error on the Tasks page.
     judge_no_verdict: bool = False
+    no_verdict_reason: str | None = None
 
 
 def compute_run_stats(runs: Sequence[RunStatFields]) -> AgentTaskRunStats:
@@ -105,6 +112,7 @@ def compute_run_stats(runs: Sequence[RunStatFields]) -> AgentTaskRunStats:
         last_run_status=latest.status if latest else None,
         last_run_passed=latest.pass_result if latest else None,
         last_run_no_verdict=latest.judge_no_verdict if latest else False,
+        last_run_no_verdict_reason=as_no_verdict_reason(latest.no_verdict_reason if latest else None),
         total_checks=total_checks,
         checks_pass_rate=round(passed_checks / total_checks, 2)
         if total_checks > 0
@@ -154,6 +162,7 @@ def load_run_stat_fields(
                 passed_checks=run.passed_checks,
                 errored_checks=run.errored_checks,
                 judge_no_verdict=is_judge_no_verdict_run(run),
+                no_verdict_reason=run.no_verdict_reason,
             )
         )
     return grouped

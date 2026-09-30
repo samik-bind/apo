@@ -1529,6 +1529,36 @@ def _migrate_to_v48() -> None:
     logger.info("Schema v48: %d judgments examined", len(judgment_ids))
 
 
+# Batch roll-up from its runs in column-limited SQL — the same arithmetic as
+# ``stage_batch_rollup`` without full-row ORM loads, which a database still
+# climbing the migration ladder cannot serve (issue #307).
+_BATCH_REROLL_SQL = """
+UPDATE agent_task_batch_runs SET
+  total_tasks = (
+    SELECT COUNT(*) FROM agent_task_runs r
+    WHERE r.batch_run_id = agent_task_batch_runs.id),
+  passed_tasks = (
+    SELECT COUNT(*) FROM agent_task_runs r
+    WHERE r.batch_run_id = agent_task_batch_runs.id
+      AND r.status = 'passed'),
+  failed_tasks = (
+    SELECT COUNT(*) FROM agent_task_runs r
+    WHERE r.batch_run_id = agent_task_batch_runs.id
+      AND r.status = 'failed'),
+  errored_tasks = (
+    SELECT COUNT(*) FROM agent_task_runs r
+    WHERE r.batch_run_id = agent_task_batch_runs.id
+      AND r.status = 'error'),
+  total_checks = (
+    SELECT COALESCE(SUM(r.total_checks), 0) FROM agent_task_runs r
+    WHERE r.batch_run_id = agent_task_batch_runs.id),
+  passed_checks = (
+    SELECT COALESCE(SUM(r.passed_checks), 0) FROM agent_task_runs r
+    WHERE r.batch_run_id = agent_task_batch_runs.id)
+WHERE id = :batch_id
+"""
+
+
 def _migrate_to_v49() -> None:
     """Version 49 (issue #323): the run-level no-verdict rule on old rows.
 
@@ -1601,34 +1631,7 @@ def _migrate_to_v49() -> None:
             batch_ids.add(batch_id)
             updated += 1
         for batch_id in batch_ids:
-            conn.exec_driver_sql(
-                """
-                UPDATE agent_task_batch_runs SET
-                  total_tasks = (
-                    SELECT COUNT(*) FROM agent_task_runs r
-                    WHERE r.batch_run_id = agent_task_batch_runs.id),
-                  passed_tasks = (
-                    SELECT COUNT(*) FROM agent_task_runs r
-                    WHERE r.batch_run_id = agent_task_batch_runs.id
-                      AND r.status = 'passed'),
-                  failed_tasks = (
-                    SELECT COUNT(*) FROM agent_task_runs r
-                    WHERE r.batch_run_id = agent_task_batch_runs.id
-                      AND r.status = 'failed'),
-                  errored_tasks = (
-                    SELECT COUNT(*) FROM agent_task_runs r
-                    WHERE r.batch_run_id = agent_task_batch_runs.id
-                      AND r.status = 'error'),
-                  total_checks = (
-                    SELECT COALESCE(SUM(r.total_checks), 0) FROM agent_task_runs r
-                    WHERE r.batch_run_id = agent_task_batch_runs.id),
-                  passed_checks = (
-                    SELECT COALESCE(SUM(r.passed_checks), 0) FROM agent_task_runs r
-                    WHERE r.batch_run_id = agent_task_batch_runs.id)
-                WHERE id = :batch_id
-                """,
-                {"batch_id": batch_id},
-            )
+            conn.exec_driver_sql(_BATCH_REROLL_SQL, {"batch_id": batch_id})
         cleared_judgments = (
             conn.exec_driver_sql(
                 "UPDATE agent_task_judgments SET pass_result = NULL"
@@ -1642,6 +1645,236 @@ def _migrate_to_v49() -> None:
         examined,
         updated,
         cleared_judgments,
+    )
+
+
+def _migrate_to_v50() -> None:
+    """Version 50 (issue #323): the structured ``no_verdict_reason``.
+
+    Adds ``agent_task_runs.no_verdict_reason`` — why an ``error`` run has no
+    verdict (``judge`` / ``generations`` / ``executor``), the discriminator
+    every consumer reads instead of ``error_message`` text — and backfills it.
+    The message is read here once to adopt old rows; nothing reads it for
+    decisions afterwards.
+
+    - Runs with corrections get their scalars recounted from the effective
+      report (:func:`effective_verdict_counts`). v48 counted a check a human
+      corrected as still errored, so a human ``set_fail`` on a judge-errored
+      check read ``failed_checks = 0``, and v49 then moved that FAILED run to
+      no verdict. Such a run is repaired: status ``failed``, ``pass_result``
+      False, the rule's message dropped, no reason.
+    - ``error`` runs get ``generations`` when #149 applied (dominated, under
+      #149's own message — finalize puts an executor error first); ``judge``
+      when the rule holds and the message is a no-verdict message, rewritten
+      in the current wording; otherwise ``executor`` — every other writer of
+      ``error`` is an execution failure (#13, a lease failure, a retired
+      execution).
+    - ``failed`` runs the rule applies to (and not generation-dominated) move
+      to no verdict as finalization would — v49's rule, re-applied after the
+      recount.
+
+    Column-limited SQL only, like v49: a database climbing the ladder lacks
+    columns later migrations add (issue #307). Resumable: ids are selected up
+    front, rows processed and committed in chunks of 100, the version stamp
+    written only after the full pass; re-processing a row is a no-op. Safe on
+    a database v49 already migrated — that is the case it exists for.
+    """
+    import json
+    import logging
+    from typing import cast
+
+    from sqlalchemy import bindparam, text
+
+    from .services.check_report_storage import (
+        compose_no_verdict_error_message,
+        generation_errors_dominate,
+        judge_no_verdict_message,
+    )
+    from .services.test_result_corrections import effective_verdict_counts
+
+    logger = logging.getLogger(__name__)
+    chunk = 100
+    rule_prefix = "No verdict: "
+
+    def parsed(raw: object) -> object:
+        # SQLite hands back JSON columns as text; postgres as decoded values.
+        if isinstance(raw, (str, bytes)):
+            try:
+                return cast("object", json.loads(raw))
+            except (TypeError, ValueError):
+                return None
+        return raw
+
+    def effective_counts(
+        report: object, actions: dict[str, str]
+    ) -> tuple[int, int, int, int] | None:
+        if not isinstance(report, list):
+            return None
+        effective: list[dict[str, object]] = []
+        for raw_check in cast("list[object]", report):
+            if not isinstance(raw_check, dict):
+                continue
+            check = cast("dict[str, object]", raw_check)
+            test_id = check.get("id")
+            action = actions.get(test_id) if isinstance(test_id, str) else None
+            if action is None:
+                effective.append(check)
+            else:
+                effective.append({**check, "pass": action == "set_pass", "correction": True})
+        return effective_verdict_counts(effective)
+
+    def active_actions(rows: list[tuple[str, str, object, str]]) -> dict[str, str]:
+        """Latest non-clear action per test, as ``_active_by_test`` decides."""
+        active: dict[str, str] = {}
+        decided: set[str] = set()
+        for test_id, action, _created_at, _row_id in sorted(
+            rows, key=lambda row: (str(row[2]), row[3]), reverse=True
+        ):
+            if test_id in decided:
+                continue
+            decided.add(test_id)
+            if action != "clear":
+                active[test_id] = action
+        return active
+
+    run_select = text(
+        "SELECT id, status, pass_result, total_checks, passed_checks, failed_checks,"
+        " errored_checks, corrected_tests, error_message, no_verdict_reason,"
+        " generation_execution_json, batch_run_id FROM agent_task_runs"
+        " WHERE id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    report_select = text(
+        "SELECT run_id, value_json FROM agent_task_check_reports WHERE run_id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    correction_select = text(
+        "SELECT task_run_id, test_id, action, created_at, id"
+        " FROM agent_task_test_result_corrections WHERE task_run_id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    run_update = text(
+        "UPDATE agent_task_runs SET status = :status, pass_result = :pass_result,"
+        " total_checks = :total, passed_checks = :passed, failed_checks = :failed,"
+        " errored_checks = :errored, error_message = :message,"
+        " no_verdict_reason = :reason WHERE id = :run_id"
+    )
+
+    with engine.begin() as conn:
+        _add_column_if_missing(conn, "agent_task_runs", "no_verdict_reason", "VARCHAR")
+        run_ids: list[str] = [
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT id FROM agent_task_runs WHERE status = 'error'"
+                    " OR corrected_tests > 0"
+                    " OR (status = 'failed' AND failed_checks = 0 AND errored_checks > 0)"
+                    " ORDER BY id"
+                )
+            ).fetchall()
+        ]
+
+    changed_verdicts = 0
+    repaired = 0
+    batch_ids: set[str] = set()
+    for offset in range(0, len(run_ids), chunk):
+        ids = run_ids[offset : offset + chunk]
+        with engine.begin() as conn:
+            rows = conn.execute(run_select, {"ids": ids}).fetchall()
+            corrected_ids: list[str] = [row[0] for row in rows if row[7] > 0]
+            reports: dict[str, object] = {}
+            corrections: dict[str, list[tuple[str, str, object, str]]] = {}
+            if corrected_ids:
+                for run_id, value_json in conn.execute(
+                    report_select, {"ids": corrected_ids}
+                ).fetchall():
+                    reports[run_id] = parsed(value_json)
+                for run_id, test_id, action, created_at, row_id in conn.execute(
+                    correction_select, {"ids": corrected_ids}
+                ).fetchall():
+                    corrections.setdefault(run_id, []).append(
+                        (test_id, action, created_at, row_id)
+                    )
+            for (
+                run_id,
+                status,
+                pass_result,
+                total,
+                passed,
+                failed,
+                errored,
+                corrected,
+                message,
+                reason,
+                generations_raw,
+                batch_id,
+            ) in rows:
+                before = (status, pass_result, total, passed, failed, errored, message, reason)
+                if corrected > 0:
+                    counts = effective_counts(
+                        reports.get(run_id), active_actions(corrections.get(run_id, []))
+                    )
+                    if counts is not None:
+                        total, passed, failed, errored = counts
+                rule = judge_no_verdict_message(
+                    total_checks=total, failed_checks=failed, errored_checks=errored
+                )
+                generations = parsed(generations_raw)
+                dominated = generation_errors_dominate(
+                    cast("dict[str, object]", generations)
+                    if isinstance(generations, dict)
+                    else None
+                )
+                stored_message: str = message or ""
+                head, _, caller = stored_message.partition("\n")
+                if status == "error":
+                    if dominated and " generations ended in error." in head:
+                        reason = "generations"
+                    elif stored_message.startswith(rule_prefix) and rule is not None:
+                        reason = "judge"
+                        message = compose_no_verdict_error_message(rule, caller or None)
+                    elif stored_message.startswith(rule_prefix) and corrected > 0:
+                        # v49 moved a human FAIL to no verdict: restore it.
+                        status = "passed" if total > 0 and passed == total else "failed"
+                        pass_result = status == "passed"
+                        message = None if pass_result else (caller or None)
+                        reason = None
+                        repaired += 1
+                    elif reason is None:
+                        reason = "executor"
+                elif status == "failed" and rule is not None and not dominated:
+                    status = "error"
+                    pass_result = None
+                    reason = "judge"
+                    message = compose_no_verdict_error_message(rule, message)
+                if (status, pass_result, total, passed, failed, errored, message, reason) == before:
+                    continue
+                if status != before[0]:
+                    changed_verdicts += 1
+                    batch_ids.add(batch_id)
+                conn.execute(
+                    run_update,
+                    {
+                        "status": status,
+                        "pass_result": pass_result,
+                        "total": total,
+                        "passed": passed,
+                        "failed": failed,
+                        "errored": errored,
+                        "message": message,
+                        "reason": reason,
+                        "run_id": run_id,
+                    },
+                )
+    ordered_batches = sorted(batch_ids)
+    for offset in range(0, len(ordered_batches), chunk):
+        with engine.begin() as conn:
+            for batch_id in ordered_batches[offset : offset + chunk]:
+                conn.execute(text(_BATCH_REROLL_SQL), {"batch_id": batch_id})
+    logger.info(
+        "Schema v50: %d candidate runs examined, %d verdicts changed (%d human "
+        "FAILs restored), %d batches re-rolled",
+        len(run_ids),
+        changed_verdicts,
+        repaired,
+        len(ordered_batches),
     )
 
 
@@ -2964,7 +3197,7 @@ def _migrate_to_v25() -> None:
         )
 
 
-LATEST_SCHEMA_VERSION = 49
+LATEST_SCHEMA_VERSION = 50
 
 _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     1: _migrate_to_baseline,
@@ -3016,6 +3249,7 @@ _SCHEMA_MIGRATIONS: dict[int, Callable[[], None]] = {
     47: _migrate_to_v47,
     48: _migrate_to_v48,
     49: _migrate_to_v49,
+    50: _migrate_to_v50,
 }
 
 

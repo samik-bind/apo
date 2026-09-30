@@ -391,7 +391,28 @@ describe("rejudgeTaskRun", () => {
     expect(outcome.pass).toBe(true);
   });
 
+  it("re-judges by the backend's structured reason, whatever the message says", async () => {
+    const taskDir = makeTaskDir("reason-judge", evalModule());
+    stubBackend(
+      {
+        runStatus: "error",
+        runDetail: { ...NO_VERDICT_DETAIL, no_verdict_reason: "judge", error_message: "reworded" },
+      },
+      evalModule(),
+    );
+
+    const outcome = await rejudgeTaskRun(
+      RUN_ID,
+      { backendUrl: BACKEND, authToken: "key" },
+      { taskDir },
+    );
+
+    expect(outcome.pass).toBe(true);
+  });
+
   it.each([
+    ["an executor error carrying the rule's message", { no_verdict_reason: "executor" }],
+    ["a #149 run carrying the rule's message", { no_verdict_reason: "generations" }],
     ["an executor error with judge-error counts", { error_message: "adapter crashed" }],
     ["a genuine fail beside the judge error", { failed_checks: 1 }],
     [
@@ -408,6 +429,25 @@ describe("rejudgeTaskRun", () => {
     await expect(
       rejudgeTaskRun(RUN_ID, { backendUrl: BACKEND, authToken: "key" }, { taskDir }),
     ).rejects.toThrow(/completed/);
+  });
+
+  it("accepts an older backend's no-verdict run with half its generations errored (not #149)", async () => {
+    // The fallback matches the backend's strict majority: 2 of 4 is not dominated.
+    const taskDir = makeTaskDir("half-errored", evalModule());
+    stubBackend(
+      {
+        runStatus: "error",
+        runDetail: {
+          ...NO_VERDICT_DETAIL,
+          generation_execution: { total: 4, errored: 2, error_finish_reasons: {} },
+        },
+      },
+      evalModule(),
+    );
+
+    const outcome = await rejudgeTaskRun(RUN_ID, { backendUrl: BACKEND, authToken: "key" }, { taskDir });
+
+    expect(outcome.pass).toBe(true);
   });
 
   it("refuses replay for an executor-errored run", async () => {

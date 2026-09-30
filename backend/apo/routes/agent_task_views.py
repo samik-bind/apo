@@ -28,10 +28,12 @@ from ..models.schemas import (
     TaskViewCreateRequest,
     TaskViewResponse,
     TaskViewUpdateRequest,
+    as_no_verdict_reason,
     as_task_run_status,
 )
 from ..services.agent_task_run_details import load_task_run_details, load_task_run_summaries
 from ..services.project_memberships import enforce_project_read_from_request
+from ..services.lifecycle import TASK_RUN_TERMINAL
 from ..services.task_view_comparison import create_comparison, get_comparison, to_snapshot
 
 router = APIRouter(prefix="/v1/projects/{project_id}", tags=["task-views"])
@@ -145,14 +147,27 @@ async def get_task_view_comparison_overview(
         corrected = (
             cell.a_corrected_tests if cell.a_run_id == summary.id else cell.b_corrected_tests
         )
+        reason_field = "a_no_verdict_reason" if is_a else "b_no_verdict_reason"
+        reason = cell.a_no_verdict_reason if is_a else cell.b_no_verdict_reason
+        # Only a verdict frozen on a terminal run is a verdict: a snapshot
+        # taken while the run was still live froze placeholders, and the
+        # live projection is the truth for it.
+        if status is not None and status not in TASK_RUN_TERMINAL:
+            continue
         # Verdict and counts come from the same frozen moment: a snapshot
-        # that froze its scalars (``total`` set) overlays status and
-        # pass_result together — including a frozen no-verdict ``None``
-        # (#323) — so a later correction can't mix live and frozen state.
+        # that froze its scalars (``total`` set) overlays status, pass_result
+        # and the no-verdict reason together — including a frozen no-verdict
+        # ``None`` (#323) — so a later correction can't mix live and frozen
+        # state.
         if total is not None:
+            live_status = summary.status
             if status is not None:
                 summary.status = as_task_run_status(status)
             summary.pass_result = pass_result
+            # A snapshot frozen before the reason existed keeps the live one
+            # while the live run still has the frozen status.
+            if reason_field in cell.model_fields_set or live_status != status:
+                summary.no_verdict_reason = as_no_verdict_reason(reason)
         elif pass_result is not None:
             summary.pass_result = pass_result
             summary.status = "passed" if pass_result else "failed"

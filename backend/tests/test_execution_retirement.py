@@ -229,6 +229,20 @@ class TestRetiredBatchGetsAnEnd:
         assert batch.status == "error"
         assert batch.completed_at.replace(tzinfo=None) == ts.replace(tzinfo=None)
 
+    def test_retired_live_run_is_an_execution_error(self, session):
+        from apo.services.execution_retirement import retire_legacy_execution_rows
+
+        _seed_installation(session)
+        legacy = _pool(session, slug="legacy-pool")
+        att = _bundled_attempt(session, pool_id=legacy.id, status="running")
+
+        retire_legacy_execution_rows(session, now=_now())
+
+        run = session.get(AgentTaskRunDB, att.task_run_id)
+        assert run.status == "error"
+        # Not a judge no-verdict (issue #323): nothing to correct or re-judge.
+        assert run.no_verdict_reason == "executor"
+
     def test_backfills_terminal_batches_from_their_last_task_run(self, session):
         from apo.services.execution_retirement import retire_legacy_execution_rows
 

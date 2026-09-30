@@ -589,6 +589,7 @@ def _finalize_logical_run(
     now = _now()
     task_run.status = "error"
     task_run.pass_result = None
+    task_run.no_verdict_reason = "executor"
     task_run.error_message = error_message
     task_run.completed_at = now
     if cancelled:

@@ -194,6 +194,7 @@ def test_v2_failure_finalizes_attempt(isolated_engine):
             assert run is not None
             assert run.status == "error"
             assert run.pass_result is None
+            assert run.no_verdict_reason == "executor"
     finally:
         app.dependency_overrides.clear()
 
