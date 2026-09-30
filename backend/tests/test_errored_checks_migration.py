@@ -205,3 +205,55 @@ def test_backfill_derives_outcome_from_legacy_assertions(
         assert run is not None
         assert run.errored_checks == 1
         assert run.failed_checks == 0
+
+
+def test_v47_and_v48_climb_without_later_columns(
+    engine: StaticPool, monkeypatch: MonkeyPatch
+) -> None:
+    """A database upgrading through v47/v48 lacks the columns later rungs add
+    (``errored_checks`` until v48 runs, ``no_verdict_reason`` until v50); the
+    ORM loads in both backfills must not select them (issue #307)."""
+    with Session(engine) as session:
+        session.add(
+            AgentTaskBatchRunDB(
+                id="batch-1",
+                project="p1",
+                status="completed",
+                total_tasks=1,
+                selection_type="task",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        _seed_run(
+            session,
+            run_id="run-errored",
+            checks=[{"id": "ok", "pass": True}, ERRORED_CHECK],
+        )
+        session.commit()
+
+    with engine.connect() as conn:
+        # A trace link so v47's rollup backfill selects the run too.
+        conn.exec_driver_sql("UPDATE agent_task_runs SET trace_run_id = 'trace-1'")
+        for column in (
+            "no_verdict_reason",
+            "errored_checks",
+            "total_reasoning_tokens",
+            "max_call_reasoning_tokens",
+            "max_call_reasoning_call_id",
+            "max_call_latency_ms",
+            "max_call_latency_call_id",
+            "total_model_time_ms",
+        ):
+            conn.exec_driver_sql(f"ALTER TABLE agent_task_runs DROP COLUMN {column}")
+        conn.commit()
+
+    monkeypatch.setattr(apo_db, "engine", engine)
+    apo_db._migrate_to_v47()
+    apo_db._migrate_to_v48()
+
+    with engine.connect() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT failed_checks, errored_checks FROM agent_task_runs"
+            " WHERE id = 'run-errored'"
+        ).one()
+    assert (row.failed_checks, row.errored_checks) == (0, 1)
