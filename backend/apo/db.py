@@ -1,10 +1,11 @@
 # pyright: reportAny=false, reportImplicitStringConcatenation=false, reportMissingParameterType=false, reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownParameterType=false, reportUnknownVariableType=false, reportUnusedCallResult=false, reportUnusedFunction=false
 
 import os
+import re
 from collections.abc import Callable
 from typing import cast
 
-from sqlalchemy import bindparam, event, inspect, text
+from sqlalchemy import Integer, bindparam, event, inspect, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.orm.interfaces import ORMOption
 from sqlalchemy.pool import NullPool
@@ -130,6 +131,20 @@ def _get_table_names(conn) -> set[str]:
     return set(inspect(conn).get_table_names())
 
 
+def _postgres_non_integer_columns(
+    conn, table_name: str, column_names: tuple[str, ...]
+) -> set[str]:
+    """Which of ``column_names`` a Postgres table types as something other
+    than an integer. Always empty on SQLite, whose declared types don't bind."""
+    if _is_sqlite_conn(conn):
+        return set()
+    return {
+        col["name"]
+        for col in inspect(conn).get_columns(table_name)
+        if col["name"] in column_names and not isinstance(col["type"], Integer)
+    }
+
+
 def _add_column_if_missing(
     conn, table_name: str, column_name: str, column_type: str
 ) -> bool:
@@ -226,7 +241,8 @@ def _migrate_task_catalog_columns():
 
     Guarded per column rather than try/except around the ALTER: on Postgres a
     failed statement aborts the transaction, so every later ADD would be
-    silently lost.
+    silently lost. Postgres uses ``ADD COLUMN IF NOT EXISTS``, so two processes
+    booting at once cannot both pass the guard and collide on the second ALTER.
     """
     with engine.begin() as conn:
         for col, coltype in [
@@ -235,7 +251,12 @@ def _migrate_task_catalog_columns():
             ("published_at", _timestamp_type(conn)),
             ("published_by_user_id", "TEXT"),
         ]:
-            _add_column_if_missing(conn, "project_task_sources", col, coltype)
+            if _is_sqlite_conn(conn):
+                _add_column_if_missing(conn, "project_task_sources", col, coltype)
+            else:
+                conn.exec_driver_sql(
+                    f"ALTER TABLE project_task_sources ADD COLUMN IF NOT EXISTS {col} {coltype}"
+                )
 
 
 def init_db():
@@ -680,45 +701,60 @@ def _migrate_to_baseline():
             "next_run_at",
         )
 
-        # backfill owner memberships for non-demo projects.
-        # The ``project_memberships`` table itself is created by
-        # ``SQLModel.metadata.create_all`` once ``ProjectMembershipDB``
-        # is registered; this block only handles the legacy-data
-        # backfill and the unique index.
-        #
-        # The backfill SQL uses SQLite-specific ``randomblob()``; skip it
-        # on Postgres (fresh Postgres deploys have no legacy projects to
-        # backfill, and SQLite→Postgres migration is a separate path).
-        tables = _get_table_names(conn)
-        if is_sqlite() and "project_memberships" in tables:
-            conn.exec_driver_sql(
-                """
-                INSERT INTO project_memberships
-                    (id, project_id, user_id, role, created_at, updated_at)
-                SELECT
-                    lower(hex(randomblob(16))),
-                    p.id,
-                    p.created_by,
-                    'owner',
-                    p.created_at,
-                    p.updated_at
-                FROM projects p
-                WHERE p.id != 'demo'
-                  AND p.created_by IS NOT NULL
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM project_memberships pm
-                      WHERE pm.project_id = p.id
-                        AND pm.user_id = p.created_by
-                  );
-                """
-            )
-            _create_unique_index_if_not_exists(
-                conn,
-                "uq_project_membership",
-                "project_memberships",
-                "project_id, user_id",
-            )
+        _backfill_owner_memberships(conn)
+
+
+def _backfill_owner_memberships(conn: Connection) -> None:
+    """Give every non-demo project's creator an owner membership.
+
+    The ``project_memberships`` table itself is created by
+    ``SQLModel.metadata.create_all`` once ``ProjectMembershipDB`` is
+    registered; this handles the legacy-data backfill and the unique index.
+
+    Ids: SQLite keeps its historical 32-hex ``randomblob``; Postgres derives
+    the model's 16-hex shape from ``md5``. ON CONFLICT lets a second process
+    booting at the same time skip rows the first wrote.
+    """
+    if "project_memberships" not in _get_table_names(conn):
+        return
+    sqlite = _is_sqlite_conn(conn)
+    new_id = (
+        "lower(hex(randomblob(16)))"
+        if sqlite
+        else "substr(md5(random()::text || p.id), 1, 16)"
+    )
+    on_conflict = "" if sqlite else " ON CONFLICT DO NOTHING"
+    conn.exec_driver_sql(
+        f"""
+        INSERT INTO project_memberships
+            (id, project_id, user_id, role, created_at, updated_at)
+        SELECT
+            {new_id},
+            p.id,
+            p.created_by,
+            'owner',
+            p.created_at,
+            p.updated_at
+        FROM projects p
+        WHERE p.id != 'demo'
+          AND p.created_by IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM project_memberships pm
+              WHERE pm.project_id = p.id
+                AND pm.user_id = p.created_by
+          ){on_conflict};
+        """
+    )
+    if sqlite:
+        # On Postgres ``create_all`` already made the model's
+        # ``uq_project_membership`` constraint.
+        _create_unique_index_if_not_exists(
+            conn,
+            "uq_project_membership",
+            "project_memberships",
+            "project_id, user_id",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -2485,8 +2521,9 @@ def _make_attempt_task_revision_nullable(conn: Connection) -> None:
     changed the existing database constraint. This migration closes that gap.
 
     PostgreSQL: ``ALTER COLUMN ... DROP NOT NULL``.
-    SQLite: ``ALTER COLUMN`` is unavailable, so rebuild the table from current
-    metadata and copy every row without transformation. Idempotent on both.
+    SQLite: ``ALTER COLUMN`` is unavailable, so rebuild the table from its own
+    DDL without the constraint and copy every row without transformation.
+    Idempotent on both.
     """
     if "task_execution_attempts" not in _get_table_names(conn):
         return
@@ -2504,42 +2541,73 @@ def _make_attempt_task_revision_nullable(conn: Connection) -> None:
         return
 
     if _is_sqlite_conn(conn):
-        # SQLite: rebuild the table from current metadata.
-        # 1. Drop indexes that reference the table so they can be recreated
-        existing_indexes = conn.exec_driver_sql(
-            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='task_execution_attempts'"
-        ).fetchall()
-        for idx_row in existing_indexes:
-            idx_name = idx_row[0]
-            if idx_name and not idx_name.startswith("sqlite_"):
-                conn.exec_driver_sql(f"DROP INDEX IF EXISTS \"{idx_name}\"")
-
-        # 2. Rename the legacy table
-        conn.exec_driver_sql(
-            "ALTER TABLE task_execution_attempts RENAME TO _task_execution_attempts_v18_legacy"
-        )
-
-        # 3. Create the table from current SQLModel metadata (nullable field)
-        from sqlmodel import SQLModel
-        from apo.models import db as models_db  # noqa: F401 - registers models
-
-        _ = models_db
-        TaskExecutionAttemptDB_meta = SQLModel.metadata.tables.get("task_execution_attempts")
-        if TaskExecutionAttemptDB_meta is not None:
-            TaskExecutionAttemptDB_meta.create(conn)
-
-        # 4. Copy every row without transformation
-        conn.exec_driver_sql(
-            "INSERT INTO task_execution_attempts SELECT * FROM _task_execution_attempts_v18_legacy"
-        )
-
-        # 5. Drop the temporary table
-        conn.exec_driver_sql("DROP TABLE _task_execution_attempts_v18_legacy")
+        _rebuild_attempts_table_sqlite(conn)
     else:
         # PostgreSQL: simple ALTER COLUMN
         conn.exec_driver_sql(
             "ALTER TABLE task_execution_attempts ALTER COLUMN task_revision_id DROP NOT NULL"
         )
+
+
+def _rebuild_attempts_table_sqlite(conn: Connection) -> None:
+    """Drop the revision's NOT NULL on SQLite, which has no ``ALTER COLUMN``.
+
+    The table is rebuilt from its own DDL minus that constraint, not from the
+    model: columns and defaults a later rung added stay as they are, and the
+    indexes the ladder created (``uq_task_execution_attempt_run``, the claim
+    indexes) are recreated from their saved SQL. Rows are copied unchanged.
+
+    Other tables' foreign keys must keep naming this table. With enforcement
+    on, SQLite rewrites ``agent_task_result_evidence.attempt_id`` to the
+    renamed legacy table, which is then dropped, and every later evidence
+    insert fails with ``no such table``. ``legacy_alter_table`` with
+    enforcement off leaves those references alone. The ``foreign_keys`` pragma
+    only takes effect outside a transaction; pysqlite has not begun one yet,
+    as this migration has only read so far.
+    """
+    ddl = conn.exec_driver_sql(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='task_execution_attempts'"
+    ).scalar_one()
+    nullable_ddl, replaced = re.subn(
+        r'("?task_revision_id"?\s+\w+(?:\(\d+\))?)\s+NOT\s+NULL', r"\1", ddl, count=1
+    )
+    if not replaced:
+        raise RuntimeError("v19: task_revision_id NOT NULL not found in the attempts DDL")
+    index_ddl = [
+        row[0]
+        for row in conn.exec_driver_sql(
+            "SELECT sql FROM sqlite_master WHERE type='index'"
+            " AND tbl_name='task_execution_attempts' AND sql IS NOT NULL"
+        )
+    ]
+
+    enforced = bool(conn.exec_driver_sql("PRAGMA foreign_keys").scalar())
+    conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+    if conn.exec_driver_sql("PRAGMA foreign_keys").scalar():
+        raise RuntimeError(
+            "v19 must rebuild task_execution_attempts with foreign keys off, "
+            "but a transaction is already open"
+        )
+    conn.exec_driver_sql("PRAGMA legacy_alter_table=ON")
+    try:
+        conn.exec_driver_sql(
+            "ALTER TABLE task_execution_attempts RENAME TO _task_execution_attempts_v18_legacy"
+        )
+        conn.exec_driver_sql(nullable_ddl)
+        # Same DDL, same column order.
+        conn.exec_driver_sql(
+            "INSERT INTO task_execution_attempts SELECT * FROM _task_execution_attempts_v18_legacy"
+        )
+        # Takes the legacy table's indexes with it, freeing their names.
+        conn.exec_driver_sql("DROP TABLE _task_execution_attempts_v18_legacy")
+        for statement in index_ddl:
+            conn.exec_driver_sql(statement)
+    finally:
+        conn.exec_driver_sql("PRAGMA legacy_alter_table=OFF")
+        if enforced:
+            # A no-op until the transaction ends; SQLite engines use NullPool,
+            # so this connection is not reused afterwards.
+            conn.exec_driver_sql("PRAGMA foreign_keys=ON")
 
 
 def _migrate_to_v19() -> None:
@@ -3180,18 +3248,36 @@ def _migrate_cost_schema(conn: Connection) -> None:
     # distinguishable by magnitude, so there is no safe re-run guard here.
     # SQLite ROUND() returns a float; the value is a whole number, so int() in
     # the model layer reads it back cleanly.
-    conn.exec_driver_sql(
-        "UPDATE logged_calls SET cost = ROUND(cost * 1000000) WHERE cost IS NOT NULL"
+    #
+    # On Postgres a database from before the integer model still has the
+    # legacy column types (``double precision`` costs, ``varchar`` model id).
+    # SQLite's loose typing hides that; Postgres then rejects
+    # ``internal_model_id = 5``. There the rewrite is a type change, so the
+    # values are converted exactly once.
+    legacy_types = _postgres_non_integer_columns(
+        conn, "logged_calls", ("cost", "provided_cost", "internal_model_id")
     )
-    conn.exec_driver_sql(
-        "UPDATE logged_calls SET provided_cost = ROUND(provided_cost * 1000000) "
-        "WHERE provided_cost IS NOT NULL"
-    )
+    for column in ("cost", "provided_cost"):
+        if column in legacy_types:
+            conn.exec_driver_sql(
+                f"ALTER TABLE logged_calls ALTER COLUMN {column} TYPE INTEGER "
+                f"USING ROUND({column} * 1000000)::integer"
+            )
+        else:
+            conn.exec_driver_sql(
+                f"UPDATE logged_calls SET {column} = ROUND({column} * 1000000) "
+                f"WHERE {column} IS NOT NULL"
+            )
 
     # Null legacy internal_model_id values (free-form strings, not FKs).
-    conn.exec_driver_sql(
-        "UPDATE logged_calls SET internal_model_id = NULL WHERE internal_model_id IS NOT NULL"
-    )
+    if "internal_model_id" in legacy_types:
+        conn.exec_driver_sql(
+            "ALTER TABLE logged_calls ALTER COLUMN internal_model_id TYPE INTEGER USING NULL"
+        )
+    else:
+        conn.exec_driver_sql(
+            "UPDATE logged_calls SET internal_model_id = NULL WHERE internal_model_id IS NOT NULL"
+        )
 
     # Drop calculated_cost (replaced by cost_provenance).
     if "calculated_cost" in cols:

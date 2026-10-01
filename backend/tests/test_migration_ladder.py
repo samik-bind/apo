@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -33,7 +35,7 @@ from _pytest.monkeypatch import MonkeyPatch
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection, Engine, make_url
 from sqlalchemy.pool import NullPool
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine, select
 
 import apo.db as apo_db
 from apo.models.db import (
@@ -431,6 +433,63 @@ _LEGACY_COLUMNS: list[tuple[str, str, str]] = [
 ]
 
 
+def _sqlite_make_revision_not_null(conn: Connection) -> None:
+    """v19's pre-state on SQLite, which has no ``ALTER COLUMN``: rebuild the
+    attempts table from its own DDL with the revision ``NOT NULL`` (create,
+    copy, drop, rename — the order that leaves other tables' FKs intact)."""
+    ddl = conn.exec_driver_sql(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'task_execution_attempts'"
+    ).scalar_one()
+    rebuilt = ddl.replace("task_revision_id VARCHAR,", "task_revision_id VARCHAR NOT NULL,", 1)
+    assert rebuilt != ddl, ddl
+    rebuilt = rebuilt.replace("task_execution_attempts", "_attempts_rewind", 1)
+    indexes = [
+        row[0]
+        for row in conn.exec_driver_sql(
+            "SELECT sql FROM sqlite_master WHERE type = 'index'"
+            " AND tbl_name = 'task_execution_attempts' AND sql IS NOT NULL"
+        )
+    ]
+    conn.exec_driver_sql(rebuilt)
+    conn.exec_driver_sql("INSERT INTO _attempts_rewind SELECT * FROM task_execution_attempts")
+    conn.exec_driver_sql("DROP TABLE task_execution_attempts")
+    conn.exec_driver_sql("ALTER TABLE _attempts_rewind RENAME TO task_execution_attempts")
+    for statement in indexes:
+        conn.exec_driver_sql(statement)
+
+
+def _assert_attempts_rebuilt(engine: Engine) -> None:
+    """v19 left the revision nullable, and the evidence table's foreign key
+    still names the attempts table (SQLite's rebuild renames it)."""
+    with engine.connect() as conn:
+        inspector = inspect(conn)
+        revision = next(
+            column
+            for column in inspector.get_columns("task_execution_attempts")
+            if column["name"] == "task_revision_id"
+        )
+        evidence_targets = {
+            fk["referred_table"]
+            for fk in inspector.get_foreign_keys("agent_task_result_evidence")
+            if fk["constrained_columns"] == ["attempt_id"]
+        }
+        unique_names = {
+            *(index["name"] for index in inspector.get_indexes("task_execution_attempts") if index["unique"]),
+            *(uq["name"] for uq in inspector.get_unique_constraints("task_execution_attempts")),
+        }
+        index_names = {index["name"] for index in inspector.get_indexes("task_execution_attempts")}
+    assert revision["nullable"]
+    assert evidence_targets == {"task_execution_attempts"}
+    # The rebuild keeps one attempt per task run and the ladder's claim indexes.
+    assert "uq_task_execution_attempt_run" in unique_names
+    assert {
+        "ix_task_attempt_claim",
+        "ix_task_attempt_lease",
+        "ix_task_attempt_assignment_kind",
+        "ix_task_attempt_source_owned_claim",
+    } <= index_names
+
+
 def _rewind(engine: Engine) -> None:
     postgres = engine.dialect.name == "postgresql"
     with engine.begin() as conn:
@@ -462,6 +521,8 @@ def _rewind(engine: Engine) -> None:
             conn.exec_driver_sql(
                 "ALTER TABLE task_execution_attempts ALTER COLUMN task_revision_id SET NOT NULL"
             )
+        else:
+            _sqlite_make_revision_not_null(conn)
         conn.exec_driver_sql(
             "CREATE TABLE model_definitions (id INTEGER PRIMARY KEY, model_name VARCHAR)"
         )  # v10
@@ -527,6 +588,9 @@ def _climbed_state(engine: Engine) -> dict[str, object]:
             "pools": rows("SELECT id, system_managed FROM executor_pools"),
             "keys": rows("SELECT id, ingest_paused FROM api_keys"),
             "users": rows("SELECT id, is_active FROM users"),
+            "memberships": rows(
+                "SELECT project_id, user_id, role FROM project_memberships"
+            ),
             "tables": sorted(
                 set(inspect(conn).get_table_names()) & {"model_definitions", "annotation_queues"}
             ),
@@ -580,9 +644,144 @@ def test_old_database_climbs_the_whole_ladder(ladder_engine: Engine) -> None:
     assert state["pools"] == [("pool-1", False)]
     assert state["keys"] == [("key-1", False)]
     assert state["users"] == [("u1", True)]
+    assert state["memberships"] == [("p1", "u1", "owner")]  # v1 owner backfill
     assert state["tables"] == []  # v10, v41
+    _assert_attempts_rebuilt(ladder_engine)  # v19
 
     apo_db.init_db()
 
     assert _schema_versions(ladder_engine) == list(range(1, apo_db.LATEST_SCHEMA_VERSION + 1))
     assert _climbed_state(ladder_engine) == state
+
+
+def test_owner_backfill_yields_to_a_concurrent_boot(ladder_engine: Engine) -> None:
+    """Two processes booting at once both see the owner missing; the one that
+    inserts second must skip the row, not fail on ``uq_project_membership``."""
+    if ladder_engine.dialect.name != "postgresql":
+        pytest.skip("SQLite serializes writers; there is no race to lose")
+    SQLModel.metadata.create_all(ladder_engine)
+    with Session(ladder_engine) as session:
+        session.add(UserDB(id="u1", email="u1@example.com", name="U", password_hash="x"))
+        session.flush()
+        session.add(ProjectDB(id="p1", name="P1", created_by="u1"))
+        session.commit()
+
+    outcome: dict[str, object] = {}
+
+    def second_boot() -> None:
+        try:
+            with ladder_engine.begin() as conn:
+                apo_db._backfill_owner_memberships(conn)
+            outcome["ok"] = True
+        except Exception as exc:  # noqa: BLE001 - reported by the assertion below
+            outcome["error"] = exc
+
+    with ladder_engine.connect() as first_boot:
+        first_boot.exec_driver_sql(
+            "INSERT INTO project_memberships (id, project_id, user_id, role)"
+            " VALUES ('first-boot', 'p1', 'u1', 'owner')"
+        )
+        thread = threading.Thread(target=second_boot)
+        thread.start()
+        # The second insert waits on the first's uncommitted row.
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            # A fresh connection: pg_stat_activity is frozen per transaction.
+            with ladder_engine.connect() as observer:
+                waiting = observer.exec_driver_sql(
+                    "SELECT count(*) FROM pg_stat_activity"
+                    " WHERE datname = current_database() AND wait_event_type = 'Lock'"
+                ).scalar()
+            if waiting:
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail(f"the second boot never waited on the first's row: {outcome}")
+        first_boot.commit()
+        thread.join(timeout=10)
+
+    assert outcome == {"ok": True}
+    with ladder_engine.connect() as conn:
+        assert [
+            tuple(row) for row in conn.execute(text("SELECT id, role FROM project_memberships"))
+        ] == [("first-boot", "owner")]
+
+
+INITIAL_RELEASE_V7 = (
+    Path(__file__).parent / "fixtures" / "migrations" / "postgres_initial_release_v7.sql"
+)
+
+
+def _logged_calls(engine: Engine) -> list[tuple[object, ...]]:
+    with engine.connect() as conn:
+        return [
+            tuple(row)
+            for row in conn.execute(
+                text("SELECT id, cost, provided_cost, internal_model_id FROM logged_calls")
+            )
+        ]
+
+
+def test_initial_release_postgres_database_climbs(ladder_engine: Engine) -> None:
+    """A database the initial public release left on Postgres, as it really is.
+
+    That release created ``logged_calls.cost``/``provided_cost`` as
+    ``double precision`` and ``internal_model_id`` as ``varchar``. The climb
+    must end on the model's INTEGER columns, or Postgres rejects
+    ``internal_model_id = 5``. ``_rewind`` starts from today's types, so only
+    this dump exercises the conversion.
+    """
+    if ladder_engine.dialect.name != "postgresql":
+        pytest.skip("a Postgres dump; SQLite's declared types do not bind")
+    raw = ladder_engine.raw_connection()
+    try:
+        # The DBAPI cursor: the dump holds many statements and no parameters.
+        cursor = raw.cursor()
+        cursor.execute(INITIAL_RELEASE_V7.read_text())
+        cursor.close()
+        raw.commit()
+    finally:
+        raw.close()
+    assert _schema_versions(ladder_engine) == list(range(1, 8))
+
+    apo_db.init_db()
+
+    assert _schema_versions(ladder_engine) == list(range(1, apo_db.LATEST_SCHEMA_VERSION + 1))
+    _assert_model_columns(ladder_engine)
+    with ladder_engine.connect() as conn:
+        call_types = {
+            column["name"]: type(column["type"]).__name__
+            for column in inspect(conn).get_columns("logged_calls")
+            if column["name"] in {"cost", "provided_cost", "internal_model_id"}
+        }
+    assert call_types == {
+        "cost": "INTEGER",
+        "provided_cost": "INTEGER",
+        "internal_model_id": "INTEGER",
+    }
+    calls = _logged_calls(ladder_engine)
+    assert calls == [("g1", 2500, 3000, None)]  # v10: USD to micro-USD
+    with Session(ladder_engine) as session:
+        # The repricing lookup (apo/services/reprice.py).
+        matched = session.exec(
+            select(LoggedCallDB).where(LoggedCallDB.internal_model_id == 5)
+        ).all()
+    assert matched == []
+    with ladder_engine.connect() as conn:
+        memberships = [
+            tuple(row)
+            for row in conn.execute(text("SELECT id, project_id, user_id, role FROM project_memberships"))
+        ]
+        task_runs = [
+            tuple(row)
+            for row in conn.execute(
+                text("SELECT id, total_checks, passed_checks, failed_checks FROM agent_task_runs")
+            )
+        ]
+    assert memberships == [("m1", "p1", "u1", "owner")]
+    assert task_runs == [("r1", 2, 1, 1)]  # v20 from the legacy checks_json
+    _assert_attempts_rebuilt(ladder_engine)
+
+    apo_db.init_db()
+
+    assert _logged_calls(ladder_engine) == calls
