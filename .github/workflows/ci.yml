@@ -80,6 +80,21 @@ jobs:
     name: Typecheck + Test (Backend)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The PostgreSQL gates (tests skipped without APO_TEST_POSTGRES_URL): the
+    # migration ladder, the v44-v50 rungs, and the execution-lease claim race.
+    # The SQLite suite cannot catch a dialect fault in a migration.
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: pnpm/action-setup@f520eceda224fe1a4aed5a2a27a194379a409996 # v6
@@ -109,6 +124,8 @@ jobs:
         run: env -u GITHUB_ACTIONS uv run basedpyright --level error apo
       - name: Test
         working-directory: backend
+        env:
+          APO_TEST_POSTGRES_URL: postgresql://postgres:postgres@localhost:5432/postgres
         run: uv run pytest -x -q
       - name: Test apo-otel-python package
         # Orphaned suite found by the CI-covers-tests census; pytest is not in

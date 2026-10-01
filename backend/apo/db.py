@@ -4,7 +4,7 @@ import os
 from collections.abc import Callable
 from typing import cast
 
-from sqlalchemy import bindparam, event, text
+from sqlalchemy import bindparam, event, inspect, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.orm.interfaces import ORMOption
 from sqlalchemy.pool import NullPool
@@ -93,27 +93,41 @@ if is_sqlite():
     attach_sqlite_pragmas(engine)
 
 
+def _is_sqlite_conn(conn) -> bool:
+    """The connection's own dialect — a test engine may differ from the module URL."""
+    return conn.dialect.name == "sqlite"
+
+
+def _timestamp_type(conn) -> str:
+    """The column type ``create_all`` emits for a ``UTCDateTime`` field."""
+    return "DATETIME" if _is_sqlite_conn(conn) else "TIMESTAMPTZ"
+
+
+def _sql_false(conn) -> str:
+    """A boolean ``DEFAULT`` literal: Postgres rejects ``BOOLEAN DEFAULT 0``."""
+    return "0" if _is_sqlite_conn(conn) else "FALSE"
+
+
 def _get_column_names(conn, table_name: str) -> set[str]:
-    if is_sqlite():
+    if _is_sqlite_conn(conn):
         columns = conn.exec_driver_sql(f"PRAGMA table_info('{table_name}')").fetchall()
         return {col[1] for col in columns}
-    columns = conn.exec_driver_sql(
-        f"SELECT column_name FROM information_schema.columns "
-        f"WHERE table_schema = 'public' AND table_name = '{table_name}'"
-    ).fetchall()
-    return {col[0] for col in columns}
+    # The inspector reads the connection's default schema (its search_path),
+    # so a deployment outside ``public`` sees its own tables. A fresh
+    # inspector per call: its reflection cache must not outlive DDL.
+    inspector = inspect(conn)
+    if not inspector.has_table(table_name):
+        return set()
+    return {col["name"] for col in inspector.get_columns(table_name)}
 
 
 def _get_table_names(conn) -> set[str]:
-    if is_sqlite():
+    if _is_sqlite_conn(conn):
         tables = conn.exec_driver_sql(
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()
         return {t[0] for t in tables}
-    tables = conn.exec_driver_sql(
-        "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
-    ).fetchall()
-    return {t[0] for t in tables}
+    return set(inspect(conn).get_table_names())
 
 
 def _add_column_if_missing(
@@ -208,21 +222,20 @@ def _enforce_single_task_trace(conn: Connection) -> None:
 
 
 def _migrate_task_catalog_columns():
-    """Add Task Catalog columns to project_task_sources if absent."""
-    with engine.connect() as conn:
+    """Add Task Catalog columns to project_task_sources if absent.
+
+    Guarded per column rather than try/except around the ALTER: on Postgres a
+    failed statement aborts the transaction, so every later ADD would be
+    silently lost.
+    """
+    with engine.begin() as conn:
         for col, coltype in [
             ("catalog_digest", "TEXT"),
             ("task_count", "INTEGER"),
-            ("published_at", "DATETIME"),
+            ("published_at", _timestamp_type(conn)),
             ("published_by_user_id", "TEXT"),
         ]:
-            try:
-                conn.exec_driver_sql(
-                    f"ALTER TABLE project_task_sources ADD COLUMN {col} {coltype}"
-                )
-            except Exception:
-                pass  # Column already exists
-        conn.commit()
+            _add_column_if_missing(conn, "project_task_sources", col, coltype)
 
 
 def init_db():
@@ -339,16 +352,19 @@ def _migrate_to_baseline():
             """)
             _create_index_if_not_exists(conn, "idx_runs_primary_model", "runs", "primary_model")
 
+        # SQLite keeps its historical INTEGER flag; Postgres needs the BOOLEAN
+        # the model binds (``boolean = integer`` has no operator there).
+        flag_column = (
+            "INTEGER NOT NULL DEFAULT 0"
+            if _is_sqlite_conn(conn)
+            else "BOOLEAN NOT NULL DEFAULT FALSE"
+        )
         if "bookmarked" not in run_column_names:
-            conn.exec_driver_sql(
-                "ALTER TABLE runs ADD COLUMN bookmarked INTEGER NOT NULL DEFAULT 0;"
-            )
+            conn.exec_driver_sql(f"ALTER TABLE runs ADD COLUMN bookmarked {flag_column};")
             _create_index_if_not_exists(conn, "ix_runs_bookmarked", "runs", "bookmarked")
 
         if "is_public" not in run_column_names:
-            conn.exec_driver_sql(
-                "ALTER TABLE runs ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0;"
-            )
+            conn.exec_driver_sql(f"ALTER TABLE runs ADD COLUMN is_public {flag_column};")
             _create_index_if_not_exists(conn, "ix_runs_is_public", "runs", "is_public")
 
         _add_column_if_missing(conn, "runs", "task_run_id", "VARCHAR")
@@ -949,7 +965,9 @@ def _migrate_to_v36() -> None:
 def _add_ingest_guardrail_columns(conn: Connection) -> None:
     """Conn-taking seam: ApiKeyDB quota/pause columns."""
     _add_column_if_missing(conn, "api_keys", "daily_span_quota", "INTEGER")
-    _add_column_if_missing(conn, "api_keys", "ingest_paused", "BOOLEAN NOT NULL DEFAULT 0")
+    _add_column_if_missing(
+        conn, "api_keys", "ingest_paused", f"BOOLEAN NOT NULL DEFAULT {_sql_false(conn)}"
+    )
 
 
 def _add_ingest_audit_columns(conn: Connection) -> None:
@@ -2001,8 +2019,9 @@ def _migrate_to_v4() -> None:
             "SELECT id FROM agent_task_batch_runs"
         ).fetchall()
         for (batch_id,) in batches:
-            rows = conn.exec_driver_sql(
-                "SELECT checks_json FROM agent_task_runs WHERE batch_run_id = :bid",
+            # ``text()``: driver SQL hands ``:bid`` to psycopg2 verbatim.
+            rows = conn.execute(
+                text("SELECT checks_json FROM agent_task_runs WHERE batch_run_id = :bid"),
                 {"bid": batch_id},
             ).fetchall()
             total = 0
@@ -2046,7 +2065,7 @@ def _migrate_to_v6() -> None:
     """Version 6: add a lease timestamp for durable queue recovery."""
     with engine.begin() as conn:
         _add_column_if_missing(
-            conn, "otlp_ingest_batches", "processing_started_at", "DATETIME"
+            conn, "otlp_ingest_batches", "processing_started_at", _timestamp_type(conn)
         )
 
 
@@ -2307,7 +2326,9 @@ def _migrate_source_owned_executor_schema(conn: Connection) -> None:
     _create_index_if_not_exists(conn, "ix_executors_enrolled_by_user_id", "executors", "enrolled_by_user_id")
 
     # executor_pools.system_managed
-    _add_column_if_missing(conn, "executor_pools", "system_managed", "BOOLEAN DEFAULT 0")
+    _add_column_if_missing(
+        conn, "executor_pools", "system_managed", f"BOOLEAN DEFAULT {_sql_false(conn)}"
+    )
     _create_index_if_not_exists(conn, "ix_executor_pools_system_managed", "executor_pools", "system_managed")
 
     # agent_task_batch_runs.requested_by_user_id
@@ -2470,27 +2491,19 @@ def _make_attempt_task_revision_nullable(conn: Connection) -> None:
     if "task_execution_attempts" not in _get_table_names(conn):
         return
 
-    # Already nullable? No-op.
-    cols = conn.exec_driver_sql("PRAGMA table_info('task_execution_attempts')").fetchall()
-    if not cols:
-        # PostgreSQL path — check information_schema
-        result = conn.exec_driver_sql(
-            "SELECT is_nullable FROM information_schema.columns "
-            "WHERE table_name = 'task_execution_attempts' AND column_name = 'task_revision_id'"
-        ).fetchone()
-        if result and str(result[0]).upper() == "YES":
-            return
-    else:
-        # SQLite path
-        for row in cols:
-            if row[1] == "task_revision_id" and str(row[3]) == "0":
-                # notnull flag is 0 → already nullable
-                return
-        # Check if task_revision_id column exists at all
-        if not any(row[1] == "task_revision_id" for row in cols):
-            return
+    # Absent or already nullable? No-op.
+    column = next(
+        (
+            c
+            for c in inspect(conn).get_columns("task_execution_attempts")
+            if c["name"] == "task_revision_id"
+        ),
+        None,
+    )
+    if column is None or column["nullable"]:
+        return
 
-    if is_sqlite():
+    if _is_sqlite_conn(conn):
         # SQLite: rebuild the table from current metadata.
         # 1. Drop indexes that reference the table so they can be recreated
         existing_indexes = conn.exec_driver_sql(
@@ -2732,11 +2745,7 @@ def _migrate_check_report_schema(conn: Connection) -> None:
     # checks_json during the loop cannot affect the remaining rows.
     # Post-v28 fresh databases never create the legacy column — skip the
     # backfill loop entirely when it is absent.
-    has_legacy_checks = conn.exec_driver_sql(
-        "SELECT 1 FROM pragma_table_info('agent_task_runs') "
-        "WHERE name = 'checks_json'"
-    ).first()
-    if has_legacy_checks:
+    if "checks_json" in _get_column_names(conn, "agent_task_runs"):
         rows = conn.exec_driver_sql(
             "SELECT id, checks_json FROM agent_task_runs "
             "WHERE checks_json IS NOT NULL"
@@ -3113,8 +3122,10 @@ def _migrate_deliverable_schema(conn: Connection) -> None:
     _add_column_if_missing(conn, "agent_task_deliverables", "stored_size_bytes", "INTEGER")
     _add_column_if_missing(conn, "agent_task_deliverables", "sha256", "VARCHAR NOT NULL DEFAULT ''")
     _add_column_if_missing(conn, "agent_task_deliverables", "error_message", "VARCHAR")
-    _add_column_if_missing(conn, "agent_task_deliverables", "created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP")
-    _add_column_if_missing(conn, "agent_task_deliverables", "ready_at", "DATETIME")
+    # The model's naive ``datetime``: TIMESTAMP on Postgres, which has no DATETIME.
+    naive_ts = "DATETIME" if _is_sqlite_conn(conn) else "TIMESTAMP"
+    _add_column_if_missing(conn, "agent_task_deliverables", "created_at", f"{naive_ts} NOT NULL DEFAULT CURRENT_TIMESTAMP")
+    _add_column_if_missing(conn, "agent_task_deliverables", "ready_at", naive_ts)
 
     _create_index_if_not_exists(
         conn, "ix_agent_task_deliverables_project", "agent_task_deliverables", "project"
@@ -3154,8 +3165,11 @@ def _migrate_cost_schema(conn: Connection) -> None:
     cols = _get_column_names(conn, "logged_calls")
 
     # New cost-storage columns.
-    _add_column_if_missing(conn, "logged_calls", "cost_breakdown", "TEXT")
-    _add_column_if_missing(conn, "logged_calls", "raw_usage", "TEXT")
+    # JSON on Postgres, as ``create_all`` emits: psycopg2 decodes only json
+    # columns, so a TEXT column would hand v47's rollups a string.
+    json_type = "TEXT" if _is_sqlite_conn(conn) else "JSON"
+    _add_column_if_missing(conn, "logged_calls", "cost_breakdown", json_type)
+    _add_column_if_missing(conn, "logged_calls", "raw_usage", json_type)
     _add_column_if_missing(conn, "logged_calls", "matched_tier_id", "INTEGER")
     _add_column_if_missing(conn, "logged_calls", "matched_tier_name", "TEXT")
     _add_column_if_missing(conn, "logged_calls", "cost_provenance", "TEXT")

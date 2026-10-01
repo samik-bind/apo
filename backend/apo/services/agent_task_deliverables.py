@@ -293,18 +293,13 @@ def backfill_deliverable_rows_from_column(session: Session) -> int:
     import json as _json
     import logging
 
-    from sqlalchemy import text
+    from sqlalchemy import inspect, text
 
     from apo.services.artifact_stores.registry import get_store
 
     logger = logging.getLogger(__name__)
-    has_column = session.execute(
-        text(
-            "SELECT 1 FROM pragma_table_info('agent_task_runs') "
-            "WHERE name = 'deliverables_json'"
-        )
-    ).first()
-    if not has_column:
+    columns = inspect(session.connection()).get_columns("agent_task_runs")
+    if not any(column["name"] == "deliverables_json" for column in columns):
         return 0
 
     blobs = session.execute(
