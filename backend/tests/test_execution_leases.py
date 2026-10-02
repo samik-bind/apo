@@ -529,6 +529,74 @@ def test_reaper_does_not_mutate_terminal_rows(session: Session) -> None:
     assert counts.requeued == 0 and counts.lost == 0 and counts.failed_unavailable == 0
 
 
+def _expire_running_and_queued(session: Session) -> tuple[TaskExecutionAttemptDB, TaskExecutionAttemptDB]:
+    running, queued = _seed(session, sequence_indices=[0, 1])
+    running.status = "running"
+    running.lease_generation = 1
+    running.lease_expires_at = _now() - timedelta(seconds=1)
+    running.started_at = _now() - timedelta(minutes=5)
+    queued.queue_expires_at = _now() - timedelta(seconds=1)
+    session.add(running)
+    session.add(queued)
+    session.commit()
+    return running, queued
+
+
+def test_reaper_skips_an_unrecoverable_attempt_and_recovers_the_rest(
+    session: Session, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from apo.services import execution_leases
+
+    running, queued = _expire_running_and_queued(session)
+    running_id, queued_id = running.id, queued.id
+    real_finalize = execution_leases._finalize_logical_run
+
+    def finalize(session: Session, attempt: TaskExecutionAttemptDB, **kwargs: object) -> None:
+        if attempt.id == running_id:
+            raise RuntimeError("poisoned row")
+        real_finalize(session, attempt, **kwargs)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(execution_leases, "_finalize_logical_run", finalize)
+    monkeypatch.setattr(execution_leases, "_unrecoverable_reported", set(), raising=False)
+
+    first = recover_expired_attempts(session, now=_now())
+    second = recover_expired_attempts(session, now=_now())
+
+    assert (first.lost, first.failed_unavailable, first.skipped) == (0, 1, 1)
+    # The skipped Attempt is rolled back to where it was; the other landed and stays done.
+    assert (second.lost, second.failed_unavailable, second.skipped) == (0, 0, 1)
+    poisoned = session.get(TaskExecutionAttemptDB, running_id)
+    recovered = session.get(TaskExecutionAttemptDB, queued_id)
+    assert poisoned is not None and poisoned.status == "running"
+    assert recovered is not None and recovered.status == "failed"
+    reports = [r for r in caplog.records if "could not recover attempt" in r.getMessage()]
+    assert len(reports) == 1
+
+
+def test_reaper_ends_an_attempt_whose_run_is_gone(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apo.services import execution_leases
+
+    running, _ = _expire_running_and_queued(session)
+    running_id = running.id
+    real_finalize = execution_leases._finalize_logical_run
+
+    def finalize(session: Session, attempt: TaskExecutionAttemptDB, **kwargs: object) -> None:
+        if attempt.id == running_id:
+            raise LeaseError("not_found", "attempt references a missing Task Run or Batch")
+        real_finalize(session, attempt, **kwargs)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(execution_leases, "_finalize_logical_run", finalize)
+
+    counts = recover_expired_attempts(session, now=_now())
+
+    assert (counts.lost, counts.failed_unavailable, counts.skipped) == (1, 1, 0)
+    ended = session.get(TaskExecutionAttemptDB, running_id)
+    assert ended is not None and ended.status == "lost"
+    assert recover_expired_attempts(session, now=_now()).lost == 0
+
+
 # ── cancellation ──────────────────────────────────────────────────────────
 
 
