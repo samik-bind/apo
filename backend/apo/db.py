@@ -283,6 +283,7 @@ def init_db():
     # reset_apo_file_db for the full failure mode). Harmless at startup,
     # where the pool is cold anyway.
     engine.dispose()
+    _free_legacy_attempt_index_names()
     SQLModel.metadata.create_all(engine)
     _run_migrations()
     _migrate_task_catalog_columns()
@@ -2666,12 +2667,13 @@ def _sqlite_rebuild_transaction(conn: Connection, rung: str) -> Iterator[None]:
     is switched off before ``BEGIN`` (pysqlite has not opened one: the rung has
     only read so far) and back on after ``COMMIT``.
     """
-    enforced = bool(conn.exec_driver_sql("PRAGMA foreign_keys").scalar())
-    conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
-    if conn.exec_driver_sql("PRAGMA foreign_keys").scalar():
+    dbapi_connection = conn.connection.dbapi_connection
+    if getattr(dbapi_connection, "in_transaction", False):
         raise RuntimeError(
             f"{rung} must rebuild with foreign keys off, but a transaction is already open"
         )
+    enforced = bool(conn.exec_driver_sql("PRAGMA foreign_keys").scalar())
+    conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
     conn.exec_driver_sql("PRAGMA legacy_alter_table=ON")
     try:
         conn.exec_driver_sql("BEGIN")
@@ -2680,7 +2682,7 @@ def _sqlite_rebuild_transaction(conn: Connection, rung: str) -> Iterator[None]:
         except BaseException:
             # SQLite rolls some failures back itself; a second ROLLBACK would
             # raise and hide the original error.
-            if getattr(conn.connection.dbapi_connection, "in_transaction", False):
+            if getattr(dbapi_connection, "in_transaction", False):
                 conn.exec_driver_sql("ROLLBACK")
             raise
         conn.exec_driver_sql("COMMIT")
@@ -2719,6 +2721,16 @@ def _ensure_attempt_ladder_indexes(conn: Connection) -> None:
     )
 
 
+# Optional references an Attempt restored from the legacy table may name
+# after the row they named was deleted while it sat there.
+_ATTEMPT_OPTIONAL_REFERENCES = (
+    ("task_revision_id", "task_revisions"),
+    ("target_user_id", "users"),
+    ("executor_pool_id", "executor_pools"),
+    ("executor_id", "executors"),
+)
+
+
 def _restore_orphaned_attempts_sqlite(conn: Connection) -> None:
     """Undo a v19 rebuild that died after its RENAME had committed.
 
@@ -2730,12 +2742,22 @@ def _restore_orphaned_attempts_sqlite(conn: Connection) -> None:
     The next boot found the column nullable and stamped on to the latest
     version with no Attempts.
 
-    The legacy rows are copied back by column name (ids already present are
-    kept as they are), every table whose foreign keys name the legacy table
-    is rebuilt to name ``task_execution_attempts`` again, the legacy table is
-    dropped, and the indexes the failed rebuild dropped are recreated. A
-    no-op when nothing references the legacy table, and on Postgres, where
-    that v19 failed at its ``PRAGMA`` before renaming anything.
+    The legacy rows are copied back by column name, every table whose
+    foreign keys name the legacy table is rebuilt to name
+    ``task_execution_attempts`` again, the legacy table is dropped, and the
+    indexes the failed rebuild dropped are recreated. A no-op when nothing
+    references the legacy table, and on Postgres, where that v19 failed at
+    its ``PRAGMA`` before renaming anything.
+
+    The app ran on without the legacy rows, and the copy runs with foreign
+    keys off, so only rows that still fit are restored: an id already present
+    keeps its current row; a Task Run that has been given a new Attempt keeps
+    it (one Attempt per run); a row whose Task Run, Batch or project was
+    deleted (retention found no Attempts to delete with them) is left out.
+    A deleted revision, user, pool or executor is nulled on the restored row,
+    and staging evidence of an Attempt left out is dropped. The repair ends
+    with a foreign-key check of the attempts table and rolls back if anything
+    still dangles.
     """
     if not _is_sqlite_conn(conn):
         return
@@ -2760,18 +2782,41 @@ def _restore_orphaned_attempts_sqlite(conn: Connection) -> None:
         for row in conn.exec_driver_sql("PRAGMA table_info('task_execution_attempts')")
     ]
     referencing_indexes = {name: _sqlite_index_ddl(conn, name) for name, _ in referencing}
-    restored = 0
+    counts = {"restored": 0, "kept": 0, "superseded": 0, "parentless": 0, "nulled": 0}
+    dropped_evidence = 0
     with _sqlite_rebuild_transaction(conn, "attempt restore"):
         if legacy in tables:
             saved = {
                 row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info('{legacy}')")
             }
+            present = "id IN (SELECT id FROM task_execution_attempts)"
+            superseded = "task_run_id IN (SELECT task_run_id FROM task_execution_attempts)"
+            parented = (
+                "task_run_id IN (SELECT id FROM agent_task_runs)"
+                " AND batch_run_id IN (SELECT id FROM agent_task_batch_runs)"
+                " AND project IN (SELECT id FROM projects)"
+            )
+            for key, where in (
+                ("kept", present),
+                ("superseded", f"NOT {present} AND {superseded}"),
+                ("parentless", f"NOT {present} AND NOT {superseded} AND NOT ({parented})"),
+            ):
+                counts[key] = conn.exec_driver_sql(
+                    f"SELECT count(*) FROM {legacy} WHERE {where}"
+                ).scalar_one()
             columns = ", ".join(f'"{column}"' for column in current if column in saved)
-            restored = conn.exec_driver_sql(
+            counts["restored"] = conn.exec_driver_sql(
                 f"INSERT INTO task_execution_attempts ({columns})"
                 f" SELECT {columns} FROM {legacy}"
-                " WHERE id NOT IN (SELECT id FROM task_execution_attempts)"
+                f" WHERE NOT {present} AND NOT {superseded} AND {parented}"
             ).rowcount
+            for column, parent in _ATTEMPT_OPTIONAL_REFERENCES:
+                counts["nulled"] += conn.exec_driver_sql(
+                    f'UPDATE task_execution_attempts SET "{column}" = NULL'
+                    f' WHERE "{column}" IS NOT NULL'
+                    f' AND "{column}" NOT IN (SELECT id FROM "{parent}")'
+                    f" AND id IN (SELECT id FROM {legacy})"
+                ).rowcount
         for name, ddl in referencing:
             # Rebuilt from its own DDL with the reference renamed back, so the
             # column order is unchanged and SELECT * copies straight across.
@@ -2782,24 +2827,73 @@ def _restore_orphaned_attempts_sqlite(conn: Connection) -> None:
             conn.exec_driver_sql(f'DROP TABLE "{scratch}"')
             for statement in referencing_indexes[name]:
                 conn.exec_driver_sql(statement)
+            # Rows naming an Attempt that was left out above.
+            for row in conn.exec_driver_sql(f"PRAGMA foreign_key_check('{name}')").fetchall():
+                if row[2] == "task_execution_attempts":
+                    dropped_evidence += conn.exec_driver_sql(
+                        f'DELETE FROM "{name}" WHERE rowid = {int(row[1])}'
+                    ).rowcount
         if legacy in tables:
             conn.exec_driver_sql(f"DROP TABLE {legacy}")
         _ensure_attempt_ladder_indexes(conn)
+        dangling = conn.exec_driver_sql(
+            "PRAGMA foreign_key_check('task_execution_attempts')"
+        ).fetchall()
+        if dangling:
+            raise RuntimeError(
+                f"attempt restore left {len(dangling)} dangling foreign keys on"
+                f" task_execution_attempts: {sorted({str(row[2]) for row in dangling})}"
+            )
 
     import logging
 
     logging.getLogger(__name__).warning(
-        "Restored %d Attempts from %s and repointed %d foreign-key tables",
-        restored,
+        "Restored %d Attempts from %s (%d kept the row already present, %d left out"
+        " because their Task Run has a newer Attempt, %d left out because their Task"
+        " Run, Batch or project is gone; %d dangling references nulled), repointed %d"
+        " foreign-key tables and dropped %d of their rows naming a left-out Attempt",
+        counts["restored"],
         legacy,
+        counts["kept"],
+        counts["superseded"],
+        counts["parentless"],
+        counts["nulled"],
         len(referencing),
+        dropped_evidence,
     )
 
 
+def _free_legacy_attempt_index_names() -> None:
+    """Let ``create_all`` recreate the attempts table a killed v19 left missing.
+
+    A v19 killed between its RENAME and its CREATE TABLE left the Attempts in
+    the legacy table with every attempt index still on it under its own name,
+    so ``create_all`` failed on "index … already exists" before the ladder
+    could repair anything. The repair drops the legacy table and recreates the
+    indexes on ``task_execution_attempts``, so the legacy copies can go first.
+    """
+    if not is_sqlite():
+        return
+    with engine.begin() as conn:
+        tables = _get_table_names(conn)
+        if _ATTEMPTS_LEGACY_TABLE not in tables or "task_execution_attempts" in tables:
+            return
+        for (name,) in conn.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+            f" AND tbl_name='{_ATTEMPTS_LEGACY_TABLE}' AND sql IS NOT NULL"
+        ).fetchall():
+            conn.exec_driver_sql(f'DROP INDEX "{name}"')
+
+
 def _migrate_to_v52() -> None:
-    """Version 52: repair databases an earlier v19 left half-rebuilt."""
+    """Version 52: repair databases an earlier v19 left half-rebuilt, and add
+    the ``automations.trigger_kind`` index v51 left out (the model indexes
+    it, so fresh installs have it; climbed databases did not)."""
     with engine.begin() as conn:
         _restore_orphaned_attempts_sqlite(conn)
+        _create_index_if_not_exists(
+            conn, "ix_automations_trigger_kind", "automations", "trigger_kind"
+        )
 
 
 def _migrate_to_v19() -> None:

@@ -717,6 +717,9 @@ def test_old_database_climbs_the_whole_ladder(ladder_engine: Engine) -> None:
     assert len(membership_id) == (32 if ladder_engine.dialect.name == "sqlite" else 16)
     assert state["tables"] == []  # v10, v41
     _assert_attempts_rebuilt(ladder_engine)  # v19
+    with ladder_engine.connect() as conn:
+        automation_indexes = {index["name"] for index in inspect(conn).get_indexes("automations")}
+    assert "ix_automations_trigger_kind" in automation_indexes  # v52
 
     apo_db.init_db()
 
@@ -1149,3 +1152,243 @@ def test_attempt_restore_is_a_no_op_on_postgres(ladder_engine: Engine) -> None:
     with ladder_engine.begin() as conn:
         apo_db._restore_orphaned_attempts_sqlite(conn)
     assert _schema_versions(ladder_engine) == list(range(1, apo_db.LATEST_SCHEMA_VERSION + 1))
+
+
+def _damaged(engine: Engine, through: int) -> None:
+    """A database the old v19 broke, stamped through ``through``."""
+    _pre_v19_database(engine)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("DROP TABLE schema_migrations")
+    _break_like_the_old_v19(engine)
+    _stamp(engine, through)
+
+
+def _without_foreign_keys(engine: Engine, *statements: str) -> None:
+    with engine.connect() as conn:
+        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        for statement in statements:
+            conn.exec_driver_sql(statement)
+        conn.commit()
+
+
+def _add_attempt(engine: Engine, attempt_id: str, batch_run_id: str, task_run_id: str) -> None:
+    """An Attempt the app wrote after the damage, into the new empty table."""
+    with Session(engine) as session:
+        session.add(
+            TaskExecutionAttemptDB(
+                id=attempt_id,
+                project="p1",
+                batch_run_id=batch_run_id,
+                task_run_id=task_run_id,
+                sequence_index=0,
+                target_kind="caller",
+                queue_expires_at=NOW + timedelta(days=1),
+            )
+        )
+        session.commit()
+
+
+LATEST = list(range(1, apo_db.LATEST_SCHEMA_VERSION + 1))
+REPAIRED = {
+    **UNTOUCHED,
+    "attempts": [("attempt-1", "rev-1", "caller")],
+    "revision_nullable": True,
+}
+
+
+def test_attempt_of_a_deleted_run_is_left_out(sqlite_engine: Engine) -> None:
+    """While the Attempts sat in the legacy table, retention deleted their
+    Task Run (it found no Attempts to delete with it). Restored, the Attempt
+    would make every lease-reaper sweep fail on the missing run."""
+    from apo.services.execution_leases import recover_expired_attempts
+
+    _damaged(sqlite_engine, 51)
+    _without_foreign_keys(
+        sqlite_engine,
+        "DELETE FROM agent_task_result_evidence WHERE task_run_id = 'run-judge'",
+        "DELETE FROM agent_task_runs WHERE id = 'run-judge'",
+    )
+
+    apo_db.init_db()
+
+    assert _schema_versions(sqlite_engine) == LATEST
+    state = _attempts_state(sqlite_engine)
+    assert state["attempts"] == []
+    assert state["legacy_table"] is False
+    with sqlite_engine.connect() as conn:
+        assert (
+            conn.exec_driver_sql("PRAGMA foreign_key_check('task_execution_attempts')").fetchall()
+            == []
+        )
+    with Session(sqlite_engine) as session:
+        recover_expired_attempts(session, now=NOW + timedelta(days=365))
+
+
+def test_attempt_of_a_missing_project_is_left_out(sqlite_engine: Engine) -> None:
+    _damaged(sqlite_engine, 51)
+    _without_foreign_keys(
+        sqlite_engine,
+        f"UPDATE {LEGACY_ATTEMPTS} SET project = 'gone' WHERE id = 'attempt-1'",
+        "DELETE FROM agent_task_result_evidence",
+    )
+
+    apo_db.init_db()
+
+    assert _schema_versions(sqlite_engine) == LATEST
+    assert _attempts_state(sqlite_engine) == {**REPAIRED, "attempts": [], "evidence": []}
+
+
+def test_restored_attempt_drops_a_deleted_revision(sqlite_engine: Engine) -> None:
+    _damaged(sqlite_engine, 51)
+    _without_foreign_keys(sqlite_engine, "DELETE FROM task_revisions WHERE id = 'rev-1'")
+
+    apo_db.init_db()
+
+    with sqlite_engine.connect() as conn:
+        assert conn.exec_driver_sql(
+            "SELECT id, task_revision_id FROM task_execution_attempts"
+        ).fetchall() == [("attempt-1", None)]
+        assert (
+            conn.exec_driver_sql("PRAGMA foreign_key_check('task_execution_attempts')").fetchall()
+            == []
+        )
+
+
+def test_attempt_whose_run_has_a_newer_attempt_is_left_out(
+    sqlite_engine: Engine, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The run was given a new Attempt after the damage; restoring the old one
+    too would hit ``uq_task_execution_attempt_run`` on every boot. The old
+    Attempt's staging evidence goes with it."""
+    _damaged(sqlite_engine, 51)
+    _add_attempt(sqlite_engine, "attempt-new", "batch-nv", "run-judge")
+
+    with caplog.at_level("WARNING", logger="apo.db"):
+        apo_db.init_db()
+
+    assert _schema_versions(sqlite_engine) == LATEST
+    assert _attempts_state(sqlite_engine) == {
+        **REPAIRED,
+        "attempts": [("attempt-new", None, "bundled")],
+        "evidence": [],
+    }
+    assert "1 left out because their Task Run has a newer Attempt" in caplog.text
+    apo_db.init_db()
+    assert _schema_versions(sqlite_engine) == LATEST
+
+
+def test_restore_keeps_a_row_already_present(sqlite_engine: Engine) -> None:
+    """An id written after the damage keeps its current row."""
+    _damaged(sqlite_engine, 51)
+    _add_attempt(sqlite_engine, "attempt-1", "batch-v4", "run-v4-a")
+
+    apo_db.init_db()
+
+    assert _schema_versions(sqlite_engine) == LATEST
+    assert _attempts_state(sqlite_engine) == {
+        **REPAIRED,
+        "attempts": [("attempt-1", None, "bundled")],
+    }
+    with sqlite_engine.connect() as conn:
+        assert conn.exec_driver_sql(
+            "SELECT task_run_id FROM task_execution_attempts"
+        ).fetchall() == [("run-v4-a",)]
+
+
+def test_restore_rolls_back_when_a_reference_still_dangles(sqlite_engine: Engine) -> None:
+    _damaged(sqlite_engine, 51)
+    _add_attempt(sqlite_engine, "attempt-ghost", "batch-v4", "run-v4-a")
+    _without_foreign_keys(
+        sqlite_engine,
+        "UPDATE task_execution_attempts SET project = 'ghost' WHERE id = 'attempt-ghost'",
+    )
+
+    with pytest.raises(RuntimeError, match="dangling foreign keys"):
+        apo_db.init_db()
+
+    state = _attempts_state(sqlite_engine)
+    assert state["legacy_table"] is True
+    assert state["attempts"] == [("attempt-ghost", None, "bundled")]
+
+
+def test_referencing_only_damage_is_repaired(sqlite_engine: Engine) -> None:
+    """A v19 that copied the rows but renamed with foreign keys on: the legacy
+    table is gone, and the evidence FK still names it."""
+    _pre_v19_database(sqlite_engine)
+    with sqlite_engine.begin() as conn:
+        conn.exec_driver_sql("DROP TABLE schema_migrations")
+        conn.exec_driver_sql("DELETE FROM agent_task_result_evidence")
+    with sqlite_engine.connect() as conn:
+        assert conn.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+        for (name,) in conn.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type = 'index'"
+            " AND tbl_name = 'task_execution_attempts' AND sql IS NOT NULL"
+        ).fetchall():
+            conn.exec_driver_sql(f'DROP INDEX "{name}"')
+        conn.exec_driver_sql(f"ALTER TABLE task_execution_attempts RENAME TO {LEGACY_ATTEMPTS}")
+        SQLModel.metadata.tables["task_execution_attempts"].create(conn)
+        columns = ", ".join(
+            f'"{row[1]}"'
+            for row in conn.exec_driver_sql(f"PRAGMA table_info('{LEGACY_ATTEMPTS}')")
+        )
+        conn.exec_driver_sql(
+            f"INSERT INTO task_execution_attempts ({columns})"
+            f" SELECT {columns} FROM {LEGACY_ATTEMPTS}"
+        )
+        conn.exec_driver_sql(f"DROP TABLE {LEGACY_ATTEMPTS}")
+        conn.commit()
+    _stamp(sqlite_engine, 51)
+    assert _attempts_state(sqlite_engine)["evidence_fk"] == [LEGACY_ATTEMPTS, "agent_task_runs"]
+
+    apo_db.init_db()
+
+    assert _schema_versions(sqlite_engine) == LATEST
+    assert _attempts_state(sqlite_engine) == {
+        **UNTOUCHED,
+        "revision_nullable": True,
+        "evidence": [],
+    }
+    with Session(sqlite_engine) as session:
+        session.add(_evidence("ev-2", "attempt-1"))
+        session.commit()
+
+
+def test_trigger_on_evidence_survives_repair(sqlite_engine: Engine) -> None:
+    _pre_v19_database(sqlite_engine)
+    with sqlite_engine.begin() as conn:
+        conn.exec_driver_sql("DROP TABLE schema_migrations")
+        conn.exec_driver_sql("CREATE TABLE ev_audit (id VARCHAR)")
+        conn.exec_driver_sql(
+            "CREATE TRIGGER ev_ins AFTER INSERT ON agent_task_result_evidence"
+            " BEGIN INSERT INTO ev_audit VALUES (new.id); END"
+        )
+    _break_like_the_old_v19(sqlite_engine)
+    _stamp(sqlite_engine, 51)
+
+    apo_db.init_db()
+
+    with Session(sqlite_engine) as session:
+        session.add(_evidence("ev-2", "attempt-1"))
+        session.commit()
+    with sqlite_engine.connect() as conn:
+        assert conn.exec_driver_sql("SELECT id FROM ev_audit").fetchall() == [("ev-2",)]
+
+
+def test_v19_killed_between_rename_and_create_boots(sqlite_engine: Engine) -> None:
+    """#343's v19 committed its RENAME on its own. Killed before the CREATE
+    TABLE, it left no attempts table and the legacy table holding every
+    attempt index name, which ``create_all`` then failed to create."""
+    _pre_v19_database(sqlite_engine)
+    indexes = _attempt_indexes(sqlite_engine)
+    named = {name for name in indexes if not name.startswith("sqlite_autoindex_")}
+    with sqlite_engine.connect() as conn:
+        conn.exec_driver_sql(f"ALTER TABLE task_execution_attempts RENAME TO {LEGACY_ATTEMPTS}")
+        conn.commit()
+    assert named <= _attempt_indexes(sqlite_engine, LEGACY_ATTEMPTS)
+
+    apo_db.init_db()
+
+    assert _schema_versions(sqlite_engine) == LATEST
+    assert _attempts_state(sqlite_engine) == {**UNTOUCHED, "revision_nullable": True}
+    assert indexes <= _attempt_indexes(sqlite_engine)
+    _assert_attempts_rebuilt(sqlite_engine)

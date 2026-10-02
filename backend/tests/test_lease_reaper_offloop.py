@@ -75,3 +75,31 @@ async def test_reaper_sweep_runs_off_the_event_loop(monkeypatch: Any) -> None:
     assert max(gaps) < SYNC_WORK_SECONDS, (
         f"event loop stalled during reaper sweep: worst beat gap {max(gaps):.2f}s"
     )
+
+
+async def test_a_failed_startup_sweep_does_not_end_the_reaper(
+    monkeypatch: Any, caplog: Any
+) -> None:
+    """One bad row (an Attempt whose Task Run is gone) fails the startup sweep;
+    the reaper logs it and keeps sweeping on its interval."""
+    calls: list[str] = []
+
+    def recover(session: object, *, now: object) -> object:
+        calls.append("sweep")
+        if len(calls) == 1:
+            raise leases.LeaseError("not_found", "attempt references a missing Task Run or Batch")
+        return None
+
+    monkeypatch.setattr(leases, "recover_expired_attempts", recover)
+    monkeypatch.setattr(leases, "Session", _FakeSessionCM)
+    monkeypatch.setattr(executor_auth, "REAPER_INTERVAL_SECONDS", 0.05)
+
+    stop = asyncio.Event()
+    reaper = asyncio.create_task(_run_reaper(stop))
+    await asyncio.sleep(0.5)
+    assert not reaper.done(), reaper.exception()
+    stop.set()
+    await asyncio.wait_for(reaper, timeout=10)
+
+    assert len(calls) >= 2
+    assert "Lease reaper sweep failed" in caplog.text
