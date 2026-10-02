@@ -392,9 +392,6 @@ async function readCompletion(
  */
 const prefixQueues = new Map<string, Promise<unknown>>();
 
-/** Endpoints that 400'd on `prompt_cache_key`; later calls omit it. */
-const cacheKeyRejectedBy = new Set<string>();
-
 /**
  * Sent as `prompt_cache_key` so every call sharing a cached prefix lands where
  * that prefix is cached. Providers that cache per replica (Fireworks) route on
@@ -408,14 +405,48 @@ export function promptCacheKey(prefix: string): string {
   return `apo-${createHash("sha256").update(prefix).digest("hex").slice(0, 32)}`;
 }
 
-/** A 400 naming the field: an endpoint with a closed parameter list. */
+/** Endpoint + model pairs whose 400 rejected `prompt_cache_key`; later calls omit it. */
+const cacheKeyRejectedBy = new Set<string>();
+
+// Rejection wording next to the field, not the bare name: gateways echo
+// request params in unrelated 400 bodies (context length, bad model).
+const CACHE_KEY_REJECTED =
+  /(unknown|unrecogni[sz]ed|unsupported|unexpected|extra|not permitted|not allowed|cannot find|invalid)[^\n]{0,80}prompt_cache_key|prompt_cache_key[^\n]{0,80}(unknown|unrecogni[sz]ed|unsupported|unexpected|not permitted|not allowed|not supported|extra)/i;
+
 export function rejectsPromptCacheKey(status: number, body: string): boolean {
-  return status === 400 && /prompt_cache_key/.test(body);
+  return status === 400 && CACHE_KEY_REJECTED.test(body);
 }
 
-/** The request-body field carrying the key, omitted for an endpoint that rejected it. */
-export function promptCacheKeyField(baseURL: string, prefix: string): { prompt_cache_key?: string } {
-  return cacheKeyRejectedBy.has(baseURL) ? {} : { prompt_cache_key: promptCacheKey(prefix) };
+/**
+ * `fetch` for requests carrying `prompt_cache_key`. An endpoint with a closed
+ * parameter list (plausibly Gemini's OpenAI compatibility layer) 400s on the
+ * field; the request is resent once without it, and once that resend succeeds
+ * the endpoint + model skips the field for the rest of the process. Used by
+ * t.judge and t.agent alike, outside their own retry logic.
+ */
+export async function fetchWithPromptCacheKey(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  let body: Record<string, unknown> | undefined;
+  try {
+    body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : undefined;
+  } catch {
+    body = undefined;
+  }
+  if (!body || !("prompt_cache_key" in body)) return fetch(input, init);
+
+  const scope = `${input instanceof Request ? input.url : String(input)}\u0000${String(body.model)}`;
+  const { prompt_cache_key: _omitted, ...rest } = body;
+  const withoutKey = (): Promise<Response> => fetch(input, { ...init, body: JSON.stringify(rest) });
+  if (cacheKeyRejectedBy.has(scope)) return withoutKey();
+
+  const response = await fetch(input, init);
+  if (response.status !== 400) return response;
+  const text = await response.text();
+  if (!rejectsPromptCacheKey(response.status, text)) {
+    return new Response(text, { status: response.status, statusText: response.statusText, headers: response.headers });
+  }
+  const retry = await withoutKey();
+  if (retry.ok) cacheKeyRejectedBy.add(scope);
+  return retry;
 }
 
 function runWithSharedPrefix<T>(key: string, task: () => Promise<T>): Promise<T> {
@@ -501,7 +532,7 @@ export async function callJudge(args: {
   const requestBody = (stream: boolean): string =>
     JSON.stringify({
       model: args.model,
-      ...promptCacheKeyField(baseURL, cacheKey),
+      prompt_cache_key: promptCacheKey(cacheKey),
       messages: [
         {
           role: "system",
@@ -530,8 +561,6 @@ export async function callJudge(args: {
         retryDelayMs?: number;
         /** The endpoint rejected the streaming fields; retry without them. */
         streamRejected?: boolean;
-        /** The endpoint rejected `prompt_cache_key`; retry without it. */
-        cacheKeyRejected?: boolean;
       };
 
   // One attempt, bounded by the call's shared deadline and, once content is
@@ -554,7 +583,7 @@ export async function callJudge(args: {
     try {
       let response: Response;
       try {
-        response = await fetch(`${baseURL}/chat/completions`, {
+        response = await fetchWithPromptCacheKey(`${baseURL}/chat/completions`, {
           method: "POST",
           signal: controller.signal,
           headers: {
@@ -569,8 +598,6 @@ export async function callJudge(args: {
 
       if (!response.ok) {
         const body = await response.text().catch(() => "");
-        const cacheKeyRejected = rejectsPromptCacheKey(response.status, body);
-        if (cacheKeyRejected) cacheKeyRejectedBy.add(baseURL);
         return {
           kind: "unavailable",
           error: new JudgeUnavailableError(`Judge API ${response.status}: ${body.slice(0, 200)}`),
@@ -583,7 +610,6 @@ export async function callJudge(args: {
           ...(stream && response.status === 400 && /stream_options|["'`]stream["'`]/.test(body)
             ? { streamRejected: true }
             : {}),
-          ...(cacheKeyRejected ? { cacheKeyRejected: true } : {}),
         };
       }
 
@@ -629,13 +655,12 @@ export async function callJudge(args: {
     let result = await attempt(stream, deadline);
     const truncated = result.kind === "completion" && isTruncated(result.completion);
     const streamRejected = result.kind === "unavailable" && result.streamRejected === true;
-    const cacheKeyRejected = result.kind === "unavailable" && result.cacheKeyRejected === true;
     const retryable = result.kind === "unavailable" && result.retryable;
-    if (truncated || streamRejected || cacheKeyRejected || retryable) {
+    if (truncated || streamRejected || retryable) {
       const delay =
         result.kind === "unavailable" && result.retryDelayMs !== undefined
           ? result.retryDelayMs
-          : streamRejected || cacheKeyRejected
+          : streamRejected
             ? 0
             : JUDGE_RETRY_DELAY_MS;
       if (deadline - Date.now() - delay >= JUDGE_MIN_RETRY_BUDGET_MS) {
