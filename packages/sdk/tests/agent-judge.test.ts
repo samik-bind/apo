@@ -130,6 +130,29 @@ describe("t.agent — agentic judge sessions", () => {
     expect(session?.usage?.input_tokens).toBe(240);
   });
 
+  it("keys every step of a session with one prompt_cache_key, distinct per criterion", async () => {
+    const fetchMock = scriptFetch([
+      toolCallTurn("1", "read_deliverable", { name: "answer", offset: 0, limit: 6000 }),
+      toolCallTurn("2", "finish_verdict", { reasoning: "Supported by the log.", pass: true }),
+      toolCallTurn("3", "finish_verdict", { reasoning: "Supported by the log.", pass: true }),
+    ]);
+
+    await runAgentCheck(async (t) => {
+      await t.agent("PASS if the answer matches the log.", { label: "agent-check" });
+      await t.agent("PASS if the log has two steps.", { label: "agent-check-2" });
+    });
+
+    const keys = fetchMock.mock.calls.map(
+      ([, init]) =>
+        (JSON.parse((init as RequestInit).body as string) as { prompt_cache_key?: string }).prompt_cache_key,
+    );
+    expect(keys).toHaveLength(3);
+    expect(keys[0]).toMatch(/^apo-[0-9a-f]{32}$/);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).toMatch(/^apo-[0-9a-f]{32}$/);
+    expect(keys[2]).not.toBe(keys[0]);
+  });
+
   it("fail-closes when the model never verdicts (budget exhausted)", async () => {
     scriptFetch([toolCallTurn("loop", "read_deliverable", { name: "log", offset: 0, limit: 100 })]);
 

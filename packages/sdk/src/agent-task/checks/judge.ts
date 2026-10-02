@@ -4,6 +4,8 @@
  * endpoint (OpenRouter, OpenAI, etc.) via fetch and parses the verdict.
  */
 
+import { createHash } from "node:crypto";
+
 import type { JudgeMetadata } from "../run/types.ts";
 import { callSecondJudge, resolveSecondJudgeAPIKey, resolveSecondJudgeBaseURL, resolveSecondJudgeModel } from "./second-judge.ts";
 
@@ -390,6 +392,32 @@ async function readCompletion(
  */
 const prefixQueues = new Map<string, Promise<unknown>>();
 
+/** Endpoints that 400'd on `prompt_cache_key`; later calls omit it. */
+const cacheKeyRejectedBy = new Set<string>();
+
+/**
+ * Sent as `prompt_cache_key` so every call sharing a cached prefix lands where
+ * that prefix is cached. Providers that cache per replica (Fireworks) route on
+ * it; without it the serialized calls above still scatter across replicas and
+ * each re-bills the whole deliverable — measured on deepseek-v4.1-flash through
+ * a LiteLLM proxy: 0 cached tokens without the key, 23,158 of 23,293 with it.
+ * (`user` routes too, but LiteLLM books every distinct value as an end user.)
+ * A hash, so the request never carries the prefix text itself.
+ */
+export function promptCacheKey(prefix: string): string {
+  return `apo-${createHash("sha256").update(prefix).digest("hex").slice(0, 32)}`;
+}
+
+/** A 400 naming the field: an endpoint with a closed parameter list. */
+export function rejectsPromptCacheKey(status: number, body: string): boolean {
+  return status === 400 && /prompt_cache_key/.test(body);
+}
+
+/** The request-body field carrying the key, omitted for an endpoint that rejected it. */
+export function promptCacheKeyField(baseURL: string, prefix: string): { prompt_cache_key?: string } {
+  return cacheKeyRejectedBy.has(baseURL) ? {} : { prompt_cache_key: promptCacheKey(prefix) };
+}
+
 function runWithSharedPrefix<T>(key: string, task: () => Promise<T>): Promise<T> {
   const prev = prefixQueues.get(key) ?? Promise.resolve();
   // Run `task` once the previous same-prefix call settles, regardless of
@@ -473,6 +501,7 @@ export async function callJudge(args: {
   const requestBody = (stream: boolean): string =>
     JSON.stringify({
       model: args.model,
+      ...promptCacheKeyField(baseURL, cacheKey),
       messages: [
         {
           role: "system",
@@ -501,6 +530,8 @@ export async function callJudge(args: {
         retryDelayMs?: number;
         /** The endpoint rejected the streaming fields; retry without them. */
         streamRejected?: boolean;
+        /** The endpoint rejected `prompt_cache_key`; retry without it. */
+        cacheKeyRejected?: boolean;
       };
 
   // One attempt, bounded by the call's shared deadline and, once content is
@@ -538,6 +569,8 @@ export async function callJudge(args: {
 
       if (!response.ok) {
         const body = await response.text().catch(() => "");
+        const cacheKeyRejected = rejectsPromptCacheKey(response.status, body);
+        if (cacheKeyRejected) cacheKeyRejectedBy.add(baseURL);
         return {
           kind: "unavailable",
           error: new JudgeUnavailableError(`Judge API ${response.status}: ${body.slice(0, 200)}`),
@@ -550,6 +583,7 @@ export async function callJudge(args: {
           ...(stream && response.status === 400 && /stream_options|["'`]stream["'`]/.test(body)
             ? { streamRejected: true }
             : {}),
+          ...(cacheKeyRejected ? { cacheKeyRejected: true } : {}),
         };
       }
 
@@ -595,12 +629,13 @@ export async function callJudge(args: {
     let result = await attempt(stream, deadline);
     const truncated = result.kind === "completion" && isTruncated(result.completion);
     const streamRejected = result.kind === "unavailable" && result.streamRejected === true;
+    const cacheKeyRejected = result.kind === "unavailable" && result.cacheKeyRejected === true;
     const retryable = result.kind === "unavailable" && result.retryable;
-    if (truncated || streamRejected || retryable) {
+    if (truncated || streamRejected || cacheKeyRejected || retryable) {
       const delay =
         result.kind === "unavailable" && result.retryDelayMs !== undefined
           ? result.retryDelayMs
-          : streamRejected
+          : streamRejected || cacheKeyRejected
             ? 0
             : JUDGE_RETRY_DELAY_MS;
       if (deadline - Date.now() - delay >= JUDGE_MIN_RETRY_BUDGET_MS) {
