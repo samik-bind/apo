@@ -710,6 +710,7 @@ __all__ = [
 # ── background reaper (asyncio task; mirrors trace_ingestion_queue) ───────
 
 import asyncio  # noqa: E402
+import logging  # noqa: E402
 
 from apo.db import engine  # noqa: E402
 
@@ -720,14 +721,11 @@ _reaper_stop: asyncio.Event | None = None
 async def _run_reaper(stop_event: asyncio.Event) -> None:
     from apo.services.executor_auth import REAPER_INTERVAL_SECONDS
 
-    # Recover interrupted work once at startup (replaces the blanket
     # Recover immediately at startup, then sweep on the configured interval.
     # Issue #177: the sweep is blocking SQL and runs on the same loop that
     # serves /heartbeat — offload it like the other heavy paths (#174) so a
     # slow sweep cannot stall every live run's liveness signal.
-    with Session(engine) as session:
-        _ = await asyncio.to_thread(recover_expired_attempts, session, now=_now())
-        session.commit()
+    await _sweep_expired_attempts()
     while not stop_event.is_set():
         try:
             _ = await asyncio.wait_for(
@@ -738,15 +736,18 @@ async def _run_reaper(stop_event: asyncio.Event) -> None:
             pass
         if stop_event.is_set():
             break
-        try:
-            with Session(engine) as session:
-                _ = await asyncio.to_thread(
-                    recover_expired_attempts, session, now=_now()
-                )
-                session.commit()
-        except Exception:
-            # A reaper sweep must never crash the background loop.
-            pass
+        await _sweep_expired_attempts()
+
+
+async def _sweep_expired_attempts() -> None:
+    # A failed sweep, the startup one included, must never end the
+    # background loop: the next interval sweeps again.
+    try:
+        with Session(engine) as session:
+            _ = await asyncio.to_thread(recover_expired_attempts, session, now=_now())
+            session.commit()
+    except Exception:
+        logging.getLogger(__name__).exception("Lease reaper sweep failed")
 
 
 def start_lease_reaper() -> None:
