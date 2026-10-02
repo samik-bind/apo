@@ -153,6 +153,37 @@ describe("t.agent — agentic judge sessions", () => {
     expect(keys[2]).not.toBe(keys[0]);
   });
 
+  it("resends a step without prompt_cache_key when the endpoint rejects the field", async () => {
+    const turns = [
+      toolCallTurn("1", "finish_verdict", { reasoning: "Supported by the log.", pass: true }),
+    ];
+    const sent: boolean[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const hasKey = "prompt_cache_key" in JSON.parse(init.body as string);
+        sent.push(hasKey);
+        if (hasKey) {
+          return Response.json({ error: { message: "Unrecognized request argument supplied: prompt_cache_key" } }, { status: 400 });
+        }
+        return Response.json(turns[0]);
+      }),
+    );
+
+    resetFlowChecks();
+    defineCheck("agent-under-test", async (t) => {
+      await t.agent("PASS if the answer matches the log.", { label: "agent-check" });
+    });
+    const [result] = await runTraceChecks({
+      snapshot,
+      deliverables: { answer: "42", log: "step1\nstep2" },
+      judgeConfig: { ...JUDGE, baseURL: "https://closed-params-agent.example/v1" },
+    });
+
+    expect(result!.assertions[0]!.pass).toBe(true);
+    expect(sent).toEqual([true, false]);
+  });
+
   it("fail-closes when the model never verdicts (budget exhausted)", async () => {
     scriptFetch([toolCallTurn("loop", "read_deliverable", { name: "log", offset: 0, limit: 100 })]);
 

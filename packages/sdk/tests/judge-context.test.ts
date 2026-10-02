@@ -177,6 +177,34 @@ describe("t.judge default prompt compatibility (issue #161)", () => {
     expect(calls).toBe(3);
   });
 
+  it("keeps the key when a 400 only echoes it back", async () => {
+    const sent: boolean[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(init.body as string) as Record<string, unknown>;
+        sent.push("prompt_cache_key" in body);
+        return Response.json(
+          { error: "context length exceeded", request: { prompt_cache_key: body.prompt_cache_key } },
+          { status: 400 },
+        );
+      }),
+    );
+    defineCheck("quality", async (t) => {
+      await t.judge("memo body", "PASS when correct");
+      await t.judge("memo body", "PASS when complete");
+    });
+
+    await runTraceChecks({
+      snapshot: emptySnapshot,
+      deliverables: {},
+      task: demoTask,
+      judgeConfig: { ...judgeConfig, baseURL: "https://echoing-gateway.example/v1" },
+    });
+
+    expect(sent).toEqual([true, true]);
+  });
+
   it("ignores an empty builder result and keeps the default prompt", async () => {
     const fetchMock = stubCapturingJudge();
     defineCheck("quality", async (t) => {

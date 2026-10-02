@@ -27,7 +27,7 @@ import { isTraceableSpanId } from "../tracing.ts";
 import { resolveJudgeConfig } from "./t.ts";
 import type { AgentHistoryPlane } from "./agent-history.ts";
 import { createMcpToolset, type McpServerConfig } from "./mcp-tools.ts";
-import { promptCacheKeyField } from "./judge.ts";
+import { fetchWithPromptCacheKey, promptCacheKey } from "./judge.ts";
 
 // ── Public types ───────────────────────────────────────────────────────────
 
@@ -566,10 +566,10 @@ export async function runAgentSession(spec: {
   const stepCountIs = (n: number): unknown => ai.stepCountIs(n);
   const tool = (def: ToolDefinition): unknown => ai.tool(def as never);
 
-  const baseURL = spec.baseURL ?? "https://openrouter.ai/api/v1";
   const provider = createOpenAICompatible({
     name: "openrouter",
-    baseURL,
+    baseURL: spec.baseURL ?? "https://openrouter.ai/api/v1",
+    fetch: fetchWithPromptCacheKey,
     apiKey: spec.apiKey ?? process.env.OPENROUTER_API_KEY ?? process.env.OPENAI_API_KEY,
     // Mark the briefing prefix cacheable — repeated samples (rejudge) re-bill
     // nothing for the shared turn-0 context — and keep every step of one
@@ -578,7 +578,7 @@ export async function runAgentSession(spec: {
     // t.judge calls, and one key per task would pile them onto one replica.
     transformRequestBody: (body: Record<string, unknown>) => ({
       ...body,
-      ...promptCacheKeyField(baseURL, sessionPrefix(body)),
+      prompt_cache_key: promptCacheKey(sessionPrefix(body)),
       messages: (body.messages as Array<Record<string, unknown>>)?.map((m) =>
         m.role === "system" && typeof m.content === "string"
           ? { ...m, content: [{ type: "text", text: m.content, cache_control: { type: "ephemeral" } }] }
