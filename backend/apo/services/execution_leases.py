@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, update
+from sqlalchemy import ColumnElement, func, update
 from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
@@ -492,22 +492,27 @@ def recover_expired_attempts(session: Session, *, now: datetime) -> RecoveryCoun
     - queued + queue TTL expired -> failed(executor_unavailable);
     - terminal -> unchanged.
 
-    Each Attempt is recovered and committed on its own (finalizing a Run
-    commits anyway, via ``update_batch_run_status``): one that cannot be
-    recovered is rolled back, logged once and counted as ``skipped``, and the
-    rest of the sweep still lands.
+    Each Attempt is re-read, recovered and committed on its own (finalizing a
+    Run commits anyway, via ``update_batch_run_status``):
+
+    - one that changed since the sweep's query (cancelled, claimed, deleted)
+      is left alone;
+    - one that cannot be recovered is rolled back, logged once and counted
+      as ``skipped``, and the rest of the sweep still lands;
+    - one that failed after finalizing had already ended (the inner commit
+      landed): it counts as recovered and the failure is logged.
     """
-    requeued = lost = failed_unavailable = skipped = 0
+    counts = {"requeued": 0, "lost": 0, "failed_unavailable": 0, "skipped": 0}
 
-    def requeue(attempt: TaskExecutionAttemptDB) -> None:
-        # Pre-start: safe to requeue. Drop the lease so another executor can claim.
-        attempt.status = QUEUED
-        attempt.executor_id = None
-        attempt.claimed_at = None
-        attempt.lease_expires_at = None
-        attempt.heartbeat_at = None
-
-    def mark_lost(attempt: TaskExecutionAttemptDB) -> None:
+    def recover_lease(attempt: TaskExecutionAttemptDB) -> str:
+        if attempt.started_at is None:
+            # Pre-start: safe to requeue. Drop the lease so another executor can claim.
+            attempt.status = QUEUED
+            attempt.executor_id = None
+            attempt.claimed_at = None
+            attempt.lease_expires_at = None
+            attempt.heartbeat_at = None
+            return "requeued"
         # Post-start: uncertain; never auto-retry.
         attempt.status = LOST
         attempt.failure_kind = "lease_expired"
@@ -516,44 +521,37 @@ def recover_expired_attempts(session: Session, *, now: datetime) -> RecoveryCoun
         )
         attempt.completed_at = now
         _finalize_recovered_run(session, attempt, error_message=attempt.error_message)
+        return "lost"
 
-    def mark_unavailable(attempt: TaskExecutionAttemptDB) -> None:
+    def recover_queued(attempt: TaskExecutionAttemptDB) -> str:
         attempt.status = FAILED
         attempt.failure_kind = "executor_unavailable"
         attempt.error_message = "queue TTL expired before an executor claimed the task"
         attempt.completed_at = now
         _finalize_recovered_run(session, attempt, error_message=attempt.error_message)
+        return "failed_unavailable"
 
-    expired_leases = session.exec(
-        select(TaskExecutionAttemptDB).where(
-            as_column(TaskExecutionAttemptDB.status).in_([LEASED, RUNNING]),
-            as_column(TaskExecutionAttemptDB.lease_expires_at) <= now,
-        )
-    ).all()
-    for attempt in expired_leases:
-        pre_start = attempt.started_at is None
-        if not _recover_attempt(session, attempt, requeue if pre_start else mark_lost):
-            skipped += 1
-        elif pre_start:
-            requeued += 1
-        else:
-            lost += 1
-
-    expired_queued = session.exec(
-        select(TaskExecutionAttemptDB).where(
-            as_column(TaskExecutionAttemptDB.status) == QUEUED,
-            as_column(TaskExecutionAttemptDB.queue_expires_at) <= now,
-        )
-    ).all()
-    for attempt in expired_queued:
-        if _recover_attempt(session, attempt, mark_unavailable):
-            failed_unavailable += 1
-        else:
-            skipped += 1
-
-    return RecoveryCounts(
-        requeued=requeued, lost=lost, failed_unavailable=failed_unavailable, skipped=skipped
+    lease_expired = (
+        as_column(TaskExecutionAttemptDB.status).in_([LEASED, RUNNING]),
+        as_column(TaskExecutionAttemptDB.lease_expires_at) <= now,
     )
+    queue_expired = (
+        as_column(TaskExecutionAttemptDB.status) == QUEUED,
+        as_column(TaskExecutionAttemptDB.queue_expires_at) <= now,
+    )
+    # Ids only: each Attempt is re-read under the same conditions on its turn.
+    for conditions, recover in ((lease_expired, recover_lease), (queue_expired, recover_queued)):
+        attempt_ids = session.exec(
+            select(TaskExecutionAttemptDB.id)
+            .where(*conditions)
+            .order_by(as_column(TaskExecutionAttemptDB.id))
+        ).all()
+        for attempt_id in attempt_ids:
+            outcome = _recover_attempt(session, attempt_id, conditions, recover)
+            if outcome is not None:
+                counts[outcome] += 1
+
+    return RecoveryCounts(**counts)
 
 
 # Attempts the reaper already reported as unrecoverable in this process: the
@@ -563,24 +561,46 @@ _unrecoverable_reported: set[str] = set()
 
 def _recover_attempt(
     session: Session,
-    attempt: TaskExecutionAttemptDB,
-    apply: Callable[[TaskExecutionAttemptDB], None],
-) -> bool:
-    attempt_id = attempt.id
+    attempt_id: str,
+    conditions: tuple[ColumnElement[bool], ...],
+    recover: Callable[[TaskExecutionAttemptDB], str],
+) -> str | None:
+    """Recover one Attempt; the outcome to count, or None if it no longer qualifies."""
     try:
-        apply(attempt)
+        attempt = session.exec(
+            select(TaskExecutionAttemptDB).where(
+                as_column(TaskExecutionAttemptDB.id) == attempt_id, *conditions
+            )
+        ).first()
+        if attempt is None:
+            return None
+        outcome = recover(attempt)
         session.add(attempt)
         session.commit()
     except Exception:
         session.rollback()
+        ended = session.exec(
+            select(TaskExecutionAttemptDB.status).where(
+                as_column(TaskExecutionAttemptDB.id) == attempt_id
+            )
+        ).first()
+        if ended in (LOST, FAILED):
+            # Finalizing committed the Attempt's end before a later step
+            # (batch roll-up, schedule occurrence) failed: it is recovered.
+            _logger.exception(
+                "Lease reaper ended attempt %s, but a step after finalizing its Run failed",
+                attempt_id,
+            )
+            _unrecoverable_reported.discard(attempt_id)
+            return "lost" if ended == LOST else "failed_unavailable"
         if attempt_id in _unrecoverable_reported:
             _logger.debug("Lease reaper skipped attempt %s again", attempt_id)
         else:
             _unrecoverable_reported.add(attempt_id)
             _logger.exception("Lease reaper could not recover attempt %s; skipping it", attempt_id)
-        return False
+        return "skipped"
     _unrecoverable_reported.discard(attempt_id)
-    return True
+    return outcome
 
 
 def _finalize_recovered_run(
