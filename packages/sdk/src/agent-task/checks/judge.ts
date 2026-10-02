@@ -228,19 +228,38 @@ function parseJudgeJson(raw: string): { pass?: boolean; reasoning?: string } {
 
 /**
  * Bounds on one judge call. Same-prefix judge calls are serialized (below),
- * so a stalled call delays every criterion sharing the cached prefix; both
- * bounds end it with an error rather than a silent wait.
+ * so a stalled call delays every criterion sharing the cached prefix; every
+ * bound ends it with an error rather than a silent wait.
  *
- * - Total: one deadline for the whole call, retry included. Generous,
- *   because a reasoning judge on a long checklist criterion measured
- *   87–100 s end to end, and some samples run past 180 s.
- * - Idle: once content has started streaming, no `data:` chunk for this long
- *   means the stream has stalled. It is not armed before the first chunk: a
- *   model that reasons without streaming its thinking sends only keepalive
- *   comments until it answers, and that silence is the think, not a stall.
+ * - First data: no `data:` chunk this long after the attempt starts. Before
+ *   the first chunk a model that reasons without streaming its thinking sends
+ *   only keepalive comments, and so does a gateway in front of a provider that
+ *   died, so this is the one bound that cannot tell a think from a stall.
+ *   `APO_JUDGE_TIMEOUT_MS` (default 300 s).
+ * - Idle: once data is streaming, no `data:` chunk for this long means the
+ *   stream has stalled. A judge that streams its reasoning keeps resetting it,
+ *   so a long think is never cut while it is still producing.
+ * - Runaway: the whole call, retry included, however much it streams. Only a
+ *   reasoning loop reaches it; a judge on a whole-document checklist streamed
+ *   past 300 s and was still producing. `APO_JUDGE_MAX_DURATION_MS`
+ *   (default 20 min).
  */
-const JUDGE_TIMEOUT_MS = 300_000;
 const JUDGE_IDLE_TIMEOUT_MS = 90_000;
+
+function envMs(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const ms = Number(raw);
+  return Number.isFinite(ms) && ms > 0 ? ms : fallback;
+}
+
+/** Read per call, so a run can set them after the SDK is imported. */
+function judgeFirstDataTimeoutMs(): number {
+  return envMs("APO_JUDGE_TIMEOUT_MS", 300_000);
+}
+function judgeMaxDurationMs(): number {
+  return envMs("APO_JUDGE_MAX_DURATION_MS", 1_200_000);
+}
 
 /**
  * One retry for a transport failure (network error, 429, 5xx, a stream error,
@@ -563,19 +582,33 @@ export async function callJudge(args: {
         streamRejected?: boolean;
       };
 
-  // One attempt, bounded by the call's shared deadline and, once content is
-  // flowing, by the idle bound.
-  const attempt = async (stream: boolean, deadline: number): Promise<AttemptResult> => {
+  // One attempt: bounded by the first-data window until the first `data:`
+  // chunk, then by the idle bound, and throughout by the call's runaway
+  // deadline.
+  const attempt = async (stream: boolean, maxDeadline: number): Promise<AttemptResult> => {
     const controller = new AbortController();
     const expire = (reason: string, name: string) => () =>
       controller.abort(new DOMException(reason, name));
-    const total = setTimeout(
-      expire(`no complete response within ${JUDGE_TIMEOUT_MS / 1000}s`, "TimeoutError"),
-      Math.max(deadline - Date.now(), 0),
+    const firstDataMs = judgeFirstDataTimeoutMs();
+    const runaway = setTimeout(
+      expire(
+        `still streaming after ${Math.round(judgeMaxDurationMs() / 1000)}s (APO_JUDGE_MAX_DURATION_MS)`,
+        "TimeoutError",
+      ),
+      Math.max(maxDeadline - Date.now(), 0),
+    );
+    let waiting: ReturnType<typeof setTimeout> | undefined = setTimeout(
+      expire(
+        `no data within ${Math.round(firstDataMs / 1000)}s (APO_JUDGE_TIMEOUT_MS)`,
+        "FirstDataTimeoutError",
+      ),
+      firstDataMs,
     );
     const stalled = expire(`no data for ${JUDGE_IDLE_TIMEOUT_MS / 1000}s`, "IdleTimeoutError");
     let idle: ReturnType<typeof setTimeout> | undefined;
     const onData = (): void => {
+      clearTimeout(waiting);
+      waiting = undefined;
       clearTimeout(idle);
       idle = setTimeout(stalled, JUDGE_IDLE_TIMEOUT_MS);
     };
@@ -619,7 +652,8 @@ export async function callJudge(args: {
         return transportFailure("Judge response failed", controller.signal.reason ?? error);
       }
     } finally {
-      clearTimeout(total);
+      clearTimeout(runaway);
+      clearTimeout(waiting);
       clearTimeout(idle);
       // Release the connection on every exit, including a thrown error chunk
       // whose stream the server has not closed. A no-op once the body is read.
@@ -649,7 +683,7 @@ export async function callJudge(args: {
 
   return runWithSharedPrefix(cacheKey, async () => {
     const startedAt = Date.now();
-    const deadline = startedAt + JUDGE_TIMEOUT_MS;
+    const deadline = startedAt + judgeMaxDurationMs();
 
     let stream = true;
     let result = await attempt(stream, deadline);
@@ -719,9 +753,10 @@ export async function callJudge(args: {
 }
 
 /**
- * A fetch or body-read failure. Hitting the call's deadline already spent the
- * whole budget, so that alone is not retried. A stalled stream (idle bound)
- * is transient, like a cut connection, and gets the retry.
+ * A fetch or body-read failure. Hitting the call's runaway deadline already
+ * spent the whole budget, so that alone is not retried. A stalled stream (idle
+ * bound) or one that never started (first-data bound) is transient, like a cut
+ * connection, and gets the retry while the runaway budget allows.
  */
 function transportFailure(
   prefix: string,
