@@ -20,6 +20,8 @@ PostgreSQL may additionally use ``SKIP LOCKED``.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -51,6 +53,8 @@ LOST = "lost"
 
 TERMINAL_STATUSES = frozenset({SUCCEEDED, FAILED, CANCELLED, LOST})
 NONTERMINAL_STATUSES = frozenset({QUEUED, LEASED, RUNNING})
+
+_logger = logging.getLogger(__name__)
 
 
 class LeaseError(Exception):
@@ -107,6 +111,7 @@ class RecoveryCounts:
     requeued: int
     lost: int
     failed_unavailable: int
+    skipped: int = 0
 
 
 def _now() -> datetime:
@@ -486,8 +491,38 @@ def recover_expired_attempts(session: Session, *, now: datetime) -> RecoveryCoun
     - running + lease expired -> lost (never auto-retried);
     - queued + queue TTL expired -> failed(executor_unavailable);
     - terminal -> unchanged.
+
+    Each Attempt is recovered and committed on its own (finalizing a Run
+    commits anyway, via ``update_batch_run_status``): one that cannot be
+    recovered is rolled back, logged once and counted as ``skipped``, and the
+    rest of the sweep still lands.
     """
-    requeued = lost = failed_unavailable = 0
+    requeued = lost = failed_unavailable = skipped = 0
+
+    def requeue(attempt: TaskExecutionAttemptDB) -> None:
+        # Pre-start: safe to requeue. Drop the lease so another executor can claim.
+        attempt.status = QUEUED
+        attempt.executor_id = None
+        attempt.claimed_at = None
+        attempt.lease_expires_at = None
+        attempt.heartbeat_at = None
+
+    def mark_lost(attempt: TaskExecutionAttemptDB) -> None:
+        # Post-start: uncertain; never auto-retry.
+        attempt.status = LOST
+        attempt.failure_kind = "lease_expired"
+        attempt.error_message = (
+            "Executor lease expired after task code started; outcome is unknown"
+        )
+        attempt.completed_at = now
+        _finalize_recovered_run(session, attempt, error_message=attempt.error_message)
+
+    def mark_unavailable(attempt: TaskExecutionAttemptDB) -> None:
+        attempt.status = FAILED
+        attempt.failure_kind = "executor_unavailable"
+        attempt.error_message = "queue TTL expired before an executor claimed the task"
+        attempt.completed_at = now
+        _finalize_recovered_run(session, attempt, error_message=attempt.error_message)
 
     expired_leases = session.exec(
         select(TaskExecutionAttemptDB).where(
@@ -496,29 +531,13 @@ def recover_expired_attempts(session: Session, *, now: datetime) -> RecoveryCoun
         )
     ).all()
     for attempt in expired_leases:
-        if attempt.started_at is None:
-            # Pre-start: safe to requeue. Drop the lease so another executor can claim.
-            attempt.status = QUEUED
-            attempt.executor_id = None
-            attempt.claimed_at = None
-            attempt.lease_expires_at = None
-            attempt.heartbeat_at = None
+        pre_start = attempt.started_at is None
+        if not _recover_attempt(session, attempt, requeue if pre_start else mark_lost):
+            skipped += 1
+        elif pre_start:
             requeued += 1
         else:
-            # Post-start: uncertain; never auto-retry.
-            attempt.status = LOST
-            attempt.failure_kind = "lease_expired"
-            attempt.error_message = (
-                "Executor lease expired after task code started; outcome is unknown"
-            )
-            attempt.completed_at = now
-            _finalize_logical_run(
-                session,
-                attempt,
-                error_message=attempt.error_message,
-            )
             lost += 1
-        session.add(attempt)
 
     expired_queued = session.exec(
         select(TaskExecutionAttemptDB).where(
@@ -527,21 +546,57 @@ def recover_expired_attempts(session: Session, *, now: datetime) -> RecoveryCoun
         )
     ).all()
     for attempt in expired_queued:
-        attempt.status = FAILED
-        attempt.failure_kind = "executor_unavailable"
-        attempt.error_message = "queue TTL expired before an executor claimed the task"
-        attempt.completed_at = now
-        _finalize_logical_run(
-            session,
-            attempt,
-            error_message=attempt.error_message,
-        )
-        failed_unavailable += 1
-        session.add(attempt)
+        if _recover_attempt(session, attempt, mark_unavailable):
+            failed_unavailable += 1
+        else:
+            skipped += 1
 
-    if requeued or lost or failed_unavailable:
+    return RecoveryCounts(
+        requeued=requeued, lost=lost, failed_unavailable=failed_unavailable, skipped=skipped
+    )
+
+
+# Attempts the reaper already reported as unrecoverable in this process: the
+# traceback is logged once, not on every sweep that finds the row again.
+_unrecoverable_reported: set[str] = set()
+
+
+def _recover_attempt(
+    session: Session,
+    attempt: TaskExecutionAttemptDB,
+    apply: Callable[[TaskExecutionAttemptDB], None],
+) -> bool:
+    attempt_id = attempt.id
+    try:
+        apply(attempt)
+        session.add(attempt)
         session.commit()
-    return RecoveryCounts(requeued=requeued, lost=lost, failed_unavailable=failed_unavailable)
+    except Exception:
+        session.rollback()
+        if attempt_id in _unrecoverable_reported:
+            _logger.debug("Lease reaper skipped attempt %s again", attempt_id)
+        else:
+            _unrecoverable_reported.add(attempt_id)
+            _logger.exception("Lease reaper could not recover attempt %s; skipping it", attempt_id)
+        return False
+    _unrecoverable_reported.discard(attempt_id)
+    return True
+
+
+def _finalize_recovered_run(
+    session: Session, attempt: TaskExecutionAttemptDB, *, error_message: str
+) -> None:
+    try:
+        _finalize_logical_run(session, attempt, error_message=error_message)
+    except LeaseError as exc:
+        if exc.kind != "not_found":
+            raise
+        # The Run or Batch is gone (deleted, or an Attempt restored without
+        # one). There is nothing to align, but the Attempt still ends, or every
+        # sweep would find it again.
+        _logger.warning(
+            "Recovered attempt %s has no Task Run or Batch; ended it without one", attempt.id
+        )
 
 
 def fail_attempt(
@@ -710,7 +765,6 @@ __all__ = [
 # ── background reaper (asyncio task; mirrors trace_ingestion_queue) ───────
 
 import asyncio  # noqa: E402
-import logging  # noqa: E402
 
 from apo.db import engine  # noqa: E402
 
@@ -747,7 +801,7 @@ async def _sweep_expired_attempts() -> None:
             _ = await asyncio.to_thread(recover_expired_attempts, session, now=_now())
             session.commit()
     except Exception:
-        logging.getLogger(__name__).exception("Lease reaper sweep failed")
+        _logger.exception("Lease reaper sweep failed")
 
 
 def start_lease_reaper() -> None:
