@@ -77,16 +77,14 @@ async def test_reaper_sweep_runs_off_the_event_loop(monkeypatch: Any) -> None:
     )
 
 
-async def test_a_failed_startup_sweep_does_not_end_the_reaper(
-    monkeypatch: Any, caplog: Any
-) -> None:
-    """One bad row (an Attempt whose Task Run is gone) fails the startup sweep;
-    the reaper logs it and keeps sweeping on its interval."""
+async def _reaper_survives_failed_sweep(monkeypatch: Any, caplog: Any, failing_sweep: int) -> None:
+    """One bad row (an Attempt whose Task Run is gone) fails sweep number
+    ``failing_sweep``; the reaper logs it and keeps sweeping on its interval."""
     calls: list[str] = []
 
     def recover(session: object, *, now: object) -> object:
         calls.append("sweep")
-        if len(calls) == 1:
+        if len(calls) == failing_sweep:
             raise leases.LeaseError("not_found", "attempt references a missing Task Run or Batch")
         return None
 
@@ -101,5 +99,17 @@ async def test_a_failed_startup_sweep_does_not_end_the_reaper(
     stop.set()
     await asyncio.wait_for(reaper, timeout=10)
 
-    assert len(calls) >= 2
+    assert len(calls) > failing_sweep
     assert "Lease reaper sweep failed" in caplog.text
+
+
+async def test_a_failed_startup_sweep_does_not_end_the_reaper(
+    monkeypatch: Any, caplog: Any
+) -> None:
+    await _reaper_survives_failed_sweep(monkeypatch, caplog, failing_sweep=1)
+
+
+async def test_a_failed_interval_sweep_does_not_end_the_reaper(
+    monkeypatch: Any, caplog: Any
+) -> None:
+    await _reaper_survives_failed_sweep(monkeypatch, caplog, failing_sweep=2)

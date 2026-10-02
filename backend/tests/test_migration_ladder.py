@@ -1224,13 +1224,18 @@ def test_attempt_of_a_deleted_run_is_left_out(sqlite_engine: Engine) -> None:
         recover_expired_attempts(session, now=NOW + timedelta(days=365))
 
 
-def test_attempt_of_a_missing_project_is_left_out(sqlite_engine: Engine) -> None:
-    _damaged(sqlite_engine, 51)
-    _without_foreign_keys(
-        sqlite_engine,
+@pytest.mark.parametrize(
+    "parent",
+    [
         f"UPDATE {LEGACY_ATTEMPTS} SET project = 'gone' WHERE id = 'attempt-1'",
-        "DELETE FROM agent_task_result_evidence",
-    )
+        f"UPDATE {LEGACY_ATTEMPTS} SET batch_run_id = 'gone' WHERE id = 'attempt-1'",
+    ],
+    ids=["project", "batch"],
+)
+def test_attempt_of_a_missing_parent_is_left_out(sqlite_engine: Engine, parent: str) -> None:
+    """Its staging evidence goes with it."""
+    _damaged(sqlite_engine, 51)
+    _without_foreign_keys(sqlite_engine, parent)
 
     apo_db.init_db()
 
@@ -1238,20 +1243,37 @@ def test_attempt_of_a_missing_project_is_left_out(sqlite_engine: Engine) -> None
     assert _attempts_state(sqlite_engine) == {**REPAIRED, "attempts": [], "evidence": []}
 
 
-def test_restored_attempt_drops_a_deleted_revision(sqlite_engine: Engine) -> None:
+@pytest.mark.parametrize(
+    ("column", "damage"),
+    [
+        ("task_revision_id", "DELETE FROM task_revisions WHERE id = 'rev-1'"),
+        ("target_user_id", f"UPDATE {LEGACY_ATTEMPTS} SET target_user_id = 'gone'"),
+        ("executor_pool_id", f"UPDATE {LEGACY_ATTEMPTS} SET executor_pool_id = 'gone'"),
+        ("executor_id", f"UPDATE {LEGACY_ATTEMPTS} SET executor_id = 'gone'"),
+    ],
+    ids=["revision", "target-user", "executor-pool", "executor"],
+)
+def test_restored_attempt_drops_a_deleted_optional_reference(
+    sqlite_engine: Engine, column: str, damage: str
+) -> None:
+    """The row is restored with the reference nulled, and the whole database
+    passes ``PRAGMA foreign_key_check``."""
     _damaged(sqlite_engine, 51)
-    _without_foreign_keys(sqlite_engine, "DELETE FROM task_revisions WHERE id = 'rev-1'")
+    _without_foreign_keys(sqlite_engine, damage)
 
     apo_db.init_db()
 
+    assert _schema_versions(sqlite_engine) == LATEST
+    revision = None if column == "task_revision_id" else "rev-1"
+    assert _attempts_state(sqlite_engine) == {
+        **REPAIRED,
+        "attempts": [("attempt-1", revision, "caller")],
+    }
     with sqlite_engine.connect() as conn:
         assert conn.exec_driver_sql(
-            "SELECT id, task_revision_id FROM task_execution_attempts"
-        ).fetchall() == [("attempt-1", None)]
-        assert (
-            conn.exec_driver_sql("PRAGMA foreign_key_check('task_execution_attempts')").fetchall()
-            == []
-        )
+            "SELECT task_revision_id, target_user_id, executor_pool_id, executor_id"
+            " FROM task_execution_attempts"
+        ).fetchall() == [(revision, None, None, None)]
 
 
 def test_attempt_whose_run_has_a_newer_attempt_is_left_out(
