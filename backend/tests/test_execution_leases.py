@@ -628,6 +628,29 @@ def test_reaper_counts_an_attempt_that_ended_before_a_later_step_failed(
     assert any("a step after finalizing its Run failed" in r.getMessage() for r in caplog.records)
 
 
+def test_reaper_counts_a_lost_attempt_that_ended_before_a_later_step_failed(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from apo.services import schedule_occurrences
+
+    (running,) = _seed(session, sequence_indices=[0])
+    running.status = "running"
+    running.lease_generation = 1
+    running.lease_expires_at = _now() - timedelta(seconds=1)
+    running.started_at = _now() - timedelta(minutes=5)
+    session.add(running)
+    session.commit()
+
+    def resolve(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("occurrence store down")
+
+    monkeypatch.setattr(schedule_occurrences, "resolve_occurrence_if_terminal", resolve)
+
+    counts = recover_expired_attempts(session, now=_now())
+
+    assert (counts.lost, counts.failed_unavailable, counts.skipped) == (1, 0, 0)
+
+
 def test_reaper_leaves_an_attempt_that_changed_since_its_query(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -641,6 +664,9 @@ def test_reaper_leaves_an_attempt_that_changed_since_its_query(
         session.add(attempt)
     session.commit()
     first_id, cancelled_id, removed_id = first.id, cancelled.id, removed.id
+    # a previously reported Attempt that no longer qualifies is forgotten
+    reported = {cancelled_id}
+    monkeypatch.setattr(execution_leases, "_unrecoverable_reported", reported, raising=False)
     real_finalize = execution_leases._finalize_logical_run
 
     def finalize(session: Session, attempt: TaskExecutionAttemptDB, **kwargs: object) -> None:
@@ -658,10 +684,86 @@ def test_reaper_leaves_an_attempt_that_changed_since_its_query(
     counts = recover_expired_attempts(session, now=_now())
 
     assert (counts.failed_unavailable, counts.skipped) == (1, 0)
+    assert reported == set()
     session.expire_all()
     left_alone = session.get(TaskExecutionAttemptDB, cancelled_id)
     assert left_alone is not None and left_alone.status == "cancelled"
     assert session.get(TaskExecutionAttemptDB, removed_id) is None
+
+
+def test_reaper_leaves_a_lease_reclaimed_since_its_query(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Both leases expired; while the reaper ends the first, another executor
+    # reclaims the second (new generation, fresh expiry). Requeuing it would
+    # take the lease from a live executor.
+    from apo.services import execution_leases
+
+    ended, reclaimed = _seed(session, sequence_indices=[0, 1])
+    ended.status = "running"
+    ended.started_at = _now() - timedelta(minutes=5)
+    reclaimed.status = "leased"
+    for attempt in (ended, reclaimed):
+        attempt.lease_generation = 1
+        attempt.lease_expires_at = _now() - timedelta(seconds=1)
+        session.add(attempt)
+    session.commit()
+    ended_id, reclaimed_id = ended.id, reclaimed.id
+    real_finalize = execution_leases._finalize_logical_run
+
+    def finalize(session: Session, attempt: TaskExecutionAttemptDB, **kwargs: object) -> None:
+        real_finalize(session, attempt, **kwargs)  # pyright: ignore[reportArgumentType]
+        if attempt.id == ended_id:
+            session.commit()
+            lease = session.get(TaskExecutionAttemptDB, reclaimed_id)
+            assert lease is not None
+            lease.lease_generation = 2
+            lease.lease_expires_at = _now() + timedelta(minutes=5)
+            session.add(lease)
+            session.commit()
+
+    monkeypatch.setattr(execution_leases, "_finalize_logical_run", finalize)
+
+    counts = recover_expired_attempts(session, now=_now())
+
+    assert (counts.lost, counts.requeued) == (1, 0)
+    session.expire_all()
+    lease = session.get(TaskExecutionAttemptDB, reclaimed_id)
+    assert lease is not None and (lease.status, lease.lease_generation) == ("leased", 2)
+
+
+def test_reaper_does_not_claim_an_end_someone_else_wrote(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The reaper's finalize fails before its commit, while queue maintenance
+    # fails the Attempt for its own reason: not the reaper's recovery to count.
+    from apo.services import execution_leases
+
+    (attempt,) = _seed(session, sequence_indices=[0])
+    attempt.queue_expires_at = _now() - timedelta(seconds=1)
+    session.add(attempt)
+    session.commit()
+    attempt_id = attempt.id
+    monkeypatch.setattr(execution_leases, "_unrecoverable_reported", set(), raising=False)
+
+    def finalize(session: Session, attempt: TaskExecutionAttemptDB, **_kwargs: object) -> None:
+        session.rollback()
+        other = session.get(TaskExecutionAttemptDB, attempt_id)
+        assert other is not None
+        other.status = "failed"
+        other.failure_kind = "task_not_in_catalog"
+        session.add(other)
+        session.commit()
+        raise RuntimeError("reaper's finalize failed")
+
+    monkeypatch.setattr(execution_leases, "_finalize_logical_run", finalize)
+
+    counts = recover_expired_attempts(session, now=_now())
+
+    assert (counts.failed_unavailable, counts.skipped) == (0, 0)
+    session.expire_all()
+    failed = session.get(TaskExecutionAttemptDB, attempt_id)
+    assert failed is not None and failed.failure_kind == "task_not_in_catalog"
 
 
 def test_reaper_reports_a_new_failure_after_the_attempt_recovered(
