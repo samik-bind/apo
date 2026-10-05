@@ -41,12 +41,17 @@ const emptySnapshot: TraceProjectionSnapshot = {
   observations: [],
 };
 
+const QUOTE_RULE =
+  " Inside the reasoning, quote the output with single quotes, never with unescaped double quotes.";
+
 const DEFAULT_SYSTEM_PROMPT =
   "You are an evaluation judge. Evaluate the given value(s) against the " +
-  'instruction. Respond with ONLY a JSON object: {"reasoning": "your reasoning", "pass": true/false}';
+  'instruction. Respond with ONLY a JSON object: {"reasoning": "your reasoning", "pass": true/false}.' +
+  QUOTE_RULE;
 
 const RESPONSE_CONTRACT =
-  'Respond with ONLY a JSON object: {"reasoning": "your reasoning", "pass": true/false}';
+  'Respond with ONLY a JSON object: {"reasoning": "your reasoning", "pass": true/false}.' +
+  QUOTE_RULE;
 
 const judgeConfig = {
   model: "test/judge",
@@ -342,7 +347,10 @@ describe("t.judge prompt builder assembly (issue #161 part 3)", () => {
     // The SDK appends its response contract — a builder cannot drop it.
     expect(briefing.endsWith(RESPONSE_CONTRACT)).toBe(true);
     // response_format stays the SDK's.
-    expect(requestBody(fetchMock).response_format).toEqual({ type: "json_object" });
+    expect(requestBody(fetchMock).response_format).toMatchObject({
+      type: "json_schema",
+      json_schema: { strict: true, schema: { required: ["reasoning", "pass"] } },
+    });
   });
 
   it("lets the builder replace the user message (per-criterion text)", async () => {

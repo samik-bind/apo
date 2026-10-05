@@ -18,10 +18,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { callJudge } from "../src/agent-task/checks/judge.ts";
 
+const QUOTE_RULE =
+  " Inside the reasoning, quote the output with single quotes, never with unescaped double quotes.";
 const VERDICT_FIRST_CONTRACT =
-  'Respond with ONLY a JSON object: {"pass": true/false, "reasoning": "your reasoning"}';
+  'Respond with ONLY a JSON object: {"pass": true/false, "reasoning": "your reasoning"}.' +
+  QUOTE_RULE;
 const REASONING_FIRST_CONTRACT =
-  'Respond with ONLY a JSON object: {"reasoning": "your reasoning", "pass": true/false}';
+  'Respond with ONLY a JSON object: {"reasoning": "your reasoning", "pass": true/false}.' +
+  QUOTE_RULE;
 
 const judgeArgs = {
   values: ["the deliverable"],
