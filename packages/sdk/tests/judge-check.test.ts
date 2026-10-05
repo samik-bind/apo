@@ -153,7 +153,7 @@ describe("t.judge", () => {
     expect(result.reasoning).toContain("OPENAI_MODEL");
   });
 
-  it("records malformed provider output as a failed judge verdict", async () => {
+  it("records malformed provider output as a judge error, not a verdict", async () => {
     stubJudgeResponse({ content: "not-json" });
     defineCheck("quality", async (t) => {
       await t.judge("answer", "PASS when correct");
@@ -170,10 +170,10 @@ describe("t.judge", () => {
       evaluator_type: "llm",
       judge: { response: "not-json" },
     });
-    // Malformed output is a failure with a plain-language explanation (not a
-    // raw dump of the response). The raw response stays on judge metadata.
-    expect(result?.reasoning).toContain("could not be parsed");
+    // No verdict is unknown, not FAIL. The raw response stays on judge metadata.
+    expect(result?.reasoning).toContain("no verdict");
     expect(result?.reasoning).not.toContain("not-json");
+    expect(result?.assertions?.[0]).toMatchObject({ pass: false, outcome: "error" });
   });
 
   it("treats a zero-output-token response as a judge error", async () => {

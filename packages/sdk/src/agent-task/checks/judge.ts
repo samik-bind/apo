@@ -64,11 +64,18 @@ export type JudgePromptBuilder = (ctx: JudgeContext) => {
   user?: string;
 };
 
+// A raw `"` inside the reasoning ends the JSON string early: the judge quotes the
+// output it grades, and an unescaped quote cut a reasoning mid-sentence.
+const QUOTE_RULE =
+  " Inside the reasoning, quote the output with single quotes, never with unescaped double quotes.";
+
 const VERDICT_FIRST_CONTRACT =
-  'Respond with ONLY a JSON object: {"pass": true/false, "reasoning": "your reasoning"}';
+  'Respond with ONLY a JSON object: {"pass": true/false, "reasoning": "your reasoning"}.' +
+  QUOTE_RULE;
 
 const REASONING_FIRST_CONTRACT =
-  'Respond with ONLY a JSON object: {"reasoning": "your reasoning", "pass": true/false}';
+  'Respond with ONLY a JSON object: {"reasoning": "your reasoning", "pass": true/false}.' +
+  QUOTE_RULE;
 
 /**
  * Whether judge prompts should elicit the legacy verdict-first contract
@@ -99,6 +106,35 @@ export type JudgeContract = "verdict-first" | "reasoning-first";
 function judgeContractInUse(): JudgeContract {
   return isJudgeVerdictFirstOverrideEnabled() ? "verdict-first" : "reasoning-first";
 }
+
+/**
+ * The verdict is bound by the decoder, not requested by the prompt. Under
+ * `json_object` a provider guarantees well-formed JSON but no keys, and a judge
+ * that closed the object after its reasoning returned `{"reasoning": "..."}`
+ * with no verdict at all. The schema keeps the contract's key order, so
+ * reasoning-first still reasons before it commits.
+ */
+function judgeResponseFormat(): Record<string, unknown> {
+  const properties = isJudgeVerdictFirstOverrideEnabled()
+    ? { pass: { type: "boolean" }, reasoning: { type: "string" } }
+    : { reasoning: { type: "string" }, pass: { type: "boolean" } };
+  return {
+    type: "json_schema",
+    json_schema: {
+      name: "judge_verdict",
+      strict: true,
+      schema: {
+        type: "object",
+        properties,
+        required: Object.keys(properties),
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
+/** For an endpoint that rejects `json_schema`: well-formed JSON, keys unbound. */
+const JSON_OBJECT_FORMAT = { type: "json_object" } as const;
 
 function judgeSystemPrompt(): string {
   return (
@@ -186,7 +222,7 @@ function parseJudgeUsage(usage: JudgeUsage | undefined): JudgeTokens | undefined
   return tokens;
 }
 
-function parseJudgeJson(raw: string): { pass?: boolean; reasoning?: string } {
+function parseJudgeJson(raw: string): { pass?: unknown; reasoning?: unknown } {
   // 1. Direct parse (the common, well-behaved case).
   try {
     return JSON.parse(raw);
@@ -211,18 +247,18 @@ function parseJudgeJson(raw: string): { pass?: boolean; reasoning?: string } {
       // fall through
     }
   }
-  // 4. Unparseable. The verdict is genuinely unknown, so we treat it as a
-  // failure (can't confirm pass) and explain what happened in plain language.
-  // Dumping the raw response as "reasoning" is unhelpful — it's usually a
-  // truncated or malformed blob the model emitted, and presenting it as an
-  // explanation misleads. The raw response stays available on the judge
-  // metadata for anyone who needs to debug the model output itself.
+  // 4. Unparseable: no verdict. The caller retries and then records a judge
+  // error; the raw response stays on the judge metadata.
+  return {};
+}
+
+/** A reply carries a verdict only when `pass` is a boolean. */
+function judgeVerdict(raw: string): { pass: boolean; reasoning: string } | undefined {
+  const parsed = parseJudgeJson(raw);
+  if (typeof parsed.pass !== "boolean") return undefined;
   return {
-    pass: false,
-    reasoning:
-      "Judge response could not be parsed as JSON — the verdict is unknown, " +
-      "so this check is treated as a failure. The model's raw response is " +
-      "available in the judge metadata.",
+    pass: parsed.pass,
+    reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "",
   };
 }
 
@@ -559,7 +595,7 @@ export async function callJudge(args: {
   // The briefing must be part of the key: once prompts vary per task, two
   // different briefings grading one deliverable would otherwise collide (#161).
   const cacheKey = `${args.model}\u0000${briefingText}\u0000${deliverableText}`;
-  const requestBody = (stream: boolean): string =>
+  const requestBody = (stream: boolean, schema: boolean): string =>
     JSON.stringify({
       model: args.model,
       prompt_cache_key: promptCacheKey(cacheKey),
@@ -578,7 +614,7 @@ export async function callJudge(args: {
         { role: "user", content: instructionText },
       ],
       temperature: 0,
-      response_format: { type: "json_object" },
+      response_format: schema ? judgeResponseFormat() : JSON_OBJECT_FORMAT,
       ...(stream ? { stream: true, stream_options: { include_usage: true } } : {}),
     });
 
@@ -591,12 +627,18 @@ export async function callJudge(args: {
         retryDelayMs?: number;
         /** The endpoint rejected the streaming fields; retry without them. */
         streamRejected?: boolean;
+        /** The endpoint rejected `json_schema`; retry with `json_object`. */
+        schemaRejected?: boolean;
       };
 
   // One attempt: bounded by the first-data window until the first `data:`
   // chunk, then by the idle bound, and throughout by the call's runaway
   // deadline.
-  const attempt = async (stream: boolean, maxDeadline: number): Promise<AttemptResult> => {
+  const attempt = async (
+    stream: boolean,
+    schema: boolean,
+    maxDeadline: number,
+  ): Promise<AttemptResult> => {
     const controller = new AbortController();
     const expire = (reason: string, name: string) => () =>
       controller.abort(new DOMException(reason, name));
@@ -634,7 +676,7 @@ export async function callJudge(args: {
             "Content-Type": "application/json",
             ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
           },
-          body: requestBody(stream),
+          body: requestBody(stream, schema),
         });
       } catch (error) {
         return transportFailure("Judge request failed", controller.signal.reason ?? error);
@@ -653,6 +695,9 @@ export async function callJudge(args: {
           // unrelated 400 bodies.
           ...(stream && response.status === 400 && /stream_options|["'`]stream["'`]/.test(body)
             ? { streamRejected: true }
+            : {}),
+          ...(schema && response.status === 400 && /json_schema|response_format/.test(body)
+            ? { schemaRejected: true }
             : {}),
         };
       }
@@ -696,23 +741,33 @@ export async function callJudge(args: {
     const startedAt = Date.now();
     const deadline = startedAt + judgeMaxDurationMs();
 
+    // An endpoint that rejects the streaming fields or `json_schema` gets the
+    // same request without them. Each can be dropped once, and neither spends
+    // the retry below.
     let stream = true;
-    let result = await attempt(stream, deadline);
-    const truncated = result.kind === "completion" && isTruncated(result.completion);
-    const streamRejected = result.kind === "unavailable" && result.streamRejected === true;
+    let schema = true;
+    let result = await attempt(stream, schema, deadline);
+    while (result.kind === "unavailable" && (result.streamRejected || result.schemaRejected)) {
+      if (result.streamRejected) stream = false;
+      if (result.schemaRejected) schema = false;
+      result = await attempt(stream, schema, deadline);
+    }
+
+    // No verdict is never a FAIL: a truncated reply, or one without a boolean
+    // `pass` (an endpoint that ignored the schema), gets one more draw.
+    const noVerdict = (r: AttemptResult): boolean =>
+      r.kind === "completion" &&
+      (isTruncated(r.completion) || judgeVerdict(r.completion.text) === undefined);
     const retryable = result.kind === "unavailable" && result.retryable;
-    if (truncated || streamRejected || retryable) {
+    if (noVerdict(result) || retryable) {
       const delay =
         result.kind === "unavailable" && result.retryDelayMs !== undefined
           ? result.retryDelayMs
-          : streamRejected
-            ? 0
-            : JUDGE_RETRY_DELAY_MS;
+          : JUDGE_RETRY_DELAY_MS;
       if (deadline - Date.now() - delay >= JUDGE_MIN_RETRY_BUDGET_MS) {
-        if (streamRejected) stream = false;
         await new Promise((resolve) => setTimeout(resolve, delay));
         const first = result;
-        result = await attempt(stream, deadline);
+        result = await attempt(stream, schema, deadline);
         // Keep the original cause visible when the retry fails too.
         if (result.kind === "unavailable" && first.kind === "unavailable") {
           result = {
@@ -749,17 +804,21 @@ export async function callJudge(args: {
       };
     }
 
-    // Models routinely wrap their JSON in markdown fences (```json … ```) or
-    // add prose around it despite the json_object response_format. Parse
-    // tolerantly so the verdict + reasoning aren't lost to a parse error:
-    // try the raw text, then strip fences, then extract the first {...}.
-    const parsed = parseJudgeJson(text);
-
-    return {
-      pass: parsed.pass === true,
-      reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "",
-      judge,
-    };
+    // Parsed tolerantly: models wrap JSON in markdown fences or add prose
+    // around it, so try the raw text, then strip fences, then the first {...}.
+    const verdict = judgeVerdict(text);
+    if (verdict === undefined) {
+      return {
+        pass: false,
+        reasoning:
+          "Judge reply carried no verdict (no boolean `pass`) on two draws. The " +
+          "verdict is unknown, so this check is recorded as a judge error, not a " +
+          "verdict. The raw reply is on the judge metadata.",
+        judge,
+        unavailable: true,
+      };
+    }
+    return { ...verdict, judge };
   });
 }
 
