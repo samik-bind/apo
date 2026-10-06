@@ -91,7 +91,7 @@ React to events without watching the dashboard.
 
 ## Global options
 
-These apply to every command:
+These apply to every command — the one exception is [`apo run`](/cli/run/), which is interactive-only and has no `--json` output mode:
 
 | Option | Env var | Purpose |
 |---|---|---|
