@@ -470,8 +470,8 @@ async function resolveCollectorBinary(opts: StartCollectorOptions): Promise<stri
  * A lock is stale when its holder is dead or it is older than any spawn can
  * take (a dead holder's pid may have been recycled by a live process). It is
  * taken over by renaming it aside — atomic, so two takers cannot both remove
- * it — and put back when what was renamed turns out to be a fresh lock
- * another taker created meanwhile. `abort` ends the wait (a stopping
+ * it — and put back when what was renamed (told apart by inode) turns out to
+ * be a fresh lock another taker created meanwhile. `abort` ends the wait (a stopping
  * watchdog).
  */
 async function withSpawnLock<T>(fn: () => Promise<T>, abort?: () => boolean): Promise<T> {
@@ -488,15 +488,15 @@ async function withSpawnLock<T>(fn: () => Promise<T>, abort?: () => boolean): Pr
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
     if (abort?.()) throw new Error("aborted while waiting for the collector spawn lock");
-    let observedMtime: number;
+    let observed: { ino: number; mtimeMs: number };
     try {
-      observedMtime = statSync(paths.spawnLock).mtimeMs;
+      observed = statSync(paths.spawnLock);
     } catch {
       continue; // released meanwhile
     }
     const holder = readPid(paths.spawnLock);
-    if (holder === null || !isProcessAlive(holder) || Date.now() - observedMtime > staleAfterMs) {
-      takeOverStaleLock(paths.spawnLock, observedMtime);
+    if (holder === null || !isProcessAlive(holder) || Date.now() - observed.mtimeMs > staleAfterMs) {
+      takeOverStaleLock(paths.spawnLock, observed.ino);
       continue;
     }
     if (Date.now() > deadline) {
@@ -511,7 +511,7 @@ async function withSpawnLock<T>(fn: () => Promise<T>, abort?: () => boolean): Pr
   }
 }
 
-function takeOverStaleLock(lock: string, staleMtime: number): void {
+function takeOverStaleLock(lock: string, staleIno: number): void {
   const aside = `${lock}.stale-${process.pid}-${Date.now()}`;
   try {
     renameSync(lock, aside);
@@ -521,7 +521,7 @@ function takeOverStaleLock(lock: string, staleMtime: number): void {
   try {
     // Not the lock judged stale: another taker's fresh lock. Restore it
     // unless yet another lock exists (link never overwrites).
-    if (statSync(aside).mtimeMs !== staleMtime) linkSync(aside, lock);
+    if (statSync(aside).ino !== staleIno) linkSync(aside, lock);
   } catch {
     // a lock exists again: leave it
   }
