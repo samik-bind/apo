@@ -25,10 +25,14 @@ import { createWriteStream } from "node:fs";
 import {
   closeSync,
   existsSync,
+  linkSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -46,9 +50,15 @@ export const APO_TRACES_PATH = "/api/public/otel/v1/traces";
 // would be silently captured by apo's collector and forwarded to the user's
 // apo project. A dedicated port keeps the sidecar apo-only; every consumer
 // is env-driven by the CLI, so nothing needs the conventional port.
-const DEFAULT_OTLP_PORT = 14318;
-const DEFAULT_HEALTH_PORT = 13133;
-const DEFAULT_METRICS_PORT = 18888;
+//
+// Not 14318/13133/18888 either: CLIs before the shared-ownership protocol
+// (registered users, last one out stops it, spawn lock) ran their collector
+// there, from the collector root itself, and stopped it from the spawning
+// command regardless of who else used it. Separate ports and state keep an
+// older CLI on the same machine from ever sharing — or stopping — this one.
+const DEFAULT_OTLP_PORT = 14319;
+const DEFAULT_HEALTH_PORT = 13134;
+const DEFAULT_METRICS_PORT = 18889;
 const DEFAULT_MAX_QUEUE_BYTES = 512 * 1024 * 1024;
 const DEFAULT_HEALTH_TIMEOUT_MS = 20_000;
 const DEFAULT_DRAIN_TIMEOUT_MS = 15_000;
@@ -57,6 +67,12 @@ const DEFAULT_DRAIN_TIMEOUT_MS = 15_000;
 const DEFAULT_SETTLE_MS = 2_500;
 const DEFAULT_EMPTY_WINDOW_MS = 1_000;
 const STOP_TIMEOUT_MS = 10_000;
+// How often a live handle checks that the collector still answers, and
+// restarts it when not (another command's stop, a crash).
+const DEFAULT_WATCHDOG_MS = 5_000;
+// A spawned child that is still alive this long after the health check
+// passed is the one serving — a loser of a bind race exits well before.
+const SPAWN_CONFIRM_MS = 1_000;
 
 export interface CollectorPaths {
   home: string;
@@ -67,21 +83,30 @@ export interface CollectorPaths {
   /** Fingerprint of the forwarding target the running collector was built for. */
   target: string;
   queueDir: string;
+  /** One file per live command using the collector: `<pid>-<n>`. The last one out stops it. */
+  users: string;
+  /** Held while one command spawns, so concurrent spawners never race for the ports. */
+  spawnLock: string;
 }
 
 export function collectorPaths(): CollectorPaths {
-  // APO_COLLECTOR_DATA_DIR overrides the whole collector home — the seam
+  // APO_COLLECTOR_DATA_DIR overrides the whole collector root — the seam
   // tests use to keep spawned collectors out of the developer's ~/.apo.
-  const home = process.env.APO_COLLECTOR_DATA_DIR
+  const root = process.env.APO_COLLECTOR_DATA_DIR
     ?? join(homedir(), ".apo", "collector");
+  // The binary is shared with older CLIs (same pinned release); the running
+  // collector's state is not — see DEFAULT_OTLP_PORT.
+  const home = join(root, "shared");
   return {
     home,
-    bin: join(home, "bin", "otelcol-contrib"),
+    bin: join(root, "bin", "otelcol-contrib"),
     config: join(home, "config.yaml"),
     log: join(home, "collector.log"),
     pid: join(home, "collector.pid"),
     target: join(home, "target.fingerprint"),
     queueDir: join(home, "queue"),
+    users: join(home, "users"),
+    spawnLock: join(home, "spawn.lock"),
   };
 }
 
@@ -328,12 +353,14 @@ export interface CollectorHandle {
   /** True when an already-running collector was reused instead of started. */
   reused: boolean;
   /**
-   * Stop the collector once its queue is provably drained. Resolves with
-   * "stopped", or "left-running" — when the backend is unreachable or the
-   * queue will not drain (bounded: in-flight retries are dropped at
-   * collector shutdown), or when this command only REUSED a collector that
-   * may be serving sibling apo commands. Only the spawning process stops
-   * it; everyone else leaves it running.
+   * Release this command's use of the collector, and stop the collector when
+   * no other live command is using it and its queue is provably drained.
+   * Resolves with "stopped", or "left-running" — when another apo command
+   * (spawner or reuser alike) still uses it, or the backend is unreachable,
+   * or the queue will not drain (bounded: in-flight retries are dropped at
+   * collector shutdown). Whoever spawned it does not matter: stopping a
+   * collector a sibling is still exporting through loses that sibling's
+   * spans and fails its run's trace persistence.
    */
   stop(): Promise<"stopped" | "left-running">;
 }
@@ -345,37 +372,83 @@ export interface CollectorHandle {
  * which is never worse than the pre-collector behavior.
  */
 export async function startCollector(opts: StartCollectorOptions): Promise<CollectorHandle> {
-  const paths = collectorPaths();
-  const otlpPort = intEnv("APO_COLLECTOR_PORT", DEFAULT_OTLP_PORT);
-  const healthPort = intEnv("APO_COLLECTOR_HEALTH_PORT", DEFAULT_HEALTH_PORT);
-  const metricsPort = intEnv("APO_COLLECTOR_METRICS_PORT", DEFAULT_METRICS_PORT);
+  const ports: CollectorPorts = {
+    otlpPort: intEnv("APO_COLLECTOR_PORT", DEFAULT_OTLP_PORT),
+    healthPort: intEnv("APO_COLLECTOR_HEALTH_PORT", DEFAULT_HEALTH_PORT),
+    metricsPort: intEnv("APO_COLLECTOR_METRICS_PORT", DEFAULT_METRICS_PORT),
+  };
+  const wanted = targetFingerprint(opts.backendUrl, opts.authHeader);
 
-  // A healthy collector on the ports is reused whatever started it: the
-  // config is ours (same path impersonation), and a second start would fail
-  // to bind anyway. Both ports are probed — a foreign service answering on
-  // the health port alone must not trick us into pointing traces at a dead
-  // receiver.
-  if ((await isHealthy(healthPort)) && (await isReceiverUp(otlpPort))) {
-    // Reuse only when the running collector forwards to the same backend
-    // under the same credential — a mismatched one would ship this run's
-    // spans to the previous target, silently.
-    const wanted = targetFingerprint(opts.backendUrl, opts.authHeader);
+  // Registered before probing: a last user stopping at this moment re-checks
+  // the users right before its kill, so a command mid-start is stopped under
+  // only in that last instant — and its watchdog restarts the collector.
+  const user = registerUser();
+  let reused: boolean;
+  try {
+    reused = await ensureCollector(opts, ports, wanted);
+  } catch (error) {
+    rmSync(user, { force: true });
+    throw error;
+  }
+  const watchdog = startWatchdog(opts, ports, wanted);
+  return {
+    traceEndpoint: `http://127.0.0.1:${ports.otlpPort}`,
+    reused,
+    stop: async () => {
+      await watchdog.stop();
+      return releaseAndMaybeStop(user, ports, opts.backendUrl);
+    },
+  };
+}
+
+interface CollectorPorts {
+  otlpPort: number;
+  healthPort: number;
+  metricsPort: number;
+}
+
+/**
+ * A healthy collector is reused whatever started it: the config is ours
+ * (same path impersonation), and a second start would fail to bind anyway.
+ * Both ports are probed — a foreign service answering on the health port
+ * alone must not trick us into pointing traces at a dead receiver.
+ */
+async function isServing(ports: CollectorPorts): Promise<boolean> {
+  return (await isHealthy(ports.healthPort)) && (await isReceiverUp(ports.otlpPort));
+}
+
+/**
+ * Reuse the running collector — only when it forwards to this command's
+ * backend under its credential, since a mismatched one would ship this run's
+ * spans to the previous target, silently — or spawn one. Returns true when
+ * reused.
+ */
+async function ensureCollector(
+  opts: StartCollectorOptions,
+  ports: CollectorPorts,
+  wanted: string,
+): Promise<boolean> {
+  const reuse = (): true => {
     if (readFingerprint() !== wanted) {
       throw new Error(
         "a collector for a different backend/credential is already running " +
           "(left over after an outage) — export directly; it keeps draining its own target",
       );
     }
-    // A reused collector may be serving OTHER concurrent apo commands, so
-    // only the process that spawned it stops it — stopping here could kill
-    // it mid-run under a sibling command's feet.
-    return {
-      traceEndpoint: `http://127.0.0.1:${otlpPort}`,
-      reused: true,
-      stop: async () => "left-running" as const,
-    };
-  }
+    return true;
+  };
+  if (await isServing(ports)) return reuse();
+  // Resolved (and on first use downloaded) outside the lock: concurrent
+  // starters must not wait out a download.
+  const bin = await resolveCollectorBinary(opts);
+  return withSpawnLock(async () => {
+    // Another command may have spawned it while this one waited for the lock.
+    if (await isServing(ports)) return reuse();
+    return (await spawnCollector(opts, ports, bin)) ? false : reuse();
+  });
+}
 
+async function resolveCollectorBinary(opts: StartCollectorOptions): Promise<string> {
   const bin = await ensureCollectorBinary(opts.onNotice);
   if (!bin) {
     throw new Error("no otelcol-contrib release for this platform");
@@ -385,15 +458,102 @@ export async function startCollector(opts: StartCollectorOptions): Promise<Colle
     // install must not leave half-written state behind.
     throw new Error(`collector binary not found at ${bin}`);
   }
+  return bin;
+}
 
+/**
+ * Run `fn` holding the spawn lock: an exclusively created file naming its
+ * holder's pid. Concurrent spawners would otherwise both start a child; the
+ * loser fails to bind only after loading its config, by which time it may
+ * have recorded its own, soon-dead pid as the collector's.
+ *
+ * A lock is stale when its holder is dead or it is older than any spawn can
+ * take (a dead holder's pid may have been recycled by a live process). It is
+ * taken over by renaming it aside — atomic, so two takers cannot both remove
+ * it — and put back when what was renamed turns out to be a fresh lock
+ * another taker created meanwhile. `abort` ends the wait (a stopping
+ * watchdog).
+ */
+async function withSpawnLock<T>(fn: () => Promise<T>, abort?: () => boolean): Promise<T> {
+  const paths = collectorPaths();
+  mkdirSync(paths.home, { recursive: true });
+  const spawnBoundMs = intEnv("APO_COLLECTOR_HEALTH_TIMEOUT_MS", DEFAULT_HEALTH_TIMEOUT_MS) + SPAWN_CONFIRM_MS;
+  const staleAfterMs = spawnBoundMs + 5_000;
+  const deadline = Date.now() + staleAfterMs + 5_000;
+  for (;;) {
+    try {
+      writeFileSync(paths.spawnLock, `${process.pid}\n`, { flag: "wx" });
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    if (abort?.()) throw new Error("aborted while waiting for the collector spawn lock");
+    let observedMtime: number;
+    try {
+      observedMtime = statSync(paths.spawnLock).mtimeMs;
+    } catch {
+      continue; // released meanwhile
+    }
+    const holder = readPid(paths.spawnLock);
+    if (holder === null || !isProcessAlive(holder) || Date.now() - observedMtime > staleAfterMs) {
+      takeOverStaleLock(paths.spawnLock, observedMtime);
+      continue;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for the collector spawn lock (${paths.spawnLock})`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  try {
+    return await fn();
+  } finally {
+    rmSync(paths.spawnLock, { force: true });
+  }
+}
+
+function takeOverStaleLock(lock: string, staleMtime: number): void {
+  const aside = `${lock}.stale-${process.pid}-${Date.now()}`;
+  try {
+    renameSync(lock, aside);
+  } catch {
+    return; // another taker moved it first
+  }
+  try {
+    // Not the lock judged stale: another taker's fresh lock. Restore it
+    // unless yet another lock exists (link never overwrites).
+    if (statSync(aside).mtimeMs !== staleMtime) linkSync(aside, lock);
+  } catch {
+    // a lock exists again: leave it
+  }
+  rmSync(aside, { force: true });
+}
+
+function readPid(file: string): number | null {
+  try {
+    const pid = Number.parseInt(readFileSync(file, "utf8").trim(), 10);
+    return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Spawn a collector on the given ports and wait until it is healthy. Returns
+ * true when this child is the one serving, and only then records its pid and
+ * forwarding target; false when it exited because another collector holds
+ * the ports. Throws on any other failure, leaving no half-started process
+ * behind.
+ */
+async function spawnCollector(opts: StartCollectorOptions, ports: CollectorPorts, bin: string): Promise<boolean> {
+  const paths = collectorPaths();
   mkdirSync(paths.queueDir, { recursive: true });
   writeFileSync(
     paths.config,
     renderCollectorConfig({
       backendUrl: opts.backendUrl,
-      otlpPort,
-      healthPort,
-      metricsPort,
+      otlpPort: ports.otlpPort,
+      healthPort: ports.healthPort,
+      metricsPort: ports.metricsPort,
       queueDir: paths.queueDir,
       maxQueueBytes: intEnv("APO_COLLECTOR_MAX_QUEUE_BYTES", DEFAULT_MAX_QUEUE_BYTES),
     }),
@@ -410,7 +570,8 @@ export async function startCollector(opts: StartCollectorOptions): Promise<Colle
     // Own process group: a terminal Ctrl+C (group SIGINT) or the CLI's own
     // death must not kill the collector mid-retry — in-flight retries are
     // dropped at shutdown, exactly what this sidecar exists to prevent. Only
-    // stop() ends it, and only once the queue is provably drained.
+    // the last user's stop() ends it, and only once the queue is provably
+    // drained.
     detached: true,
   });
   // The child holds its own duplicate of the log fd; the parent's copy can go.
@@ -427,7 +588,7 @@ export async function startCollector(opts: StartCollectorOptions): Promise<Colle
 
   try {
     await Promise.race([
-      waitForHealth(healthPort, intEnv("APO_COLLECTOR_HEALTH_TIMEOUT_MS", DEFAULT_HEALTH_TIMEOUT_MS)),
+      waitForHealth(ports.healthPort, intEnv("APO_COLLECTOR_HEALTH_TIMEOUT_MS", DEFAULT_HEALTH_TIMEOUT_MS)),
       earlyExit,
     ]);
   } catch (error) {
@@ -435,9 +596,15 @@ export async function startCollector(opts: StartCollectorOptions): Promise<Colle
     killCollector(child);
     throw error;
   }
-  // A later exit (our own stop, a crash) must not turn this settled promise
-  // into an unhandled rejection.
+  // A later exit (a stop, a crash) must not turn this settled promise into
+  // an unhandled rejection.
   earlyExit.catch(() => undefined);
+
+  // The health check passes for whichever collector answers the port. A child
+  // that lost the bind to another one exits shortly after loading its config;
+  // its pid must never be recorded as the collector's.
+  await new Promise((resolve) => setTimeout(resolve, SPAWN_CONFIRM_MS));
+  if (child.exitCode !== null || child.signalCode !== null) return false;
 
   writeFileSync(paths.pid, `${child.pid}\n`);
   writeFileSync(
@@ -445,11 +612,127 @@ export async function startCollector(opts: StartCollectorOptions): Promise<Colle
     targetFingerprint(opts.backendUrl, opts.authHeader) + "\n",
     { mode: 0o600 },
   );
+  return true;
+}
 
+let userSeq = 0;
+
+/** Register this command as a live user of the collector; returns its user file. */
+function registerUser(): string {
+  const { users } = collectorPaths();
+  mkdirSync(users, { recursive: true });
+  const file = join(users, `${process.pid}-${++userSeq}`);
+  writeFileSync(file, "");
+  return file;
+}
+
+/**
+ * Users other than `self` whose process is still alive. A file whose pid is
+ * gone (a command that crashed or was killed before its stop) is pruned, so
+ * it never keeps a collector running forever. A recycled pid can only keep
+ * the collector running longer — never stop it early.
+ */
+function otherLiveUsers(self: string): string[] {
+  const { users } = collectorPaths();
+  let names: string[];
+  try {
+    names = readdirSync(users);
+  } catch {
+    return [];
+  }
+  const live: string[] = [];
+  for (const name of names) {
+    const file = join(users, name);
+    if (file === self) continue;
+    const pid = Number.parseInt(name.split("-")[0] ?? "", 10);
+    if (Number.isSafeInteger(pid) && pid > 0 && isProcessAlive(pid)) {
+      live.push(file);
+    } else {
+      rmSync(file, { force: true });
+    }
+  }
+  return live;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM: alive, but owned by someone else.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Last one out stops the collector. Unregisters `self` first, so two users
+ * releasing at once cannot both see the other and leave the collector
+ * orphaned; then stops only when nobody else is live, the backend is up, the
+ * queue provably drained — and still nobody else is live after that wait.
+ */
+async function releaseAndMaybeStop(
+  self: string,
+  ports: CollectorPorts,
+  backendUrl: string,
+): Promise<"stopped" | "left-running"> {
+  rmSync(self, { force: true });
+  if (otherLiveUsers(self).length > 0) return "left-running";
+  if (!(await isBackendUp(backendUrl))) return "left-running";
+  if (!(await waitForQueueDrain(ports.metricsPort))) return "left-running";
+  // A command may have started using the collector while the queue drained.
+  if (otherLiveUsers(self).length > 0) return "left-running";
+  return (await terminateRunningCollector(ports.healthPort)) ? "stopped" : "left-running";
+}
+
+interface Watchdog {
+  /** Stop ticking and wait for a tick already in flight, so it cannot respawn after the stop. */
+  stop(): Promise<void>;
+}
+
+/**
+ * Keep the collector answering for as long as this handle is live: if it is
+ * gone (stopped from outside, crashed), spawn it again on the same ports
+ * under the spawn lock, so this run's exporter — whose endpoint is fixed for
+ * the run — reconnects. When the ports are answered by a collector for
+ * another backend/credential, this run's spans go there: warn once and stop
+ * watching for the rest of the run — respawning is impossible while that
+ * collector holds the ports, and the run's endpoint cannot move.
+ */
+function startWatchdog(opts: StartCollectorOptions, ports: CollectorPorts, wanted: string): Watchdog {
+  let stopped = false;
+  let inFlight: Promise<void> | undefined;
+  const tick = async (): Promise<void> => {
+    if (await isServing(ports)) {
+      if (readFingerprint() !== wanted) {
+        stopped = true;
+        opts.onNotice?.(
+          "The local collector now forwards to a different backend/credential — this run's remaining spans may not reach it",
+        );
+      }
+      return;
+    }
+    const bin = await resolveCollectorBinary(opts);
+    const restarted = await withSpawnLock(
+      async () => !stopped && !(await isServing(ports)) && (await spawnCollector(opts, ports, bin)),
+      () => stopped,
+    );
+    if (restarted) opts.onNotice?.("Local collector was gone — restarted it");
+  };
+  const timer = setInterval(() => {
+    if (stopped || inFlight) return;
+    inFlight = tick()
+      .catch(() => undefined) // a failed restart is retried next tick
+      .finally(() => {
+        inFlight = undefined;
+      });
+  }, intEnv("APO_COLLECTOR_WATCHDOG_MS", DEFAULT_WATCHDOG_MS));
+  timer.unref();
   return {
-    traceEndpoint: `http://127.0.0.1:${otlpPort}`,
-    reused: false,
-    stop: makeStop(child, metricsPort, opts.backendUrl),
+    stop: async () => {
+      stopped = true;
+      clearInterval(timer);
+      await inFlight;
+    },
   };
 }
 
@@ -501,30 +784,40 @@ function readFingerprint(): string | null {
 }
 
 /**
- * Stop the collector only when doing so is provably safe. In-flight retries
- * are DROPPED at otelcol shutdown (the persistent queue only covers items
- * not yet popped for sending), so a SIGTERM while the backend is unreachable
- * or throttling loses exactly the spans the sidecar exists to protect. When
- * the drain cannot be confirmed within the bound, the collector is left
- * running to retry on its own; the next apo command reuses it and stops it
- * once drained.
+ * End the running collector by its recorded pid; true when it ended (or
+ * nothing was running). Signals it only while something answers on its
+ * health port: a pid file outliving its collector may name an unrelated
+ * process by now. SIGTERM, then SIGKILL after the bound.
+ *
+ * Callers only get here once the queue is provably drained: in-flight
+ * retries are DROPPED at otelcol shutdown (the persistent queue only covers
+ * items not yet popped for sending), so a SIGTERM while the backend is
+ * unreachable or throttling loses exactly the spans the sidecar exists to
+ * protect.
  */
-function makeStop(
-  child: ChildProcess,
-  metricsPort: number,
-  backendUrl: string,
-): () => Promise<"stopped" | "left-running"> {
-  return async () => {
-    if (!(await isBackendUp(backendUrl))) {
-      return "left-running";
+async function terminateRunningCollector(healthPort: number): Promise<boolean> {
+  if (!(await isHealthy(healthPort))) return true; // nothing running
+  const pid = readPid(collectorPaths().pid);
+  if (pid === null) return false; // something answers, but not a collector we recorded
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    // The recorded pid is gone while something still answers the health
+    // port: not ours to stop.
+    return false;
+  }
+  const deadline = Date.now() + STOP_TIMEOUT_MS;
+  while (Date.now() < deadline && isProcessAlive(pid)) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (isProcessAlive(pid)) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // already gone
     }
-    const drained = await waitForQueueDrain(metricsPort);
-    if (!drained) {
-      return "left-running";
-    }
-    await terminateCollector(child);
-    return "stopped";
-  };
+  }
+  return true;
 }
 
 async function isBackendUp(backendUrl: string): Promise<boolean> {
@@ -607,26 +900,6 @@ async function scrapeExporterMetrics(
   } catch {
     return null;
   }
-}
-
-function terminateCollector(child: ChildProcess): Promise<void> {
-  return new Promise((resolve) => {
-    if (child.exitCode !== null) return resolve();
-    const timer = setTimeout(() => {
-      killCollector(child);
-      resolve();
-    }, STOP_TIMEOUT_MS);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolve();
-    });
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      clearTimeout(timer);
-      resolve();
-    }
-  });
 }
 
 function killCollector(child: ChildProcess): void {
