@@ -79,6 +79,26 @@ describe("RepetitionGuard", () => {
     expect(replay(text, { diversity: false })).toBeUndefined();
   });
 
+  it("trips on an indecision cycle that replays long passages of earlier reasoning", () => {
+    // A ~2.5k-char block of varied reasoning, replayed again and again with a
+    // one-line flip in between: too long a period for the repeated-unit rule,
+    // too varied inside a 3,000-char window for the low-diversity rule.
+    const block = variedReasoning(40, 11);
+    const flips = ["So FAIL. Final.", "Hmm, but let me reconsider.", "OK, PASS? No.", "Wait, again."];
+    const cycle = Array.from({ length: 12 }, (_, i) => `${block}\n${flips[i % flips.length]}\n`).join("");
+    const text = variedReasoning(300, 5) + "\n" + cycle;
+    expect(diversity(foldForRepetition(block).slice(0, 3_000))).toBeGreaterThan(0.5);
+    const trip = replay(text);
+    expect(trip).toMatchObject({ rule: "recycled" });
+    expect(trip!.recycled!).toBeGreaterThanOrEqual(0.95);
+  });
+
+  it("does not trip when reasoning quotes the same passage a few times", () => {
+    const passage = variedReasoning(12, 21);
+    const text = [variedReasoning(200, 1), passage, variedReasoning(200, 2), passage, variedReasoning(200, 3), passage].join("\n");
+    expect(replay(text)).toBeUndefined();
+  });
+
   it("does not trip on long, varied reasoning", () => {
     const text = variedReasoning(6_000, 7);
     expect(text.length).toBeGreaterThan(400_000);

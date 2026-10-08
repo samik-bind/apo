@@ -15,14 +15,25 @@
  *   times and covering at least {@link MIN_REPEAT_CHARS} folded chars.
  * - Low diversity (reasoning only): distinct {@link GRAM}-grams over the last
  *   {@link DIVERSITY_WINDOW} folded chars, divided by the gram count, falls
- *   below {@link MIN_DIVERSITY}. Table rows and very long lines are left out
- *   of this window: tables and quoted JSON repeat by nature.
+ *   below {@link MIN_DIVERSITY}.
+ * - Recycled (reasoning only): of the {@link RECYCLE_GRAM}-grams in the last
+ *   {@link RECYCLE_WINDOW} folded chars, at least {@link MAX_RECYCLED} had
+ *   already appeared earlier in the stream. This is the indecision cycle —
+ *   "FAIL. Final. Hmm, but let me reconsider…" — replaying whole paragraphs
+ *   of its own earlier reasoning verbatim, with a period far past the
+ *   repeated-unit rule's reach.
+ *
+ * Table rows and very long lines are left out of both reasoning windows:
+ * tables and quoted JSON repeat by nature.
  *
  * Thresholds are generous on purpose — a false kill throws away a healthy
  * verdict, a missed loop only costs time. Measured on recorded DeepSeek V4.1
  * Flash judge reasoning: a draw that recovered and gave a verdict reached 138
  * consecutive folded "hmm"s; the draw that never recovered reached 711. The
- * repeated-unit rule needs 334 for a three-char unit.
+ * repeated-unit rule needs 334 for a three-char unit. On the same judge
+ * criterion, every draw that ran into the 65,536-token output cap without a
+ * verdict replayed its earlier reasoning until 100% of a 5,000-char window was
+ * recycled; draws that reached a verdict, long ones included, peaked at 53%.
  */
 
 const MAX_UNIT_CHARS = 64;
@@ -37,8 +48,12 @@ const MIN_DIVERSITY = 0.1;
 const DIVERSITY_STRIDE = 256;
 const MAX_DIVERSITY_LINE_CHARS = 2_000;
 
+const RECYCLE_GRAM = 32;
+const RECYCLE_WINDOW = 5_000;
+const MAX_RECYCLED = 0.95;
+
 export type ReasoningLoopTrip = {
-  rule: "repeated-unit" | "low-diversity";
+  rule: "repeated-unit" | "low-diversity" | "recycled";
   /** Raw chars of this channel streamed when the guard tripped. */
   atChar: number;
   /** The repeated folded unit (repeated-unit rule). */
@@ -47,6 +62,8 @@ export type ReasoningLoopTrip = {
   copies?: number;
   /** Distinct / total grams in the window (low-diversity rule). */
   diversity?: number;
+  /** Share of the window's grams seen earlier in the stream (recycled rule). */
+  recycled?: number;
 };
 
 const isFoldable = (ch: string): boolean => /[\p{L}\p{N}]/u.test(ch);
@@ -104,6 +121,14 @@ export class RepetitionGuard {
   private window = "";
   private sinceMeasured = 0;
 
+  // Recycled state: every gram of the filtered folded stream so far, and for
+  // the window's grams whether each had been seen when it arrived.
+  private readonly seenGrams = new Set<string>();
+  private gramTail = "";
+  private readonly windowFlags: boolean[] = [];
+  private flagHead = 0;
+  private recycledInWindow = 0;
+
   constructor(opts: { diversity: boolean }) {
     this.checkDiversity = opts.diversity;
   }
@@ -157,6 +182,7 @@ export class RepetitionGuard {
     if (line.length > MAX_DIVERSITY_LINE_CHARS || isTableLine(line)) return;
     const folded = foldForRepetition(line);
     if (!folded) return;
+    this.pushRecycled(folded);
     this.window = (this.window + folded).slice(-DIVERSITY_WINDOW);
     this.sinceMeasured += folded.length;
     if (this.window.length < DIVERSITY_WINDOW || this.sinceMeasured < DIVERSITY_STRIDE) return;
@@ -164,13 +190,44 @@ export class RepetitionGuard {
     const ratio = diversity(this.window);
     if (ratio < MIN_DIVERSITY) {
       this.trip = { rule: "low-diversity", atChar: this.rawChars, diversity: ratio };
+      return;
+    }
+    const windowGrams = this.windowFlags.length - this.flagHead;
+    if (windowGrams < RECYCLE_WINDOW) return;
+    const recycled = this.recycledInWindow / windowGrams;
+    if (recycled >= MAX_RECYCLED) {
+      this.trip = { rule: "recycled", atChar: this.rawChars, recycled };
+    }
+  }
+
+  private pushRecycled(folded: string): void {
+    for (const ch of folded) {
+      this.gramTail = (this.gramTail + ch).slice(-RECYCLE_GRAM);
+      if (this.gramTail.length < RECYCLE_GRAM) continue;
+      const seen = this.seenGrams.has(this.gramTail);
+      if (!seen) this.seenGrams.add(this.gramTail);
+      this.windowFlags.push(seen);
+      if (seen) this.recycledInWindow++;
+      if (this.windowFlags.length - this.flagHead > RECYCLE_WINDOW) {
+        if (this.windowFlags[this.flagHead++]) this.recycledInWindow--;
+      }
+    }
+    // Compact the consumed head now and then.
+    if (this.flagHead > RECYCLE_WINDOW * 4) {
+      this.windowFlags.splice(0, this.flagHead);
+      this.flagHead = 0;
     }
   }
 }
 
 /** One line naming a trip, for the judge error reason. */
 export function describeTrip(trip: ReasoningLoopTrip): string {
-  return trip.rule === "repeated-unit"
-    ? `"${trip.unit}" repeated ${trip.copies}× at char ${trip.atChar}`
-    : `distinct-${GRAM}-gram ratio ${trip.diversity!.toFixed(3)} at char ${trip.atChar}`;
+  switch (trip.rule) {
+    case "repeated-unit":
+      return `"${trip.unit}" repeated ${trip.copies}× at char ${trip.atChar}`;
+    case "low-diversity":
+      return `distinct-${GRAM}-gram ratio ${trip.diversity!.toFixed(3)} at char ${trip.atChar}`;
+    case "recycled":
+      return `${Math.round(trip.recycled! * 100)}% of the last ${RECYCLE_WINDOW} chars replay earlier reasoning, at char ${trip.atChar}`;
+  }
 }
