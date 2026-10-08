@@ -477,14 +477,29 @@ async function readCompletion(
 }
 
 /**
- * Per-prefix serialization. Checks run concurrently (flow-runner uses
+ * Per-prefix warm gate. Checks run concurrently (flow-runner uses
  * Promise.all), so without coordination N criteria judging the same
- * deliverable would all dispatch against a cold cache and mostly miss. This
- * chains calls that share a cached prefix: the first warms the provider's
- * prompt cache and the rest dispatch only after it resolves (and hit it).
- * Calls with different prefixes are independent and stay concurrent.
+ * deliverable would all dispatch against a cold cache and mostly miss: a
+ * provider can only serve a cached prefix after one request has written it.
+ * The first call for a prefix runs alone and warms the cache; once it settles,
+ * the rest dispatch up to `APO_JUDGE_CONCURRENCY` at a time (default 1, one
+ * after another). How much parallel load one cache key tolerates is provider-
+ * and account-specific, so raising it is the operator's call. Calls with
+ * different prefixes are independent and stay concurrent.
  */
-const prefixQueues = new Map<string, Promise<unknown>>();
+interface PrefixLane {
+  warmed: Promise<void>;
+  active: number;
+  waiting: Array<() => void>;
+}
+const prefixLanes = new Map<string, PrefixLane>();
+
+function judgeConcurrency(): number {
+  const raw = process.env.APO_JUDGE_CONCURRENCY?.trim();
+  if (!raw) return 1;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 1 ? n : 1;
+}
 
 /**
  * Sent as `prompt_cache_key` so every call sharing a cached prefix lands where
@@ -544,19 +559,38 @@ export async function fetchWithPromptCacheKey(input: string | URL | Request, ini
 }
 
 function runWithSharedPrefix<T>(key: string, task: () => Promise<T>): Promise<T> {
-  const prev = prefixQueues.get(key) ?? Promise.resolve();
-  // Run `task` once the previous same-prefix call settles, regardless of
-  // whether it succeeded — a failed warmer must not block its siblings.
-  const next = prev.then(task, task);
-  // Keep the chain alive through errors so one rejection can't poison the queue.
-  prefixQueues.set(
-    key,
-    next.then(
-      () => undefined,
-      () => undefined,
-    ),
-  );
-  return next;
+  const existing = prefixLanes.get(key);
+  if (!existing) {
+    const warmer = task();
+    // Settled either way: a failed warmer must not block its siblings.
+    prefixLanes.set(key, {
+      warmed: warmer.then(
+        () => undefined,
+        () => undefined,
+      ),
+      active: 0,
+      waiting: [],
+    });
+    return warmer;
+  }
+  const lane = existing;
+  const acquire = (): Promise<void> =>
+    new Promise((resolve) => {
+      if (lane.active < judgeConcurrency()) {
+        lane.active += 1;
+        resolve();
+      } else {
+        lane.waiting.push(() => {
+          lane.active += 1;
+          resolve();
+        });
+      }
+    });
+  const release = (): void => {
+    lane.active -= 1;
+    lane.waiting.shift()?.();
+  };
+  return lane.warmed.then(acquire).then(() => task().finally(release));
 }
 
 /**

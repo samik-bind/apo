@@ -245,6 +245,23 @@ A judge that keeps streaming its reasoning is never cut by the first-data bound,
 
 The loop bound exists because a reasoning model that cannot decide sometimes argues back and forth and then repeats one word until its output cap — still streaming, so no time bound notices before the runaway bound, and every judge call queued behind it waits. The loop is a random draw, so the cut attempt is retried once with the same prompt; a retry that loops too records a judge error whose reason starts with `Judge reasoning loop`, which `apo runs rejudge` can redo. Judge metadata counts the cut attempts (`reasoning_loops`), including on a call whose retry gave a verdict. The thresholds are deliberately loose: healthy reasoning that says "Hmm" a few dozen times in a row, tables and quoted JSON are not cut. `APO_JUDGE_LOOP_GUARD=0` turns the bound off.
 
+#### Concurrency and the prompt cache
+
+Every `t.judge` call on the same deliverable shares a long prefix (briefing + deliverable), and a provider can serve that prefix from its cache only after one request has written it. So the first call for a prefix runs alone; once it settles, the rest dispatch up to `APO_JUDGE_CONCURRENCY` at a time. Calls on different deliverables never wait on each other.
+
+The default is 1: same-prefix calls run one after another, which gives the best cache hit rate and the longest wall time. Raising it trades some cache hits for speed. How much parallel load one cache key tolerates depends on the provider and your account's rate limits, so concurrency is an operator setting rather than a higher default.
+
+Measured on deepseek-v4.1-flash via Fireworks, with 50 criteria on a ~7k-token deliverable and two runs per setting:
+
+| `APO_JUDGE_CONCURRENCY` | Wall time | Calls that missed the cache |
+|---|---:|---:|
+| 1 | 212–255 s | 0–1 |
+| 2 | ~115 s | 0–1 |
+| 4 | 65–80 s | 0 |
+| 8 | 53–56 s | 3–5 |
+
+Verdicts matched across settings. Fireworks keeps its cache per replica, and past a few concurrent calls on one cache key some land on a replica without it.
+
 #### Response-contract order: reasoning-first
 
 The judge prompt asks for the reasoning before the verdict (`{"reasoning": ..., "pass": ...}`) so the model argues from the evidence before committing to `pass`. The legacy order (`{"pass": ..., "reasoning": ...}`) had the model commit first and then justify a decision already made: on a degenerate deliverable (an agent that admitted it never read the file it was graded on), the legacy contract passed it 3/3 with the one-word reasoning `"passed"`. Reasoning-first failed it, with the correct reasoning. That measurement (every judged run on a live stack, 14 criteria × 3 samples per arm, zero flips on sound deliverables) is why reasoning-first is the default, not an option (issue #163).
