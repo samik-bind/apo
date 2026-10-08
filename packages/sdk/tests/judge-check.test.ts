@@ -853,6 +853,132 @@ describe("t.judge streaming", () => {
   });
 });
 
+describe("t.judge reasoning-loop guard", () => {
+  const verdictChunk = (verdict: { reasoning: string; pass: boolean }): string =>
+    `data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(verdict) }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
+
+  /**
+   * A judge whose reasoning degenerates into "Hmm. " and never ends: the
+   * stream stays open until the request is aborted, so only the guard can
+   * end this attempt before the idle / runaway bounds.
+   */
+  const loopingStream = (field: "reasoning_content" | "reasoning" = "reasoning_content") =>
+    (_url: string, init?: RequestInit): Promise<Response> => {
+      const encoder = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({ choices: [{ delta: { [field]: "Let me weigh both readings of the criterion. " } }] })}\n\n`,
+            ),
+          );
+          for (let i = 0; i < 2_000; i++) {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { [field]: "Hmm. " } }] })}\n\n`),
+            );
+          }
+          init?.signal?.addEventListener("abort", () => controller.error(init.signal!.reason));
+        },
+      });
+      return Promise.resolve(new Response(body, { headers: { "content-type": "text/event-stream" } }));
+    };
+
+  it("cuts a looping draw and keeps the retry's verdict", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(loopingStream())
+      .mockResolvedValueOnce(
+        sseResponse([
+          `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "The reply names the deadline. Hmm. It does." } }] })}\n\n`,
+          verdictChunk({ reasoning: "names the deadline", pass: false }),
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callJudge({ values: ["loop-then-ok"], instruction: "x", model: "m" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ pass: false, reasoning: "names the deadline" });
+    expect(result.unavailable).toBeUndefined();
+    expect(result.judge.reasoning_loops).toBe(1);
+  });
+
+  it("records a judge error with the loop reason, not a FAIL, when the retry loops too", async () => {
+    const fetchMock = vi.fn(loopingStream("reasoning"));
+    vi.stubGlobal("fetch", fetchMock);
+    defineCheck("quality", async (t) => {
+      await t.judge("answer", "PASS when correct");
+    });
+
+    const [result] = await runTraceChecks({ snapshot: emptySnapshot, deliverables: {}, judgeConfig });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const assertion = result?.assertions?.[0];
+    expect(assertion).toMatchObject({ pass: false, outcome: "error" });
+    expect(assertion?.reasoning).toMatch(/^Judge reasoning loop/);
+    expect(assertion?.reasoning).toContain("on the retry too");
+    expect(assertion?.reasoning).toMatch(/"(hmm|mmh|mhm)" repeated 333×/);
+    expect(assertion?.judge?.reasoning_loops).toBe(2);
+  });
+
+  it("cuts a verdict that loops in the visible content", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          `data: ${JSON.stringify({ choices: [{ delta: { content: `{"reasoning": "${"no, yes, ".repeat(400)}` } }] })}\n\n`,
+        ]),
+      )
+      .mockResolvedValueOnce(sseResponse([verdictChunk({ reasoning: "ok", pass: true })]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callJudge({ values: ["content-loop"], instruction: "x", model: "m" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ pass: true, judge: { reasoning_loops: 1 } });
+  });
+
+  it("leaves a healthy reasoning stream alone", async () => {
+    const thinking = Array.from(
+      { length: 300 },
+      (_, i) => `Point ${i + 1}: the reply ${i % 2 ? "states" : "omits"} item ${i * 7}. ${i % 9 === 0 ? "Hmm. " : ""}`,
+    );
+    const fetchMock = vi.fn(async () =>
+      sseResponse([
+        ...thinking.map((t) => `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: t } }] })}\n\n`),
+        verdictChunk({ reasoning: "ok", pass: true }),
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callJudge({ values: ["healthy-think"], instruction: "x", model: "m" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ pass: true, reasoning: "ok" });
+    expect(result.judge.reasoning_loops).toBeUndefined();
+  });
+
+  it("is off with APO_JUDGE_LOOP_GUARD=0", async () => {
+    vi.stubEnv("APO_JUDGE_LOOP_GUARD", "0");
+    try {
+      const fetchMock = vi.fn(async () =>
+        sseResponse([
+          `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "Hmm. ".repeat(2_000) } }] })}\n\n`,
+          verdictChunk({ reasoning: "ok", pass: true }),
+        ]),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await callJudge({ values: ["guard-off"], instruction: "x", model: "m" });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ pass: true });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
 describe("t.judge prompt caching", () => {
   // Regression: the deliverable used to ride in the user message with no
   // cache_control, so every criterion re-billed the whole (often huge)

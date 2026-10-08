@@ -239,8 +239,11 @@ The judge call streams, and apo judges liveness by its `data:` chunks — a reas
 | First data (`APO_JUDGE_TIMEOUT_MS`) | 300 s | no `data:` chunk has arrived yet. Keepalive comments don't count: a gateway sends them in front of a dead provider too. |
 | Idle | 90 s | data had been streaming and stopped. |
 | Runaway (`APO_JUDGE_MAX_DURATION_MS`) | 20 min | the call, retry included, is still running. |
+| Reasoning loop | — | the streamed reasoning (or reply) has degenerated into repetition: one short unit repeated 100+ times over 1,000+ letters (`Hmm. Hmm. Hmm. …`), or a reasoning window of 3,000 letters with under 10% distinct 24-grams. |
 
 A judge that keeps streaming its reasoning is never cut by the first-data bound, however long it thinks. A stalled or never-started attempt is retried once while the runaway budget allows; the runaway bound is not retried. A call that ends on any bound records no verdict, not a FAIL.
+
+The loop bound exists because a reasoning model that cannot decide sometimes argues back and forth and then repeats one word until its output cap — still streaming, so no time bound notices before the runaway bound, and every judge call queued behind it waits. The loop is a random draw, so the cut attempt is retried once with the same prompt; a retry that loops too records a judge error whose reason starts with `Judge reasoning loop`, which `apo runs rejudge` can redo. Judge metadata counts the cut attempts (`reasoning_loops`), including on a call whose retry gave a verdict. The thresholds are deliberately loose: healthy reasoning that says "Hmm" a few dozen times in a row, tables and quoted JSON are not cut. `APO_JUDGE_LOOP_GUARD=0` turns the bound off.
 
 #### Response-contract order: reasoning-first
 
