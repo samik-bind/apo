@@ -239,7 +239,7 @@ The judge call streams, and apo judges liveness by its `data:` chunks — a reas
 | First data (`APO_JUDGE_TIMEOUT_MS`) | 300 s | no `data:` chunk has arrived yet. Keepalive comments don't count: a gateway sends them in front of a dead provider too. |
 | Idle | 90 s | data had been streaming and stopped. |
 | Runaway (`APO_JUDGE_MAX_DURATION_MS`) | 20 min | the call, retry included, is still running. |
-| Reasoning loop | — | the streamed reasoning (or reply) has degenerated into repetition: one short unit repeated 100+ times over 1,000+ letters (`Hmm. Hmm. Hmm. …`), or a reasoning window of 3,000 letters with under 10% distinct 24-grams. |
+| Reasoning loop | — | the streamed reasoning (or reply) has degenerated into repetition: one short unit repeated 100+ times over 1,000+ letters (`Hmm. Hmm. Hmm. …`), a reasoning window of 3,000 letters with under 10% distinct 24-grams, or a window of 5,000 letters that is 95%+ a replay of the judge's own earlier reasoning (an indecision cycle: "FAIL. Final. Hmm, but let me reconsider…" over and over). |
 
 A judge that keeps streaming its reasoning is never cut by the first-data bound, however long it thinks. A stalled or never-started attempt is retried once while the runaway budget allows; the runaway bound is not retried. A call that ends on any bound records no verdict, not a FAIL.
 
