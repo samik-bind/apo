@@ -187,3 +187,44 @@ class TestSpecificFixtures:
         f = _load_fixture("edge-duplicate-idempotent")
         assert f.get("edge_case") == "duplicate-idempotent"
         assert f["expected"].get("idempotent") is True  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def _otlp_value(container: dict[str, object]) -> object:
+    value = container.get("value", container)
+    assert isinstance(value, dict)
+    for key, v in value.items():
+        if key == "intValue":
+            return int(v)  # pyright: ignore[reportArgumentType]
+        return v
+    return None
+
+
+def _fixture_span_pairs() -> list[tuple[str, dict[str, object], dict[str, object]]]:
+    """(id, raw OTLP span attributes, expected span) for every fixture span."""
+    pairs = []
+    for name, fixture in _all_fixtures():
+        expected = {s["span_id"]: s for s in fixture["expected"]["spans"]}  # pyright: ignore[reportIndexIssue]
+        for rs in fixture["input"]["resourceSpans"]:  # pyright: ignore[reportIndexIssue]
+            for ss in rs.get("scopeSpans", []):
+                for span in ss["spans"]:
+                    if span["spanId"] in expected:
+                        attrs = {a["key"]: _otlp_value(a) for a in span.get("attributes", [])}
+                        pairs.append((f"{name}:{span['spanId']}", attrs, expected[span["spanId"]]))
+    return pairs
+
+
+class TestFixtureContent:
+    """The normalizer's input/output match each fixture's expected projection."""
+
+    @pytest.mark.parametrize(  # pyright: ignore[reportCallIssue]
+        "attrs,expected",
+        [(p[1], p[2]) for p in _fixture_span_pairs()],
+        ids=[p[0] for p in _fixture_span_pairs()],
+    )
+    def test_input_and_output_match(self, attrs, expected):
+        from apo.services.otel_normalization._shared import extract_input, extract_output
+
+        if "input" in expected:
+            assert extract_input(attrs) == expected["input"]
+        if "output" in expected:
+            assert extract_output(attrs) == expected["output"]
