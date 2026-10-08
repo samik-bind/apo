@@ -119,44 +119,6 @@ def get_json(attrs: dict[str, Any], key: str) -> Any:
     return value
 
 
-def _is_tool_only_message(message: dict[str, Any]) -> bool:
-    """True when a message's payload is entirely tool-call/result data.
-
-    Such messages have a canonical home as their own TOOL observation in the
-    trace tree, so they are stripped from a generation's input/output to avoid
-    duplicating tool data that already appears as standalone observations.
-    Cases:
-      - ``role == "tool"``: always a tool result.
-      - ``role == "assistant"`` with only tool-call parts (no text): the model
-        sent no prose, just the call. An assistant message that also carries
-        text is kept — the text is real prompt content.
-    Handles both normalized (post ``normalize_genai_message``) shapes, which
-    carry a ``tool_calls`` array, and raw SDK shapes, whose ``content`` is a
-    list of typed parts.
-    """
-    role = message.get("role")
-    if role == "tool":
-        return True
-    if role != "assistant":
-        return False
-    # Normalized shape: assistant with only tool_calls and no text content.
-    content = message.get("content")
-    tool_calls = message.get("tool_calls")
-    if isinstance(tool_calls, list) and tool_calls:
-        if isinstance(content, str) and content:
-            return False
-        return True
-    # Raw SDK shape: content is a list of parts. Tool-only if no part is text.
-    parts = content if isinstance(content, list) else message.get("parts")
-    if isinstance(parts, list) and parts:
-        text_part_types = {"text"}
-        return not any(
-            isinstance(p, dict) and p.get("type") in text_part_types
-            for p in parts
-        )
-    return False
-
-
 # ── message normalization ─────────────────────────────────────────────────
 
 
@@ -208,6 +170,7 @@ def normalize_genai_message(message: dict[str, Any]) -> dict[str, Any]:
     # Content can be: a string, a "parts" list (GenAI convention), or a
     # "content" list (Vercel AI SDK convention: [{"type":"text","text":"..."}]).
     text_parts: list[str] = []
+    reasoning_parts: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     multimodal: list[dict[str, Any]] = []
 
@@ -235,6 +198,16 @@ def normalize_genai_message(message: dict[str, Any]) -> dict[str, Any]:
             part_type = part.get("type")
             if part_type == "text" and isinstance(content, str):
                 text_parts.append(content)
+            # Reasoning. GenAI semconv {type:"reasoning", content}; AI SDK
+            # {type:"reasoning", text}; Anthropic {type:"thinking", thinking}.
+            # Served as `thinking`, which the dashboard renders as its own block.
+            elif part_type in ("reasoning", "thinking"):
+                reasoning = next(
+                    (v for v in (content, part.get("text"), part.get("thinking")) if isinstance(v, str)),
+                    None,
+                )
+                if reasoning:
+                    reasoning_parts.append(reasoning)
             # Tool call. Two shapes:
             #   - AI SDK v4+ / OpenAI: {type:"tool-call", toolCallId, toolName, input}
             #   - older / normalized:  {type:"tool_call", id, name, arguments}
@@ -286,6 +259,8 @@ def normalize_genai_message(message: dict[str, Any]) -> dict[str, Any]:
     # payload; the dashboard renders that in a dedicated tool-call box rather
     # than reading `content`. Do NOT synthesize a placeholder string here.
     result["content"] = "\n".join(text_parts) if text_parts else ""
+    if reasoning_parts:
+        result["thinking"] = "\n\n".join(reasoning_parts)
     if tool_calls:
         result["tool_calls"] = tool_calls
     if multimodal:
@@ -437,10 +412,13 @@ def extract_output(attrs: dict[str, Any]) -> dict[str, Any] | None:
             finish = get_str(attrs, "ai.response.finishReason") or "tool-calls"
             return {"finishReason": finish, "toolCalls": tool_calls}
         return None
+    # A generation's tool calls are its output: the TOOL observations hold the
+    # execution, not the model's decision to call. Dropping them left every
+    # tool-call round with an empty output.
     messages = [
         normalize_genai_message(m)
         for m in messages_raw
-        if isinstance(m, dict) and not _is_tool_only_message(m)
+        if isinstance(m, dict) and m.get("role") != "tool"
     ]
     result: dict[str, Any] = {"messages": messages}
     text = extract_assistant_text(messages)

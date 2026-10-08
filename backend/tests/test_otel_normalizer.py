@@ -240,6 +240,71 @@ class TestInputOutputContent:
         assert result.output is not None
         assert result.output.get("text") == "hello"
 
+    def test_semconv_tool_call_round_keeps_its_calls_as_output(self):
+        """A semconv output message of reasoning plus tool calls (no text)
+        keeps its calls and its reasoning, the same as the AI SDK round
+        below. It used to be stripped as "tool-only", leaving ``messages: []``.
+        """
+        span = _make_span(
+            attributes={
+                "gen_ai.output.messages": json.dumps([{
+                    "role": "assistant",
+                    "parts": [
+                        {"type": "reasoning", "content": "Let me explore first."},
+                        {"type": "tool_call", "id": "call_1", "name": "bash",
+                         "arguments": {"command": "ls"}},
+                        {"type": "tool_call", "id": "call_2", "name": "ls",
+                         "arguments": {"path": "/w"}},
+                    ],
+                    "finish_reason": "tool_call",
+                }]),
+            }
+        )
+        result = normalize_span(span)
+        assert result.output is not None
+        [msg] = result.output["messages"]
+        assert msg["role"] == "assistant"
+        assert msg["content"] == ""
+        assert msg["thinking"] == "Let me explore first."
+        assert msg["tool_calls"] == [
+            {"id": "call_1", "type": "function",
+             "function": {"name": "bash", "arguments": '{"command": "ls"}'}},
+            {"id": "call_2", "type": "function",
+             "function": {"name": "ls", "arguments": '{"path": "/w"}'}},
+        ]
+        assert "text" not in result.output
+
+    def test_output_tool_result_messages_still_dropped(self):
+        span = _make_span(
+            attributes={
+                "gen_ai.output.messages": json.dumps([
+                    {"role": "tool", "tool_call_id": "c1", "content": "x"},
+                    {"role": "assistant", "parts": [{"type": "text", "content": "done"}]},
+                ]),
+            }
+        )
+        result = normalize_span(span)
+        assert result.output is not None
+        assert [m["role"] for m in result.output["messages"]] == ["assistant"]
+        assert result.output["text"] == "done"
+
+    def test_normalize_reasoning_part_shapes(self):
+        """Semconv, AI SDK and Anthropic reasoning parts all land on
+        ``thinking``, kept out of ``content``."""
+        from apo.services.otel_normalization._shared import normalize_genai_message
+
+        msg = normalize_genai_message({
+            "role": "assistant",
+            "parts": [
+                {"type": "reasoning", "content": "semconv"},
+                {"type": "reasoning", "text": "ai-sdk"},
+                {"type": "thinking", "thinking": "anthropic"},
+                {"type": "text", "content": "answer"},
+            ],
+        })
+        assert msg["thinking"] == "semconv\n\nai-sdk\n\nanthropic"
+        assert msg["content"] == "answer"
+
     def test_tool_call_round_surfaces_toolcalls_as_output(self):
         """A generation round that produced tool calls (not text) must surface
         ``ai.response.toolCalls`` as its output, not collapse to ``{}``.
