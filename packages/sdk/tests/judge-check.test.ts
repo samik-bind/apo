@@ -1251,6 +1251,47 @@ describe("callJudge prefix serialization", () => {
     expect((err as Error).message).toMatch(/Judge API 500/);
     expect(result).toMatchObject({ pass: true });
   });
+
+  it("fans siblings out up to APO_JUDGE_CONCURRENCY once the warmer settles", async () => {
+    vi.stubEnv("APO_JUDGE_CONCURRENCY", "3");
+    const gates: Array<() => void> = [];
+    let inFlight = 0;
+    let peak = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise<void>((r) => gates.push(r));
+        inFlight -= 1;
+        return Response.json({
+          choices: [{ message: { content: '{"pass":true,"reasoning":"ok"}' } }],
+        });
+      }),
+    );
+
+    const shared = ["fan-out-deliverable"];
+    const calls = Array.from({ length: 6 }, (_, i) =>
+      callJudge({ values: shared, instruction: `c${i}`, model: "m" }),
+    );
+    await flush();
+    // Only the warmer is out while the cache is cold.
+    expect(gates).toHaveLength(1);
+
+    gates.shift()!();
+    await flush();
+    await flush();
+    expect(gates).toHaveLength(3);
+
+    while (gates.length > 0) {
+      gates.shift()!();
+      await flush();
+      await flush();
+    }
+    await Promise.all(calls);
+    expect(peak).toBe(3);
+    vi.unstubAllEnvs();
+  });
 });
 
 /**
