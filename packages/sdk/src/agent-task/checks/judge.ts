@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 
 import type { JudgeMetadata, SecondJudgeEvidence } from "../run/types.ts";
+import { describeTrip, RepetitionGuard, type ReasoningLoopTrip } from "./reasoning-loop.ts";
 import { callSecondJudge, resolveSecondJudgeAPIKey, resolveSecondJudgeBaseURL, resolveSecondJudgeModel } from "./second-judge.ts";
 
 export type JudgeCallResult = {
@@ -31,6 +32,24 @@ export class JudgeUnavailableError extends Error {
     super(message);
     this.name = "JudgeUnavailableError";
   }
+}
+
+/**
+ * The judge's stream fell into a degenerate repetition loop (see
+ * reasoning-loop.ts). Raised inside the stream reader to end the attempt;
+ * never escapes `callJudge`.
+ */
+class JudgeReasoningLoopError extends JudgeUnavailableError {
+  constructor(trip: ReasoningLoopTrip, channel: "reasoning" | "content") {
+    super(`judge reasoning loop: ${channel} ${describeTrip(trip)}`);
+    this.name = "JudgeReasoningLoopError";
+  }
+}
+
+/** Off only via `APO_JUDGE_LOOP_GUARD=0|false|off` — an escape hatch, not a tuning knob. */
+function isJudgeLoopGuardEnabled(): boolean {
+  const value = process.env.APO_JUDGE_LOOP_GUARD?.trim().toLowerCase();
+  return value !== "0" && value !== "false" && value !== "off";
 }
 
 /**
@@ -279,6 +298,10 @@ function judgeVerdict(raw: string): { pass: boolean; reasoning: string } | undef
  *   reasoning loop reaches it; a judge on a whole-document checklist streamed
  *   past 300 s and was still producing. `APO_JUDGE_MAX_DURATION_MS`
  *   (default 20 min).
+ * - Loop: the streamed reasoning or content degenerates into repetition
+ *   (reasoning-loop.ts). Ends the attempt as soon as it is seen, long before
+ *   the runaway bound, and gets the retry: the loop is a random draw, and a
+ *   fresh one of the same prompt usually reasons to a verdict.
  */
 const JUDGE_IDLE_TIMEOUT_MS = 90_000;
 
@@ -334,7 +357,12 @@ type JudgeCompletion = {
 
 type StreamChunk = {
   choices?: Array<{
-    delta?: { content?: string | null };
+    delta?: {
+      content?: string | null;
+      /** A reasoning model's thinking: DeepSeek / LiteLLM / vLLM name it `reasoning_content`, OpenRouter `reasoning`. */
+      reasoning_content?: string | null;
+      reasoning?: string | null;
+    };
     finish_reason?: string | null;
   }>;
   usage?: JudgeUsage | null;
@@ -348,11 +376,14 @@ type StreamChunk = {
  * request is a silent connection for the whole think, and an idle-timeout
  * proxy cuts it: a 60 s idle cut returned 504 on judge calls that reason
  * for 60–90 s). Providers that ignore `stream` reply with plain JSON, which
- * is read as before. `onData` fires on every SSE data event.
+ * is read as before. `onData` fires on every SSE data event. With `guards`,
+ * a stream whose reasoning or content falls into a repetition loop throws
+ * {@link JudgeReasoningLoopError}.
  */
 async function readCompletion(
   response: Response,
   onData: () => void,
+  guards?: { reasoning: RepetitionGuard; content: RepetitionGuard },
 ): Promise<JudgeCompletion> {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("text/event-stream")) {
@@ -400,7 +431,15 @@ async function readCompletion(
     }
     if (!chunk) return;
     const choice = chunk.choices?.[0];
-    text += choice?.delta?.content ?? "";
+    const content = choice?.delta?.content ?? "";
+    text += content;
+    if (guards) {
+      const thinking = choice?.delta?.reasoning_content ?? choice?.delta?.reasoning ?? "";
+      const reasoningTrip = guards.reasoning.push(thinking);
+      if (reasoningTrip) throw new JudgeReasoningLoopError(reasoningTrip, "reasoning");
+      const contentTrip = guards.content.push(content);
+      if (contentTrip) throw new JudgeReasoningLoopError(contentTrip, "content");
+    }
     if (choice?.finish_reason) finishReason = choice.finish_reason;
     if (chunk.usage) usage = chunk.usage;
   };
@@ -629,6 +668,8 @@ export async function callJudge(args: {
         streamRejected?: boolean;
         /** The endpoint rejected `json_schema`; retry with `json_object`. */
         schemaRejected?: boolean;
+        /** The stream fell into a repetition loop and was cut. */
+        loop?: true;
       };
 
   // One attempt: bounded by the first-data window until the first `data:`
@@ -702,9 +743,20 @@ export async function callJudge(args: {
         };
       }
 
+      // Content has no diversity rule: it is the JSON verdict, short and
+      // shaped by the schema.
+      const guards = isJudgeLoopGuardEnabled()
+        ? {
+            reasoning: new RepetitionGuard({ diversity: true }),
+            content: new RepetitionGuard({ diversity: false }),
+          }
+        : undefined;
       try {
-        return { kind: "completion", completion: await readCompletion(response, onData) };
+        return { kind: "completion", completion: await readCompletion(response, onData, guards) };
       } catch (error) {
+        if (error instanceof JudgeReasoningLoopError) {
+          return { kind: "unavailable", error, retryable: true, loop: true };
+        }
         return transportFailure("Judge response failed", controller.signal.reason ?? error);
       }
     } finally {
@@ -753,6 +805,9 @@ export async function callJudge(args: {
       result = await attempt(stream, schema, deadline);
     }
 
+    // Attempts cut for a repetition loop, surfaced on the judge metadata.
+    let loops = result.kind === "unavailable" && result.loop ? 1 : 0;
+
     // No verdict is never a FAIL: a truncated reply, or one without a boolean
     // `pass` (an endpoint that ignored the schema), gets one more draw.
     const noVerdict = (r: AttemptResult): boolean =>
@@ -768,6 +823,7 @@ export async function callJudge(args: {
         await new Promise((resolve) => setTimeout(resolve, delay));
         const first = result;
         result = await attempt(stream, schema, deadline);
+        if (result.kind === "unavailable" && result.loop) loops++;
         // Keep the original cause visible when the retry fails too.
         if (result.kind === "unavailable" && first.kind === "unavailable") {
           result = {
@@ -779,18 +835,36 @@ export async function callJudge(args: {
         }
       }
     }
-    if (result.kind === "unavailable") throw result.error;
-
-    const { text, usage } = result.completion;
-    const judge: JudgeMetadata = {
+    const judgeMetadata = async (completion?: JudgeCompletion): Promise<JudgeMetadata> => ({
       model: args.model,
       contract: judgeContractInUse(),
       prompt: { system: systemPromptText, user: instructionText },
-      response: text,
-      tokens: parseJudgeUsage(usage),
+      ...(completion
+        ? { response: completion.text, tokens: parseJudgeUsage(completion.usage) }
+        : {}),
       latency_ms: Date.now() - startedAt,
       secondJudge: await secondJudgePromise,
-    };
+      ...(loops > 0 ? { reasoning_loops: loops } : {}),
+    });
+
+    // The judge looped on its last draw: no verdict, and not the provider's
+    // fault either — recorded as a judge error (rejudge redoes it), with the
+    // metadata so the run shows the call looped.
+    if (result.kind === "unavailable" && result.loop) {
+      return {
+        pass: false,
+        reasoning:
+          "Judge reasoning loop — the judge's stream degenerated into repetition " +
+          `and was cut${loops > 1 ? ", on the retry too" : ""} (${result.error.message}). ` +
+          "The verdict is unknown, so this check is " +
+          "recorded as a judge error, not a verdict.",
+        judge: await judgeMetadata(),
+        unavailable: true,
+      };
+    }
+    if (result.kind === "unavailable") throw result.error;
+
+    const judge = await judgeMetadata(result.completion);
 
     if (isTruncated(result.completion)) {
       return {
@@ -806,7 +880,7 @@ export async function callJudge(args: {
 
     // Parsed tolerantly: models wrap JSON in markdown fences or add prose
     // around it, so try the raw text, then strip fences, then the first {...}.
-    const verdict = judgeVerdict(text);
+    const verdict = judgeVerdict(result.completion.text);
     if (verdict === undefined) {
       return {
         pass: false,

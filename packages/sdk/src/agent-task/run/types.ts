@@ -81,6 +81,13 @@ export type JudgeMetadata = {
    * the decision model, and `response` carries its typed verdict.
    */
   verdict_by?: "second-judge";
+  /**
+   * How many attempts of this call were cut because the judge's stream fell
+   * into a repetition loop (`t.judge` only). Absent = none. 1 with a verdict:
+   * the first draw looped and the retry answered. A call whose last draw
+   * looped has no verdict and is recorded as a judge error.
+   */
+  reasoning_loops?: number;
 };
 
 /**
