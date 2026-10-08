@@ -288,6 +288,26 @@ class TestInputOutputContent:
         assert [m["role"] for m in result.output["messages"]] == ["assistant"]
         assert result.output["text"] == "done"
 
+    def test_output_message_with_nothing_to_show_is_dropped(self):
+        span = _make_span(
+            attributes={
+                "gen_ai.output.messages": json.dumps([
+                    {"role": "assistant", "parts": [{"type": "redacted_thinking", "data": "x"}]},
+                ]),
+            }
+        )
+        result = normalize_span(span)
+        assert result.output == {"messages": []}
+
+    def test_empty_reasoning_content_falls_back_to_text(self):
+        from apo.services.otel_normalization._shared import normalize_genai_message
+
+        msg = normalize_genai_message({
+            "role": "assistant",
+            "parts": [{"type": "reasoning", "content": "", "text": "fallback"}],
+        })
+        assert msg["thinking"] == "fallback"
+
     def test_normalize_reasoning_part_shapes(self):
         """Semconv, AI SDK and Anthropic reasoning parts all land on
         ``thinking``, kept out of ``content``."""

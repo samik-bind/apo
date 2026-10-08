@@ -203,7 +203,7 @@ def normalize_genai_message(message: dict[str, Any]) -> dict[str, Any]:
             # Served as `thinking`, which the dashboard renders as its own block.
             elif part_type in ("reasoning", "thinking"):
                 reasoning = next(
-                    (v for v in (content, part.get("text"), part.get("thinking")) if isinstance(v, str)),
+                    (v for v in (content, part.get("text"), part.get("thinking")) if isinstance(v, str) and v),
                     None,
                 )
                 if reasoning:
@@ -389,6 +389,10 @@ def extract_input(attrs: dict[str, Any]) -> dict[str, Any] | None:
     return {"messages": messages_raw}
 
 
+def _has_payload(message: dict[str, Any]) -> bool:
+    return any(message.get(key) for key in ("content", "thinking", "tool_calls", "content_parts"))
+
+
 def extract_output(attrs: dict[str, Any]) -> dict[str, Any] | None:
     messages_raw = get_json(attrs, "gen_ai.output.messages")
     if messages_raw is None:
@@ -414,11 +418,14 @@ def extract_output(attrs: dict[str, Any]) -> dict[str, Any] | None:
         return None
     # A generation's tool calls are its output: the TOOL observations hold the
     # execution, not the model's decision to call. Dropping them left every
-    # tool-call round with an empty output.
+    # tool-call round with an empty output. A message with nothing left to show
+    # (e.g. only redacted thinking) is still dropped.
     messages = [
-        normalize_genai_message(m)
+        normalized
         for m in messages_raw
         if isinstance(m, dict) and m.get("role") != "tool"
+        for normalized in [normalize_genai_message(m)]
+        if _has_payload(normalized)
     ]
     result: dict[str, Any] = {"messages": messages}
     text = extract_assistant_text(messages)
