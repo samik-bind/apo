@@ -20,6 +20,7 @@ import { useEvidenceViews } from "./components/use-evidence-views";
 import { fetchTaskHostFacets } from "@/lib/agent-task-view-api";
 import { useTaskSelection } from "./components/use-task-selection";
 import { useTaskRunActions } from "./components/use-task-run-actions";
+import { executorRunWarning, useConnectedExecutorState } from "./components/executor-run-warning";
 import {
   groupByFolder,
   MAIN_VIEW_ID,
@@ -203,6 +204,11 @@ export function AgentTasksClient({
     activeView,
   });
 
+  const executorState = useConnectedExecutorState(
+    projectId,
+    canRunTasks && !isDemoProject && selected.size > 0,
+  );
+
   const toggleExpand = (id: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -339,6 +345,7 @@ export function AgentTasksClient({
           comparing={comparing}
           isDemoProject={isDemoProject}
           canRunTasks={canRunTasks}
+          runWarning={executorRunWarning(executorState)}
           compareOptions={[
             ...facets.flatMap((f) =>
               f.model !== activeView.model ? [{ model: f.model, label: f.model }] : [],
