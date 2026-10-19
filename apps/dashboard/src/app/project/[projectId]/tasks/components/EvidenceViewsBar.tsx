@@ -46,6 +46,7 @@ export function EvidenceViewsBar({
   allExpanded,
   status,
   onStatusChange,
+  onClearFilters,
   onSelect,
   onChange,
   onSetArchived,
@@ -71,6 +72,8 @@ export function EvidenceViewsBar({
   allExpanded: boolean;
   status: Set<string>;
   onStatusChange: (next: Set<string>) => void;
+  /** Drops the search term and the status selection together. */
+  onClearFilters: () => void;
   onSelect: (id: string) => void;
   onChange: (
     patch: Partial<Pick<ViewTab, "model" | "effort" | "since" | "provider" | "label">>,
@@ -229,6 +232,7 @@ export function EvidenceViewsBar({
           onQueryChange={onQueryChange}
           searchPlaceholder="Filter tasks..."
           searchTestId="tasks-search-input"
+          onClearAll={onClearFilters}
           trailing={trailingNode}
         />
       </div>

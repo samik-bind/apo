@@ -88,6 +88,15 @@ export function AgentTasksClient({
     },
     [],
   );
+  // Both filters survive a reload through the URL, so the list has to say it
+  // is narrowed and offer the way back in one click.
+  const hasActiveFilters =
+    query !== "" ||
+    (statusFilter.size > 0 && statusFilter.size < STATUS_FILTER_KEYS.length);
+  const clearFilters = useCallback(() => {
+    setQuery("");
+    handleStatusChange(new Set());
+  }, [setQuery, handleStatusChange]);
 
   const {
     views,
@@ -291,6 +300,7 @@ export function AgentTasksClient({
               allExpanded={allExpanded}
               status={statusFilter}
               onStatusChange={handleStatusChange}
+              onClearFilters={clearFilters}
               onSelect={setActiveViewId}
               onChange={updateActiveView}
               onSetArchived={setModelArchivedState}
@@ -323,6 +333,9 @@ export function AgentTasksClient({
         expanded={expanded}
         selected={selected}
         query={query}
+        hasActiveFilters={hasActiveFilters}
+        onClearFilters={clearFilters}
+        totalTaskCount={effectiveTasks.length}
         selectAllState={selectAllState}
         visibleTaskCount={visibleTaskIds.length}
         onToggleSelectAll={toggleSelectAll}
