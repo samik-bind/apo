@@ -300,7 +300,6 @@ export function AgentTasksClient({
               allExpanded={allExpanded}
               status={statusFilter}
               onStatusChange={handleStatusChange}
-              onClearFilters={clearFilters}
               onSelect={setActiveViewId}
               onChange={updateActiveView}
               onSetArchived={setModelArchivedState}

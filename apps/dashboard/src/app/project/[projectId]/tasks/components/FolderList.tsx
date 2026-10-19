@@ -72,7 +72,8 @@ export function FolderList({
           <Filter className="h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>
             Showing <span className="font-medium text-foreground">{visibleTaskCount}</span> of{" "}
-            {totalTaskCount} tasks{matching}
+            {totalTaskCount} {totalTaskCount === 1 ? "task" : "tasks"}
+            {matching}
           </span>
           <button
             type="button"

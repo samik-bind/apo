@@ -492,6 +492,34 @@ describe("AgentTasksClient — a filter that arrived with the URL", () => {
     expect(new URLSearchParams(window.location.search).get("q")).toBeNull();
   });
 
+  it("a status-only filter gets the notice without a search term", async () => {
+    const user = userEvent.setup();
+    navState.search = "status=failed";
+    window.history.replaceState(null, "", "/?status=failed");
+    const withOutcome = [
+      task({
+        id: "support/refund",
+        display_name: "refund",
+        folder_path: "support",
+        run_stats: { last_run_status: "completed", last_run_passed: false } as AgentTaskSummary["run_stats"],
+      }),
+      task({ id: "support/invoice", display_name: "invoice", folder_path: "support", task_path: "tasks/support/invoice" }),
+    ];
+    render(
+      <AgentTasksClient tasks={withOutcome} error={null} taskSource={taskSource} isDemo={false} />,
+    );
+
+    const notice = screen.getByTestId("tasks-filter-notice");
+    expect(notice).toHaveTextContent("Showing 1 of 2 tasks");
+    expect(notice).not.toHaveTextContent("matching");
+
+    await user.click(within(notice).getByRole("button", { name: "Clear filters" }));
+
+    expect(screen.queryByTestId("tasks-filter-notice")).not.toBeInTheDocument();
+    expect(screen.getByText("invoice")).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get("status")).toBeNull();
+  });
+
   it("the search box's own clear button empties it", async () => {
     const user = userEvent.setup();
     render(
