@@ -12,6 +12,7 @@ import logging
 import os
 import re
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import TypeAlias, cast, override
 
@@ -195,6 +196,17 @@ def _authenticate_anonymous_demo(request: Request) -> AuthContext | JSONResponse
 
 
 
+# The usage write queues for SQLite's single write lock (busy_timeout, 30 s).
+# One worker keeps that wait off the event loop and off the response, and
+# keeps these writes from competing with each other.
+_api_key_usage_writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="api-key-usage")
+
+
+def drain_api_key_usage_writes() -> None:
+    """Block until every queued usage write has run (tests, shutdown)."""
+    _api_key_usage_writer.submit(lambda: None).result()
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     """Validates JWT cookies, service tokens, or API keys on every non-public request."""
 
@@ -253,7 +265,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Batch, Run, Revision, and Attempt transaction.
         api_key_id = user_info.get("api_key_id")
         if auth_method == "api_key" and isinstance(api_key_id, str):
-            api_key_usage_tracker.record_use(api_key_id, engine)
+            _api_key_usage_writer.submit(
+                api_key_usage_tracker.record_use, api_key_id, engine
+            )
         _add_no_cache_headers(response, path)
         # Anonymous demo responses are never cacheable (shared caches must
         # not pin demo state that a fixture refresh can replace).
